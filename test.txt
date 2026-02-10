@@ -1,0 +1,3 @@
+This is a test file created on February 10, 2026.
+Testing the new preference to write files directly to the repo folder.
+All future project files should go here.
