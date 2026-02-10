@@ -1,3 +1,6 @@
 This is a test file created on February 10, 2026.
 Testing the new preference to write files directly to the repo folder.
 All future project files should go here.
+
+MODIFIED: Added this line at 6:15 PM to test GitHub Desktop auto-sync.
+If you see this change in GitHub Desktop, the sync is working!
