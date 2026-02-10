@@ -1,0 +1,1660 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DataTable Configuration Builder</title>
+    <link rel="stylesheet" href="https://llink.equinoxits.com/rewst-library.css">
+    <style>
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            min-height: 100vh;
+            padding: 0;
+            margin: 0;
+        }
+
+        .search-container {
+            padding: 1rem;
+            background: #1f4051;
+            border-radius: 8px;
+            margin-bottom: 0.5rem;
+            display: flex;
+            gap: 1rem;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .search-input-wrapper {
+            flex: 1;
+            min-width: 300px;
+            display: flex;
+        }
+
+        .search-input {
+            width: 100%;
+            height: 40px;
+            padding: 0 0.75rem;
+            border: 2px solid #404040;
+            border-radius: 4px;
+            font-size: 0.95rem;
+            background: #2a2a2a;
+            color: #e0e0e0;
+            transition: all 0.2s ease;
+            box-sizing: border-box;
+        }
+
+        .search-input:focus {
+            outline: none;
+            border-color: #5a9fb8;
+            box-shadow: 0 0 0 3px rgba(90, 159, 184, 0.1);
+        }
+
+        .search-input::placeholder {
+            color: #888;
+        }
+
+        .checkbox-container {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.5rem 1rem;
+            background: #2a2a2a;
+            border-radius: 4px;
+            cursor: pointer;
+            user-select: none;
+            transition: all 0.2s ease;
+            white-space: nowrap;
+        }
+
+        .checkbox-container:hover {
+            background: #353535;
+        }
+
+        .checkbox-container label {
+            color: #e0e0e0;
+            font-size: 0.9rem;
+            cursor: pointer;
+            white-space: nowrap;
+        }
+
+        .delete-audit-btn {
+            padding: 0.5rem 1rem;
+            background: #c62828;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            font-weight: 600;
+            transition: all 0.2s ease;
+            white-space: nowrap;
+        }
+
+        .delete-audit-btn:hover {
+            background: #d32f2f;
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(198, 40, 40, 0.4);
+        }
+
+        .delete-audit-btn:active {
+            transform: translateY(0);
+        }
+
+        .confirm-modal-backdrop {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.7);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 2000;
+        }
+
+        .confirm-modal-backdrop.active {
+            display: flex;
+        }
+
+        .confirm-modal {
+            background: #191A24;
+            border: 2px solid #c62828;
+            border-radius: 8px;
+            padding: 2rem;
+            max-width: 400px;
+            text-align: center;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+        }
+
+        .confirm-modal h3 {
+            color: #e0e0e0;
+            margin-bottom: 1rem;
+            font-size: 1.1rem;
+        }
+
+        .confirm-modal-message {
+            color: #b0b0b0;
+            margin-bottom: 1.5rem;
+            font-size: 0.95rem;
+        }
+
+        .confirm-modal-buttons {
+            display: flex;
+            gap: 1rem;
+            justify-content: center;
+        }
+
+        .confirm-modal-btn {
+            padding: 0.5rem 1.5rem;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            font-weight: 600;
+            transition: all 0.2s ease;
+        }
+
+        .confirm-modal-btn-yes {
+            background: #c62828;
+            color: white;
+        }
+
+        .confirm-modal-btn-yes:hover {
+            background: #d32f2f;
+        }
+
+        .confirm-modal-btn-no {
+            background: #6c757d;
+            color: white;
+        }
+
+        .confirm-modal-btn-no:hover {
+            background: #5a6268;
+        }
+
+        .success-modal-backdrop {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.7);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 2000;
+        }
+
+        .success-modal-backdrop.active {
+            display: flex;
+        }
+
+        .success-modal {
+            background: #191A24;
+            border: 2px solid #4caf50;
+            border-radius: 8px;
+            padding: 2rem;
+            max-width: 400px;
+            text-align: center;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+        }
+
+        .success-modal h3 {
+            color: #4caf50;
+            margin-bottom: 1rem;
+            font-size: 1.1rem;
+        }
+
+        .success-modal-message {
+            color: #e0e0e0;
+            margin-bottom: 1.5rem;
+            font-size: 0.95rem;
+        }
+
+        .success-modal-button {
+            padding: 0.5rem 1.5rem;
+            background: #4caf50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            font-weight: 600;
+            transition: all 0.2s ease;
+        }
+
+        .success-modal-button:hover {
+            background: #45a049;
+        }
+
+        .filter-info {
+            font-size: 0.85rem;
+            color: #b0b0b0;
+        }
+
+        .table-container {
+            padding: 0.5rem;
+            flex: 1;
+            overflow: auto;
+            position: relative;
+            border-radius: 8px;
+        }
+
+        .table-container::-webkit-scrollbar {
+            width: 12px;
+            height: 12px;
+        }
+
+        .table-container::-webkit-scrollbar-track {
+            background: #1f4051;
+            border-radius: 6px;
+        }
+
+        .table-container::-webkit-scrollbar-thumb {
+            background: #5a9fb8;
+            border-radius: 6px;
+            border: 2px solid #1f4051;
+        }
+
+        .table-container::-webkit-scrollbar-thumb:hover {
+            background: #6db5ce;
+        }
+
+        .table-container::-webkit-scrollbar-corner {
+            background: #1f4051;
+        }
+
+        .table-container {
+            scrollbar-width: thin;
+            scrollbar-color: #5a9fb8 #1f4051;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 0;
+        }
+
+        thead {
+            background: #32373e;
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
+
+        th {
+            padding: 0.75rem;
+            text-align: left;
+            font-weight: 700;
+            color: #ffffff;
+            border-bottom: 2px solid #556870;
+            font-size: 0.85rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            cursor: pointer;
+            user-select: none;
+            position: relative;
+            white-space: nowrap;
+        }
+
+        th:hover {
+            background: #404850;
+        }
+
+        th.sortable::after {
+            content: ' ⇅';
+            opacity: 0.3;
+            font-size: 0.7rem;
+        }
+
+        th.sort-asc::after {
+            content: ' ▲';
+            opacity: 1;
+        }
+
+        th.sort-desc::after {
+            content: ' ▼';
+            opacity: 1;
+        }
+
+        tbody tr {
+            cursor: pointer;
+            transition: all 0.2s ease;
+            border-bottom: 1px solid #556870;
+            background: #1a3f4d;
+        }
+
+        tbody tr:hover {
+            background: #255566;
+            transform: translateX(4px);
+        }
+
+        td {
+            padding: 0.75rem;
+            word-wrap: break-word;
+            color: #e0e0e0;
+            font-size: 0.9rem;
+        }
+
+        .searchable-select-wrapper {
+            position: relative;
+            margin-bottom: 0.5rem;
+        }
+
+        .searchable-select-input {
+            width: 100%;
+            padding: 0.5rem 0.75rem;
+            border: 2px solid #404040;
+            border-radius: 4px;
+            font-size: 0.9rem;
+            background: #2a2a2a;
+            color: #e0e0e0;
+            font-family: inherit;
+            box-sizing: border-box;
+            transition: all 0.2s ease;
+            cursor: pointer;
+        }
+
+        .searchable-select-input:focus {
+            outline: none;
+            border-color: #2E5F75;
+            box-shadow: 0 0 0 3px rgba(46, 95, 117, 0.1);
+        }
+
+        .searchable-select-input::placeholder {
+            color: #888;
+        }
+
+        .searchable-select-dropdown {
+            position: absolute;
+            top: 100%;
+            left: 0;
+            right: 0;
+            background: #2a2a2a;
+            border: 2px solid #2E5F75;
+            border-top: none;
+            border-radius: 0 0 4px 4px;
+            max-height: 200px;
+            overflow-y: auto;
+            display: none;
+            z-index: 100;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+        }
+
+        .searchable-select-dropdown.active {
+            display: block;
+        }
+
+        .searchable-select-option {
+            padding: 0.5rem 0.75rem;
+            color: #e0e0e0;
+            cursor: pointer;
+            transition: background 0.15s ease;
+            font-size: 0.9rem;
+        }
+
+        .searchable-select-option:hover {
+            background: #404040;
+        }
+
+        .searchable-select-option.selected {
+            background: transparent;
+            color: #5a9fb8;
+            font-weight: 600;
+        }
+
+        .searchable-select-option.no-results {
+            color: #888;
+            font-style: italic;
+            text-align: center;
+            padding: 1rem 0.75rem;
+        }
+
+        .loading-text {
+            color: #5a9fb8;
+            font-size: 0.9rem;
+            padding: 0.5rem 0;
+            text-align: center;
+            animation: pulse 1.5s ease-in-out infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.6; }
+        }
+
+        .column-item {
+            background: #2a2a2a;
+            
+            border-radius: 4px;
+            padding: 0.5rem 1rem;
+            margin-bottom: 1rem;
+        }
+
+        .column-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 0.5rem;
+            gap: 0.75rem;
+        }
+
+        .column-name {
+            color: #5a9fb8;
+            font-weight: 600;
+            font-size: 0.95rem;
+        }
+
+        .column-type {
+            color: #888;
+            font-size: 0.8rem;
+            margin-left: 0.5rem;
+        }
+
+        .column-controls {
+            display: flex;
+            gap: 0.5rem;
+        }
+
+        .column-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 0.35rem;
+        }
+
+        .btn-primary {
+            background: #3d8b40;
+            color: white;
+            padding: 0.5rem 1.5rem;
+            border: 2px solid transparent;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            font-weight: 600;
+            transition: all 0.2s ease;
+        }
+
+        .btn-primary:hover:not(:disabled) {
+            background: #52c752;
+            border-color: #2d7a2d;
+        }
+        
+        .btn-primary:disabled {
+            background: #5a8f6a;
+            color: #b0b0b0;
+            cursor: not-allowed;
+            opacity: 0.6;
+        }
+
+        .btn-primary:active {
+            transform: translateY(0);
+        }
+
+        .btn-danger {
+            background: #b8242f;
+            color: white;
+            padding: 0.5rem 1.5rem;
+            border: 2px solid transparent;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            font-weight: 600;
+            transition: all 0.2s ease;
+        }
+
+        .btn-danger:hover:not(:disabled) {
+            background: #e84c5c;
+            border-color: #8b1528;
+        }
+        
+        .btn-danger:disabled {
+            background: #8b5a5f;
+            color: #b0b0b0;
+            cursor: not-allowed;
+            opacity: 0.6;
+        }
+
+        .btn-secondary {
+            background: #4a6a7c;
+            color: white;
+            padding: 0.5rem 1.5rem;
+            border: 2px solid transparent;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            font-weight: 600;
+            transition: all 0.2s ease;
+        }
+
+        .btn-secondary:hover:not(:disabled) {
+            background: #6a8a9c;
+            border-color: #2d4a5c;
+        }
+
+        .btn-secondary:disabled {
+            background: #6c757d;
+            color: #b0b0b0;
+            cursor: not-allowed;
+            opacity: 0.6;
+        }
+
+
+        .tabs {
+            display: flex;
+            gap: 0.5rem;
+            margin-bottom: 1rem;
+            border-bottom: 2px solid #2E5F75;
+        }
+
+        .tab-btn {
+            padding: 0.75rem 1rem;
+            background: transparent;
+            border: none;
+            color: #888;
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.2s ease;
+            border-bottom: 3px solid transparent;
+            margin-bottom: -2px;
+        }
+
+        .tab-btn:hover {
+            color: #5a9fb8;
+        }
+
+        .tab-btn.active {
+            color: #5a9fb8;
+            border-bottom-color: #5a9fb8;
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        .output-section {
+            padding: 1.5rem;
+            grid-column: 1 / -1;
+            background: #1f4051;
+            border-radius: 8px;
+            display: flex;
+            flex-direction: column;
+            min-height: auto;
+        }
+
+        .output-section h2 {
+            color: #ffffff;
+            margin-bottom: 1rem;
+            font-size: 1.1rem;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+            padding-bottom: 0.5rem;
+        }
+
+        .output-content {
+            background: #2a2a2a;
+            
+            border-radius: 4px;
+            padding: 1rem;
+            font-family: 'Monaco', 'Menlo', 'Courier New', monospace;
+            font-size: 0.85rem;
+            color: #e0e0e0;
+            white-space: pre-wrap;
+            word-break: break-all;
+            line-height: 1.5;
+            overflow-x: auto;
+        }
+
+        .validation-item {
+            padding: 0.5rem 0;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.9rem;
+        }
+
+        .validation-item.valid {
+            color: #4caf50;
+        }
+
+        .validation-item.invalid {
+            color: #dc3545;
+        }
+
+        .validation-item.warning {
+            color: #ff9800;
+        }
+
+        .info-box {
+            background: #1f4051;
+            border-left: 4px solid #5a9fb8;
+            padding: 1rem;
+            margin-bottom: 1rem;
+            border-radius: 4px;
+            color: #e0e0e0;
+            font-size: 0.9rem;
+        }
+
+        .error-message {
+            color: #ff6b6b;
+            font-size: 0.85rem;
+            margin-top: 0.25rem;
+        }
+
+        .success-message {
+            color: #4caf50;
+            font-size: 0.85rem;
+            margin-top: 0.25rem;
+        }
+
+        .spinner {
+            border: 4px solid rgba(90, 159, 184, 0.3);
+            border-top: 4px solid #5a9fb8;
+            border-radius: 50%;
+            width: 20px;
+            height: 20px;
+            animation: spin 1s linear infinite;
+            display: inline-block;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        @media (max-width: 1400px) {
+            .main-content {
+                grid-template-columns: 1fr 1fr;
+            }
+
+            .output-section {
+                grid-column: 1 / -1;
+            }
+        }
+
+        .loading-state {
+            background: #b8860b !important;
+            color: #ffffff !important;
+        }
+
+        .searchable-select-input:read-only {
+            pointer-events: none;
+        }
+
+        @media (max-width: 900px) {
+            .main-content {
+                grid-template-columns: 1fr;
+            }
+
+            .column-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="main-panel">
+        <div style="padding: 0.5rem 1rem; display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem;">
+            <h1 style="color: #ffffff; margin: 0; font-size: 1.5rem; padding: 0;">DataTable Configuration Builder</h1>
+            <div style="display: flex; gap: 0.5rem; align-items: flex-start; flex: 1; justify-content: center;">
+                <div class="form-container"><div class="form-group">
+                    <select id="existingConfigDropdown" onchange="updateLoadButtonState()">
+                        <option value="">-- Existing DataTable Configuration --</option>
+                    </select>
+                </div>
+</div>
+                <button id="loadConfigBtn" class="btn btn-green" onclick="loadSelectedConfig()" disabled>Load</button>
+            </div>
+            <div style="display: flex; gap: 0.5rem;">
+                <button id="deleteBtn" class="btn btn-red" onclick="deleteConfiguration()" disabled>Delete</button>
+                <button id="saveBtn" class="btn btn-green" onclick="saveConfiguration()">Save</button>
+                <button id="resetBtn" class="btn btn-bluegrey" onclick="resetConfiguration()">Reset</button>
+            </div>
+        </div>
+        
+        <div style="padding: 0.5rem 1rem; display: flex; justify-content: center;">
+            <div id="lockWarningRow" style="display: none; padding: 0.5rem 1rem; background: #fff3cd; border: 1px solid #ffc107; border-radius: 4px; text-align: center; width: fit-content;">
+                <div id="lockWarning" style="background: transparent; border: none; padding: 0; margin: 0; color: #856404; font-size: 0.9rem;"></div>
+            </div>
+        </div>
+
+        <div style="padding: 0 1rem;">
+            <div style="display: flex; flex-direction: column; gap: 1rem; max-width: 100%;">
+
+            <!-- Basic Configuration Panel -->
+            <div class="inner-panel">
+                <h2>Basic Configuration</h2>
+
+                <div class="form-container"><div class="form-group" style="grid-column: 1 / -1;">
+                    <label class="">Datatable Name</label>
+                    <input type="text" id="datatableName" placeholder="e.g., automation_requests">
+                </div>
+</div>
+
+                <div class="form-container"><div class="form-group" style="grid-column: 1 / -1;">
+                    <label class="">Description</label>
+                    <textarea id="datatableDesc" placeholder="Describe this data table..."></textarea>
+                </div>
+</div>
+
+                <div style="display: flex; gap: 1rem;">
+                    <div class="form-container"><div class="form-group" style="display: flex; flex-direction: column;">
+                        <label class="">Edit Type</label>
+                        <div style="display: flex; flex-direction: column; gap: 0.75rem;">
+                            <div>
+                                <input type="radio" id="editTypeWindow" name="editType" value="window" checked onchange="updateOutput()" class="input-accent-blue">
+                                <label for="editTypeWindow">Edit Window</label>
+                            </div>
+                            <div>
+                                <input type="radio" id="editTypeColumn" name="editType" value="column" onchange="updateOutput()" class="input-accent-blue">
+                                <label for="editTypeColumn">Table Column Edit</label>
+                            </div>
+                        </div>
+                    </div>
+</div>
+
+                    <div class="form-container"><div class="form-group" style="display: flex; flex-direction: column;">
+                        <label class="">Permissions</label>
+                        <div class="checkbox-group">
+                            <div>
+                                <input type="checkbox" id="allowCreate" checked class="input-accent-blue">
+                                <label for="allowCreate">Allow Create</label>
+                            </div>
+                            <div>
+                                <input type="checkbox" id="allowUpdate" checked class="input-accent-blue">
+                                <label for="allowUpdate">Allow Update</label>
+                            </div>
+                            <div>
+                                <input type="checkbox" id="allowDelete" checked class="input-accent-blue">
+                                <label for="allowDelete">Allow Delete</label>
+                            </div>
+                        </div>
+                    </div>
+</div>
+                </div>
+            </div>
+
+            <!-- Workflows & Data Configuration Panel -->
+            <div class="inner-panel">
+                <h2>Workflows & Data</h2>
+
+                <div class="form-container"><div class="form-group">
+                    <div class="checkbox-item">
+                        <input type="checkbox" id="sqlData">
+                        <label for="sqlData">Use MySQL Data</label>
+                    </div>
+
+                    <div id="tableNameGroup" class="form-group-vert" style="display:none;">
+                        <label class="">SQL Table Name</label>
+                        <div class="searchable-select-wrapper">
+                            <input type="text" id="tableName" class="searchable-select-input" placeholder="Select or search..." autocomplete="off">
+                            <div id="tableNameDropdown" class="searchable-select-dropdown"></div>
+                        </div>
+                    </div>
+
+                    <div class="form-group-vert" style="margin-top: 1rem;">
+                        <label class="">Data Workflow</label>
+                        <div class="searchable-select-wrapper">
+                            <input type="text" id="dataWorkflow" class="searchable-select-input" placeholder="Select workflow..." autocomplete="off">
+                            <div id="dataWorkflowDropdown" class="searchable-select-dropdown"></div>
+                        </div>
+                        <div class="checkbox-item" id="dataWorkflowOverrideContainer" style="display: none; margin-top: 0.5rem;">
+                            <input type="checkbox" id="dataWorkflowOverride">
+                            <label for="dataWorkflowOverride">Override Workflow</label>
+                        </div>
+                    </div>
+
+                    <div class="form-group-vert" style="margin-top: 1rem;">
+                        <label class="">Output Variable Name</label>
+                        <input type="text" id="outputVar" placeholder="e.g., sql_result">
+                    </div>
+
+                    <div class="form-group-vert" style="margin-top: 1rem;">
+                        <label class="">Add/Update/Delete Workflow</label>
+                        <div class="searchable-select-wrapper">
+                            <input type="text" id="updateWorkflow" class="searchable-select-input" placeholder="Select workflow..." autocomplete="off">
+                            <div id="updateWorkflowDropdown" class="searchable-select-dropdown"></div>
+                        </div>
+                        <div class="checkbox-item" id="updateWorkflowOverrideContainer" style="display: none; margin-top: 0.5rem;">
+                            <input type="checkbox" id="updateWorkflowOverride">
+                            <label for="updateWorkflowOverride">Override Workflow</label>
+                        </div>
+                    </div>
+
+                    <div id="sqlQueryGroup" class="form-group-vert" style="display: none; margin-top: 1rem;">
+                        <label class="">SQL Query for Initial Data Retrieval</label>
+                        <textarea id="sqlQuery" placeholder="SELECT * FROM table_name"></textarea>
+                    </div>
+                </div>
+</div>
+
+                <div class="form-container"><div class="form-group">
+                    <label class="">Input Variables</label>
+                    <div id="templateVarsNote" style="background: #1f4051; border: 1px solid #404040; padding: 0.75rem; border-radius: 4px; margin-bottom: 0.75rem; font-size: 0.85rem; color: #b0b0b0; display: none;">
+                        <strong style="color: #5a9fb8;">Template Variables:</strong> Use <code style="background: #2a2a2a; padding: 0.25rem 0.5rem; border-radius: 2px; color: #7cc4e0;">[[variableName]]</code> syntax in values to reference other input variables or URL parameters.
+                    </div>
+                    <button class="btn btn-blue btn-small" onclick="addInputVariable()">Add Input Variable</button>
+                    <div id="inputVariablesList" style="display: flex; flex-direction: column; gap: 0.75rem;"></div>
+                </div>
+</div>
+            </div>
+
+            <!-- Column Settings Panel -->
+            <div class="inner-panel">
+                <h2>Column Settings</h2>
+
+                <div class="form-container"><div class="form-group">
+                    <button class="btn btn-blue btn-small" onclick="addColumn()">Add New Column</button>
+                </div>
+</div>
+
+                <div class="form-container"><div class="form-group" id="columnsList"></div>
+            </div>
+
+            <!-- Configuration Output Section -->
+            <div class="inner-panel">
+                <div class="tabs">
+                    <button class="tab-btn active" onclick="switchTab('validation')">Validation</button>
+                    <button class="tab-btn" onclick="switchTab('json')">JSON Output</button>
+                </div>
+
+                <div id="validationTab" class="tab-content active">
+                    <div id="validationOutput" style="font-size: 0.9rem; color: #e0e0e0;"></div>
+                </div>
+
+                <div id="jsonTab" class="tab-content">
+                    <div class="output-content" id="jsonOutput"></div>
+                    <button class="btn btn-blue btn-small" onclick="copyToClipboard('jsonOutput')">Copy JSON</button>
+                </div>
+
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ============================================
+        // CONFIGURATION
+        // ============================================
+        const ORG_ID = '019176c2-059f-7391-afbc-97b201efbd93';
+        const DISCOVERY_WORKFLOW_ID = '0198d3fa-fa9b-75ac-9866-341fda8e72a3';
+        const userName = "{{ CTX.user.username }}" || "Unknown User";
+        const getCurrentTimeStamp = () => new Date().toISOString();
+        let nextDatatableNumber = 1;  // Will be calculated after loading org vars
+        
+        // ============================================
+        // FETCH EXISTING DATATABLE CONFIGURATIONS
+        // ============================================
+        let datatableConfigsAlreadyFetched = false;
+        let datatableConfigsCurrentlyFetching = false;
+        let datatableConfigsFetchPromise = null;
+
+        async function loadOrgVariables() {
+            // If already fetched, return immediately
+            if (datatableConfigsAlreadyFetched) {
+                console.log('Datatable configs already fetched, skipping...');
+                return window.savedOrgVariables || [];
+            }
+            
+            // If currently fetching, wait for that to complete
+            if (datatableConfigsCurrentlyFetching && datatableConfigsFetchPromise) {
+                console.log('Datatable configs currently being fetched, waiting for completion...');
+                return await datatableConfigsFetchPromise;
+            }
+
+            datatableConfigsCurrentlyFetching = true;
+
+            datatableConfigsFetchPromise = (async () => {
+                try {
+                    if (typeof RewstLib === 'undefined') {
+                        throw new Error('RewstLib not available');
+                    }
+
+                    console.log('[DataTable Config] Fetching org variables...');
+                    const configs = await RewstLib.orgVariables.getDatatableConfigs();
+                    console.log('[DataTable Config] Fetched configs:', configs.length);
+                    
+                    // Calculate next number based on existing configs
+                    const existingNumbers = configs
+                        .map(c => {
+                            const match = c.config_id.match(/(\d+)$/);
+                            return match ? parseInt(match[1]) : 0;
+                        })
+                        .filter(n => n > 0);
+                    
+                    nextDatatableNumber = (existingNumbers.length > 0 ? Math.max(...existingNumbers) : 0) + 1;
+                    console.log('[DataTable Config] Next datatable number will be:', nextDatatableNumber);
+
+                    window.savedOrgVariables = configs;
+                    datatableConfigsAlreadyFetched = true;
+                    return configs;
+                } catch (error) {
+                    console.error('[DataTable Config] Error fetching configs:', error);
+                    return [];
+                } finally {
+                    datatableConfigsCurrentlyFetching = false;
+                }
+            })();
+
+            return await datatableConfigsFetchPromise;
+        }
+
+        async function populateExistingConfigs() {
+            const dropdown = document.getElementById('existingConfigDropdown');
+            const configs = await loadOrgVariables();
+            
+            configs.forEach(config => {
+                const option = document.createElement('option');
+                option.value = config.config_id;
+                option.textContent = config.config_name || config.config_id;
+                dropdown.appendChild(option);
+            });
+        }
+
+        async function loadSelectedConfig() {
+            const dropdown = document.getElementById('existingConfigDropdown');
+            const selectedId = dropdown.value;
+            
+            if (!selectedId) {
+                console.log('No config selected');
+                return;
+            }
+
+            const configs = await loadOrgVariables();
+            const selectedConfig = configs.find(c => c.config_id === selectedId);
+            
+            if (!selectedConfig || !selectedConfig.config_parsed) {
+                console.error('Could not find or parse selected config');
+                return;
+            }
+
+            console.log('[DataTable Config] Loading config:', selectedId, selectedConfig.config_parsed);
+            
+            const config = selectedConfig.config_parsed;
+            isLocked = config.locked || false;
+            
+            // Load basic info
+            document.getElementById('datatableName').value = config.name || '';
+            document.getElementById('datatableDesc').value = config.description || '';
+            
+            // Load permissions
+            document.getElementById('allowCreate').checked = config.allow_create !== false;
+            document.getElementById('allowUpdate').checked = config.allow_update !== false;
+            document.getElementById('allowDelete').checked = config.allow_delete !== false;
+            
+            // Load edit type
+            document.getElementById('editTypeWindow').checked = config.edit_type !== 'column';
+            document.getElementById('editTypeColumn').checked = config.edit_type === 'column';
+            
+            // Clear and load columns
+            columns = config.col_settings || config.column_settings || [];
+            renderColumnList();
+            
+            // Load input variables
+            inputVariables = config.input_variables || [];
+            renderInputVariablesList();
+            
+            // Load workflows
+            if (config.data_workflow) {
+                document.getElementById('dataWorkflow').value = config.data_workflow;
+                document.getElementById('dataWorkflow').dataset.value = config.data_workflow;
+            }
+            
+            if (config.update_workflow) {
+                document.getElementById('updateWorkflow').value = config.update_workflow;
+                document.getElementById('updateWorkflow').dataset.value = config.update_workflow;
+            }
+            
+            if (config.output_var) {
+                document.getElementById('outputVar').value = config.output_var;
+            }
+            
+            // Load SQL data settings
+            if (config.table_name) {
+                document.getElementById('sqlData').checked = true;
+                document.getElementById('tableNameGroup').style.display = 'block';
+                document.getElementById('sqlQueryGroup').style.display = 'block';
+                document.getElementById('tableName').value = config.table_name;
+                document.getElementById('tableName').dataset.value = config.table_name;
+                document.getElementById('sqlQuery').value = config.sql_query || '';
+            }
+            
+            configurationLoaded = true;
+            markConfigurationLoaded();
+            hasUnsavedChanges = false;
+            updateOutput();
+            updateLoadButtonState();
+            
+            if (isLocked) {
+                lockWarning.textContent = 'This configuration is locked. Changes will not be saved.';
+                lockWarningRow.style.display = 'block';
+            }
+        }
+
+        function updateLoadButtonState() {
+            const dropdown = document.getElementById('existingConfigDropdown');
+            const loadBtn = document.getElementById('loadConfigBtn');
+            loadBtn.disabled = !dropdown.value;
+        }
+
+        async function saveConfiguration() {
+            const saveBtn = document.getElementById('saveBtn');
+            const datatableName = document.getElementById('datatableName').value.trim();
+
+            if (isLocked) {
+                alert('This configuration is locked and cannot be modified.');
+                return;
+            }
+            
+            // Prevent saving if there are validation errors
+            if (saveBtn.disabled) {
+                alert('Please fix validation errors before saving.');
+                return;
+            }
+
+            const config = buildConfigObject();
+            
+            // Determine the variable name
+            let orgVarName;
+            if (configurationLoaded && document.getElementById('existingConfigDropdown').value) {
+                // Saving existing config - use same name
+                orgVarName = 'datatable_' + document.getElementById('existingConfigDropdown').value;
+            } else {
+                // Saving new config
+                const configId = datatableName.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
+                orgVarName = 'datatable_' + (configId || nextDatatableNumber);
+            }
+
+            const savingModal = document.getElementById('savingModal');
+            if (savingModal) {
+                savingModal.style.display = 'flex';
+                savingModal.classList.add('active');
+                savingModal.innerHTML = '<h2 style="color: #5a9fb8; margin-top: 0;">Saving...</h2>';
+            }
+
+            try {
+                await RewstLib.orgVariables.update(
+                    configurationLoaded ? window.savedOrgVariables.find(c => c.config_id === document.getElementById('existingConfigDropdown').value)?.orgVarId : null,
+                    orgVarName,
+                    JSON.stringify(config),
+                    { category: 'datatable_config', cascade: false }
+                );
+                
+                // Success
+                if (savingModal) {
+                    savingModal.innerHTML = '<h2 style="color: #4caf50; margin-top: 0;">✓ Saved Successfully</h2><p>Configuration saved to org variables.</p><button class="btn btn-green" onclick="location.reload()">Reload Page</button>';
+                }
+                
+                hasUnsavedChanges = false;
+                markConfigurationLoaded();
+            } catch (error) {
+                console.error('[DataTable Config] Save error:', error);
+                if (savingModal) {
+                    savingModal.innerHTML = '<h2 style="color: #dc3545; margin-top: 0;">✗ Save Failed</h2><p>Error: ' + error.message + '</p><button class="btn btn-red" onclick="this.parentElement.parentElement.style.display=\'none\'">Close</button>';
+                }
+            }
+        }
+
+        function resetConfiguration() {
+            if (confirm('Reset to default configuration?')) {
+                isResetting = true;
+                document.getElementById('datatableName').value = '';
+                document.getElementById('datatableDesc').value = '';
+                document.getElementById('allowCreate').checked = true;
+                document.getElementById('allowUpdate').checked = true;
+                document.getElementById('allowDelete').checked = true;
+                document.getElementById('editTypeWindow').checked = true;
+                document.getElementById('editTypeColumn').checked = false;
+                document.getElementById('sqlData').checked = false;
+                document.getElementById('dataWorkflow').value = '';
+                document.getElementById('dataWorkflow').dataset.value = '';
+                document.getElementById('updateWorkflow').value = '';
+                document.getElementById('updateWorkflow').dataset.value = '';
+                document.getElementById('outputVar').value = '';
+                document.getElementById('sqlQuery').value = '';
+                document.getElementById('tableNameGroup').style.display = 'none';
+                document.getElementById('sqlQueryGroup').style.display = 'none';
+                columns = [];
+                inputVariables = [];
+                renderColumnList();
+                renderInputVariablesList();
+                resetChangeTracking();
+                updateOutput();
+                isLocked = false;
+                lockWarningRow.style.display = 'none';
+                isResetting = false;
+            }
+        }
+
+        async function deleteConfiguration() {
+            const dropdown = document.getElementById('existingConfigDropdown');
+            const selectedId = dropdown.value;
+            
+            if (!selectedId) {
+                alert('Please select a configuration to delete');
+                return;
+            }
+
+            if (!confirm('Are you sure you want to delete this configuration?')) {
+                return;
+            }
+
+            // Find the config to delete
+            const configs = await loadOrgVariables();
+            const configToDelete = configs.find(c => c.config_id === selectedId);
+            
+            if (!configToDelete) {
+                alert('Configuration not found');
+                return;
+            }
+
+            try {
+                // Since we don't have a delete function, we could either:
+                // 1. Set the org variable to an empty string
+                // 2. Or just remove it from the dropdown
+                // For now, we'll clear the org var
+                await RewstLib.orgVariables.update(
+                    configToDelete.orgVarId,
+                    configToDelete.orgVarName,
+                    '',
+                    { category: 'datatable_config', cascade: false }
+                );
+                
+                alert('Configuration deleted successfully');
+                location.reload();
+            } catch (error) {
+                console.error('Error deleting configuration:', error);
+                alert('Error deleting configuration: ' + error.message);
+            }
+        }
+
+        // ============================================
+        // COLUMN MANAGEMENT
+        // ============================================
+        let columns = [];
+
+        function addColumn() {
+            columns.push({
+                col_name: '',
+                col_type: 'text',
+                col_label: '',
+                col_required: false,
+                col_hidden: false,
+                col_read_only: false,
+                col_order: columns.length
+            });
+            renderColumnList();
+            updateOutput();
+        }
+
+        function removeColumn(index) {
+            columns.splice(index, 1);
+            renderColumnList();
+            updateOutput();
+        }
+
+        function renderColumnList() {
+            const columnsList = document.getElementById('columnsList');
+            columnsList.innerHTML = '';
+            
+            if (columns.length === 0) {
+                columnsList.innerHTML = '<p style="color: #888; font-style: italic;">No columns defined</p>';
+                return;
+            }
+            
+            columns.forEach((col, idx) => {
+                const colEl = document.createElement('div');
+                colEl.className = 'column-item';
+                colEl.innerHTML = `
+                    <div class="column-header">
+                        <span class="column-name">${col.col_name || '(unnamed)'}</span>
+                        <span class="column-type">${col.col_type}</span>
+                        <div class="column-controls">
+                            <button onclick="editColumn(${idx})" class="btn btn-blue btn-small">Edit</button>
+                            <button onclick="removeColumn(${idx})" class="btn btn-red btn-small">Remove</button>
+                        </div>
+                    </div>
+                `;
+                columnsList.appendChild(colEl);
+            });
+        }
+
+        function editColumn(index) {
+            const col = columns[index];
+            const editSection = document.getElementById('columnEditSection');
+            
+            document.getElementById('colName').value = col.col_name;
+            document.getElementById('colType').value = col.col_type;
+            document.getElementById('colLabel').value = col.col_label;
+            document.getElementById('colRequired').checked = col.col_required;
+            document.getElementById('colHidden').checked = col.col_hidden;
+            document.getElementById('colReadOnly').checked = col.col_read_only;
+            
+            document.getElementById('saveColumnBtn').onclick = () => saveColumn(index);
+            editSection.classList.add('active');
+            editBackdrop.classList.add('active');
+        }
+
+        function saveColumn(index) {
+            columns[index].col_name = document.getElementById('colName').value;
+            columns[index].col_type = document.getElementById('colType').value;
+            columns[index].col_label = document.getElementById('colLabel').value;
+            columns[index].col_required = document.getElementById('colRequired').checked;
+            columns[index].col_hidden = document.getElementById('colHidden').checked;
+            columns[index].col_read_only = document.getElementById('colReadOnly').checked;
+            
+            document.getElementById('columnEditSection').classList.remove('active');
+            document.getElementById('editBackdrop').classList.remove('active');
+            renderColumnList();
+            updateOutput();
+        }
+
+        // ============================================
+        // INPUT VARIABLES MANAGEMENT
+        // ============================================
+        let inputVariables = [];
+
+        function addInputVariable() {
+            inputVariables.push({
+                name: '',
+                label: '',
+                type: 'text',
+                required: false,
+                fromDataset: false,
+                workflow: '',
+                output_var: '',
+                output_id: '',
+                output_label: ''
+            });
+            renderInputVariablesList();
+            updateOutput();
+        }
+
+        function removeInputVariable(index) {
+            inputVariables.splice(index, 1);
+            renderInputVariablesList();
+            updateOutput();
+        }
+
+        function moveInputVariable(index, direction) {
+            if (direction === 'up' && index > 0) {
+                [inputVariables[index], inputVariables[index - 1]] = [inputVariables[index - 1], inputVariables[index]];
+            } else if (direction === 'down' && index < inputVariables.length - 1) {
+                [inputVariables[index], inputVariables[index + 1]] = [inputVariables[index + 1], inputVariables[index]];
+            }
+            renderInputVariablesList();
+            updateOutput();
+        }
+
+        function renderInputVariablesList() {
+            const list = document.getElementById('inputVariablesList');
+            list.innerHTML = '';
+            
+            if (inputVariables.length > 0) {
+                document.getElementById('templateVarsNote').style.display = 'block';
+            } else {
+                document.getElementById('templateVarsNote').style.display = 'none';
+            }
+            
+            inputVariables.forEach((iv, idx) => {
+                const ivEl = document.createElement('div');
+                ivEl.style.cssText = 'background: #2a2a2a; padding: 1rem; border-radius: 4px; border-left: 4px solid #5a9fb8;';
+                
+                ivEl.innerHTML = `
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
+                        <span style="color: #5a9fb8; font-weight: 600;">${iv.name || '(unnamed)'}</span>
+                        <div style="display: flex; gap: 0.25rem;">
+                                <button onclick="moveInputVariable(${idx}, 'up')" ${idx === 0 ? 'disabled' : ''} style="padding: 0.3rem 0.5rem; background: #5a9fb8; color: white; border: none; border-radius: 3px; cursor: ${idx === 0 ? 'not-allowed' : 'pointer'}; font-size: 0.85rem; opacity: ${idx === 0 ? '0.5' : '1'};">▲</button>
+                                <button onclick="moveInputVariable(${idx}, 'down')" ${idx === inputVariables.length - 1 ? 'disabled' : ''} style="padding: 0.3rem 0.5rem; background: #5a9fb8; color: white; border: none; border-radius: 3px; cursor: ${idx === inputVariables.length - 1 ? 'not-allowed' : 'pointer'}; font-size: 0.85rem; opacity: ${idx === inputVariables.length - 1 ? '0.5' : '1'};">▼</button>
+                            <button onclick="editInputVariable(${idx})" class="btn btn-blue btn-small">Edit</button>
+                            <button onclick="removeInputVariable(${idx})" class="btn btn-red btn-small">Remove</button>
+                        </div>
+                    </div>
+                    <div style="color: #b0b0b0; font-size: 0.85rem;">
+                        Type: ${iv.type} ${iv.required ? '| Required' : ''} ${iv.fromDataset ? '| Dataset' : ''}
+                    </div>
+                `;
+                list.appendChild(ivEl);
+            });
+        }
+
+        function editInputVariable(index) {
+            const iv = inputVariables[index];
+            const editSection = document.getElementById('inputVarEditSection');
+            
+            document.getElementById('ivName').value = iv.name;
+            document.getElementById('ivLabel').value = iv.label;
+            document.getElementById('ivType').value = iv.type;
+            document.getElementById('ivRequired').checked = iv.required;
+            document.getElementById('ivFromDataset').checked = iv.fromDataset;
+            document.getElementById('ivWorkflow').value = iv.workflow;
+            document.getElementById('ivOutputVar').value = iv.output_var;
+            document.getElementById('ivOutputId').value = iv.output_id;
+            document.getElementById('ivOutputLabel').value = iv.output_label;
+            
+            document.getElementById('datasetOptions').style.display = iv.fromDataset ? 'block' : 'none';
+            
+            document.getElementById('saveInputVarBtn').onclick = () => saveInputVariable(index);
+            editSection.classList.add('active');
+            editBackdrop.classList.add('active');
+        }
+
+        function saveInputVariable(index) {
+            inputVariables[index].name = document.getElementById('ivName').value;
+            inputVariables[index].label = document.getElementById('ivLabel').value;
+            inputVariables[index].type = document.getElementById('ivType').value;
+            inputVariables[index].required = document.getElementById('ivRequired').checked;
+            inputVariables[index].fromDataset = document.getElementById('ivFromDataset').checked;
+            inputVariables[index].workflow = document.getElementById('ivWorkflow').value;
+            inputVariables[index].output_var = document.getElementById('ivOutputVar').value;
+            inputVariables[index].output_id = document.getElementById('ivOutputId').value;
+            inputVariables[index].output_label = document.getElementById('ivOutputLabel').value;
+            
+            document.getElementById('inputVarEditSection').classList.remove('active');
+            document.getElementById('editBackdrop').classList.remove('active');
+            renderInputVariablesList();
+            updateOutput();
+        }
+
+        // ============================================
+        // BUILD CONFIG OBJECT
+        // ============================================
+        function buildConfigObject() {
+            const sqlData = document.getElementById('sqlData').checked;
+            const tableName = document.getElementById('tableName').dataset.value || document.getElementById('tableName').value;
+            const dataWorkflow = document.getElementById('dataWorkflow').dataset.value || document.getElementById('dataWorkflow').value;
+            const updateWorkflow = document.getElementById('updateWorkflow').dataset.value || document.getElementById('updateWorkflow').value;
+            
+            const config = {
+                name: document.getElementById('datatableName').value || 'unnamed_table',
+                description: document.getElementById('datatableDesc').value,
+                edit_type: document.getElementById('editTypeColumn').checked ? 'column' : 'window',
+                allow_create: document.getElementById('allowCreate').checked,
+                allow_update: document.getElementById('allowUpdate').checked,
+                allow_delete: document.getElementById('allowDelete').checked,
+                data_workflow: dataWorkflow,
+                update_workflow: updateWorkflow,
+                output_var: document.getElementById('outputVar').value,
+                col_settings: columns.map((col, idx) => ({
+                    col_order: idx,
+                    col_name: col.col_name,
+                    col_label: col.col_label,
+                    col_type: col.col_type,
+                    col_required: col.col_required,
+                    col_hidden: col.col_hidden,
+                    col_read_only: col.col_read_only
+                })),
+                input_variables: inputVariables,
+                user: userName,
+                updated: getCurrentTimeStamp()
+            };
+            
+            if (sqlData) {
+                config.table_name = tableName;
+                config.sql_query = document.getElementById('sqlQuery').value;
+            }
+            
+            return config;
+        }
+
+        // ============================================
+        // OUTPUT & VALIDATION
+        // ============================================
+        function updateOutput() {
+            const jsonOutput = document.getElementById('jsonOutput');
+            const validationOutput = document.getElementById('validationOutput');
+            const datatableName = document.getElementById('datatableName');
+            const sqlData = document.getElementById('sqlData');
+            const tableName = document.getElementById('tableName');
+            const sqlQuery = document.getElementById('sqlQuery');
+            const saveBtn = document.getElementById('saveBtn');
+            
+            const errors = [];
+            
+            // Datatable name validation
+            if (!datatableName.value || datatableName.value.trim() === '') {
+                errors.push('Datatable name is required');
+            }
+            
+            // Data workflow validation
+            const dataWorkflow = document.getElementById('dataWorkflow').dataset.value || document.getElementById('dataWorkflow').value;
+            if (!dataWorkflow || dataWorkflow.trim() === '') {
+                errors.push('Data Workflow is required');
+            }
+            
+            // Output variable validation
+            const outputVar = document.getElementById('outputVar').value;
+            if (!outputVar || outputVar.trim() === '') {
+                errors.push('Output Variable Name is required');
+            }
+            
+            // SQL data specific validations
+            if (sqlData.checked) {
+                if (!tableName.value && !tableName.dataset.value) {
+                    errors.push('SQL Table Name is required when using MySQL Data');
+                }
+                if (!sqlQuery.value || sqlQuery.value.trim() === '') {
+                    errors.push('SQL Query For Initial Data Retrieval is required when using MySQL Data');
+                }
+            }
+            
+            // Column name validation
+            const columnsWithoutName = columns.filter(col => !col.col_name || col.col_name.trim() === '');
+            if (columnsWithoutName.length > 0) {
+                errors.push(`Column${columnsWithoutName.length > 1 ? 's' : ''} must have a name (${columnsWithoutName.length} column${columnsWithoutName.length > 1 ? 's' : ''} without name)`);
+            }
+            
+            // Input Variables validation
+            const inputVarsWithoutName = inputVariables.filter(iv => !iv.name || iv.name.trim() === '');
+            if (inputVarsWithoutName.length > 0) {
+                errors.push(`Input Variable${inputVarsWithoutName.length > 1 ? 's' : ''} must have a name (${inputVarsWithoutName.length} ${inputVarsWithoutName.length > 1 ? 'variables' : 'variable'} without name)`);
+            }
+            
+            // Check for duplicate input variable names
+            const inputVarNames = inputVariables
+                .map(iv => iv.name)
+                .filter(name => name && name.trim());
+            const uniqueNames = new Set(inputVarNames.map(n => n.toLowerCase()));
+            if (uniqueNames.size < inputVarNames.length) {
+                // Find which names are duplicated
+                const nameCounts = {};
+                inputVarNames.forEach(name => {
+                    const lowerName = name.toLowerCase();
+                    nameCounts[lowerName] = (nameCounts[lowerName] || 0) + 1;
+                });
+                const duplicateNames = Object.entries(nameCounts)
+                    .filter(([name, count]) => count > 1)
+                    .map(([name]) => name);
+                errors.push(`Duplicate input variable name${duplicateNames.length > 1 ? 's' : ''}: ${duplicateNames.join(', ')}`);
+            }
+            
+            // Validate fromDataset requires workflow
+            const datasetVarsWithoutWorkflow = inputVariables.filter(iv => iv.fromDataset && (!iv.workflow || iv.workflow.trim() === ''));
+            if (datasetVarsWithoutWorkflow.length > 0) {
+                errors.push(`Input Variable${datasetVarsWithoutWorkflow.length > 1 ? 's' : ''} with "From Dataset Selector" checked must have a Dataset Selector Workflow selected`);
+            }
+            
+            // Validate fromDataset requires output_var
+            const datasetVarsWithoutOutputVar = inputVariables.filter(iv => iv.fromDataset && (!iv.output_var || iv.output_var.trim() === ''));
+            if (datasetVarsWithoutOutputVar.length > 0) {
+                errors.push(`Input Variable${datasetVarsWithoutOutputVar.length > 1 ? 's' : ''} with "From Dataset Selector" checked must have a Workflow Output Variable specified`);
+            }
+            
+            // Validate fromDataset requires output_id
+            const datasetVarsWithoutOutputId = inputVariables.filter(iv => iv.fromDataset && (!iv.output_id || iv.output_id.trim() === ''));
+            if (datasetVarsWithoutOutputId.length > 0) {
+                errors.push(`Input Variable${datasetVarsWithoutOutputId.length > 1 ? 's' : ''} with "From Dataset Selector" checked must have an Output ID Variable specified`);
+            }
+            
+            // Validate fromDataset requires output_label
+            const datasetVarsWithoutOutputLabel = inputVariables.filter(iv => iv.fromDataset && (!iv.output_label || iv.output_label.trim() === ''));
+            if (datasetVarsWithoutOutputLabel.length > 0) {
+                errors.push(`Input Variable${datasetVarsWithoutOutputLabel.length > 1 ? 's' : ''} with "From Dataset Selector" checked must have an Output Label Variable specified`);
+            }
+            
+            // Disable Save button if there are errors
+            const hasErrors = errors.length > 0;
+            saveBtn.disabled = hasErrors;
+            
+            // Display validation messages
+            if (validationOutput) {
+                let validationHTML = '';
+                
+                if (errors.length > 0) {
+                    validationHTML += '<div style="color: #ff6b6b; margin-bottom: 1rem;"><strong>Blocking Validations:</strong><ul style="text-align: left; margin: 0.5rem 0; padding-left: 1.5rem;">' + 
+                        errors.map(err => `<li>${err}</li>`).join('') + 
+                        '</ul></div>';
+                }
+                
+                // Non-blocking warnings
+                if (columns.length === 0) {
+                    validationHTML += '<div style="color: #ffa500;"><strong>⚠ Warning:</strong> No columns defined</div>';
+                }
+                
+                if (validationHTML === '') {
+                    validationHTML = '<div style="color: #4caf50;"><strong>✓ No validation issues</strong></div>';
+                }
+                
+                validationOutput.innerHTML = validationHTML;
+            }
+            
+            const config = buildConfigObject();
+
+            if (sqlData.checked) {
+                const selectedTable = tableName.dataset.value || tableName.value;
+                if (selectedTable) {
+                    config.table_name = selectedTable;
+                }
+            }
+
+            jsonOutput.textContent = JSON.stringify(config, null, 2);
+            
+            const orgVarName = datatableName.value || 'config';
+            
+            updateValidation(config);
+        }
+
+        function updateValidation(config) {
+            const issues = [];
+            
+            if (!config.name || config.name === 'unnamed_table') {
+                issues.push({ type: 'invalid', text: 'Datatable name is required' });
+            }
+            if (!config.data_workflow) {
+                issues.push({ type: 'invalid', text: 'Data workflow is required' });
+            }
+            if (!config.output_var) {
+                issues.push({ type: 'invalid', text: 'Output variable name is required' });
+            }
+            
+            const colSettings = config.col_settings || config.column_settings || [];
+            if (colSettings.length === 0) {
+                issues.push({ type: 'warning', text: 'No columns configured' });
+            }
+
+            // Validation output is now handled earlier in the function
+        }
+
+        function switchTab(tabName) {
+            document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+            document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
+            
+            const tabId = tabName + 'Tab';
+            const tabEl = document.getElementById(tabId);
+            const btnEl = event.target;
+            
+            if (tabEl) tabEl.classList.add('active');
+            if (btnEl) btnEl.classList.add('active');
+        }
+
+        function copyToClipboard(elementId) {
+            const element = document.getElementById(elementId);
+            const text = element.textContent;
+            
+            navigator.clipboard.writeText(text).then(() => {
+                alert('Copied to clipboard!');
+            }).catch(err => {
+                console.error('Failed to copy:', err);
+            });
+        }
+
+        // Track unsaved changes
+        let hasUnsavedChanges = false;
+        let configurationLoaded = false;
+        let pageInitialized = false;
+        let originalLoadedConfig = null;
+        let isResetting = false;
+        let isLocked = false;
+
+        function markAsChanged() {
+            // Skip marking as changed during reset operations
+            if (isResetting) {
+                return;
+            }
+            
+            // Only mark as changed if the page has finished initializing
+            if (pageInitialized) {
+                // If a config was loaded, compare current state with original
+                if (configurationLoaded && originalLoadedConfig) {
+                    const currentConfig = buildConfigObject();
+                    // Remove user and updated fields for comparison
+                    const currentForComparison = { ...currentConfig };
+                    const originalForComparison = { ...originalLoadedConfig };
+                    delete currentForComparison.user;
+                    delete currentForComparison.updated;
+                    delete originalForComparison.user;
+                    delete originalForComparison.updated;
+                    
+                    // Compare JSON strings to detect changes
+                    const hasActualChanges = JSON.stringify(currentForComparison) !== JSON.stringify(originalForComparison);
+                    hasUnsavedChanges = hasActualChanges;
+                } else if (!configurationLoaded) {
+                    // For new configs, mark as changed if any substantial field has a value
+                    if (!hasUnsavedChanges) {
+                        hasUnsavedChanges = true;
+                    }
+                }
+            }
+        }
+
+        function resetChangeTracking() {
+            hasUnsavedChanges = false;
+            configurationLoaded = false;
+            originalLoadedConfig = null;
+        }
+
+        function markConfigurationLoaded() {
+            configurationLoaded = true;
+            hasUnsavedChanges = false;
+            // Store the original config for comparison
+            originalLoadedConfig = buildConfigObject();
+        }
+
+        // Set up beforeunload event listener
+        window.addEventListener('beforeunload', (e) => {
+            // Check if we have unsaved changes (new config with changes or loaded config with changes)
+            if ((configurationLoaded && hasUnsavedChanges) || (!configurationLoaded && hasUnsavedChanges)) {
+                e.preventDefault();
+                e.returnValue = '';
+                return '';
+            }
+        });
+
+        // Initialize when DOM is ready
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', initializeApp);
+        } else {
+            initializeApp();
+        }
+    </script>
+</body>
+</html>
