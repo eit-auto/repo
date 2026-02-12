@@ -1200,3 +1200,26 @@
     flex-direction: column;
     gap: 0.5rem;
   }
+
+  .gp-row {
+    display: flex;
+    gap: 0.5rem;
+  }
+
+  .gp-row-end {
+    align-items: flex-end;
+  }
+
+  .gp-row-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr auto;
+    gap: 1rem;
+    align-items: start;
+  }
+
+  .gp-row-grid2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr auto;
+    gap: 0.5rem;
+    align-items: start;
+  }
