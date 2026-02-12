@@ -1165,11 +1165,18 @@
   .grey-panel {
     margin-bottom: 1.5rem;
     display: flex;
-    flex-direction: column;
     background: #2a2a2a;
     border-radius: 4px;
     padding: 0.75rem;
     border: 1px solid #404040;
+  }
+
+  .grey-panel:not(.gp-two-column) {
+    flex-direction: column;
+  }
+
+  .grey-panel.gp-two-column {
+    flex-direction: row;
   }
 
   .grey-panel:last-child {
