@@ -1199,7 +1199,6 @@
   .gp-panel-right {
     display: flex;
     flex-direction: column;
-    gap: 0.5rem;
     align-items: flex-end;
     justify-content: space-between;
     height: 100%;
