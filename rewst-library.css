@@ -1211,15 +1211,13 @@
   }
 
   .gp-row-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr auto;
+    display: flex;
     gap: 1rem;
-    align-items: start;
+    align-items: flex-start;
   }
 
   .gp-row-grid2 {
-    display: grid;
-    grid-template-columns: 1fr 1fr auto;
+    display: flex;
     gap: 0.5rem;
-    align-items: start;
+    align-items: flex-start;
   }
