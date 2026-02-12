@@ -1204,7 +1204,7 @@
     height: 100%;
   }
 
-  .gp-panel-right .btn {
+  .gp-panel-right > .btn {
     margin-top: auto;
   }
 
