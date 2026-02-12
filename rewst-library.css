@@ -1178,7 +1178,6 @@
 
   .grey-panel.gp-two-column {
     flex-direction: row;
-background:red;
   }
 
   .grey-panel:last-child {
@@ -1189,7 +1188,6 @@ background:red;
     display: flex;
     gap: 1rem;
     align-items: stretch;
-background:blue;
   }
 
   .gp-panel-left {
@@ -1203,9 +1201,11 @@ background:blue;
     display: flex;
     flex-direction: column;
     align-items: flex-end;
-    justify-content: space-between;
     height: 100%;
-background: green;
+  }
+
+  .gp-panel-right .btn {
+    margin-top: auto;
   }
 
   .grey-panel input[type="text"],
