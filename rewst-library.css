@@ -1175,3 +1175,21 @@
   .grey-panel:last-child {
     margin-bottom: 0;
   }
+
+  .grey-panel input[type="text"],
+  .grey-panel input[type="email"],
+  .grey-panel input[type="date"],
+  .grey-panel textarea {
+    background: #1a1a1a;
+  }
+
+  .grey-panel select {
+    background: #1a1a1a;
+    margin-top: 3px;
+  }
+
+  .grey-panel input[type="checkbox"] {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.5rem;
+  }
