@@ -59,6 +59,12 @@
     flex-shrink: 0;
     color: #ffffff;
   }
+  .grey-panel {
+    background: #2a2a2a;
+    border-radius: 4px;
+    padding: 0.75rem;
+    border: 1px solid #404040;
+  }
   /* ============================================
    BUTTON STYLES
    ============================================ */
