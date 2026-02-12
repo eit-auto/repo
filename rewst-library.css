@@ -1201,6 +1201,8 @@
     flex-direction: column;
     gap: 0.5rem;
     align-items: flex-end;
+    justify-content: space-between;
+    height: 100%;
   }
 
   .grey-panel input[type="text"],
