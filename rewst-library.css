@@ -1178,6 +1178,7 @@
 
   .grey-panel.gp-two-column {
     flex-direction: row;
+background:blue;
   }
 
   .grey-panel:last-child {
