@@ -1193,3 +1193,10 @@
     grid-template-columns: 1fr 1fr;
     gap: 0.5rem;
   }
+
+  .checkbox-col-left,
+  .checkbox-col-right {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
