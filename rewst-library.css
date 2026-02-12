@@ -1169,7 +1169,7 @@
     border-radius: 4px;
     padding: 0.75rem;
     border: 1px solid #404040;
-    min-height: 400px;
+    min-height: 200px;
   }
 
   .grey-panel:not(.gp-two-column) {
@@ -1178,6 +1178,7 @@
 
   .grey-panel.gp-two-column {
     flex-direction: row;
+background:red;
   }
 
   .grey-panel:last-child {
