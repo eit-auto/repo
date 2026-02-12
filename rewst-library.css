@@ -1202,9 +1202,16 @@
     flex-direction: column;
     align-items: flex-end;
     height: 100%;
+    justify-content: space-between;
   }
 
-  .gp-panel-right > .btn {
+  .gp-panel-right > .btn-group-vertical {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .gp-panel-right > .btn-remove {
     margin-top: auto;
   }
 
