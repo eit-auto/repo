@@ -1176,6 +1176,26 @@
     margin-bottom: 0;
   }
 
+  .gp-two-column {
+    display: flex;
+    gap: 1rem;
+    align-items: flex-start;
+  }
+
+  .gp-panel-left {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  .gp-panel-right {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    align-items: flex-end;
+  }
+
   .grey-panel input[type="text"],
   .grey-panel input[type="email"],
   .grey-panel input[type="date"],
