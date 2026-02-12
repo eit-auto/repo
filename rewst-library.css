@@ -1188,7 +1188,7 @@
     margin-top: 3px;
   }
 
-  .grey-panel input[type="checkbox"] {
+  .checkbox-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 0.5rem;
