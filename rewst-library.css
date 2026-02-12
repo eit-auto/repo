@@ -1205,14 +1205,10 @@
     justify-content: space-between;
   }
 
-  .gp-panel-right > .btn-group-vertical {
+  .gp-button-row {
     display: flex;
     flex-direction: column;
     gap: 0.5rem;
-  }
-
-  .gp-panel-right > .btn-remove {
-    margin-top: auto;
   }
 
   .grey-panel input[type="text"],
