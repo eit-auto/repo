@@ -1,6 +1,6 @@
 /**
  * Rewst Integration Library
- * Version: 2.0.0
+ * Version: 2.1.0
  * 
  * Centralized library for Rewst workflow automation integration.
  * Provides GraphQL queries, workflow management, org variable operations,
@@ -987,7 +987,7 @@ const RewstLib = (function() {
       formatCellValue
     },
     // Version
-    version: '2.0.0'
+    version: '2.1.0'
   };
 })();
 // Make available globally
