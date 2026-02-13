@@ -984,7 +984,9 @@ const RewstLib = (function() {
       parseBooleanValue,
       formatDateTimeDisplay,
       formatDateDisplay,
-      formatCellValue
+      formatCellValue,
+      getUrlParameter,
+      escapeHtml
     },
     // Version
     version: '2.1.0'
