@@ -861,7 +861,7 @@ const RewstLib = (function() {
     const strValue = String(value);
     
     // Parse ISO 8601 datetime (e.g., "2025-12-30T14:06:04+00:00")
-    const match = strValue.match(/(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})/);
+    const match = strValue.match(/(\\d{4})-(\\d{2})-(\\d{2})T(\\d{2}):(\\d{2}):(\\d{2})/);
     if (match) {
       const [, year, month, day, hours, minutes] = match;
       
@@ -889,7 +889,7 @@ const RewstLib = (function() {
     const strValue = String(value);
     
     // Parse ISO date (e.g., "2025-12-30")
-    const match = strValue.match(/(\d{4})-(\d{2})-(\d{2})/);
+    const match = strValue.match(/(\\d{4})-(\\d{2})-(\\d{2})/);
     if (match) {
       const [, year, month, day] = match;
       const m = String(month).padStart(2, '0');
