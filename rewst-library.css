@@ -1239,21 +1239,25 @@
 
   .gp-row {
     display: flex;
+    flex-direction: column;
     gap: 0.5rem;
   }
 
   .gp-row-end {
+    flex-direction: row;
     align-items: flex-end;
   }
 
   .gp-row-grid {
-    display: flex;
+    flex-direction: row;
     gap: 1rem;
     align-items: flex-start;
   }
 
   .gp-row-grid2 {
-    display: flex;
+    flex-direction: row;
     gap: 0.5rem;
     align-items: flex-start;
   }
+
+/* Version 1.0.0 */
