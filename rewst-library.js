@@ -836,6 +836,92 @@ const RewstLib = (function() {
     // Capitalize each word
     return formatted.replace(/\b\w/g, char => char.toUpperCase());
   }
+
+  /**
+   * Parse boolean value from various formats
+   * @param {*} value - Value to parse (boolean, 0/1, 'true'/'false', etc.)
+   * @returns {boolean} Parsed boolean value
+   */
+  function parseBooleanValue(value) {
+    if (typeof value === 'boolean') return value;
+    if (typeof value === 'number') return value !== 0;
+    if (typeof value === 'string') {
+      return value.toLowerCase() === 'true' || value === '1' || value.toLowerCase() === 'yes';
+    }
+    return !!value;
+  }
+
+  /**
+   * Format datetime display value (mm/dd/yy hh:mm am/pm)
+   * @param {string|Date} value - ISO datetime string
+   * @returns {string} Formatted datetime
+   */
+  function formatDateTimeDisplay(value) {
+    if (!value) return '';
+    const strValue = String(value);
+    
+    // Parse ISO 8601 datetime (e.g., "2025-12-30T14:06:04+00:00")
+    const match = strValue.match(/(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})/);
+    if (match) {
+      const [, year, month, day, hours, minutes] = match;
+      
+      const m = String(month).padStart(2, '0');
+      const d = String(day).padStart(2, '0');
+      const y = String(year).slice(-2);
+      
+      let h = parseInt(hours);
+      const ampm = h >= 12 ? 'pm' : 'am';
+      h = h % 12 || 12;
+      const mm = String(minutes).padStart(2, '0');
+      
+      return `${m}/${d}/${y} ${h}:${mm} ${ampm}`;
+    }
+    return strValue;
+  }
+
+  /**
+   * Format date display value (mm/dd/yy)
+   * @param {string|Date} value - ISO date string
+   * @returns {string} Formatted date
+   */
+  function formatDateDisplay(value) {
+    if (!value) return '';
+    const strValue = String(value);
+    
+    // Parse ISO date (e.g., "2025-12-30")
+    const match = strValue.match(/(\d{4})-(\d{2})-(\d{2})/);
+    if (match) {
+      const [, year, month, day] = match;
+      const m = String(month).padStart(2, '0');
+      const d = String(day).padStart(2, '0');
+      const y = String(year).slice(-2);
+      return `${m}/${d}/${y}`;
+    }
+    return strValue;
+  }
+
+  /**
+   * Format cell value for display based on field type
+   * @param {string} colName - Column name
+   * @param {*} value - Cell value
+   * @param {object} fieldTypes - Field type mapping
+   * @returns {string} Formatted cell value
+   */
+  function formatCellValue(colName, value, fieldTypes = {}) {
+    if (!value) return '';
+    
+    const fieldType = fieldTypes[colName];
+    
+    if (fieldType === 'datetime') {
+      return formatDateTimeDisplay(value);
+    } else if (fieldType === 'date') {
+      return formatDateDisplay(value);
+    }
+    
+    return escapeHtml(String(value));
+  }
+
+
   return {
     // Configuration
     config: {
@@ -894,7 +980,11 @@ const RewstLib = (function() {
       formatDate,
       formatDateTime,
       setButtonState,
-      getGrammaticalPhrase
+      getGrammaticalPhrase,
+      parseBooleanValue,
+      formatDateTimeDisplay,
+      formatDateDisplay,
+      formatCellValue
     },
     // Version
     version: '2.0.0'
