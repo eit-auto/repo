@@ -1225,8 +1225,6 @@
   .grey-panel input[type="date"],
   .grey-panel textarea {
     background: #1a1a1a;
-    width: 100%;
-    box-sizing: border-box;
   }
 
   .grey-panel select {
@@ -1249,8 +1247,9 @@
 
   .gp-row {
     display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
+    flex-direction: row;
+    gap: 0.75rem;
+    align-items: center;
   }
 
   .gp-row-end {
@@ -1270,4 +1269,4 @@
     align-items: flex-start;
   }
 
-/* Version 1.0.2 */
+/* Version 1.0.3 */
