@@ -1225,6 +1225,9 @@
   .grey-panel input[type="date"],
   .grey-panel textarea {
     background: #1a1a1a;
+    padding: 0.5rem 0.75rem;
+    border: 2px solid #404040;
+    border-radius: 4px;
   }
 
   .grey-panel select {
