@@ -1212,6 +1212,14 @@
     gap: 0.5rem;
   }
 
+  .gp-label {
+    color: #888;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    margin-bottom: 0.25rem;
+    display: block;
+  }
+
   .grey-panel input[type="text"],
   .grey-panel input[type="email"],
   .grey-panel input[type="date"],
