@@ -1,6 +1,6 @@
 /**
  * Rewst Integration Library
- * Version: 2.1.0
+ * Version: 2.2.0
  * 
  * Centralized library for Rewst workflow automation integration.
  * Provides GraphQL queries, workflow management, org variable operations,
@@ -711,7 +711,19 @@ const RewstLib = (function() {
    */
   function parseURLParams() {
     const params = {};
-    const searchParams = new URLSearchParams(window.location.search);
+    let searchString = window.location.search;
+    
+    // If in iframe and no params found, try parent window
+    if (!searchString && window.parent !== window) {
+      try {
+        searchString = window.parent.location.search;
+        console.log('[FORMS] Iframe detected, using parent window URL params');
+      } catch (e) {
+        console.log('[FORMS] Cannot access parent window params:', e.message);
+      }
+    }
+    
+    const searchParams = new URLSearchParams(searchString);
     searchParams.forEach((value, key) => {
       params[key] = value;
     });
@@ -989,7 +1001,7 @@ const RewstLib = (function() {
       escapeHtml
     },
     // Version
-    version: '2.1.0'
+    version: '2.2.0'
   };
 })();
 // Make available globally
