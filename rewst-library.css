@@ -573,14 +573,6 @@
     --form-border-color: #404040;
     --form-accent-color: #5a9fb8;
   }
-
-  .grey-panel-form-container {
-    color: #ffffff;
-    --form-text-color: #ffffff;
-    --form-bg-color: #1a1a1a;
-    --form-border-color: #404040;
-    --form-accent-color: #5a9fb8;
-  }
   .form-group {
     margin-bottom: 1.125rem;
     display: flex;
@@ -1277,6 +1269,14 @@
     flex-direction: row;
     gap: 0.5rem;
     align-items: flex-start;
+  }
+
+  .grey-panel-form-container {
+    color: #ffffff;
+    --form-text-color: #ffffff;
+    --form-bg-color: #1a1a1a;
+    --form-border-color: #404040;
+    --form-accent-color: #5a9fb8;
   }
 
 /* Version 1.0.3 */
