@@ -1274,8 +1274,8 @@
   .grey-panel-form-container {
     color: #ffffff;
     --form-text-color: #ffffff;
-    --form-bg-color: #1a1a1a;
-    --form-border-color: #404040;
+    --form-bg-color: #404040;
+    --form-border-color: #808080;
     --form-accent-color: #5a9fb8;
   }
 
