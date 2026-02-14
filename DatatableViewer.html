@@ -1,0 +1,445 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Datatable Viewer</title>
+    <link rel="stylesheet" href="https://eit-auto.github.io/repo/rewst-library.css">
+    <style>
+        :root {
+            --form-text-color: #ffffff;
+            --form-bg-color: #1a3540;
+            --form-border-color: #404040;
+            --form-accent-color: #5a9fb8;
+        }
+
+        .inline-input {
+            width: 100%;
+            padding: 0.75rem;
+            border: 2px solid var(--form-border-color);
+            border-radius: 4px;
+            background: var(--form-bg-color);
+            color: var(--form-text-color);
+            font-size: 0.95rem;
+            font-family: inherit;
+            transition: all 0.2s ease;
+            margin: 0;
+            box-sizing: border-box;
+        }
+        
+        .inline-input:focus {
+            outline: none;
+            border-color: var(--form-accent-color);
+            box-shadow: 0 0 0 3px rgba(90, 159, 184, 0.1);
+        }
+        
+        .inline-input[type="checkbox"] {
+            width: auto;
+            margin-right: 0.5rem;
+        }
+        
+        .inline-input[type="text"],
+        .inline-input[type="number"],
+        .inline-input[type="datetime-local"],
+        .inline-input[type="date"],
+        .inline-input[type="time"] {
+            width: 100%;
+        }
+        
+        .inline-input textarea {
+            width: 100%;
+            resize: vertical;
+        }
+        
+        .inline-input select {
+            width: 100%;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            min-height: 100vh;
+            padding: 0;
+            margin: 0;
+            background: #1a1a1a;
+        }
+    </style>
+</head>
+<body>
+    <!-- Input Variable Selection Dropdowns -->
+    <div id="inputVarContainer" style="display: none; padding: 1rem; background: #1f4051; border-radius: 8px; margin-bottom: 1rem; margin-left: 1rem; margin-right: 1rem; margin-top: 1rem;">
+        <div id="inputVarDropdowns" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem;"></div>
+    </div>
+
+    <!-- Datatable Name Title -->
+    <div id="datatableName" style="padding: 1.5rem 0 0.75rem 0; font-size: 1.5rem; font-weight: bold; color: #ffffff; margin-bottom: 0.5rem; text-align: center;"></div>
+
+    <div class="main-panel">
+        <div class="inner-panel" style="flex-direction: row; align-items: center; margin-bottom: 1rem;">
+            <button id="addBtn" class="btn btn-blue">+</button>
+            <div class="search-input-wrapper">
+                <input type="text" id="searchInput" class="search-input" placeholder="Search results...">
+            </div>
+            <div id="filtersContainer" style="display: flex; gap: 1rem; align-items: center;"></div>
+            <button id="saveBtn" class="btn btn-green" style="display: none;">Save Changes</button>
+        </div>
+
+        <!-- Loading Modal -->
+        <div class="modal-overlay" id="loadingSpinner">
+            <div class="modal" style="text-align: center; display: flex; flex-direction: column; align-items: center;">
+                <h2 style="color: #ffffff; margin: 0 0 1.5rem 0;">Retrieving Data...</h2>
+                <div class="spinner" style="border-color: rgba(255, 255, 255, 0.3); border-top-color: #ffffff;"></div>
+            </div>
+        </div>
+
+        <div class="table-container" id="tableContainer">
+            <div id="windowModeInstruction" style="display: none; padding: 0.375rem 1rem; margin-bottom: 0.5rem; text-align: center; color: #ffffff; font-size: 1rem; font-weight: bold;">
+                CLICK A ROW BELOW TO EDIT
+            </div>
+            <div class="inner-panel" style="padding: 0; margin: 0; flex-direction: column;">
+                <table id="dataTable">
+                    <thead id="tableHead"></thead>
+                    <tbody id="tableBody"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Saving Modal -->
+        <div class="success-modal-backdrop" id="savingModalBackdrop">
+            <div class="success-modal">
+                <h3>Saving...</h3>
+                <div class="spinner" style="margin: 1rem auto;"></div>
+            </div>
+        </div>
+
+        <!-- Success Modal -->
+        <div class="success-modal-backdrop" id="successModalBackdrop">
+            <div class="success-modal">
+                <h3>✓ Success</h3>
+                <div class="success-message" id="successMessage"></div>
+                <button class="btn btn-green" id="successBtn">OK</button>
+            </div>
+        </div>
+
+        <!-- Edit Modal -->
+        <div class="edit-backdrop" id="editBackdrop"></div>
+        <div class="edit-section" id="editSection">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+                <h2 style="margin: 0; color: #5a9fb8; font-size: 1.25rem;">Edit Record</h2>
+                <button type="button" id="deleteBtn" class="btn btn-red" title="Delete Record" style="padding: 0.5rem; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center;">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="3 6 5 6 21 6"></polyline>
+                        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                        <line x1="10" y1="11" x2="10" y2="17"></line>
+                        <line x1="14" y1="11" x2="14" y2="17"></line>
+                    </svg>
+                </button>
+            </div>
+            <div class="inner-panel" id="nonEditablePanel" style="margin-bottom: 10px;">
+                <div class="form-grid" id="nonEditableGrid"></div>
+            </div>
+            <div class="inner-panel" id="editablePanel">
+                <div class="form-grid" id="editableGrid"></div>
+            </div>
+            <div class="btn-group" style="padding-top: 10px;">
+                <button type="button" class="btn btn-grey" id="cancelBtn">Cancel</button>
+                <button type="submit" class="btn btn-green">Save Changes</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        window.ORG_ID = '019176c2-059f-7391-afbc-97b201efbd93';
+    </script>
+    <script src="https://eit-auto.github.io/repo/rewst-library.js"></script>
+    <script>
+        const ORG_ID = window.ORG_ID;
+        let data_workflow = null;
+        let input_vars = null;
+        let datatableConfig = null;
+        let output_var = null;
+        let allow_create = true;
+        let allow_delete = true;
+        let allow_update = true;
+        let edit_type = 'window';
+        let update_workflow = null;
+        let update_vars = null;
+        let fieldTypes = {};
+        let tableData = [];
+        let filteredData = [];
+        let col_display_table = [];
+        let col_display_edit = [];
+
+        function detectFieldTypes(records) {
+            const detected = {};
+            if (!records || records.length === 0) return detected;
+            const dateTimePattern = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/;
+            const datePattern = /^\d{4}-\d{2}-\d{2}$/;
+            const dateTimeAltPattern = /^\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2}/;
+            const columns = Object.keys(records[0]);
+            columns.forEach(colName => {
+                let dateCount = 0, dateTimeCount = 0, valueCount = 0;
+                for (let i = 0; i < Math.min(records.length, 10); i++) {
+                    const value = records[i][colName];
+                    if (value && typeof value === 'string') {
+                        valueCount++;
+                        if (dateTimePattern.test(value) || dateTimeAltPattern.test(value)) dateTimeCount++;
+                        else if (datePattern.test(value)) dateCount++;
+                    }
+                }
+                if (valueCount > 0) {
+                    if (dateTimeCount > valueCount * 0.7) detected[colName] = 'datetime';
+                    else if (dateCount > valueCount * 0.7) detected[colName] = 'date';
+                }
+            });
+            return detected;
+        }
+
+        async function retrieveOrgVariable(variableName) {
+            const response = await fetch('/graphql', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    query: `{ visibleOrgVariables(visibleForOrgId: "${ORG_ID}" search: { organization: { id: { _eq: "${ORG_ID}" } } name: { _eq: "${variableName}" } }) { id name value } }`
+                })
+            });
+            const data = await response.json();
+            const orgVariables = data.data?.visibleOrgVariables || [];
+            return orgVariables.length > 0 ? orgVariables[0] : null;
+        }
+
+        class RewstApp {
+            constructor(config = {}) {
+                this.graphqlUrl = config.graphqlPath || '/graphql';
+                this.orgId = config.orgId || null;
+                this.isInitialized = config.orgId ? true : false;
+            }
+
+            async runWorkflowSmart(workflowId, inputData = {}, options = {}) {
+                if (!this.isInitialized) throw new Error('Rewst not initialized. Missing orgId.');
+                return await this.runWorkflowWithWait(workflowId, inputData, options);
+            }
+
+            async runWorkflowWithWait(workflowId, inputData = {}, options = {}) {
+                const query = `mutation testWorkflow($id: ID!, $orgId: ID!, $input: JSON) { testResult: testWorkflow(id: $id, orgId: $orgId, input: $input) { executionId } }`;
+                const testResult = await this._graphql('testWorkflow', query, { id: workflowId, orgId: this.orgId, input: inputData });
+                return await this._waitForCompletion(testResult.testResult.executionId, options.onProgress);
+            }
+
+            async getExecutionStatus(executionId) {
+                const query = `query getExecution($id: ID!) { workflowExecution(where: {id: $id}) { id status conductor { errors output } } }`;
+                const result = await this._graphql('getExecution', query, { id: executionId });
+                return result.workflowExecution || {};
+            }
+
+            async _waitForCompletion(executionId, onProgress = null) {
+                const pollInterval = 2000, maxAttempts = 150;
+                let attempts = 0, emptyOutputRetries = 0, maxEmptyOutputRetries = 5;
+                await new Promise(resolve => setTimeout(resolve, 500));
+                while (attempts < maxAttempts) {
+                    const execution = await this.getExecutionStatus(executionId);
+                    if (onProgress) try { onProgress(execution.status); } catch (e) {}
+                    const terminalStates = ['COMPLETED', 'SUCCESS', 'succeeded', 'FAILED', 'failed', 'ERROR'];
+                    const isComplete = terminalStates.some(s => execution.status?.toUpperCase?.() === s.toUpperCase());
+                    if (isComplete) {
+                        const isFailed = ['FAILED', 'failed', 'ERROR'].some(s => execution.status?.toUpperCase?.() === s.toUpperCase());
+                        if (isFailed) throw new Error(`Workflow failed: ${execution.status}`);
+                        const hasOutput = execution.conductor && execution.conductor.output && Object.keys(execution.conductor.output).length > 0;
+                        if (!hasOutput && emptyOutputRetries < maxEmptyOutputRetries) {
+                            emptyOutputRetries++;
+                            await new Promise(resolve => setTimeout(resolve, pollInterval));
+                            attempts++;
+                            continue;
+                        }
+                        return { ...execution, success: true };
+                    }
+                    await new Promise(resolve => setTimeout(resolve, pollInterval));
+                    attempts++;
+                }
+                throw new Error('Workflow execution timeout');
+            }
+
+            async _graphql(operationName, query, variables) {
+                const response = await fetch(this.graphqlUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ query, variables, operationName })
+                });
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                const data = await response.json();
+                if (data.errors) throw new Error(data.errors[0]?.message || 'GraphQL error');
+                return data.data;
+            }
+        }
+
+        const rewst = new RewstApp({ graphqlPath: '/graphql', orgId: ORG_ID, debug: true });
+
+        const addBtn = document.getElementById('addBtn');
+        const searchInput = document.getElementById('searchInput');
+        const saveBtn = document.getElementById('saveBtn');
+        const tableHead = document.getElementById('tableHead');
+        const tableBody = document.getElementById('tableBody');
+        const tableContainer = document.getElementById('tableContainer');
+        const windowModeInstruction = document.getElementById('windowModeInstruction');
+        const datatableName = document.getElementById('datatableName');
+        const loadingSpinner = document.getElementById('loadingSpinner');
+        const savingModalBackdrop = document.getElementById('savingModalBackdrop');
+        const successModalBackdrop = document.getElementById('successModalBackdrop');
+        const successMessage = document.getElementById('successMessage');
+        const successBtn = document.getElementById('successBtn');
+        const editBackdrop = document.getElementById('editBackdrop');
+        const editSection = document.getElementById('editSection');
+        const cancelBtn = document.getElementById('cancelBtn');
+        const deleteBtn = document.getElementById('deleteBtn');
+
+        function formatColumnName(colName) {
+            return colName.charAt(0).toUpperCase() + colName.slice(1).replace(/_/g, ' ');
+        }
+
+        function closeSuccessModal() {
+            successModalBackdrop.classList.remove('active');
+        }
+
+        function showSuccessModal(message) {
+            successMessage.textContent = message;
+            successModalBackdrop.classList.add('active');
+            setTimeout(closeSuccessModal, 1000);
+        }
+
+        successBtn.addEventListener('click', closeSuccessModal);
+
+        function buildTableStructure() {
+            const headerRow = document.createElement('tr');
+            col_display_table.forEach(colName => {
+                const th = document.createElement('th');
+                th.textContent = formatColumnName(colName);
+                headerRow.appendChild(th);
+            });
+            tableHead.innerHTML = '';
+            tableHead.appendChild(headerRow);
+        }
+
+        function renderTable() {
+            tableBody.innerHTML = '';
+            if (filteredData.length === 0) {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `<td colspan="${col_display_table.length}" style="text-align: center; padding: 2rem; color: #888;">No records found</td>`;
+                tableBody.appendChild(tr);
+                return;
+            }
+            filteredData.forEach((row, index) => {
+                const tr = document.createElement('tr');
+                tr.style.cursor = 'pointer';
+                col_display_table.forEach(colName => {
+                    const td = document.createElement('td');
+                    const value = row[colName];
+                    td.textContent = value || '';
+                    tr.appendChild(td);
+                });
+                tr.addEventListener('click', () => openEditForm(row));
+                tableBody.appendChild(tr);
+            });
+        }
+
+        searchInput.addEventListener('input', (e) => {
+            const searchTerm = e.target.value.toLowerCase();
+            filteredData = tableData.filter(item => 
+                col_display_table.some(col => String(item[col]).toLowerCase().includes(searchTerm))
+            );
+            renderTable();
+        });
+
+        function openEditForm(item) {
+            editBackdrop.classList.add('active');
+            editSection.classList.add('active');
+            const editableGrid = document.getElementById('editableGrid');
+            editableGrid.innerHTML = '';
+            col_display_edit.forEach((colConfig) => {
+                const colName = colConfig.col_name;
+                const group = document.createElement('div');
+                group.className = 'form-group';
+                const label = document.createElement('label');
+                label.textContent = colConfig.col_label || formatColumnName(colName);
+                const input = document.createElement('input');
+                input.type = 'text';
+                input.value = item[colName] || '';
+                group.appendChild(label);
+                group.appendChild(input);
+                editableGrid.appendChild(group);
+            });
+        }
+
+        function closeEditForm() {
+            editBackdrop.classList.remove('active');
+            editSection.classList.remove('active');
+        }
+
+        if (cancelBtn) cancelBtn.addEventListener('click', closeEditForm);
+        editBackdrop.addEventListener('click', closeEditForm);
+
+        async function initializeDataTable() {
+            try {
+                let datatableId = RewstLib.forms.getUrlParameter('datatable');
+                if (!datatableId) throw new Error('No datatable ID provided in URL');
+
+                const variableName = 'datatable_' + datatableId;
+                const orgVar = await retrieveOrgVariable(variableName);
+                if (!orgVar) throw new Error(`Datatable configuration not found: ${variableName}`);
+
+                datatableConfig = JSON.parse(orgVar.value);
+                data_workflow = datatableConfig.data_workflow || null;
+                input_vars = datatableConfig.input_vars || {};
+                output_var = datatableConfig.output_var || null;
+                update_workflow = datatableConfig.update_workflow || null;
+                update_vars = datatableConfig.update_vars || {};
+                allow_create = datatableConfig.allow_create === true;
+                allow_delete = datatableConfig.allow_delete === true;
+                edit_type = datatableConfig.edit_type || 'window';
+
+                const columnSettings = datatableConfig.col_settings || [];
+                col_display_table = columnSettings.filter(col => col.hide_table !== true).map(col => col.col_name);
+                col_display_edit = columnSettings.filter(col => col.hide_edit !== true);
+
+                buildTableStructure();
+
+                if (!allow_create) addBtn.style.display = 'none';
+                if (datatableConfig.name) datatableName.textContent = datatableConfig.name;
+
+                loadingSpinner.classList.add('active');
+                tableContainer.classList.remove('active');
+
+                if (data_workflow) {
+                    const result = await rewst.runWorkflowSmart(data_workflow, input_vars);
+                    if (output_var && result.conductor && result.conductor.output) {
+                        const outputData = result.conductor.output[output_var];
+                        if (outputData && Array.isArray(outputData)) {
+                            tableData = outputData;
+                            filteredData = [...tableData];
+                            fieldTypes = detectFieldTypes(tableData);
+                            renderTable();
+                        }
+                    }
+                }
+
+                loadingSpinner.classList.remove('active');
+                tableContainer.classList.add('active');
+            } catch (error) {
+                console.error('Error:', error);
+                tableContainer.classList.add('active');
+                tableBody.innerHTML = `<tr><td colspan="100" style="color: #dc3545; padding: 2rem; text-align: center;">Error: ${error.message}</td></tr>`;
+            }
+        }
+
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', initializeDataTable);
+        } else {
+            initializeDataTable();
+        }
+    </script>
+</body>
+</html>
