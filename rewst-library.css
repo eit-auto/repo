@@ -618,7 +618,7 @@
     cursor: pointer;
   }
   .form-group select {
-    padding: 0.35rem 0.75rem;
+    padding: 0.5rem 0.75rem;
     border: 2px solid var(--form-border-color);
     border-radius: 4px;
     background: var(--form-bg-color);
