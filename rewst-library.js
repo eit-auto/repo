@@ -72,7 +72,7 @@ const RewstLib = (function() {
   /**
    * Get all workflows
    * @param {boolean} useCache - Whether to use cached results (default: true)
-   * @returns {Promise<Array>} Array of workflow objects with id and name
+   * @returns {Promise<Array>} Array of workflow objects with id, name, and type
    */
   async function getAllWorkflows(useCache = true) {
     if (useCache && workflowsCache) {
@@ -83,6 +83,7 @@ const RewstLib = (function() {
         workflows {
           id
           name
+          type
         }
       }
     `;
