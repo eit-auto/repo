@@ -431,10 +431,15 @@ const RewstLib = (function() {
         }
       }
     });
+    console.log('[FORMS] evaluateConditionalVisibility - collected formData:', formData);
     // Evaluate conditions for each field
     allFieldConfigs.forEach(config => {
       const formGroup = document.querySelector(`[data-field-name="${config.field_name}"]`);
-      if (!formGroup) return;
+      console.log(`[FORMS] Checking field ${config.field_name}: formGroup found=${!!formGroup}, hidden=${config.hidden}, condition_1=${config.condition_1}`);
+      if (!formGroup) {
+        console.log(`[FORMS] SKIPPING ${config.field_name} - formGroup not found`);
+        return;
+      }
       let shouldShow = !config.hidden; // Start with opposite of hidden
       // Check condition_1 if it exists
       if (config.condition_1 && config.condition_1_action === 'show') {
@@ -448,6 +453,7 @@ const RewstLib = (function() {
         shouldShow = shouldShow && conditionMet;
       }
       // Apply visibility
+      console.log(`[FORMS] Setting ${config.field_name} display to: ${shouldShow ? 'visible' : 'none'}`);
       formGroup.style.display = shouldShow ? '' : 'none';
     });
   }
