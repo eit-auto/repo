@@ -701,7 +701,7 @@ const RewstLib = (function() {
           } catch (e) {}
         }
         const terminalStates = ['COMPLETED', 'SUCCESS', 'succeeded', 'FAILED', 'failed', 'ERROR'];
-        if (terminalStates.some(s => execution.status?.toUpperCase?.() === s.toUpperCase())) {
+        if (execution.status && terminalStates.some(s => execution.status.toUpperCase() === s.toUpperCase())) {
           console.log('[EXECUTE] Workflow completed with status:', execution.status);
           // Check if output is empty
           const output = execution.conductor?.output;
