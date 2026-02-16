@@ -80,6 +80,28 @@ const RewstLib = (function() {
     }
     const query = `
       query {
+        workflows {
+          id
+          name
+        }
+      }
+    `;
+    const data = await graphqlQuery(query);
+    const workflows = data.workflows || [];
+    workflowsCache = workflows;
+    return workflows;
+  }
+  /**
+   * Get all option generator workflows
+   * @param {boolean} useCache - Whether to use cached results (default: true)
+   * @returns {Promise<Array>} Array of option generator workflow objects with id and name
+   */
+  async function getAllWorkflowsOG(useCache = true) {
+    if (useCache && workflowsCache) {
+      return workflowsCache;
+    }
+    const query = `
+      query {
         workflows(isOptionsGenerator: true) {
           id
           name
@@ -943,6 +965,7 @@ const RewstLib = (function() {
     // Workflows
     workflows: {
       getAll: getAllWorkflows,
+      getAllOG: getAllWorkflowsOG,
       execute: executeWorkflow,
       findByName: findWorkflowByName,
       findById: findWorkflowById,
