@@ -96,7 +96,7 @@ const RewstLib = (function() {
    * @param {boolean} useCache - Whether to use cached results (default: true)
    * @returns {Promise<Array>} Array of option generator workflow objects with id and name
    */
-  async function getAllWorkflowsOG(useCache = true) {
+  async function getAllWorkflowsOG(useCache = false) {
     if (useCache && workflowsCache) {
       return workflowsCache;
     }
