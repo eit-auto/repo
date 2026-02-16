@@ -569,43 +569,43 @@
   /* Type-specific narrow column widths */
   th.col-type-boolean,
   td.col-type-boolean {
-    width: 80px !important;
-    min-width: 80px !important;
+    width: 40px !important;
+    min-width: 40px !important;
   }
   th.col-type-int,
   td.col-type-int {
-    width: 100px !important;
-    min-width: 100px !important;
+    width: 50px !important;
+    min-width: 50px !important;
   }
   th.col-type-integer,
   td.col-type-integer {
-    width: 100px !important;
-    min-width: 100px !important;
+    width: 50px !important;
+    min-width: 50px !important;
   }
   th.col-type-bigint,
   td.col-type-bigint {
-    width: 120px !important;
-    min-width: 120px !important;
+    width: 60px !important;
+    min-width: 60px !important;
   }
   th.col-type-smallint,
   td.col-type-smallint {
-    width: 100px !important;
-    min-width: 100px !important;
+    width: 50px !important;
+    min-width: 50px !important;
   }
   th.col-type-date,
   td.col-type-date {
-    width: 120px !important;
-    min-width: 120px !important;
+    width: 60px !important;
+    min-width: 60px !important;
   }
   th.col-type-datetime,
   td.col-type-datetime {
-    width: 160px !important;
-    min-width: 160px !important;
+    width: 80px !important;
+    min-width: 80px !important;
   }
   th.col-type-timestamp,
   td.col-type-timestamp {
-    width: 160px !important;
-    min-width: 160px !important;
+    width: 80px !important;
+    min-width: 80px !important;
   }
   /* ============================================
    FORM VIEWER STYLING
