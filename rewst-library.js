@@ -78,36 +78,12 @@ const RewstLib = (function() {
     if (useCache && workflowsCache) {
       return workflowsCache;
     }
-    // First, get the schema to see what fields are available on Workflow type
-    const introspectionQuery = `
-      query {
-        __type(name: "Workflow") {
-          name
-          fields {
-            name
-            type {
-              name
-              kind
-            }
-          }
-        }
-      }
-    `;
-    
-    try {
-      const schemaData = await graphqlQuery(introspectionQuery);
-      if (schemaData.__type && schemaData.__type.fields) {
-        console.log('[REWSTLIB] Available Workflow fields:', schemaData.__type.fields.map(f => f.name));
-      }
-    } catch (e) {
-      console.log('[REWSTLIB] Could not query schema:', e.message);
-    }
-    
     const query = `
       query {
         workflows {
           id
           name
+          isOptionsGenerator
         }
       }
     `;
