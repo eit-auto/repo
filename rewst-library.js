@@ -80,10 +80,9 @@ const RewstLib = (function() {
     }
     const query = `
       query {
-        workflows {
+        workflows(isOptionsGenerator: true) {
           id
           name
-          isOptionsGenerator
         }
       }
     `;
