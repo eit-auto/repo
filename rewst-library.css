@@ -594,8 +594,8 @@
   }
   th.col-type-date,
   td.col-type-date {
-    width: 100px !important;
-    min-width: 100px !important;
+    width: 70px !important;
+    min-width: 70px !important;
   }
   th.col-type-datetime,
   td.col-type-datetime {
@@ -604,8 +604,8 @@
   }
   th.col-type-timestamp,
   td.col-type-timestamp {
-    width: 140px !important;
-    min-width: 140px !important;
+    width: 100px !important;
+    min-width: 100px !important;
   }
   th.col-type-varchar,
   td.col-type-varchar {
