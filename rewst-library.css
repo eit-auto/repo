@@ -609,12 +609,10 @@
   }
   th.col-type-varchar,
   td.col-type-varchar {
-    width: 200px !important;
     min-width: 200px !important;
   }
   th.col-type-text,
   td.col-type-text {
-    width: 250px !important;
     min-width: 250px !important;
   }
   /* ============================================
