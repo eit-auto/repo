@@ -569,7 +569,7 @@
   /* Type-specific narrow column widths */
   th.col-type-boolean,
   td.col-type-boolean {
-    width: 60px !important;
+    width: 30px !important;
     min-width: 60px !important;
   }
   th.col-type-int,
