@@ -318,6 +318,13 @@
             col_display_table.forEach(colName => {
                 const th = document.createElement('th');
                 th.textContent = formatColumnName(colName);
+                
+                // Add type-specific class based on detected field type
+                const fieldType = fieldTypes[colName];
+                if (fieldType) {
+                    th.classList.add(`col-type-${fieldType}`);
+                }
+                
                 headerRow.appendChild(th);
             });
             tableHead.innerHTML = '';
@@ -339,6 +346,13 @@
                     const td = document.createElement('td');
                     const value = row[colName];
                     td.textContent = value || '';
+                    
+                    // Add type-specific class based on detected field type
+                    const fieldType = fieldTypes[colName];
+                    if (fieldType) {
+                        td.classList.add(`col-type-${fieldType}`);
+                    }
+                    
                     tr.appendChild(td);
                 });
                 tr.addEventListener('click', () => openEditForm(row));
