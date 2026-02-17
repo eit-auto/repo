@@ -801,8 +801,20 @@ const RewstLib = (function() {
     return result;
   }
   function getUrlParameter(name) {
-    const params = parseURLParams();
-    return params[name] || null;
+    let params = parseURLParams();
+    let value = params[name] || null;
+    
+    // If not found in iframe and we're in an iframe, check parent window
+    if (!value && window.parent !== window) {
+      try {
+        const parentParams = new URLSearchParams(window.parent.location.search);
+        value = parentParams.get(name);
+      } catch (e) {
+        console.log('[UTILS] Cannot access parent window (cross-origin):', e.message);
+      }
+    }
+    
+    return value;
   }
   /**
    * Get form_id from parent window (for iframes)
