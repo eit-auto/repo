@@ -570,7 +570,7 @@
   th.col-type-boolean,
   td.col-type-boolean {
     width: 30px !important;
-    min-width: 60px !important;
+    min-width: 30px !important;
   }
   th.col-type-int,
   td.col-type-int {
