@@ -579,18 +579,18 @@
   }
   th.col-type-integer,
   td.col-type-integer {
-    width: 70px !important;
-    min-width: 70px !important;
+    width: 50px !important;
+    min-width: 50px !important;
   }
   th.col-type-bigint,
   td.col-type-bigint {
-    width: 90px !important;
-    min-width: 90px !important;
+    width: 50px !important;
+    min-width: 50px !important;
   }
   th.col-type-smallint,
   td.col-type-smallint {
-    width: 70px !important;
-    min-width: 70px !important;
+    width: 50px !important;
+    min-width: 50px !important;
   }
   th.col-type-date,
   td.col-type-date {
@@ -599,8 +599,8 @@
   }
   th.col-type-datetime,
   td.col-type-datetime {
-    width: 140px !important;
-    min-width: 140px !important;
+    width: 100px !important;
+    min-width: 100px !important;
   }
   th.col-type-timestamp,
   td.col-type-timestamp {
