@@ -609,7 +609,7 @@
   }
   th.col-type-varchar,
   td.col-type-varchar {
-    min-width: 200px !important;
+    min-width: 150px !important;
   }
   th.col-type-text,
   td.col-type-text {
