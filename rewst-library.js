@@ -475,7 +475,16 @@ const RewstLib = (function() {
           return; // Skip validation for hidden fields
         }
         // Validate required fields
-        if (value === undefined || value === null || value === '' || (Array.isArray(value) && value.length === 0)) {
+        // For checkboxes, require them to be checked (value === true)
+        if (config.type === 'checkbox') {
+          if (value !== true) {
+            if (!errors[config.field_name]) {
+              errors[config.field_name] = [];
+            }
+            errors[config.field_name].push(`${config.field_displayname} is required`);
+            isValid = false;
+          }
+        } else if (value === undefined || value === null || value === '' || (Array.isArray(value) && value.length === 0)) {
           if (!errors[config.field_name]) {
             errors[config.field_name] = [];
           }
@@ -801,20 +810,8 @@ const RewstLib = (function() {
     return result;
   }
   function getUrlParameter(name) {
-    let params = parseURLParams();
-    let value = params[name] || null;
-    
-    // If not found in iframe and we're in an iframe, check parent window
-    if (!value && window.parent !== window) {
-      try {
-        const parentParams = new URLSearchParams(window.parent.location.search);
-        value = parentParams.get(name);
-      } catch (e) {
-        console.log('[UTILS] Cannot access parent window (cross-origin):', e.message);
-      }
-    }
-    
-    return value;
+    const params = parseURLParams();
+    return params[name] || null;
   }
   /**
    * Get form_id from parent window (for iframes)
