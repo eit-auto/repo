@@ -23,6 +23,20 @@ const RewstLib = (function() {
     skip_cache: false  // Global flag to skip caching on all workflows
   };
   // ========================================
+  // GRAPHQL OPERATIONS METADATA
+  // ========================================
+  const GRAPHQL_OPERATIONS = {
+    createOrUpdateOrgVariable: {
+      name: 'Create or Update Org Variable',
+      description: 'Creates a new org variable or updates an existing one',
+      inputs: [
+        { name: 'varName', label: 'Variable Name', type: 'text', required: true },
+        { name: 'varValue', label: 'Variable Value', type: 'textarea', required: true },
+        { name: 'orgId', label: 'Organization ID (optional)', type: 'text', required: false }
+      ]
+    }
+  };
+  // ========================================
   // USER INITIALIZATION
   // ========================================
   // User is now passed in via HTML constant REWST_USER
@@ -992,6 +1006,22 @@ const RewstLib = (function() {
     return escapeHtml(String(value));
   }
 
+  /**
+   * Get all available GraphQL operations
+   * @returns {object} All GraphQL operations metadata
+   */
+  function getGraphQLOperations() {
+    return GRAPHQL_OPERATIONS;
+  }
+  
+  /**
+   * Get a specific GraphQL operation metadata
+   * @param {string} operationName - Operation name
+   * @returns {object|null} Operation metadata or null if not found
+   */
+  function getGraphQLOperation(operationName) {
+    return GRAPHQL_OPERATIONS[operationName] || null;
+  }
 
   return {
     // Configuration
@@ -1060,6 +1090,11 @@ const RewstLib = (function() {
       formatCellValue,
       getUrlParameter,
       escapeHtml
+    },
+    // GraphQL Operations
+    graphqlOperations: {
+      getAll: getGraphQLOperations,
+      get: getGraphQLOperation
     },
     // Version
     version: '2.1.1'
