@@ -290,7 +290,7 @@ const RewstLib = (function() {
    * Create a new org variable
    * @param {string} name - Variable name
    * @param {string} value - Variable value (can be JSON string)
-   * @param {object} options - Optional: {category, cascade}
+   * @param {object} options - Optional: {category, cascade, org_id}
    * @returns {Promise<object>} Created org variable with id, name, value, etc.
    */
   async function createOrgVariable(name, value, options = {}) {
@@ -308,11 +308,12 @@ const RewstLib = (function() {
         }
       }
     `;
+    const orgId = options.org_id || window.ORG_ID;
     const variables = {
       orgVariable: {
         name: name,
         value: value,
-        orgId: window.ORG_ID,
+        orgId: orgId,
         category: options.category || 'general',
         cascade: options.cascade !== undefined ? options.cascade : false
       }
@@ -336,7 +337,7 @@ const RewstLib = (function() {
    * @param {string} id - Variable ID
    * @param {string} name - Variable name
    * @param {string} value - Variable value (can be JSON string)
-   * @param {object} options - Optional: {category, cascade}
+   * @param {object} options - Optional: {category, cascade, org_id}
    * @returns {Promise<object>} Updated org variable
    */
   async function updateOrgVariable(id, name, value, options = {}) {
@@ -354,13 +355,14 @@ const RewstLib = (function() {
         }
       }
     `;
+    const orgId = options.org_id || window.ORG_ID;
     const variables = {
       orgVariables: [
         {
           id: id,
           name: name,
           value: value,
-          orgId: window.ORG_ID,
+          orgId: orgId,
           category: options.category,
           cascade: options.cascade
         }
