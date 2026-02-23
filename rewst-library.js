@@ -218,14 +218,16 @@ const RewstLib = (function() {
   /**
    * Get all org variables matching a pattern
    * @param {string} pattern - Search pattern (e.g., "datatable_%")
+   * @param {string} orgId - Optional organization ID (defaults to window.ORG_ID)
    * @returns {Promise<Array>} Array of org variable objects
    */
-  async function getOrgVariables(pattern = '%') {
+  async function getOrgVariables(pattern = '%', orgId = null) {
+    const org = orgId || window.ORG_ID;
     const query = `{
       visibleOrgVariables(
-        visibleForOrgId: "${window.ORG_ID}"
+        visibleForOrgId: "${org}"
         search: { 
-          organization: { id: { _eq: "${window.ORG_ID}" } }
+          organization: { id: { _eq: "${org}" } }
           name: { _ilike: "${pattern}" }
         }
       ) {
@@ -248,10 +250,11 @@ const RewstLib = (function() {
   /**
    * Get a specific org variable by name
    * @param {string} varName - Variable name to retrieve
+   * @param {string} orgId - Optional organization ID (defaults to window.ORG_ID)
    * @returns {Promise<string|null>} Variable value or null if not found
    */
-  async function getOrgVariable(varName) {
-    const variables = await getOrgVariables(varName);
+  async function getOrgVariable(varName, orgId = null) {
+    const variables = await getOrgVariables(varName, orgId);
     if (variables.length === 0) return null;
     const variable = variables[0];
     console.log('[REWSTLIB] getOrgVariable found:', variable.name, '- value present:', !!variable.value);
@@ -379,6 +382,35 @@ const RewstLib = (function() {
       }
     } catch (error) {
       console.error('[REWSTLIB] Failed to update org variable:', error.message);
+      throw error;
+    }
+  }
+  /**
+   * Create or update an org variable (checks if exists, then creates or updates accordingly)
+   * @param {string} name - Variable name
+   * @param {string} value - Variable value (can be JSON string)
+   * @param {object} options - Optional: {category, cascade, org_id}
+   * @returns {Promise<object>} Created or updated org variable
+   */
+  async function createOrUpdateOrgVariable(name, value, options = {}) {
+    try {
+      const orgId = options.org_id || window.ORG_ID;
+      console.log('[REWSTLIB] createOrUpdateOrgVariable: checking if variable exists -', name);
+      
+      // Check if variable exists
+      const existingVar = await getOrgVariable(name, orgId);
+      
+      if (existingVar) {
+        // Variable exists, update it
+        console.log('[REWSTLIB] Variable exists, updating:', name);
+        return await updateOrgVariable(existingVar.id, name, value, options);
+      } else {
+        // Variable doesn't exist, create it
+        console.log('[REWSTLIB] Variable does not exist, creating:', name);
+        return await createOrgVariable(name, value, options);
+      }
+    } catch (error) {
+      console.error('[REWSTLIB] Failed to create or update org variable:', error.message);
       throw error;
     }
   }
@@ -1000,7 +1032,8 @@ const RewstLib = (function() {
       getAll: getOrgVariables,
       getDatatableConfigs: getDatatableConfigs,
       create: createOrgVariable,
-      update: updateOrgVariable
+      update: updateOrgVariable,
+      createOrUpdate: createOrUpdateOrgVariable
     },
     // Forms
     forms: {
