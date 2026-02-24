@@ -27,7 +27,7 @@ const RewstLib = (function() {
   // ========================================
   const GRAPHQL_OPERATIONS = {
     createOrUpdateOrgVariable: {
-      name: 'Create or Update Org Variable2',
+      name: 'Create or Update Org Variable',
       description: 'Creates a new org variable or updates an existing one',
       type: 'submit',
       function: 'RewstLib.orgVariables.createOrUpdateOrgVariable',
@@ -38,7 +38,7 @@ const RewstLib = (function() {
       ]
     },
     list_orgs: {
-      name: 'List Organizations',
+      name: 'List Organizations2',
       description: 'Retrieves a list of sub-organizations',
       type: 'form_field',
       function: 'RewstLib.organizations.getSubOrganizations',
