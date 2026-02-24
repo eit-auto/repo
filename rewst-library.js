@@ -29,9 +29,27 @@ const RewstLib = (function() {
     createOrUpdateOrgVariable: {
       name: 'Create or Update Org Variable',
       description: 'Creates a new org variable or updates an existing one',
+      type: 'submit',
       inputs: [
         { name: 'varName', label: 'Variable Name', type: 'text', required: true },
         { name: 'varValue', label: 'Variable Value', type: 'textarea', required: true },
+        { name: 'orgId', label: 'Organization ID (optional)', type: 'text', required: false }
+      ]
+    },
+    list_orgs: {
+      name: 'List Organizations',
+      description: 'Retrieves a list of sub-organizations',
+      type: 'form_field',
+      inputs: [
+        { name: 'parentOrgId', label: 'Parent Organization ID', type: 'text', required: true }
+      ]
+    },
+    get_org_var: {
+      name: 'Get Org Variable',
+      description: 'Retrieves a specific organization variable',
+      type: 'form_field',
+      inputs: [
+        { name: 'varName', label: 'Variable Name', type: 'text', required: true },
         { name: 'orgId', label: 'Organization ID (optional)', type: 'text', required: false }
       ]
     }
