@@ -27,7 +27,7 @@ const RewstLib = (function() {
   // ========================================
   const GRAPHQL_OPERATIONS = {
     createOrUpdateOrgVariable: {
-      name: 'Create or Update Org Variable',
+      name: 'Create or Update Org Variable2',
       description: 'Creates a new org variable or updates an existing one',
       type: 'submit',
       function: 'RewstLib.orgVariables.createOrUpdateOrgVariable',
