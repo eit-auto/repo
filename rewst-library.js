@@ -38,7 +38,7 @@ const RewstLib = (function() {
       ]
     },
     list_orgs: {
-      name: 'List Organizations2',
+      name: 'List Organizations',
       description: 'Retrieves a list of sub-organizations',
       type: 'form_field',
       function: 'RewstLib.organizations.getSubOrganizations',
@@ -232,7 +232,8 @@ const RewstLib = (function() {
    * @param {string} parentOrgId - Parent organization ID
    * @returns {Promise<Array>} Array of sub-organization objects with id and name
    */
-  async function getSubOrganizations(parentOrgId) {
+  async function getSubOrganizations(parentOrgId = null) {
+    const orgId = parentOrgId || window.ORG_ID;
     const query = `
       query GetSubOrganizations($parentOrgId: ID!) {
         organizations(
@@ -244,7 +245,7 @@ const RewstLib = (function() {
         }
       }
     `;
-    const data = await graphqlQuery(query, { parentOrgId });
+    const data = await graphqlQuery(query, { parentOrgId: orgId });
     return data.organizations || [];
   }
   // ========================================
