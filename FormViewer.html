@@ -1133,10 +1133,10 @@
             fieldConfigs.forEach(config => {
                 const formGroup = document.querySelector(`[data-field-name="${config.field_name}"]`);
                 if (formGroup && config.type === 'dropdown' && config.dependant_fields && !config.hidden) {
-                    showWaitingMessage(formGroup, config, fieldConfigs);
+                    RewstLib.utils.showWaitingMessage(formGroup, config, fieldConfigs);
                 }
                 if (formGroup && config.type === 'dropdown_graphql' && config.dependant_fields && !config.hidden) {
-                    showWaitingMessage(formGroup, config, fieldConfigs);
+                    RewstLib.utils.showWaitingMessage(formGroup, config, fieldConfigs);
                 }
             });
             
@@ -1167,8 +1167,8 @@
             const formGroup = document.querySelector(`[data-field-name="${config.field_name}"]`);
             console.log(`>>> formGroup found?`, !!formGroup);
             if (formGroup && config.type !== 'form_extend') {
-                hideWaitingMessage(formGroup, config);
-                showLoadingMessage(formGroup, config);
+                RewstLib.utils.hideWaitingMessage(formGroup, config);
+                RewstLib.utils.showLoadingMessage(formGroup, config);
             }
             
             if (config.dependant_fields) {
@@ -1189,8 +1189,8 @@
                 if (!allDepsMet) {
                     console.log(`Dependencies not met for ${config.field_name}, skipping workflow`);
                     if (formGroup) {
-                        hideLoadingMessage(formGroup, config);
-                        showWaitingMessage(formGroup, config, allFieldConfigs);
+                        RewstLib.utils.hideLoadingMessage(formGroup, config);
+                        RewstLib.utils.showWaitingMessage(formGroup, config, allFieldConfigs);
                     }
                     return Promise.resolve();
                 }
@@ -1376,7 +1376,7 @@
                 
                 return graphqlPromise.then(data => {
                     console.log(`GraphQL result for ${config.field_name}:`, data);
-                    if (formGroup) hideLoadingMessage(formGroup, config);
+                    if (formGroup) RewstLib.utils.hideLoadingMessage(formGroup, config);
                     
                     const input = document.querySelector(`select[name="${config.field_name}"]`);
                     if (input) {
@@ -1409,7 +1409,7 @@
                     }
                 }).catch(error => {
                     console.error(`Error loading GraphQL options for ${config.field_name}:`, error);
-                    if (formGroup) hideLoadingMessage(formGroup, config);
+                    if (formGroup) RewstLib.utils.hideLoadingMessage(formGroup, config);
                     const input = document.querySelector(`select[name="${config.field_name}"]`);
                     if (input) input.innerHTML = `<option value="">-- Error loading options --</option>`;
                 });
@@ -1606,7 +1606,7 @@
             if (config.type !== 'form_extend') {
                 return rewst.runWorkflowSmart(config.workflow_id, workflowInput, options).then(result => {
                 console.log(`Workflow result for ${config.field_name}:`, result);
-                if (formGroup) hideLoadingMessage(formGroup, config);
+                if (formGroup) RewstLib.utils.hideLoadingMessage(formGroup, config);
                 
                 const input = document.querySelector(`select[name="${config.field_name}"]`);
                 if (input && result.conductor && result.conductor.output && result.conductor.output.options) {
@@ -1640,52 +1640,11 @@
                 }
             }).catch(error => {
                 console.error(`Error executing workflow for ${config.field_name}:`, error);
-                if (formGroup) hideLoadingMessage(formGroup, config);
+                if (formGroup) RewstLib.utils.hideLoadingMessage(formGroup, config);
                 const input = document.querySelector(`select[name="${config.field_name}"]`);
                 if (input) input.innerHTML = `<option value="">-- Error loading options --</option>`;
             });
             }
-        }
-        
-        function showWaitingMessage(formGroup, config, fieldConfigs) {
-            const depFields = config.dependant_fields.split(',').map(f => f.trim());
-            const parentFieldLabels = depFields.map(fieldName => {
-                const parentConfig = fieldConfigs.find(f => f.field_name === fieldName);
-                return parentConfig ? parentConfig.field_displayname : fieldName;
-            });
-            const input = formGroup.querySelector('input, select, textarea');
-            if (input) input.style.display = 'none';
-            const waitingBox = document.createElement('div');
-            waitingBox.className = 'field-waiting-message';
-            waitingBox.setAttribute('data-field-name', config.field_name);
-            waitingBox.innerHTML = `Waiting for ${parentFieldLabels.join(' and ')} selection`;
-            formGroup.appendChild(waitingBox);
-        }
-        
-        function showLoadingMessage(formGroup, config) {
-            const input = formGroup.querySelector('input, select, textarea');
-            if (input) input.style.display = 'none';
-            const existingLoading = formGroup.querySelector('.field-loading-message');
-            if (existingLoading) existingLoading.remove();
-            const loadingBox = document.createElement('div');
-            loadingBox.className = 'field-loading-message';
-            loadingBox.setAttribute('data-field-name', config.field_name);
-            loadingBox.innerHTML = '<div style="display: flex; align-items: center; gap: 8px; justify-content: center;"><div class="loading-spinner" style="display: inline-block; width: 16px; height: 16px; border: 2px solid rgba(102, 126, 234, 0.3); border-top-color: #667eea; border-radius: 50%; animation: spin 0.8s linear infinite;"></div><span>Loading...</span></div>';
-            formGroup.appendChild(loadingBox);
-        }
-        
-        function hideLoadingMessage(formGroup, config) {
-            const loadingBox = formGroup.querySelector('.field-loading-message');
-            if (loadingBox) loadingBox.remove();
-            const input = formGroup.querySelector('input, select, textarea');
-            if (input) input.style.display = '';
-        }
-        
-        function hideWaitingMessage(formGroup, config) {
-            const waitingBox = formGroup.querySelector('.field-waiting-message');
-            if (waitingBox) waitingBox.remove();
-            const input = formGroup.querySelector('input, select, textarea');
-            if (input) input.style.display = '';
         }
         
         
