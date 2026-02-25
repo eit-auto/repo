@@ -1054,12 +1054,29 @@ const RewstLib = (function() {
    * @param {function} onChange - Callback when selection changes
    */
   function initializeMultiSelect(container, options, selectedValues = [], onChange = null) {
-    if (!container) return;
+    if (!container) {
+      console.error('[MULTI-SELECT] Container not provided');
+      return;
+    }
 
     const tagsContainer = container.querySelector('.multi-select-tags');
-    const dropdown = container.querySelector('.multi-select-dropdown');
+    const dropdown = container.querySelector('.multi-select-options');
     const toggleBtn = container.querySelector('.multi-select-toggle');
     const hiddenSelect = container.querySelector('select');
+
+    console.log('[MULTI-SELECT] Initializing:', {
+      container: !!container,
+      tagsContainer: !!tagsContainer,
+      dropdown: !!dropdown,
+      toggleBtn: !!toggleBtn,
+      hiddenSelect: !!hiddenSelect,
+      optionsCount: options.length
+    });
+
+    if (!dropdown || !toggleBtn) {
+      console.error('[MULTI-SELECT] Missing required elements');
+      return;
+    }
 
     let selected = [...(selectedValues || [])];
 
@@ -1133,7 +1150,13 @@ const RewstLib = (function() {
 
     // Toggle dropdown
     function toggleDropdown() {
+      if (!dropdown) {
+        console.error('[MULTI-SELECT] Dropdown element not found');
+        return;
+      }
+      console.log('[MULTI-SELECT] Toggle clicked, current open state:', dropdown.classList.contains('open'));
       dropdown.classList.toggle('open');
+      console.log('[MULTI-SELECT] After toggle, open state:', dropdown.classList.contains('open'));
       if (dropdown.classList.contains('open')) {
         populateDropdown();
       }
@@ -1145,10 +1168,15 @@ const RewstLib = (function() {
     }
 
     // Event listeners
-    toggleBtn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      toggleDropdown();
-    });
+    if (!toggleBtn) {
+      console.error('[MULTI-SELECT] Toggle button not found - cannot attach click handler');
+    } else {
+      toggleBtn.addEventListener('click', (e) => {
+        console.log('[MULTI-SELECT] Toggle button clicked, dropdown element:', !!dropdown);
+        e.stopPropagation();
+        toggleDropdown();
+      });
+    }
 
     container.addEventListener('click', (e) => {
       if (e.target.classList.contains('multi-select-tag-remove')) {
