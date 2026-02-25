@@ -1121,6 +1121,36 @@ const RewstLib = (function() {
       const optionsContainer = dropdown;
       optionsContainer.innerHTML = '';
 
+      // Add SELECT ALL checkbox at the top
+      const selectAllDiv = document.createElement('div');
+      selectAllDiv.className = 'multi-select-option multi-select-select-all';
+      const selectAllId = 'selectall_' + Math.random().toString(36).substr(2, 9);
+      const allSelected = options.length > 0 && selected.length === options.length;
+      selectAllDiv.innerHTML = `
+        <input type="checkbox" id="${selectAllId}" ${allSelected ? 'checked' : ''}>
+        <label for="${selectAllId}"><strong>Select All</strong></label>
+      `;
+      
+      const selectAllCheckbox = selectAllDiv.querySelector('input');
+      selectAllCheckbox.addEventListener('change', () => {
+        if (selectAllCheckbox.checked) {
+          // Select all
+          selected = options.map(o => o.value);
+        } else {
+          // Deselect all
+          selected = [];
+        }
+        updateTags();
+        populateDropdown(); // Refresh to update all checkboxes
+      });
+      
+      optionsContainer.appendChild(selectAllDiv);
+
+      // Add separator
+      const separator = document.createElement('div');
+      separator.style.borderBottom = '1px solid #556870';
+      optionsContainer.appendChild(separator);
+
       options.forEach(option => {
         const optionDiv = document.createElement('div');
         optionDiv.className = 'multi-select-option';
