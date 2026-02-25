@@ -1129,13 +1129,10 @@
                 }
             });
             
-            // Initialize field UI states - show waiting for dependent dropdowns
+            // Initialize field UI states - show waiting for dependent fields
             fieldConfigs.forEach(config => {
                 const formGroup = document.querySelector(`[data-field-name="${config.field_name}"]`);
-                if (formGroup && config.type === 'dropdown' && config.dependant_fields && !config.hidden) {
-                    RewstLib.utils.showWaitingMessage(formGroup, config, fieldConfigs);
-                }
-                if (formGroup && config.type === 'dropdown_graphql' && config.dependant_fields && !config.hidden) {
+                if (formGroup && config.dependant_fields && !config.hidden) {
                     RewstLib.utils.showWaitingMessage(formGroup, config, fieldConfigs);
                 }
             });
@@ -1168,7 +1165,11 @@
             console.log(`>>> formGroup found?`, !!formGroup);
             if (formGroup && config.type !== 'form_extend') {
                 RewstLib.utils.hideWaitingMessage(formGroup, config);
-                RewstLib.utils.showLoadingMessage(formGroup, config);
+                
+                // Only show loading message for data-fetching field types
+                if (config.type === 'dropdown' || config.type === 'dropdown_graphql') {
+                    RewstLib.utils.showLoadingMessage(formGroup, config);
+                }
             }
             
             if (config.dependant_fields) {
@@ -1688,7 +1689,12 @@
                     console.log(`>>> Calling loadFieldOptions for ${depConfig.field_name}`);
                     loadFieldOptions(depConfig, allFieldConfigs, formConfig);
                 } else {
-                    console.log(`>>> Field ${depConfig.field_name} has no workflow_id or graphql_op`);
+                    // Non-data-fetching field types: just hide waiting message and show field
+                    console.log(`>>> Non-data-fetching field ${depConfig.field_name}, hiding waiting message`);
+                    const formGroup = document.querySelector(`[data-field-name="${depConfig.field_name}"]`);
+                    if (formGroup) {
+                        RewstLib.utils.hideWaitingMessage(formGroup, depConfig);
+                    }
                 }
             });
         }
