@@ -52,6 +52,7 @@
     border-radius: 8px;
     box-sizing: border-box;
     overflow-x: hidden;
+    overflow-y: visible;
     display: flex;
     flex-direction: column;
     gap: 1rem;
@@ -629,6 +630,8 @@
     margin-bottom: 1.125rem;
     display: flex;
     flex-direction: column;
+    position: relative;
+    z-index: auto;
   }
   .form-group-vert {
     display: flex;
@@ -1478,7 +1481,7 @@
    ============================================ */
   /* Ensure form-group with multi-select allows dropdown overflow */
   .form-group:has(.multi-select-container) {
-    overflow: visible;
+    overflow: visible !important;
   }
 
   .multi-select-container {
@@ -1500,6 +1503,11 @@
     flex-wrap: wrap;
     transition: all 0.2s ease;
     overflow: visible;
+    user-select: none;
+  }
+
+  .multi-select-display:hover {
+    border-color: var(--form-accent-color);
   }
 
   .multi-select-display:focus-within {
@@ -1533,6 +1541,13 @@
     font-weight: bold;
     opacity: 0.8;
     transition: opacity 0.2s;
+    pointer-events: auto;
+    background: none;
+    border: none;
+    padding: 0;
+    margin: 0;
+    font-size: inherit;
+    color: inherit;
   }
 
   .multi-select-tag-remove:hover {
@@ -1568,16 +1583,15 @@
     border: 2px solid var(--form-border-color);
     border-top: none;
     border-radius: 0 0 4px 4px;
-    max-height: 0;
-    overflow: hidden;
-    transition: max-height 0.2s ease;
+    display: none;
+    overflow-y: auto;
     z-index: 10000;
     margin-top: 0;
+    max-height: 250px;
   }
 
   .multi-select-options.open {
-    max-height: 250px;
-    overflow-y: auto;
+    display: block;
   }
 
   .multi-select-option {
