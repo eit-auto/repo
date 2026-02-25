@@ -1174,22 +1174,65 @@ const RewstLib = (function() {
   }
 
   /**
-   * Hide "Waiting for..." message and show field again
-   * @param {HTMLElement} formGroup - Form group container
-   * @param {object} config - Field configuration
+   * Initialize dependent fields - show waiting message for all fields with dependencies
+   * @param {Array} fieldConfigs - All field configurations
    */
-  function hideWaitingMessage(formGroup, config) {
-    const waitingBox = formGroup.querySelector('.field-waiting-message');
-    if (waitingBox) waitingBox.remove();
+  function initializeDependentFields(fieldConfigs) {
+    fieldConfigs.forEach(config => {
+      const formGroup = document.querySelector(`[data-field-name="${config.field_name}"]`);
+      if (formGroup && config.dependant_fields && !config.hidden) {
+        showWaitingMessage(formGroup, config, fieldConfigs);
+      }
+    });
+  }
+
+  /**
+   * Check if all dependencies for a field are met
+   * @param {object} config - Field configuration
+   * @param {Array} allFieldConfigs - All field configurations
+   * @returns {boolean} True if all dependencies are met
+   */
+  function areDependenciesMet(config, allFieldConfigs) {
+    if (!config.dependant_fields) return true;
     
-    // Show multi-select display or regular input
-    const multiSelectDisplay = formGroup.querySelector('.multi-select-display');
-    const input = formGroup.querySelector('input, select, textarea');
+    const depFields = config.dependant_fields.split(',').map(f => f.trim());
+    return depFields.every(depFieldName => {
+      const depField = allFieldConfigs.find(f => f.field_name === depFieldName);
+      if (!depField) return false;
+      const input = document.querySelector(`input[name="${depFieldName}"], select[name="${depFieldName}"], textarea[name="${depFieldName}"]`);
+      if (!input) return false;
+      if (input.type === 'checkbox') return input.checked;
+      if (input.type === 'radio') {
+        const checkedRadio = document.querySelector(`input[name="${depFieldName}"]:checked`);
+        return !!checkedRadio;
+      }
+      return input.value && input.value.trim() !== '';
+    });
+  }
+
+  /**
+   * Handle field state when dependency is met
+   * @param {object} config - Field configuration
+   * @param {Array} allFieldConfigs - All field configurations
+   * @param {function} onDataFetchingField - Callback for data-fetching field types
+   * @param {function} onNonDataFetchingField - Callback for non-data-fetching field types
+   */
+  function handleDependencyMet(config, allFieldConfigs, onDataFetchingField, onNonDataFetchingField) {
+    const formGroup = document.querySelector(`[data-field-name="${config.field_name}"]`);
+    if (!formGroup) return;
     
-    if (multiSelectDisplay) {
-      multiSelectDisplay.style.display = '';
-    } else if (input) {
-      input.style.display = '';
+    hideWaitingMessage(formGroup, config);
+    
+    // Data-fetching field types (dropdown, dropdown_graphql, form_extend)
+    if (config.type === 'dropdown' || config.type === 'dropdown_graphql' || config.type === 'form_extend') {
+      if (onDataFetchingField) {
+        onDataFetchingField(config, allFieldConfigs);
+      }
+    } else {
+      // Non-data-fetching field types - just show field
+      if (onNonDataFetchingField) {
+        onNonDataFetchingField(config, formGroup);
+      }
     }
   }
 
@@ -1469,7 +1512,10 @@ const RewstLib = (function() {
       showWaitingMessage,
       showLoadingMessage,
       hideLoadingMessage,
-      hideWaitingMessage
+      hideWaitingMessage,
+      initializeDependentFields,
+      areDependenciesMet,
+      handleDependencyMet
     },
     // GraphQL Operations
     graphqlOperations: {
