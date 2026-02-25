@@ -1017,33 +1017,59 @@ const RewstLib = (function() {
   }
 
   /**
-   * Format cell value for display based on field type
-   * @param {string} colName - Column name
-   * @param {*} value - Cell value
-   * @param {object} fieldTypes - Field type mapping
-   * @returns {string} Formatted cell value
+   * Generate multi-select container HTML
+   * @param {string} fieldName - Field name
+   * @param {string} displayName - Display name for label
+   * @param {string} description - Optional field description
+   * @returns {string} HTML for multi-select container
    */
-  function formatCellValue(colName, value, fieldTypes = {}) {
-    if (!value) return '';
-    
-    const fieldType = fieldTypes[colName];
-    
-    if (fieldType === 'datetime') {
-      return formatDateTimeDisplay(value);
-    } else if (fieldType === 'date') {
-      return formatDateDisplay(value);
-    }
-    
-    return escapeHtml(String(value));
+  function renderMultiSelectContainer(fieldName, displayName, description) {
+    const multiSelectId = `ms_${fieldName}`;
+    const descriptionHtml = description ? `<div class="field-description">${escapeHtml(description)}</div>` : '';
+    return `
+      <label>${displayName}</label>
+      ${descriptionHtml}
+      <div class="multi-select-container" id="${multiSelectId}">
+        <div class="multi-select-display">
+          <div class="multi-select-tags"></div>
+          <div class="multi-select-toggle">▼</div>
+        </div>
+        <div class="multi-select-options"></div>
+        <select name="${fieldName}" class="multi-select-hidden-select"></select>
+      </div>
+    `;
   }
 
   /**
-   * Get all available GraphQL operations
-   * @returns {object} All GraphQL operations metadata
+   * Initialize dropdown multi-select component
+   * @param {string} fieldName - Field name
+   * @param {Array} optionsArray - Array of {value, label} objects
    */
-  function getGraphQLOperations() {
-    return GRAPHQL_OPERATIONS;
+  function initializeDropdownMultiSelect(fieldName, optionsArray) {
+    const multiSelectId = `ms_${fieldName}`;
+    const container = document.getElementById(multiSelectId);
+    if (container && optionsArray && optionsArray.length > 0) {
+      initializeMultiSelect(container, optionsArray, []);
+      console.log(`[MULTI-SELECT] Initialized for: ${fieldName} with ${optionsArray.length} options`);
+    }
   }
+
+  /**
+   * Map result items to options format for dropdowns
+   * @param {Array} items - Array of result items
+   * @param {string} valueName - Property name for value
+   * @param {string} labelName - Property name for label
+   * @returns {Array} Array of {value, label} objects
+   */
+  function mapResultsToOptions(items, valueName, labelName) {
+    if (!items || !Array.isArray(items)) return [];
+    return items.map(item => ({
+      value: item[valueName] || item.id || item.Id,
+      label: item[labelName] || item.name || item.Name
+    })).filter(opt => opt.value && opt.label);
+  }
+
+  
   
   /**
    * Get a specific GraphQL operation metadata
@@ -1312,7 +1338,10 @@ const RewstLib = (function() {
       formatCellValue,
       getUrlParameter,
       escapeHtml,
-      initializeMultiSelect
+      initializeMultiSelect,
+      renderMultiSelectContainer,
+      initializeDropdownMultiSelect,
+      mapResultsToOptions
     },
     // GraphQL Operations
     graphqlOperations: {
