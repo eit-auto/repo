@@ -1,0 +1,2576 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>REWST Form Viewer</title>
+    <!-- External Rewst Library CSS -->
+    <link rel="stylesheet" href="https://eit-auto.github.io/repo/rewst-library.css">
+    <style>
+        /* Form Viewer specific customizations */
+        body {
+            background: transparent;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .preview-placeholder {
+            color: #999;
+            text-align: center;
+            padding: 60px 20px;
+            font-size: 16px;
+        }
+
+        .modal-status {
+            color: #ffffff;
+            font-weight: 600;
+            margin-bottom: 16px;
+            font-size: 18px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .modal-section {
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .modal-section:last-child {
+            border-bottom: none;
+        }
+
+        .modal-label {
+            color: #ffffff;
+            font-weight: 600;
+            margin-bottom: 8px;
+            font-size: 14px;
+        }
+    </style>
+    <!-- Organization ID - must be set before loading rewst-library.js -->
+    <script>
+        window.ORG_ID = '019176c2-059f-7391-afbc-97b201efbd93';
+    </script>
+    <!-- Rewst Library JavaScript (embedded) -->
+    <script src="https://eit-auto.github.io/repo/rewst-library.js"></script>
+<body>
+    <!-- Validation Error Modal -->
+    <div id="validationErrorModal" style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.5); display: none; align-items: center; justify-content: center; z-index: 1000;">
+        <div style="background: #2E5F75; border-radius: 8px; padding: 30px; max-width: 500px; box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3); color: #ffffff;">
+            <h2 style="margin-top: 0; margin-bottom: 20px; color: #ffffff;">Validation Error</h2>
+            <p id="validationErrorMessage" style="margin-bottom: 30px; line-height: 1.6;"></p>
+            <div style="text-align: center;">
+                <button id="validationErrorOkBtn" style="padding: 10px 30px; background: #667eea; color: white; border: none; border-radius: 4px; font-size: 14px; font-weight: 600; cursor: pointer;">OK</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Execution Status Modal -->
+    <div class="modal-overlay" id="executionModal" style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.5); display: none; align-items: center; justify-content: center; z-index: 1000;">
+        <div class="modal" style="background: #2E5F75; border-radius: 8px; box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3); padding: 30px; max-width: 600px; width: auto; max-height: 80vh; overflow-y: auto; position: relative; color: #ffffff;">
+            <button class="btn-close" id="modalCloseBtn">&times;</button>
+            <div class="modal-content" id="modalContent"></div>
+        </div>
+    </div>
+
+    <div style="display: flex; flex-direction: column; height: 100%; width: 100%;">
+        <div style="padding: 15px 20px; box-sizing: border-box; flex-shrink: 0;">
+            <div style="max-width: 1200px; margin: 0 auto;">
+                <!-- Open Existing Row -->
+                <div id="open_existing_section" style="display: none; align-items: center; gap: 10px; justify-content: center;">
+                    <select id="open_existing_dropdown" style="width: 300px; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; font-size: 14px;">
+                        <option value="">-- Select a form --</option>
+                    </select>
+                    <div class="waiting-box" id="open_existing_loading" style="width: 300px; display: none; margin-top: 0;">
+                        <h4 style="font-size: 14px; gap: 8px;">Loading Forms<span class="spinner" style="width: 16px; height: 16px; border-width: 2px;"></span></h4>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Main Content Area with Form Preview -->
+        <div class="content-wrapper">
+            <div class="content-wrapper-inner">
+                <div id="previewContent" class="main-panel">
+                    <div class="preview-placeholder">
+                        Select a form from above to view it
+                    </div>
+                </div>
+                <!-- Form Action Buttons -->
+                <div id="formButtonsContainer" style="display: none; margin-top: 20px; display: flex; gap: 10px; justify-content: center; align-items: center; position: relative;">
+                    <button id="resetFormBtn" class="btn btn-gold">Reset</button>
+                    <button id="submitFormBtn" class="btn btn-blue">Submit</button>
+                    <div id="workflowExecutingBox" style="position: absolute; right: 0; width: auto; padding: 12px 16px; background: #fff3cd; border: 1px solid #ffeeba; border-radius: 6px; text-align: center; color: #856404; font-size: 14px; font-weight: 600; cursor: pointer; display: none; white-space: nowrap;">
+                        <span class="spinner" style="display: inline-block; width: 14px; height: 14px; border: 2px solid rgba(133, 100, 4, 0.3); border-top-color: #856404; border-radius: 50%; animation: spin 0.8s linear infinite; margin-right: 8px; vertical-align: middle;"></span>Workflow Executing...
+                    </div>
+                    <div id="workflowCompletionStatus" style="position: absolute; right: 0; width: auto; padding: 12px 16px; background: #d4edda; border: 1px solid #c3e6cb; border-radius: 6px; text-align: center; color: #155724; font-size: 14px; font-weight: 600; cursor: pointer; display: none; white-space: nowrap;">
+                        ✓ Workflow Completed
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ============================================
+        // REWST APP LIBRARY (Simplified)
+        // ============================================
+        class RewstApp {
+            constructor(config = {}) {
+                this.graphqlUrl = config.graphqlPath || '/graphql';
+                this.orgId = config.orgId || null;
+                this.isInitialized = config.orgId ? true : false;
+                this.debugMode = config.debug || false;
+            }
+
+            _log(...args) {
+                if (this.debugMode) console.log('[Rewst]', ...args);
+            }
+
+            _error(message, error) {
+                console.error(`[Rewst Error] ${message}`);
+                if (error) console.error('Details:', error);
+            }
+
+            async runWorkflowSmart(workflowId, inputData = {}, options = {}) {
+                if (!this.isInitialized) {
+                    throw new Error('Rewst not initialized. Call rewst.init(orgId) first!');
+                }
+
+                this._log('Running workflow (smart mode):', workflowId);
+
+                try {
+                    return await this.runWorkflow(workflowId, inputData, options);
+                } catch (firstError) {
+                    this._log('testWorkflow failed:', firstError.message);
+                    this._log('Attempting trigger-based execution...');
+
+                    try {
+                        const triggers = await this.getWorkflowTriggers(workflowId);
+
+                        if (!triggers || triggers.length === 0) {
+                            throw new Error('Workflow has no triggers configured');
+                        }
+
+                        const enabledTrigger = triggers.find(t => t.enabled);
+                        if (!enabledTrigger) {
+                            throw new Error('No enabled triggers found');
+                        }
+
+                        const instance = enabledTrigger.orgInstances?.find(inst => inst.orgId === this.orgId);
+                        if (!instance) {
+                            throw new Error(`No trigger instance found for org ${this.orgId}`);
+                        }
+
+                        return await this.runWorkflowWithTrigger(
+                            instance.id,
+                            enabledTrigger.id,
+                            inputData,
+                            options
+                        );
+
+                    } catch (secondError) {
+                        this._error('Both execution methods failed', secondError);
+                        throw new Error(`Failed to run workflow: ${secondError.message}`);
+                    }
+                }
+            }
+
+            async runWorkflow(workflowId, inputData = {}, options = {}) {
+                if (!this.isInitialized) {
+                    throw new Error('Rewst not initialized. Missing orgId.');
+                }
+
+                this._log('Running workflow:', workflowId);
+
+                try {
+                    const query = `
+                        mutation testWorkflow($id: ID!, $orgId: ID!, $input: JSON) {
+                            testResult: testWorkflow(id: $id, orgId: $orgId, input: $input) {
+                                executionId
+                            }
+                        }
+                    `;
+
+                    const result = await this._graphql('testWorkflow', query, { 
+                        id: workflowId, 
+                        orgId: this.orgId,
+                        input: inputData 
+                    });
+                    
+                    this._log('Workflow execution started:', result.testResult.executionId);
+                    return await this._waitForCompletion(result.testResult.executionId, options.onProgress);
+                    
+                } catch (firstError) {
+                    this._log('Direct execution failed:', firstError.message);
+                    console.error('Direct execution error details:', firstError);
+                    throw firstError;
+                }
+            }
+
+            async runWorkflowWithTrigger(triggerInstanceId, triggerId, inputData = {}, options = {}) {
+                const query = `
+                    mutation testTrigger($input: JSON, $triggerInstance: OrgTriggerInstanceInput!) {
+                        testResult: testWorkflowTrigger(triggerInstance: $triggerInstance, input: $input) {
+                            executionId
+                        }
+                    }
+                `;
+
+                const result = await this._graphql('testTrigger', query, {
+                    input: inputData,
+                    triggerInstance: {
+                        id: triggerInstanceId,
+                        orgId: this.orgId,
+                        isManualActivation: true,
+                        organization: { id: this.orgId, name: 'Current Org' },
+                        trigger: { id: triggerId, vars: [], orgId: this.orgId }
+                    }
+                });
+
+                return await this._waitForCompletion(result.testResult.executionId, options.onProgress);
+            }
+
+            async _waitForCompletion(executionId, onProgress = null) {
+                const pollInterval = 2000;
+                const maxAttempts = 150;
+                let attempts = 0;
+
+                console.log('Starting poll for execution:', executionId);
+                await new Promise(resolve => setTimeout(resolve, 500));
+
+                while (attempts < maxAttempts) {
+                    try {
+                        console.log(`Poll attempt ${attempts + 1}/${maxAttempts}`);
+                        const execution = await this.getExecutionStatus(executionId);
+
+                        if (onProgress) {
+                            try {
+                                onProgress(execution.status, execution.numSuccessfulTasks);
+                            } catch (e) {}
+                        }
+
+                        console.log('Poll status:', execution.status);
+
+                        const terminalStates = ['COMPLETED', 'SUCCESS', 'succeeded', 'FAILED', 'failed', 'ERROR'];
+                        const isComplete = terminalStates.some(s => execution.status.toUpperCase() === s.toUpperCase());
+
+                        if (isComplete) {
+                            const isFailed = ['FAILED', 'failed', 'ERROR'].some(s => execution.status.toUpperCase() === s.toUpperCase());
+                            if (isFailed) {
+                                const errorMsg = execution.conductor?.errors || 'Unknown error';
+                                console.error('Workflow failed with error:', errorMsg);
+                                throw new Error(`Workflow failed: ${errorMsg}`);
+                            }
+                            
+                            // Check if conductor.output is ready
+                            if (!execution.conductor?.output) {
+                                console.log('Execution complete but conductor.output is empty, polling 5 more times to ensure output is ready');
+                                let outputReadyAttempts = 0;
+                                const maxOutputAttempts = 5;
+                                
+                                while (outputReadyAttempts < maxOutputAttempts) {
+                                    await new Promise(resolve => setTimeout(resolve, pollInterval));
+                                    const refreshedExecution = await this.getExecutionStatus(executionId);
+                                    console.log(`Output ready check ${outputReadyAttempts + 1}/${maxOutputAttempts}, output:`, refreshedExecution.conductor?.output);
+                                    
+                                    if (refreshedExecution.conductor?.output) {
+                                        console.log('Output is now ready, returning execution');
+                                        return { ...refreshedExecution, success: true };
+                                    }
+                                    
+                                    outputReadyAttempts++;
+                                }
+                                
+                                // Output still not ready after 5 more attempts, but workflow is complete
+                                console.warn('Output still empty after 5 additional polls, returning execution anyway');
+                            }
+                            
+                            console.log('Execution completed successfully, output:', execution.conductor?.output);
+                            return { ...execution, success: true };
+                        }
+
+                        await new Promise(resolve => setTimeout(resolve, pollInterval));
+                        attempts++;
+
+                    } catch (err) {
+                        console.error('Poll error:', err);
+                        throw err;
+                    }
+                }
+
+                throw new Error('Workflow execution timeout');
+            }
+
+            async getExecutionStatus(executionId) {
+                const query = `
+                    query getExecution($id: ID!) {
+                        workflowExecution(where: {id: $id}) {
+                            id
+                            status
+                            conductor {
+                                errors
+                                output
+                            }
+                            numSuccessfulTasks
+                            taskLogs {
+                                id
+                                createdAt
+                                updatedAt
+                                status
+                                message
+                            }
+                        }
+                    }
+                `;
+
+                const result = await this._graphql('getExecution', query, { id: executionId });
+                return result.workflowExecution || {};
+            }
+
+            async startWorkflowExecution(workflowId, inputData = {}) {
+                const query = `
+                    mutation testWorkflow($id: ID!, $orgId: ID!, $input: JSON) {
+                        testResult: testWorkflow(id: $id, orgId: $orgId, input: $input) {
+                            executionId
+                        }
+                    }
+                `;
+
+                try {
+                    const testResult = await this._graphql('testWorkflow', query, { 
+                        id: workflowId, 
+                        orgId: this.orgId,
+                        input: inputData 
+                    });
+                    this._log('Workflow execution started:', testResult.testResult.executionId);
+                    return testResult.testResult;
+                } catch (firstError) {
+                    this._log('testWorkflow failed:', firstError.message);
+                    this._log('Attempting trigger-based execution...');
+
+                    try {
+                        const triggers = await this.getWorkflowTriggers(workflowId);
+
+                        if (!triggers || triggers.length === 0) {
+                            throw new Error('Workflow has no triggers configured');
+                        }
+
+                        const enabledTrigger = triggers.find(t => t.enabled);
+                        if (!enabledTrigger) {
+                            throw new Error('No enabled triggers found');
+                        }
+
+                        const instance = enabledTrigger.orgInstances?.find(inst => inst.orgId === this.orgId);
+                        if (!instance) {
+                            throw new Error(`No trigger instance found for org ${this.orgId}`);
+                        }
+
+                        const triggerQuery = `
+                            mutation testTrigger($input: JSON, $triggerInstance: OrgTriggerInstanceInput!) {
+                                testResult: testWorkflowTrigger(triggerInstance: $triggerInstance, input: $input) {
+                                    executionId
+                                }
+                            }
+                        `;
+
+                        const triggerResult = await this._graphql('testTrigger', triggerQuery, {
+                            input: inputData,
+                            triggerInstance: {
+                                id: instance.id,
+                                orgId: this.orgId,
+                                isManualActivation: true,
+                                organization: { id: this.orgId, name: 'Current Org' },
+                                trigger: { id: enabledTrigger.id, vars: [], orgId: this.orgId }
+                            }
+                        });
+
+                        this._log('Workflow execution started via trigger:', triggerResult.testResult.executionId);
+                        return triggerResult.testResult;
+
+                    } catch (secondError) {
+                        this._error('Both execution methods failed', secondError);
+                        throw new Error(`Failed to run workflow: ${secondError.message}`);
+                    }
+                }
+            }
+
+            async getDetailedTaskLogs(executionId) {
+                const query = `
+                    query getTaskLogs($executionId: ID!) {
+                        taskLogs(where: {workflowExecutionId: $executionId}) {
+                            id
+                            createdAt
+                            status
+                            message
+                            workflowTaskId
+                        }
+                    }
+                `;
+
+                const result = await this._graphql('getTaskLogs', query, { executionId });
+                return result.taskLogs || [];
+            }
+
+            async getWorkflowDetails(workflowId) {
+                const query = `
+                    query getWorkflow($workflowId: ID!) {
+                        workflow(where: {id: $workflowId}) {
+                            id
+                            name
+                            description
+                            tasks {
+                                id
+                                name
+                                action {
+                                    name
+                                    pack {
+                                        name
+                                    }
+                                }
+                            }
+                        }
+                    }
+                `;
+
+                try {
+                    const result = await this._graphql('getWorkflow', query, { workflowId });
+                    const workflow = result.workflow || {};
+                    return workflow;
+                } catch (error) {
+                    console.error('getWorkflowDetails error:', error);
+                    throw error;
+                }
+            }
+
+            async getWorkflowTriggers(workflowId) {
+                const query = `
+                    query getTriggers($id: ID!) {
+                        workflowTriggers: workflow(where: {id: $id}) {
+                            triggers {
+                                id
+                                enabled
+                                orgInstances {
+                                    id
+                                    orgId
+                                }
+                            }
+                        }
+                    }
+                `;
+
+                const result = await this._graphql('getTriggers', query, { id: workflowId });
+                return result.workflowTriggers?.triggers || [];
+            }
+
+            async _graphql(operationName, query, variables) {
+                const controller = new AbortController();
+                const timeout = setTimeout(() => controller.abort(), 30000);
+
+                try {
+                    const response = await fetch(this.graphqlUrl, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ query, variables, operationName }),
+                        signal: controller.signal
+                    });
+
+                    if (!response.ok) {
+                        const responseText = await response.text();
+                        throw new Error(`HTTP ${response.status}: ${responseText}`);
+                    }
+                    
+                    const data = await response.json();
+                    if (data.errors) {
+                        throw new Error(data.errors[0]?.message || 'GraphQL error');
+                    }
+                    
+                    return data.data;
+                } catch (err) {
+                    throw err;
+                } finally {
+                    clearTimeout(timeout);
+                }
+            }
+        }
+
+        // ============================================
+        // INITIALIZATION
+        // ============================================
+        // UPDATE THESE VALUES FOR YOUR REWST INSTANCE
+        const FETCH_FORMS_WORKFLOW_ID = '019b6911-bea8-75a9-a323-1676beb3334a';
+        const SKIP_CACHE = false;  // Set to true to skip workflow result caching globally
+        // Rewst processes {{ CTX.user.username }} server-side before sending HTML
+        const REWST_USER = "{{ CTX.user.username }}";
+        console.log('[FORM_VIEWER] REWST_USER value:', REWST_USER);
+        console.log('[FORM_VIEWER] REWST_USER type:', typeof REWST_USER);
+        console.log('[FORM_VIEWER] REWST_USER length:', REWST_USER.length);
+        
+        const rewst = new RewstApp({ 
+            graphqlPath: '/graphql',
+            orgId: window.ORG_ID,
+            debug: true
+        });
+
+        let existingForms = [];
+        let selectedFormId = null;
+
+        // ============================================
+        // URL PARAMETER DETECTION
+        // ============================================
+        // Shorter aliases for library functions
+        const getUrlParameter = (name) => RewstLib.forms.getUrlParameter(name);
+        const getFormIdFromParent = () => RewstLib.forms.getFormIdFromParent();
+        const detectUrlFormId = () => RewstLib.forms.detectUrlFormId();
+        const escapeHtml = (text) => RewstLib.forms.escapeHtml(text);
+        const formatTaskName = (name) => RewstLib.forms.formatTaskName(name);
+
+        // ============================================
+        // LOAD FORM DIRECTLY FROM URL PARAMETER
+        // ============================================
+        async function loadFormFromUrlParameter(formId) {
+            try {
+                console.log('>>> loadFormFromUrlParameter called with formId:', formId);
+                
+                // Hide the forms dropdown and loading section
+                const dropdown = document.getElementById('open_existing_dropdown');
+                const loading = document.getElementById('open_existing_loading');
+                const formsSection = document.getElementById('open_existing_section');
+                
+                if (dropdown) {
+                    dropdown.style.display = 'none';
+                }
+                if (loading) {
+                    loading.style.display = 'none';
+                }
+                if (formsSection) {
+                    formsSection.style.display = 'none';
+                }
+                
+                console.log('>>> Fetching form from org variables with form_id:', formId);
+                
+                // Use RewstLib to fetch the form config, with fallback if not loaded
+                let formVariable = null;
+                
+                // Check if RewstLib is available (wrapped to avoid ReferenceError)
+                let useRewstLib = false;
+                try {
+                    useRewstLib = (typeof window.RewstLib !== 'undefined' && window.RewstLib.orgVariables && window.RewstLib.orgVariables.get);
+                } catch (e) {
+                    useRewstLib = false;
+                }
+                
+                if (useRewstLib) {
+                    console.log('>>> Using RewstLib to fetch form');
+                    try {
+                        formVariable = await window.RewstLib.orgVariables.get(`form_${formId}`);
+                        console.log('>>> RewstLib returned:', formVariable);
+                    } catch (e) {
+                        console.error('>>> RewstLib fetch failed:', e);
+                        formVariable = null;
+                    }
+                }
+                
+                // Fallback to GraphQL if RewstLib not available or failed
+                if (!formVariable) {
+                    console.log('>>> Using fallback GraphQL fetch');
+                    // Fallback: direct GraphQL query if RewstLib isn't loaded
+                    const response = await fetch('/graphql', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            query: `{
+                                visibleOrgVariables(
+                                    visibleForOrgId: "${window.ORG_ID}"
+                                    search: { 
+                                        organization: { id: { _eq: "${window.ORG_ID}" } }
+                                        name: { _eq: "form_${formId}" }
+                                    }
+                                ) {
+                                    id
+                                    name
+                                    value
+                                }
+                            }`
+                        })
+                    });
+
+                    const data = await response.json();
+                    console.log('>>> GraphQL response:', data);
+
+                    if (data.errors) {
+                        throw new Error(`GraphQL Error: ${data.errors[0]?.message || 'Unknown error'}`);
+                    }
+
+                    const variables = data.data?.visibleOrgVariables || [];
+                    console.log('>>> Variables found:', variables.length);
+                    if (variables.length > 0) {
+                        formVariable = variables[0];
+                    }
+                }
+                
+                console.log('>>> Final formVariable:', formVariable);
+                
+                if (!formVariable) {
+                    console.warn('No form variable found for form_id:', formId);
+                    console.log('Loading element:', loading);
+                    
+                    // Update the preview content to show the error message
+                    const previewContent = document.getElementById('previewContent');
+                    if (previewContent) {
+                        previewContent.innerHTML = `<div class="preview-placeholder" style="color: #dc3545; font-size: 18px; font-weight: 600;">Form ID ${escapeHtml(formId)} Not Found</div>`;
+                    }
+                    
+                    // Show the "Form not found" message in place of loading message
+                    if (loading) {
+                        console.log('Setting loading message for form_id:', formId);
+                        loading.style.background = '#f8d7da';
+                        loading.style.borderColor = '#f5c6cb';
+                        loading.style.color = '#721c24';
+                        loading.innerHTML = `<h4 style="font-size: 14px; margin: 0; color: #721c24;">Form ID ${escapeHtml(formId)} Not Found</h4>`;
+                        loading.style.display = 'block';
+                        console.log('Loading display set to:', loading.style.display);
+                        console.log('Loading innerHTML:', loading.innerHTML);
+                    } else {
+                        console.log('Loading element is null/undefined');
+                    }
+                    
+                    return { notFound: true };
+                }
+
+                const variable = formVariable;
+                
+                // Parse the form configuration
+                let formConfig = null;
+                try {
+                    formConfig = JSON.parse(variable.value);
+                } catch (e) {
+                    console.error('Failed to parse form_config:', e);
+                    throw new Error('Invalid form configuration JSON');
+                }
+
+                // Build the form object with the same structure as fetchExistingForms
+                const form = {
+                    form_id: variable.name.replace('form_', ''),
+                    form_name: formConfig.form_name || variable.name,
+                    form_config: formConfig
+                };
+
+                console.log('>>> Successfully loaded form:', form);
+                console.log('>>> Calling renderForm with form object');
+                try {
+                    renderForm(form);
+                    console.log('>>> renderForm completed successfully');
+                } catch (renderError) {
+                    console.error('>>> ERROR in renderForm:', renderError);
+                    console.error('>>> Stack:', renderError.stack);
+                }
+                return { success: true };
+                
+            } catch (error) {
+                console.error('>>> Error loading form from URL parameter:', error);
+                
+                // Update the preview content to show the error message
+                const previewContent = document.getElementById('previewContent');
+                if (previewContent) {
+                    previewContent.innerHTML = `<div class="preview-placeholder" style="color: #dc3545; font-size: 18px; font-weight: 600;">Form ID ${escapeHtml(formId)} Not Found</div>`;
+                }
+                
+                // Show the "Form not found" message in place of loading message
+                if (loading) {
+                    loading.style.background = '#f8d7da';
+                    loading.style.borderColor = '#f5c6cb';
+                    loading.style.color = '#721c24';
+                    loading.innerHTML = `<h4 style="font-size: 14px; margin: 0; color: #721c24;">Form ID ${escapeHtml(formId)} Not Found</h4>`;
+                    loading.style.display = 'block';
+                }
+                
+                return { error: true };
+            }
+        }
+
+        // ============================================
+        // FETCH EXISTING FORMS
+        // ============================================
+        let formsAlreadyFetched = false;
+        let formsCurrentlyFetching = false;
+        let formsFetchPromise = null;
+
+        async function fetchExistingForms() {
+            // If already fetched, return immediately
+            if (formsAlreadyFetched) {
+                console.log('Forms already fetched, skipping...');
+                return;
+            }
+            
+            // If currently fetching, wait for that to complete
+            if (formsCurrentlyFetching && formsFetchPromise) {
+                console.log('Forms currently being fetched, waiting for completion...');
+                return await formsFetchPromise;
+            }
+            
+            // Set flag and create promise
+            formsCurrentlyFetching = true;
+            
+            formsFetchPromise = (async () => {
+                try {
+                    console.log('Fetching form configurations from org variables...');
+                    
+                    // GraphQL query to fetch form_* org variables
+                    const response = await fetch('/graphql', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            query: `{
+                                visibleOrgVariables(
+                                    visibleForOrgId: "${window.ORG_ID}"
+                                    search: { 
+                                        organization: { id: { _eq: "${window.ORG_ID}" } }
+                                        name: { _ilike: "form_%" }
+                                    }
+                                ) {
+                                    id
+                                    name
+                                    value
+                                    category
+                                    cascade
+                                    createdAt
+                                    updatedAt
+                                    organization {
+                                        id
+                                        name
+                                    }
+                                    packConfig {
+                                        id
+                                        name
+                                    }
+                                }
+                            }`
+                        })
+                    });
+
+                    const data = await response.json();
+
+                    if (data.errors) {
+                        throw new Error(`GraphQL Error: ${data.errors[0]?.message || 'Unknown error'}`);
+                    }
+
+                    // Extract org variables
+                    const variables = data.data?.visibleOrgVariables || [];
+                    
+                    if (!variables || variables.length === 0) {
+                        console.warn('No form variables found');
+                        formsCurrentlyFetching = false;
+                        throw new Error('No form variables found');
+                    }
+
+                    // Build form objects from variables
+                    existingForms = variables.map(v => {
+                        let formName = v.name;
+                        let formConfig = null;
+                        
+                        try {
+                            formConfig = JSON.parse(v.value);
+                            if (formConfig.form_name) {
+                                formName = formConfig.form_name;
+                            }
+                        } catch (e) {
+                            // If not valid JSON, use the variable name
+                        }
+                        
+                        return {
+                            form_id: v.name.replace('form_', ''),
+                            form_name: formName,
+                            form_config: v.value,
+                            form_config_parsed: formConfig
+                        };
+                    });
+
+                    console.log('Successfully extracted forms:', existingForms);
+                    console.log('Number of forms:', existingForms.length);
+                    
+                    formsAlreadyFetched = true;
+                    formsCurrentlyFetching = false;
+                    displayForms(existingForms);
+                    
+                    return { success: true };
+                    
+                } catch (error) {
+                    console.error('Error fetching form configurations:', error);
+                    console.error('Error stack:', error.stack);
+                    
+                    formsCurrentlyFetching = false;
+                    displayFormsFetchError(error.message);
+                    throw error;
+                }
+            })();
+            
+            return await formsFetchPromise;
+        }
+
+        // ============================================
+        // UI FUNCTIONS
+        // ============================================
+        function displayFormsFetchError(errorMessage) {
+            const dropdown = document.getElementById('open_existing_dropdown');
+            if (dropdown) {
+                dropdown.innerHTML = `<option value="">-- Error loading forms --</option>`;
+            }
+        }
+
+        function displayForms(forms) {
+            const dropdown = document.getElementById('open_existing_dropdown');
+            const loading = document.getElementById('open_existing_loading');
+            
+            if (loading) {
+                loading.style.display = 'none';
+            }
+            
+            if (!forms || forms.length === 0) {
+                dropdown.style.display = 'none';
+                dropdown.innerHTML = '<option value="">-- No forms available --</option>';
+                return;
+            }
+
+            dropdown.innerHTML = '<option value="">-- Select a form --</option>';
+            forms.forEach((form, index) => {
+                const option = document.createElement('option');
+                option.value = index;
+                // Use form_name from the new structure
+                const formName = form.form_name || 'Untitled Form';
+                option.textContent = formName;
+                dropdown.appendChild(option);
+            });
+            
+            dropdown.style.display = 'block';
+        }
+
+        function selectForm(index) {
+            const form = existingForms[index];
+            
+            // Parse form_config if it's a string
+            if (form.form_config_parsed) {
+                // Already parsed, use it
+                renderForm({
+                    ...form,
+                    form_config: form.form_config_parsed
+                });
+            } else if (typeof form.form_config === 'string') {
+                // Parse the JSON string
+                try {
+                    const parsedConfig = JSON.parse(form.form_config);
+                    renderForm({
+                        ...form,
+                        form_config: parsedConfig
+                    });
+                } catch (e) {
+                    console.error('Failed to parse form_config:', e);
+                    const previewContent = document.getElementById('previewContent');
+                    previewContent.innerHTML = '<div class="preview-placeholder">Error: Invalid form configuration</div>';
+                }
+            } else {
+                renderForm(form);
+            }
+        }
+
+        // Handle dropdown and Load button
+        const openExistingDropdown = document.getElementById('open_existing_dropdown');
+        const openExistingLoading = document.getElementById('open_existing_loading');
+        const loadFormBtn = document.getElementById('loadFormBtn');
+        
+        if (openExistingDropdown && openExistingLoading) {
+            // Load form immediately when dropdown selection changes
+            openExistingDropdown.addEventListener('change', () => {
+                const selectedIndex = parseInt(openExistingDropdown.value);
+                
+                if (isNaN(selectedIndex) || selectedIndex < 0 || selectedIndex >= existingForms.length) {
+                    // Reset to placeholder if invalid
+                    const previewContent = document.getElementById('previewContent');
+                    previewContent.innerHTML = '<div class="preview-placeholder">Select a form from above to view it</div>';
+                    return;
+                }
+                
+                console.log('Loading form at index:', selectedIndex);
+                selectForm(selectedIndex);
+            });
+        }
+
+        // Use RewstLib.forms functions for condition evaluation
+        // These are now provided by the external rewst-library.js which loads before this script
+        const evaluateConditionalVisibility = (allFieldConfigs) => RewstLib.forms.evaluateConditionalVisibility(allFieldConfigs);
+        const evaluateCondition = (conditionString, formData) => RewstLib.forms.evaluateCondition(conditionString, formData);
+
+        function renderForm(form) {
+            console.log('>>> renderForm STARTED');
+            const previewContent = document.getElementById('previewContent');
+            console.log('>>> previewContent element found:', !!previewContent);
+            const previewParent = previewContent.parentElement;
+            
+            if (!form) {
+                previewContent.innerHTML = '<div class="preview-placeholder">Form data not found</div>';
+                formButtonsContainer.style.display = 'none';
+                return;
+            }
+
+            let html = '';
+
+            // Extract form data - form_config is nested, but form_name is at root
+            const formConfig = form.form_config;
+            if (!formConfig) {
+                previewContent.innerHTML = '<div class="preview-placeholder">Invalid form configuration</div>';
+                formButtonsContainer.style.display = 'none';
+                return;
+            }
+
+            const formName = form.form_name || formConfig.form_name || '';
+            const showName = formConfig.show_form === true;
+            const fieldConfigs = formConfig.field_configs || [];
+            const columnCount = formConfig.column_count || 1;
+            const workflowId = formConfig.form_workflow || '';
+            
+            // Store form config globally for use in modal (e.g., checking for output_var)
+            window.currentFormConfig = formConfig;
+            
+            console.log('>>> renderForm: fieldConfigs count:', fieldConfigs.length);
+            console.log('>>> renderForm: columnCount:', columnCount);
+            console.log('>>> renderForm: skip_thirdwall config:', fieldConfigs.find(f => f.field_name === 'skip_thirdwall'));
+            fieldConfigs.forEach(f => {
+                console.log(`>>> Field: ${f.field_name}, hidden: ${f.hidden}, condition_1: ${f.condition_1}`);
+            });
+
+            // Add form name above the blue box if showName is true
+            if (showName && formName) {
+                previewParent.style.marginTop = '0px';
+                // Create or update the form title element
+                let titleElement = previewParent.querySelector('.form-title-header');
+                if (!titleElement) {
+                    titleElement = document.createElement('h3');
+                    titleElement.className = 'form-title-header';
+                    previewParent.insertBefore(titleElement, previewContent);
+                }
+                titleElement.textContent = formName;
+                titleElement.style.cssText = 'margin: 0 0 20px 0; padding: 0; text-align: center; color: #ffffff; font-size: 24px; line-height: 1.2;';
+            } else {
+                previewParent.style.marginTop = '0';
+                // Remove title if showName is false
+                const titleElement = previewParent.querySelector('.form-title-header');
+                if (titleElement) {
+                    titleElement.remove();
+                }
+            }
+
+            // Group by column
+            const columns = {};
+            fieldConfigs.forEach(config => {
+                const col = config.column || 1;
+                if (!columns[col]) {
+                    columns[col] = [];
+                }
+                columns[col].push(config);
+            });
+
+            // Sort fields within each column by sequence
+            Object.keys(columns).forEach(col => {
+                columns[col].sort((a, b) => (a.sequence || 999) - (b.sequence || 999));
+            });
+
+            // Determine column layout
+            const sortedColumns = Object.keys(columns).sort((a, b) => a - b);
+
+            if (columnCount === 1) {
+                // Single column - render all fields in order
+                html += '<div style="width: 100%;">';
+                sortedColumns.forEach(col => {
+                    columns[col].forEach(config => {
+                        html += renderFieldHTML(config, fieldConfigs);
+                    });
+                });
+                html += '</div>';
+            } else if (columnCount === 2) {
+                // Two columns
+                const showVertSep = formConfig.show_vert_sep === true;
+                html += '<div style="display: flex; gap: 30px;">';
+                
+                html += '<div style="flex: 1;">';
+                if (columns[1]) {
+                    columns[1].forEach(config => {
+                        html += renderFieldHTML(config, fieldConfigs);
+                    });
+                }
+                html += '</div>';
+                
+                if (showVertSep) {
+                    html += '<div style="width: 1px; background: #ffffff; margin: 0;"></div>';
+                }
+                
+                html += '<div style="flex: 1;">';
+                if (columns[2]) {
+                    columns[2].forEach(config => {
+                        html += renderFieldHTML(config, fieldConfigs);
+                    });
+                }
+                html += '</div>';
+                
+                html += '</div>';
+                
+                // Render full-width fields (column 99)
+                if (columns[99]) {
+                    columns[99].forEach(config => {
+                        html += renderFieldHTML(config, fieldConfigs);
+                    });
+                }
+            } else if (columnCount === 3) {
+                // Three columns
+                const showVertSep = formConfig.show_vert_sep === true;
+                html += '<div style="display: flex; gap: 30px;">';
+                
+                html += '<div style="flex: 1;">';
+                if (columns[1]) {
+                    columns[1].forEach(config => {
+                        html += renderFieldHTML(config, fieldConfigs);
+                    });
+                }
+                html += '</div>';
+                
+                if (showVertSep) {
+                    html += '<div style="width: 1px; background: #ffffff; margin: 0;"></div>';
+                }
+                
+                html += '<div style="flex: 1;">';
+                if (columns[2]) {
+                    columns[2].forEach(config => {
+                        html += renderFieldHTML(config, fieldConfigs);
+                    });
+                }
+                html += '</div>';
+                
+                if (showVertSep) {
+                    html += '<div style="width: 1px; background: #ffffff; margin: 0;"></div>';
+                }
+                
+                html += '<div style="flex: 1;">';
+                if (columns[3]) {
+                    columns[3].forEach(config => {
+                        html += renderFieldHTML(config, fieldConfigs);
+                    });
+                }
+                html += '</div>';
+                
+                html += '</div>';
+                
+                // Render full-width fields (column 99)
+                if (columns[99]) {
+                    columns[99].forEach(config => {
+                        html += renderFieldHTML(config, fieldConfigs);
+                    });
+                }
+            }
+
+            // Wrap the form HTML in a container with proper styling
+            const formContainerHtml = `<div class="form-container">${html}</div>`;
+            previewContent.innerHTML = formContainerHtml;
+            console.log('>>> renderForm: HTML written to previewContent, length:', html.length);
+            
+            // Initialize multi-select components
+            fieldConfigs.forEach(config => {
+                if (config.multi_select && config.type !== 'dropdown_graphql') {
+                    const multiSelectId = `ms_${config.field_name}`;
+                    const container = document.getElementById(multiSelectId);
+                    if (container) {
+                        let options = [];
+                        // For dropdown_static, get options from config
+                        if (config.type === 'dropdown_static' && config.options) {
+                            options = Object.entries(config.options).map(([label, value]) => ({
+                                label,
+                                value
+                            }));
+                        }
+                        // Initialize with library function
+                        RewstLib.utils.initializeMultiSelect(container, options, []);
+                        console.log(`>>> Initialized multi-select for: ${config.field_name}`);
+                    }
+                }
+            });
+            
+            // Evaluate conditional visibility on initial load
+            evaluateConditionalVisibility(fieldConfigs);
+            
+            // Enable fields and set up interactive listeners
+            console.log(`>>> Total fields in fieldConfigs: ${fieldConfigs.length}`);
+            fieldConfigs.forEach((fc, idx) => {
+                console.log(`  [${idx}] ${fc.field_name} (type: ${fc.type}, hidden: ${fc.hidden}, condition_1: ${fc.condition_1})`);
+            });
+            
+            fieldConfigs.forEach(config => {
+                const input = document.querySelector(`input[name="${config.field_name}"], select[name="${config.field_name}"], textarea[name="${config.field_name}"]`);
+                
+                if (input) {
+                    console.log(`>>> Found field: ${config.field_name}`);
+                    // Enable the field
+                    input.disabled = false;
+                    
+                    // Add change listener to trigger dependent fields (for any field type)
+                    const changeHandler = () => {
+                        console.log(`>>> Change event fired for: ${config.field_name}`);
+                        updateDependentFields(config.field_name, fieldConfigs, formConfig);
+                        // Also evaluate conditional visibility for other fields
+                        console.log(`>>> About to evaluate conditional visibility for all fields`);
+                        evaluateConditionalVisibility(fieldConfigs);
+                        console.log(`>>> Conditional visibility evaluation complete`);
+                    };
+                    
+                    input.addEventListener('change', changeHandler);
+                    
+                    // Special handling for radio buttons - add listener to ALL radios with same name
+                    if (input.type === 'radio') {
+                        const allRadios = document.querySelectorAll(`input[name="${config.field_name}"][type="radio"]`);
+                        console.log(`>>> offboard_type is radio, found ${allRadios.length} radio buttons with name="${config.field_name}"`);
+                        allRadios.forEach((radio, index) => {
+                            radio.addEventListener('change', changeHandler);
+                            console.log(`>>> Attached change listener to radio ${index} (value="${radio.value}")`);
+                        });
+                    }
+                }
+            });
+            
+            // Initialize field UI states - show waiting for dependent dropdowns
+            fieldConfigs.forEach(config => {
+                const formGroup = document.querySelector(`[data-field-name="${config.field_name}"]`);
+                if (formGroup && config.type === 'dropdown' && config.dependant_fields && !config.hidden) {
+                    showWaitingMessage(formGroup, config, fieldConfigs);
+                }
+                if (formGroup && config.type === 'dropdown_graphql' && config.dependant_fields && !config.hidden) {
+                    showWaitingMessage(formGroup, config, fieldConfigs);
+                }
+            });
+            
+            // Load dropdown workflows AFTER all fields are rendered
+            // Dropdowns without dependencies load immediately
+            // Dropdowns with dependencies will load when their parent field changes
+            fieldConfigs.forEach(config => {
+                if (config.type === 'dropdown' && config.workflow_id && !config.dependant_fields) {
+                    console.log(`Dropdown ${config.field_name} has no dependencies, loading options immediately`);
+                    loadFieldOptions(config, fieldConfigs, formConfig);
+                }
+                if (config.type === 'dropdown_graphql' && !config.dependant_fields) {
+                    console.log(`Dropdown_graphql ${config.field_name} has no dependencies, loading options immediately`);
+                    loadFieldOptions(config, fieldConfigs, formConfig);
+                }
+            });
+            
+            // Show buttons and set up form submission
+            formButtonsContainer.style.display = 'flex';
+            
+            // Store the current form and workflow ID for submission
+            window.currentFormConfig = formConfig;
+            window.currentFormWorkflowId = workflowId;
+        }
+        
+        function loadFieldOptions(config, allFieldConfigs, formConfig) {
+            console.log(`>>> loadFieldOptions called for: ${config.field_name}`);
+            const formGroup = document.querySelector(`[data-field-name="${config.field_name}"]`);
+            console.log(`>>> formGroup found?`, !!formGroup);
+            if (formGroup && config.type !== 'form_extend') {
+                hideWaitingMessage(formGroup, config);
+                showLoadingMessage(formGroup, config);
+            }
+            
+            if (config.dependant_fields) {
+                const depFields = config.dependant_fields.split(',').map(f => f.trim());
+                const allDepsMet = depFields.every(depFieldName => {
+                    const depField = allFieldConfigs.find(f => f.field_name === depFieldName);
+                    if (!depField) return false;
+                    const input = document.querySelector(`input[name="${depFieldName}"], select[name="${depFieldName}"], textarea[name="${depFieldName}"]`);
+                    if (!input) return false;
+                    if (input.type === 'checkbox') return input.checked;
+                    if (input.type === 'radio') {
+                        const checkedRadio = document.querySelector(`input[name="${depFieldName}"]:checked`);
+                        return !!checkedRadio;
+                    }
+                    return input.value && input.value.trim() !== '';
+                });
+                
+                if (!allDepsMet) {
+                    console.log(`Dependencies not met for ${config.field_name}, skipping workflow`);
+                    if (formGroup) {
+                        hideLoadingMessage(formGroup, config);
+                        showWaitingMessage(formGroup, config, allFieldConfigs);
+                    }
+                    return Promise.resolve();
+                }
+            }
+            
+            let workflowInput = { ...config.workflow_input };
+            
+            // Replace field references in workflow_input values
+            // Supports both direct field names and [[ field_name ]] syntax
+            if (config.workflow_input) {
+                Object.keys(config.workflow_input).forEach(key => {
+                    let value = config.workflow_input[key];
+                    
+                    // If value is a string, check for [[ field_name ]] tags
+                    if (typeof value === 'string') {
+                        // Replace [[ field_name ]] tags with actual field values
+                        value = value.replace(/\[\[\s*(\w+)\s*\]\]/g, (match, fieldName) => {
+                            const input = document.querySelector(`input[name="${fieldName}"], select[name="${fieldName}"], textarea[name="${fieldName}"]`);
+                            if (input) {
+                                let fieldValue = input.value;
+                                if (input.type === 'checkbox') fieldValue = input.checked;
+                                else if (input.type === 'radio') {
+                                    const checkedRadio = document.querySelector(`input[name="${fieldName}"]:checked`);
+                                    fieldValue = checkedRadio ? checkedRadio.value : null;
+                                }
+                                return fieldValue !== null && fieldValue !== undefined ? fieldValue : match;
+                            }
+                            return match;
+                        });
+                        workflowInput[key] = value;
+                    } else {
+                        // For non-string values, check if it matches a field name directly (backwards compatibility)
+                        const fieldRef = allFieldConfigs.find(f => f.field_name === value);
+                        if (fieldRef) {
+                            const input = document.querySelector(`input[name="${value}"], select[name="${value}"], textarea[name="${value}"]`);
+                            if (input) {
+                                let fieldValue = input.value;
+                                if (input.type === 'checkbox') fieldValue = input.checked;
+                                else if (input.type === 'radio') {
+                                    const checkedRadio = document.querySelector(`input[name="${value}"]:checked`);
+                                    fieldValue = checkedRadio ? checkedRadio.value : null;
+                                }
+                                workflowInput[key] = fieldValue;
+                            }
+                        }
+                    }
+                });
+            }
+            
+            // Also add all dependent field values to the payload
+            if (config.dependant_fields) {
+                const depFields = config.dependant_fields.split(',').map(f => f.trim());
+                depFields.forEach(depFieldName => {
+                    const depInput = document.querySelector(`input[name="${depFieldName}"], select[name="${depFieldName}"], textarea[name="${depFieldName}"]`);
+                    if (depInput) {
+                        let value = depInput.value;
+                        if (depInput.type === 'checkbox') {
+                            value = depInput.checked;
+                        } else if (depInput.type === 'radio') {
+                            const checkedRadio = document.querySelector(`input[name="${depFieldName}"]:checked`);
+                            value = checkedRadio ? checkedRadio.value : null;
+                        }
+                        // Add the dependent field value to the payload using its field name
+                        workflowInput[depFieldName] = value;
+                    }
+                });
+            }
+            
+            console.log(`Executing workflow ${config.workflow_id} for field ${config.field_name}`, workflowInput);
+            
+            // ============================================
+            // DROPDOWN GRAPHQL HELPER FUNCTIONS
+            // ============================================
+            
+            /**
+             * Process GraphQL variables - replace [[ ]] tags
+             */
+            function processGraphQLDropdownVariables(variables, formData) {
+                const processed = {};
+                Object.keys(variables).forEach(key => {
+                    let value = variables[key];
+                    if (typeof value === 'string' && value.startsWith('[[') && value.endsWith(']]')) {
+                        const fieldName = value.slice(2, -2).trim();
+                        if (formData.hasOwnProperty(fieldName)) {
+                            // Convert arrays to JSON format (Option A)
+                            const fieldValue = formData[fieldName];
+                            if (Array.isArray(fieldValue)) {
+                                processed[key] = JSON.stringify(fieldValue);
+                                console.log(`[DROPDOWN] Replaced [[ ${fieldName} ]] with JSON array:`, processed[key]);
+                            } else {
+                                processed[key] = fieldValue;
+                                console.log(`[DROPDOWN] Replaced [[ ${fieldName} ]] with:`, processed[key]);
+                            }
+                        } else {
+                            processed[key] = value;
+                            console.warn(`[DROPDOWN] Field not found: ${fieldName}`);
+                        }
+                    } else {
+                        processed[key] = value;
+                    }
+                });
+                return processed;
+            }
+            
+            /**
+             * Load GraphQL dropdown options using metadata
+             */
+            async function loadGraphQLDropdownOptions(config, formConfig) {
+                console.log(`[DROPDOWN] Loading for ${config.field_name}, operation: ${config.graphql_op}`);
+                
+                // Collect current form data for variable replacement
+                const currentFormData = {};
+                if (formConfig && formConfig.field_configs) {
+                    formConfig.field_configs.forEach(fc => {
+                        const inp = document.querySelector(`input[name="${fc.field_name}"], select[name="${fc.field_name}"], textarea[name="${fc.field_name}"]`);
+                        if (inp) {
+                            if (inp.type === 'checkbox') {
+                                currentFormData[fc.field_name] = inp.checked;
+                            } else if (inp.type === 'radio') {
+                                const checked = document.querySelector(`input[name="${fc.field_name}"]:checked`);
+                                currentFormData[fc.field_name] = checked ? checked.value : null;
+                            } else {
+                                currentFormData[fc.field_name] = inp.value;
+                            }
+                        }
+                    });
+                }
+                
+                const opMetadata = RewstLib.graphqlOperations.get(config.graphql_op);
+                if (!opMetadata) {
+                    throw new Error(`Unknown operation: ${config.graphql_op}`);
+                }
+                
+                console.log(`[DROPDOWN] Metadata:`, opMetadata);
+                
+                // Map function path to library reference
+                let libraryFn;
+                if (opMetadata.function === 'RewstLib.organizations.getSubOrganizations') {
+                    libraryFn = RewstLib.organizations.getSubOrganizations;
+                } else if (opMetadata.function === 'RewstLib.orgVariables.get') {
+                    libraryFn = RewstLib.orgVariables.get;
+                } else {
+                    throw new Error(`Unknown function: ${opMetadata.function}`);
+                }
+                
+                if (!libraryFn) {
+                    throw new Error(`Function unavailable: ${opMetadata.function}`);
+                }
+                
+                // Process variables
+                let vars = {};
+                if (config.graphql_op_variables) {
+                    vars = processGraphQLDropdownVariables(config.graphql_op_variables, currentFormData);
+                    console.log(`[DROPDOWN] Processed vars:`, vars);
+                } else if (config.graphql_op === 'list_orgs') {
+                    vars.parentOrgId = window.ORG_ID;
+                }
+                
+                // Call library function with appropriate parameters
+                let result;
+                if (config.graphql_op === 'list_orgs') {
+                    result = await libraryFn(vars.parentOrgId || window.ORG_ID);
+                } else if (config.graphql_op === 'get_org_var') {
+                    result = await libraryFn(vars.varName, vars.orgId);
+                } else {
+                    throw new Error(`No mapping for: ${config.graphql_op}`);
+                }
+                
+                console.log(`[DROPDOWN] Result:`, result);
+                return result;
+            }
+            
+            // Check if this field config has skip_cache flag
+            const skipCache = config.skip_cache === true;
+            const options = skipCache ? { skip_cache: true } : {};
+            
+            // Handle dropdown_graphql separately
+            if (config.type === 'dropdown_graphql') {
+                console.log(`Loading GraphQL options for ${config.field_name} using operation: ${config.graphql_op}`);
+                
+                // Use metadata-driven loading, passing formConfig
+                const graphqlPromise = loadGraphQLDropdownOptions(config, formConfig);
+                
+                return graphqlPromise.then(data => {
+                    console.log(`GraphQL result for ${config.field_name}:`, data);
+                    if (formGroup) hideLoadingMessage(formGroup, config);
+                    
+                    const input = document.querySelector(`select[name="${config.field_name}"]`);
+                    if (input) {
+                        // Handle both array results (list_orgs) and single object results (get_org_var)
+                        const itemsArray = Array.isArray(data) ? data : (data ? [data] : []);
+                        
+                        if (itemsArray.length > 0) {
+                            input.innerHTML = `<option value="">${RewstLib.utils.getGrammaticalPhrase(config.field_displayname)}</option>`;
+                            itemsArray.forEach(item => {
+                                const value = item[config.value_name] || item.id;
+                                const label = item[config.label_name] || item.name;
+                                if (value && label) {
+                                    const opt = document.createElement('option');
+                                    opt.value = value;
+                                    opt.textContent = label;
+                                    input.appendChild(opt);
+                                }
+                            });
+                            
+                            // If multi-select, re-initialize the component with loaded options
+                            if (config.multi_select) {
+                                const multiSelectId = `ms_${config.field_name}`;
+                                const container = document.getElementById(multiSelectId);
+                                if (container) {
+                                    const options = itemsArray.map(item => ({
+                                        value: item[config.value_name] || item.id,
+                                        label: item[config.label_name] || item.name
+                                    }));
+                                    RewstLib.utils.initializeMultiSelect(container, options, []);
+                                    console.log(`>>> Re-initialized multi-select for: ${config.field_name} with ${options.length} options`);
+                                }
+                            }
+                        }
+                    }
+                }).catch(error => {
+                    console.error(`Error loading GraphQL options for ${config.field_name}:`, error);
+                    if (formGroup) hideLoadingMessage(formGroup, config);
+                    const input = document.querySelector(`select[name="${config.field_name}"]`);
+                    if (input) input.innerHTML = `<option value="">-- Error loading options --</option>`;
+                });
+            }
+            
+            // Handle form_extend separately
+            if (config.type === 'form_extend') {
+                console.log(`[FORM_EXTEND] Loading extended config for ${config.field_name}, extend_var: ${config.extend_var}`);
+                
+                // Collect current form data for variable replacement
+                const currentFormData = {};
+                if (formConfig && formConfig.field_configs) {
+                    formConfig.field_configs.forEach(fc => {
+                        const inp = document.querySelector(`input[name="${fc.field_name}"], select[name="${fc.field_name}"], textarea[name="${fc.field_name}"]`);
+                        if (inp) {
+                            if (inp.type === 'checkbox') {
+                                currentFormData[fc.field_name] = inp.checked;
+                            } else if (inp.type === 'radio') {
+                                const checked = document.querySelector(`input[name="${fc.field_name}"]:checked`);
+                                currentFormData[fc.field_name] = checked ? checked.value : null;
+                            } else {
+                                currentFormData[fc.field_name] = inp.value;
+                            }
+                        }
+                    });
+                }
+                
+                // Process extend_var_variables with tag replacement
+                let varName = config.extend_var;
+                let orgId = null;
+                
+                if (config.extend_var_variables) {
+                    // Process varName
+                    if (config.extend_var_variables.varName) {
+                        if (config.extend_var_variables.varName.startsWith('[[') && config.extend_var_variables.varName.endsWith(']]')) {
+                            const fieldName = config.extend_var_variables.varName.slice(2, -2).trim();
+                            varName = currentFormData[fieldName] || config.extend_var_variables.varName;
+                        } else {
+                            varName = config.extend_var_variables.varName;
+                        }
+                    }
+                    
+                    // Process orgId
+                    if (config.extend_var_variables.orgId) {
+                        if (config.extend_var_variables.orgId.startsWith('[[') && config.extend_var_variables.orgId.endsWith(']]')) {
+                            const fieldName = config.extend_var_variables.orgId.slice(2, -2).trim();
+                            orgId = currentFormData[fieldName];
+                        } else {
+                            orgId = config.extend_var_variables.orgId;
+                        }
+                    }
+                    
+                    console.log(`[FORM_EXTEND] Processed variables: varName=${varName}, orgId=${orgId}`);
+                }
+                
+                // Fallback if orgId not found
+                if (!orgId) {
+                    const depFieldName = config.dependant_fields ? config.dependant_fields.split(',')[0].trim() : null;
+                    if (depFieldName) {
+                        const depFieldInput = document.querySelector(`select[name="${depFieldName}"]`);
+                        orgId = depFieldInput ? depFieldInput.value : null;
+                    }
+                }
+                
+                if (!orgId) {
+                    console.log(`[FORM_EXTEND] No org ID found, skipping extended config load`);
+                    return Promise.resolve();
+                }
+                
+                // Load the org variable using processed variables
+                const extendPromise = RewstLib.orgVariables.get(varName, orgId);
+                
+                return extendPromise.then(orgVar => {
+                    console.log(`[FORM_EXTEND] Retrieved org variable:`, orgVar);
+                    
+                    if (!orgVar || !orgVar.value) {
+                        console.log(`[FORM_EXTEND] No org variable found`);
+                        return;
+                    }
+                    
+                    // Parse the extend_config from the org variable value
+                    let extendConfig;
+                    try {
+                        const parsed = JSON.parse(orgVar.value);
+                        extendConfig = parsed.extend_config;
+                        console.log(`[FORM_EXTEND] Parsed extend_config:`, extendConfig);
+                    } catch (e) {
+                        console.error(`[FORM_EXTEND] Failed to parse org variable value:`, e);
+                        return;
+                    }
+                    
+                    if (!extendConfig || !extendConfig.field_configs || !Array.isArray(extendConfig.field_configs)) {
+                        console.log(`[FORM_EXTEND] No field_configs found in extend_config`);
+                        return;
+                    }
+                    
+                    // Merge extended field configs with main form configs
+                    const extendedFields = extendConfig.field_configs;
+                    console.log(`[FORM_EXTEND] Found ${extendedFields.length} extended fields`);
+                    
+                    // Create or get the extended section container
+                    const previewContent = document.getElementById('previewContent');
+                    let extendedSection = document.getElementById('extendedFieldsSection');
+                    
+                    if (!extendedSection) {
+                        extendedSection = document.createElement('div');
+                        extendedSection.id = 'extendedFieldsSection';
+                        extendedSection.className = 'form-container';
+                        extendedSection.style.borderTop = '1px solid #ffffff';
+                        extendedSection.style.paddingTop = '15px';
+                        previewContent.appendChild(extendedSection);
+                    }
+                    
+                    // Render extend_title if provided
+                    if (extendConfig.extend_title) {
+                        console.log(`[FORM_EXTEND] Rendering title: ${extendConfig.extend_title}`);
+                        const titleElement = document.createElement('h3');
+                        titleElement.textContent = extendConfig.extend_title;
+                        titleElement.style.color = '#ffffff';
+                        titleElement.style.marginBottom = '15px';
+                        titleElement.style.marginTop = '0px';
+                        titleElement.style.fontSize = '1.1rem';
+                        titleElement.style.fontWeight = '600';
+                        titleElement.style.textAlign = 'center';
+                        extendedSection.appendChild(titleElement);
+                    }
+                    
+                    // Render extended fields with column layout
+                    // Group extended fields by column
+                    const extendedColumns = {};
+                    extendedFields.forEach(config => {
+                        const col = config.column || 1;
+                        if (!extendedColumns[col]) {
+                            extendedColumns[col] = [];
+                        }
+                        extendedColumns[col].push(config);
+                    });
+                    
+                    // Sort fields within each column by sequence
+                    Object.keys(extendedColumns).forEach(col => {
+                        extendedColumns[col].sort((a, b) => (a.sequence || 0) - (b.sequence || 0));
+                    });
+                    
+                    // Create a wrapper div for column layout
+                    const columnWrapper = document.createElement('div');
+                    columnWrapper.style.display = 'flex';
+                    columnWrapper.style.gap = '20px';
+                    
+                    // Render columns
+                    const columnCount = Math.max(...Object.keys(extendedColumns).map(Number));
+                    for (let i = 1; i <= columnCount; i++) {
+                        const columnDiv = document.createElement('div');
+                        columnDiv.style.flex = '1';
+                        
+                        if (extendedColumns[i]) {
+                            extendedColumns[i].forEach(config => {
+                                const existingField = document.querySelector(`[data-field-name="${config.field_name}"]`);
+                                if (!existingField) {
+                                    console.log(`[FORM_EXTEND] Rendering field: ${config.field_name}`);
+                                    const fieldHTML = renderFieldHTML(config, [...formConfig.field_configs, ...extendedFields]);
+                                    columnDiv.innerHTML += fieldHTML;
+                                }
+                            });
+                        }
+                        
+                        columnWrapper.appendChild(columnDiv);
+                    }
+                    
+                    extendedSection.appendChild(columnWrapper);
+                    
+                    // Set up change listeners for extended fields
+                    extendedFields.forEach(extConfig => {
+                        const input = document.querySelector(`input[name="${extConfig.field_name}"], select[name="${extConfig.field_name}"], textarea[name="${extConfig.field_name}"]`);
+                        if (input) {
+                            input.addEventListener('change', () => {
+                                console.log(`[FORM_EXTEND] Change event in extended field: ${extConfig.field_name}`);
+                                RewstLib.forms.evaluateConditionalVisibility([...formConfig.field_configs, ...extendedFields]);
+                            });
+                        }
+                    });
+                    
+                    // Show the extended section
+                    if (formGroup) {
+                        formGroup.style.display = '';
+                    }
+                    
+                    console.log(`[FORM_EXTEND] Extended fields rendered successfully`);
+                }).catch(error => {
+                    console.error(`[FORM_EXTEND] Error loading extended config:`, error);
+                });
+            }
+            
+            // Only execute workflow for fields that are not form_extend
+            if (config.type !== 'form_extend') {
+                return rewst.runWorkflowSmart(config.workflow_id, workflowInput, options).then(result => {
+                console.log(`Workflow result for ${config.field_name}:`, result);
+                if (formGroup) hideLoadingMessage(formGroup, config);
+                
+                const input = document.querySelector(`select[name="${config.field_name}"]`);
+                if (input && result.conductor && result.conductor.output && result.conductor.output.options) {
+                    const options = result.conductor.output.options;
+                    input.innerHTML = `<option value="">-- Select a ${config.field_displayname.toLowerCase()} --</option>`;
+                    options.forEach(option => {
+                        const value = option[config.value_name] || option.id || option.Id;
+                        const label = option[config.label_name] || option.name || option.Name;
+                        if (value && label) {
+                            const opt = document.createElement('option');
+                            opt.value = value;
+                            opt.textContent = label;
+                            input.appendChild(opt);
+                        }
+                    });
+                }
+            }).catch(error => {
+                console.error(`Error executing workflow for ${config.field_name}:`, error);
+                if (formGroup) hideLoadingMessage(formGroup, config);
+                const input = document.querySelector(`select[name="${config.field_name}"]`);
+                if (input) input.innerHTML = `<option value="">-- Error loading options --</option>`;
+            });
+            }
+        }
+        
+        function showWaitingMessage(formGroup, config, fieldConfigs) {
+            const depFields = config.dependant_fields.split(',').map(f => f.trim());
+            const parentFieldLabels = depFields.map(fieldName => {
+                const parentConfig = fieldConfigs.find(f => f.field_name === fieldName);
+                return parentConfig ? parentConfig.field_displayname : fieldName;
+            });
+            const input = formGroup.querySelector('input, select, textarea');
+            if (input) input.style.display = 'none';
+            const waitingBox = document.createElement('div');
+            waitingBox.className = 'field-waiting-message';
+            waitingBox.setAttribute('data-field-name', config.field_name);
+            waitingBox.innerHTML = `Waiting for ${parentFieldLabels.join(' and ')} selection`;
+            formGroup.appendChild(waitingBox);
+        }
+        
+        function showLoadingMessage(formGroup, config) {
+            const input = formGroup.querySelector('input, select, textarea');
+            if (input) input.style.display = 'none';
+            const existingLoading = formGroup.querySelector('.field-loading-message');
+            if (existingLoading) existingLoading.remove();
+            const loadingBox = document.createElement('div');
+            loadingBox.className = 'field-loading-message';
+            loadingBox.setAttribute('data-field-name', config.field_name);
+            loadingBox.innerHTML = '<div style="display: flex; align-items: center; gap: 8px; justify-content: center;"><div class="loading-spinner" style="display: inline-block; width: 16px; height: 16px; border: 2px solid rgba(102, 126, 234, 0.3); border-top-color: #667eea; border-radius: 50%; animation: spin 0.8s linear infinite;"></div><span>Loading...</span></div>';
+            formGroup.appendChild(loadingBox);
+        }
+        
+        function hideLoadingMessage(formGroup, config) {
+            const loadingBox = formGroup.querySelector('.field-loading-message');
+            if (loadingBox) loadingBox.remove();
+            const input = formGroup.querySelector('input, select, textarea');
+            if (input) input.style.display = '';
+        }
+        
+        function hideWaitingMessage(formGroup, config) {
+            const waitingBox = formGroup.querySelector('.field-waiting-message');
+            if (waitingBox) waitingBox.remove();
+            const input = formGroup.querySelector('input, select, textarea');
+            if (input) input.style.display = '';
+        }
+        
+        
+        function updateDependentFields(changedFieldName, allFieldConfigs, formConfig) {
+            console.log(`>>> updateDependentFields called for: ${changedFieldName}`);
+            
+            // Find all fields that depend on the changed field
+            const dependentFields = allFieldConfigs.filter(config => 
+                config.dependant_fields && config.dependant_fields.includes(changedFieldName)
+            );
+            
+            console.log(`>>> Found ${dependentFields.length} dependent fields`);
+            dependentFields.forEach(df => console.log(`    - ${df.field_name} depends on ${changedFieldName}`));
+            
+            // Reload options for dependent fields and clear their cache
+            dependentFields.forEach(depConfig => {
+                if (depConfig.workflow_id) {
+                    console.log(`>>> Reloading options for dependent field ${depConfig.field_name}`);
+                    
+                    // Clear the cache for this dependent field's workflow
+                    // This ensures fresh data will be fetched when the parent value changed
+                    try {
+                        if (typeof RewstLib !== 'undefined' && RewstLib.workflows && RewstLib.workflows.clearWorkflowCache) {
+                            RewstLib.workflows.clearWorkflowCache(depConfig.workflow_id);
+                            console.log(`>>> Cache cleared for workflow: ${depConfig.workflow_id}`);
+                        } else {
+                            console.log(`>>> RewstLib not available yet, skipping cache clear for: ${depConfig.workflow_id}`);
+                        }
+                    } catch (e) {
+                        console.log(`>>> Error clearing cache: ${e.message}`);
+                    }
+                    
+                    console.log(`>>> Calling loadFieldOptions for ${depConfig.field_name}`);
+                    loadFieldOptions(depConfig, allFieldConfigs, formConfig);
+                } else if (depConfig.type === 'dropdown_graphql' && depConfig.graphql_op) {
+                    console.log(`>>> Reloading GraphQL options for dependent field ${depConfig.field_name}`);
+                    console.log(`>>> Calling loadFieldOptions for ${depConfig.field_name}`);
+                    loadFieldOptions(depConfig, allFieldConfigs, formConfig);
+                } else if (depConfig.type === 'form_extend') {
+                    console.log(`>>> Reloading extended form for dependent field ${depConfig.field_name}`);
+                    console.log(`>>> Calling loadFieldOptions for ${depConfig.field_name}`);
+                    loadFieldOptions(depConfig, allFieldConfigs, formConfig);
+                } else {
+                    console.log(`>>> Field ${depConfig.field_name} has no workflow_id or graphql_op`);
+                }
+            });
+        }
+
+        function renderFieldHTML(config, allFieldConfigs) {
+            // Determine if field should be hidden based on hidden property
+            let isHidden = config.hidden === true;
+            let styleAttr = isHidden ? ' style="display: none !important; margin-bottom: 0 !important;"' : '';
+            
+            // Debug logging for form_extend
+            if (config.field_name === 'form_extend') {
+                console.log(`[DEBUG] renderFieldHTML for form_extend:`, {
+                    field_name: config.field_name,
+                    hidden: config.hidden,
+                    isHidden: isHidden,
+                    styleAttr: styleAttr
+                });
+            }
+            
+            let html = `<div class="form-group" data-field-name="${config.field_name}"${styleAttr}>`;
+            
+            // Add " - Required" to display name if field is required
+            const displayName = config.required ? `${config.field_displayname} <span style="color: #999; font-size: 12px;">- Required</span>` : config.field_displayname;
+            
+            // Generate a unique ID for this field
+            const fieldId = `field_${config.field_name}_${Math.random().toString(36).substr(2, 5)}`;
+
+            if (config.type === 'checkbox') {
+                html += `
+                    <div class="checkbox-wrapper">
+                        <input type="checkbox" id="${fieldId}" name="${config.field_name}" ${config.default_checked ? 'checked' : ''}>
+                        <div>
+                            <label for="${fieldId}">${displayName}</label>
+                            ${config.description ? `<div class="field-description">${escapeHtml(config.description)}</div>` : ''}
+                        </div>
+                    </div>
+                `;
+            } else if (config.type === 'text') {
+                html += `
+                    <label for="${fieldId}">${displayName}</label>
+                    ${config.description ? `<div class="field-description">${escapeHtml(config.description)}</div>` : ''}
+                    <input type="text" id="${fieldId}" name="${config.field_name}" value="${escapeHtml(config.default_value || '')}">
+                `;
+            } else if (config.type === 'textarea') {
+                html += `
+                    <label>${displayName}</label>
+                    ${config.description ? `<div class="field-description">${escapeHtml(config.description)}</div>` : ''}
+                    <textarea name="${config.field_name}">${escapeHtml(config.default_value || '')}</textarea>
+                `;
+            } else if (config.type === 'date') {
+                html += `
+                    <label>${displayName}</label>
+                    ${config.description ? `<div class="field-description">${escapeHtml(config.description)}</div>` : ''}
+                    <input type="date" name="${config.field_name}" value="${escapeHtml(config.default_value || '')}">
+                `;
+            } else if (config.type === 'date_time') {
+                html += `
+                    <label>${displayName}</label>
+                    ${config.description ? `<div class="field-description">${escapeHtml(config.description)}</div>` : ''}
+                    <input type="datetime-local" name="${config.field_name}" value="${escapeHtml(config.default_value || '')}">
+                `;
+            } else if (config.type === 'radio') {
+                html += `
+                    <label>${displayName}</label>
+                    ${config.description ? `<div class="field-description">${escapeHtml(config.description)}</div>` : ''}
+                    <div class="radio-group">
+                `;
+                
+                if (config.options && typeof config.options === 'object') {
+                    Object.entries(config.options).forEach(([key, value]) => {
+                        const isChecked = config.default_select === key ? 'checked' : '';
+                        const radioId = `field_${config.field_name}_${value}_${Math.random().toString(36).substr(2, 5)}`;
+                        html += `
+                            <div class="radio-item">
+                                <input type="radio" id="${radioId}" name="${config.field_name}" value="${value}" ${isChecked}>
+                                <label for="${radioId}">${escapeHtml(key)}</label>
+                            </div>
+                        `;
+                    });
+                }
+                
+                html += '</div>';
+            } else if (config.type === 'dropdown_static') {
+                if (config.multi_select) {
+                    // Custom multi-select component
+                    const multiSelectId = `ms_${config.field_name}`;
+                    html += `
+                        <label>${displayName}</label>
+                        ${config.description ? `<div class="field-description">${escapeHtml(config.description)}</div>` : ''}
+                        <div class="multi-select-container" id="${multiSelectId}">
+                            <div class="multi-select-display">
+                                <div class="multi-select-tags"></div>
+                                <div class="multi-select-toggle">▼</div>
+                            </div>
+                            <div class="multi-select-options"></div>
+                            <select name="${config.field_name}" class="multi-select-hidden-select">
+                    `;
+                    
+                    if (config.options && typeof config.options === 'object') {
+                        Object.entries(config.options).forEach(([key, value]) => {
+                            html += `<option value="${escapeHtml(value)}">${escapeHtml(key)}</option>`;
+                        });
+                    }
+                    
+                    html += `
+                            </select>
+                        </div>
+                    `;
+                } else {
+                    // Single select (original logic)
+                    html += `
+                        <label>${displayName}</label>
+                        ${config.description ? `<div class="field-description">${escapeHtml(config.description)}</div>` : ''}
+                        <select name="${config.field_name}">
+                            <option value="">${RewstLib.utils.getGrammaticalPhrase(config.field_displayname)}</option>
+                    `;
+                    
+                    if (config.options && typeof config.options === 'object') {
+                        Object.entries(config.options).forEach(([key, value]) => {
+                            const isSelected = config.default_value === value ? 'selected' : '';
+                            html += `<option value="${escapeHtml(value)}" ${isSelected}>${escapeHtml(key)}</option>`;
+                        });
+                    }
+                    
+                    html += '</select>';
+                }
+            } else if (config.type === 'dropdown') {
+                const multiSelectAttr = config.multi_select ? 'multiple' : '';
+                html += `
+                    <label>${displayName}</label>
+                    ${config.description ? `<div class="field-description">${escapeHtml(config.description)}</div>` : ''}
+                    <select name="${config.field_name}" ${multiSelectAttr}>
+                        <option value="">${RewstLib.utils.getGrammaticalPhrase(config.field_displayname)}</option>
+                    </select>
+                `;
+            } else if (config.type === 'dropdown_graphql') {
+                if (config.multi_select) {
+                    // Custom multi-select component
+                    const multiSelectId = `ms_${config.field_name}`;
+                    html += `
+                        <label>${displayName}</label>
+                        ${config.description ? `<div class="field-description">${escapeHtml(config.description)}</div>` : ''}
+                        <div class="multi-select-container" id="${multiSelectId}">
+                            <div class="multi-select-display">
+                                <div class="multi-select-tags"></div>
+                                <div class="multi-select-toggle">▼</div>
+                            </div>
+                            <div class="multi-select-options"></div>
+                            <select name="${config.field_name}" class="multi-select-hidden-select"></select>
+                        </div>
+                    `;
+                } else {
+                    // Single select (original logic)
+                    html += `
+                        <label>${displayName}</label>
+                        ${config.description ? `<div class="field-description">${escapeHtml(config.description)}</div>` : ''}
+                        <select name="${config.field_name}">
+                            <option value="">${RewstLib.utils.getGrammaticalPhrase(config.field_displayname)}</option>
+                        </select>
+                    `;
+                }
+            } else if (config.type === 'html') {
+                // Render HTML content directly with label color styling
+                html += `<div class="html-field">${config.content || ''}</div>`;
+            } else if (config.type === 'horizontal_line') {
+                // Render horizontal line (content field contains the HR element or styling)
+                html += `${config.content || '<hr>'}`;
+            }
+
+            html += '</div>';
+            return html;
+        }
+
+        // ============================================
+        // PAGE LOAD - FETCH FORMS IMMEDIATELY
+        // ============================================
+        console.log('Page loaded, starting fetch of existing forms...');
+        
+        // Check if form_id is in URL
+        const urlParams = new URLSearchParams(window.location.search);
+        const hasFormIdParam = urlParams.has('form_id');
+        
+        // Show loading state immediately (only if no form_id param)
+        if (!hasFormIdParam && openExistingDropdown && openExistingLoading) {
+            openExistingDropdown.style.display = 'none';
+            openExistingLoading.style.display = 'block';
+        }
+        
+        // ============================================
+        // FORM SUBMISSION HANDLERS
+        // ============================================
+        
+        /**
+         * Process GraphQL variables - replace [[ ]] tags
+         * @param {object} variables - Variables with potential [[ ]] tags
+         * @param {object} formData - Form data for field value replacement
+         * @returns {object} Processed variables
+         */
+        function processGraphQLVariables(variables, formData) {
+            const processed = {};
+            Object.keys(variables).forEach(key => {
+                let value = variables[key];
+                
+                if (typeof value === 'string') {
+                    // Replace [[ submit_payload ]] with entire form data as JSON
+                    if (value === '[[ submit_payload ]]') {
+                        processed[key] = JSON.stringify(formData);
+                        console.log('[SUBMIT] Replaced [[ submit_payload ]] with form data JSON');
+                    } else if (value.startsWith('[[') && value.endsWith(']]')) {
+                        // Replace [[ field_name ]] with field value
+                        const fieldName = value.slice(2, -2).trim();
+                        if (formData.hasOwnProperty(fieldName)) {
+                            processed[key] = formData[fieldName];
+                            console.log(`[SUBMIT] Replaced [[ ${fieldName} ]] with value:`, processed[key]);
+                        } else {
+                            processed[key] = value; // Keep original if field not found
+                            console.warn(`[SUBMIT] Field not found for replacement: ${fieldName}`);
+                        }
+                    } else {
+                        processed[key] = value;
+                    }
+                } else {
+                    processed[key] = value;
+                }
+            });
+            return processed;
+        }
+        
+        const resetFormBtn = document.getElementById('resetFormBtn');
+        const submitFormBtn = document.getElementById('submitFormBtn');
+        
+        if (resetFormBtn) {
+            resetFormBtn.addEventListener('click', () => {
+                // Reset all form fields to their default values
+                const inputs = document.querySelectorAll('#previewContent input, #previewContent select, #previewContent textarea');
+                inputs.forEach(input => {
+                    if (input.type === 'checkbox' || input.type === 'radio') {
+                        input.checked = false;
+                    } else {
+                        input.value = '';
+                    }
+                });
+                console.log('Form reset');
+            });
+        }
+        
+        if (submitFormBtn) {
+            submitFormBtn.addEventListener('click', async () => {
+                const formConfig = window.currentFormConfig;
+                
+                // Determine submit type
+                const submitType = formConfig.submit_type || 'workflow';
+                console.log('[SUBMIT] Submit type:', submitType);
+                
+                // Validate configuration based on submit type
+                if (submitType === 'graphql') {
+                    if (!formConfig.graphql_submit || !formConfig.graphql_submit.operation) {
+                        console.error('No GraphQL operation configured for this form');
+                        alert('Error: No GraphQL operation configured for this form');
+                        return;
+                    }
+                } else {
+                    if (!window.currentFormWorkflowId) {
+                        console.error('No workflow ID configured for this form');
+                        alert('Error: No workflow configured for this form');
+                        return;
+                    }
+                }
+                
+                // Collect form data using field_configs
+                const formData = {};
+                
+                if (formConfig && formConfig.field_configs) {
+                    formConfig.field_configs.forEach(config => {
+                        const input = document.querySelector(`input[name="${config.field_name}"], select[name="${config.field_name}"], textarea[name="${config.field_name}"]`);
+                        
+                        if (input) {
+                            if (input.type === 'checkbox') {
+                                formData[config.field_name] = input.checked;
+                            } else if (input.type === 'radio') {
+                                const checkedRadio = document.querySelector(`input[name="${config.field_name}"]:checked`);
+                                formData[config.field_name] = checkedRadio ? checkedRadio.value : null;
+                            } else if (input.tagName === 'SELECT' && config.multi_select) {
+                                // Multi-select: collect all selected values as array
+                                formData[config.field_name] = Array.from(input.selectedOptions).map(opt => opt.value).filter(val => val !== '');
+                            } else {
+                                formData[config.field_name] = input.value;
+                            }
+                        }
+                    });
+                }
+                
+                // Validate required fields using RewstLib
+                const validation = RewstLib.forms.validateForm(formData, formConfig.field_configs);
+                
+                if (!validation.isValid) {
+                    const validationErrorModal = document.getElementById('validationErrorModal');
+                    const validationErrorMessage = document.getElementById('validationErrorMessage');
+                    const validationErrorOkBtn = document.getElementById('validationErrorOkBtn');
+                    
+                    const missingRequired = Object.keys(validation.errors).map(fieldName => validation.errors[fieldName][0]);
+                    validationErrorMessage.innerHTML = `Required fields missing values:<br><strong>${missingRequired.join(', ')}</strong>`;
+                    validationErrorModal.style.display = 'flex';
+                    
+                    const closeValidationModal = () => {
+                        validationErrorModal.style.display = 'none';
+                        validationErrorOkBtn.removeEventListener('click', closeValidationModal);
+                    };
+                    
+                    validationErrorOkBtn.addEventListener('click', closeValidationModal);
+                    
+                    // Also close on outside click
+                    validationErrorModal.addEventListener('click', (e) => {
+                        if (e.target === validationErrorModal) {
+                            closeValidationModal();
+                        }
+                    });
+                    
+                    return;
+                }
+                
+                // Add current user to form submission
+                if (REWST_USER && REWST_USER.length > 0) {
+                    formData.rewst_user = REWST_USER;
+                    console.log('Added rewst_user to payload:', REWST_USER);
+                } else {
+                    console.warn('No rewst_user available - CTX.user.username not set by Rewst');
+                }
+                
+                console.log('Submitting form with data:', formData);
+                console.log('Submit type:', submitType);
+                
+                try {
+                    // Step 1: Disable form and show as submitted
+                    const originalText = submitFormBtn.textContent;
+                    RewstLib.utils.setButtonState(submitFormBtn, 'Submitted!', 'btn-green', true);
+                    
+                    // Disable all form fields
+                    const inputs = document.querySelectorAll('#previewContent input, #previewContent select, #previewContent textarea');
+                    inputs.forEach(input => input.disabled = true);
+                    
+                    console.log('Step 1 Complete: Form fields set to read-only');
+                    
+                    // ============================================
+                    // ROUTE TO APPROPRIATE SUBMISSION METHOD
+                    // ============================================
+                    if (submitType === 'graphql') {
+                        // GRAPHQL SUBMISSION
+                        const operationName = formConfig.graphql_submit.operation;
+                        console.log('[SUBMIT] Executing GraphQL operation:', operationName);
+                        
+                        // Get the operation function from RewstLib
+                        const operationMap = {
+                            'createOrUpdateOrgVariable': RewstLib.orgVariables.createOrUpdate
+                        };
+                        
+                        const operationFn = operationMap[operationName];
+                        if (!operationFn) {
+                            throw new Error(`Unknown GraphQL operation: ${operationName}`);
+                        }
+                        
+                        // Process variables with tag replacement
+                        const processedVars = processGraphQLVariables(formConfig.graphql_submit.variables, formData);
+                        console.log('[SUBMIT] Processed GraphQL variables:', processedVars);
+                        
+                        // Call the operation function
+                        // Map the processed variables to function parameters
+                        let result;
+                        if (operationName === 'createOrUpdateOrgVariable') {
+                            result = await operationFn(
+                                processedVars.varName,
+                                processedVars.varValue,
+                                { org_id: processedVars.orgId }
+                            );
+                        }
+                        
+                        console.log('[SUBMIT] GraphQL operation completed:', result);
+                        
+                        // Show success message
+                        const completionStatus = document.getElementById('workflowCompletionStatus');
+                        completionStatus.style.display = 'block';
+                        completionStatus.textContent = '✓ Org Variable Created/Updated';
+                        completionStatus.style.background = '#d4edda';
+                        completionStatus.style.borderColor = '#c3e6cb';
+                        completionStatus.style.color = '#155724';
+                        
+                        console.log('[SUBMIT] GraphQL submission complete');
+                        
+                    } else {
+                        // WORKFLOW SUBMISSION (original logic)
+                        console.log('[SUBMIT] Executing workflow submission');
+                        
+                        // Step 2: Execute workflow and fetch details
+                        const workflowId = window.currentFormWorkflowId;
+                        const result = await rewst.startWorkflowExecution(workflowId, formData);
+                        window.currentExecutionId = result.executionId;
+                        console.log('Step 2a Complete: Execution ID:', window.currentExecutionId);
+                        
+                        // Wait 1 second before fetching workflow details
+                        await new Promise(resolve => setTimeout(resolve, 1000));
+                        
+                        // Fetch workflow details after delay
+                        try {
+                            window.currentWorkflowDetails = await rewst.getWorkflowDetails(workflowId);
+                            console.log('Step 2b Complete: Got workflow details');
+                        } catch (detailsError) {
+                            console.error('Could not fetch workflow details:', detailsError);
+                            window.currentWorkflowDetails = null;
+                        }
+                        
+                        // Step 3: Show "Workflow Executing" message
+                        const executingBox = document.getElementById('workflowExecutingBox');
+                        executingBox.style.display = 'block';
+                        
+                        const executingBoxClickHandler = () => {
+                            console.log('Executing box clicked, showing modal');
+                            showExecutionModal(window.currentExecutionId, false);
+                        };
+                        executingBox.addEventListener('click', executingBoxClickHandler);
+                        console.log('Step 3 Complete: Workflow Executing message displayed');
+                        
+                        // Step 4: Poll execution status
+                        const completionStatus = document.getElementById('workflowCompletionStatus');
+                        const pollInterval = setInterval(async () => {
+                            try {
+                                window.currentFinalExecutionStatus = await rewst.getExecutionStatus(window.currentExecutionId);
+                                console.log('Poll: Current status:', window.currentFinalExecutionStatus.status);
+                                
+                                const terminalStates = ['COMPLETED', 'SUCCESS', 'succeeded', 'FAILED', 'failed', 'ERROR'];
+                                const isComplete = terminalStates.some(s => 
+                                    window.currentFinalExecutionStatus.status?.toUpperCase() === s.toUpperCase()
+                                );
+                                
+                                if (isComplete) {
+                                    console.log('Workflow complete:', window.currentFinalExecutionStatus.status);
+                                    clearInterval(pollInterval);
+                                    
+                                    // Hide executing, show completion
+                                    executingBox.style.display = 'none';
+                                    executingBox.removeEventListener('click', executingBoxClickHandler);
+                                    
+                                    // Check if workflow failed
+                                    const failedStates = ['FAILED', 'failed', 'ERROR'];
+                                    const isFailed = failedStates.some(s => 
+                                        window.currentFinalExecutionStatus.status?.toUpperCase() === s.toUpperCase()
+                                    );
+                                    
+                                    // Update completion status with appropriate message and styling
+                                    completionStatus.style.display = 'block';
+                                    if (isFailed) {
+                                        completionStatus.textContent = '✗ Workflow Failed';
+                                        completionStatus.style.background = '#f8d7da';
+                                        completionStatus.style.borderColor = '#f5c6cb';
+                                        completionStatus.style.color = '#721c24';
+                                    } else {
+                                        completionStatus.textContent = '✓ Workflow Completed';
+                                        completionStatus.style.background = '#d4edda';
+                                        completionStatus.style.borderColor = '#c3e6cb';
+                                        completionStatus.style.color = '#155724';
+                                    }
+                                    
+                                    const completionClickHandler = () => {
+                                        console.log('Completion status clicked, showing modal');
+                                        showExecutionModal(window.currentExecutionId, true);
+                                    };
+                                    completionStatus.addEventListener('click', completionClickHandler);
+                                    
+                                    // Update modal if it's currently open
+                                    const modal = document.getElementById('executionModal');
+                                    if (modal && modal.classList.contains('active')) {
+                                        showExecutionModal(window.currentExecutionId, true);
+                                    }
+                                    
+                                    console.log('Step 4 Complete: Workflow completed');
+                                
+                                // Flush/reset the form after successful completion
+                                setTimeout(() => {
+                                    const inputs = document.querySelectorAll('#previewContent input, #previewContent select, #previewContent textarea');
+                                    inputs.forEach(input => {
+                                        input.disabled = false; // Re-enable fields
+                                        if (input.type === 'checkbox' || input.type === 'radio') {
+                                            input.checked = false;
+                                        } else {
+                                            input.value = '';
+                                        }
+                                    });
+                                    
+                                    // Reset button state
+                                    RewstLib.utils.setButtonState(submitFormBtn, 'Submit', 'btn-blue', false);
+                                    
+                                    console.log('Form flushed and ready for new submission');
+                                }, 1000); // Wait 1 second before resetting
+                            }
+                        } catch (error) {
+                            console.error('Poll error:', error);
+                        }
+                    }, 2000); // Check every 2 seconds
+                    } // END WORKFLOW SUBMISSION
+                    
+                } catch (error) {
+                    console.error('Submission Error:', error);
+                    
+                    RewstLib.utils.setButtonState(submitFormBtn, 'Error - Try Again', 'btn-red', false);
+                    
+                    // Re-enable form fields
+                    const inputs = document.querySelectorAll('#previewContent input, #previewContent select, #previewContent textarea');
+                    inputs.forEach(input => input.disabled = false);
+                    
+                    setTimeout(() => {
+                        RewstLib.utils.setButtonState(submitFormBtn, 'Submit', 'btn-blue');
+                    }, 3000);
+                }
+            });
+        }
+        
+        // ============================================
+        // EXECUTION MODAL FUNCTIONS
+        // ============================================
+        function showExecutionModal(executionId, isCompleted = false) {
+            const modal = document.getElementById('executionModal');
+            const modalContent = document.getElementById('modalContent');
+            
+            console.log('showExecutionModal called with executionId:', executionId, 'isCompleted:', isCompleted);
+            console.log('Modal element found:', !!modal);
+            console.log('Modal current classes:', modal?.className);
+            
+            // Clear any existing polling interval
+            if (window.currentModalPollInterval) {
+                clearInterval(window.currentModalPollInterval);
+                window.currentModalPollInterval = null;
+            }
+            
+            function updateModal() {
+                console.log('updateModal called');
+                rewst.getExecutionStatus(executionId).then(execution => {
+                    console.log('Got execution status:', execution.status);
+                    // Fetch detailed task logs
+                    return rewst.getDetailedTaskLogs(executionId).then(detailedLogs => {
+                        // Create set of executed task IDs
+                        const executedTaskIds = new Set();
+                        const taskFirstExecutionTime = {};
+                        
+                        detailedLogs.forEach(log => {
+                            if (log.workflowTaskId) {
+                                executedTaskIds.add(log.workflowTaskId);
+                                if (!taskFirstExecutionTime[log.workflowTaskId]) {
+                                    taskFirstExecutionTime[log.workflowTaskId] = log.createdAt;
+                                }
+                            }
+                        });
+                        
+                        // Create a sorted copy of only executed workflow tasks
+                        let sortedTasks = [];
+                        if (window.currentWorkflowDetails && window.currentWorkflowDetails.tasks) {
+                            sortedTasks = window.currentWorkflowDetails.tasks
+                                .filter(task => executedTaskIds.has(task.id))
+                                .sort((a, b) => {
+                                    const timeA = taskFirstExecutionTime[a.id] || Number.MAX_VALUE;
+                                    const timeB = taskFirstExecutionTime[b.id] || Number.MAX_VALUE;
+                                    return timeA - timeB;
+                                });
+                        }
+                        
+                        // Create map of workflow task ID to latest task log status
+                        const taskStatusMap = {};
+                        detailedLogs.forEach(log => {
+                            if (log.workflowTaskId) {
+                                taskStatusMap[log.workflowTaskId] = log.status;
+                            }
+                        });
+                        
+                        let workflowTasksHtml = 'No tasks executed';
+                        if (sortedTasks && sortedTasks.length > 0) {
+                            workflowTasksHtml = sortedTasks.map(task => {
+                                let statusIcon = '';
+                                
+                                if (taskStatusMap[task.id]) {
+                                    const status = taskStatusMap[task.id];
+                                    // Add icon based on status
+                                    if (status.toLowerCase() === 'succeeded') {
+                                        statusIcon = '<span style="color: #28a745; margin-right: 8px; font-weight: bold;">✓</span>';
+                                    } else if (status.toLowerCase() === 'failed') {
+                                        statusIcon = '<span style="color: #dc3545; margin-right: 8px; font-weight: bold;">✗</span>';
+                                    } else {
+                                        // Show spinner for running status
+                                        statusIcon = '<span style="display: inline-block; width: 12px; height: 12px; border: 2px solid rgba(255,255,255,0.2); border-top-color: #ffffff; border-radius: 50%; animation: spin 0.8s linear infinite; margin-right: 8px; vertical-align: middle;"></span>';
+                                    }
+                                }
+                                return `<div style="padding: 6px 0;">${statusIcon}${formatTaskName(task.name)}</div>`;
+                            }).join('');
+                        }
+
+                        let html = `
+                            <div class="modal-status">
+                                <span style="display: inline-block; width: 14px; height: 14px; border: 2px solid rgba(255,255,255,0.2); border-top-color: #ffffff; border-radius: 50%; animation: spin 0.8s linear infinite;"></span>
+                                Running...
+                            </div>
+                            <div class="modal-section">
+                                <div class="modal-label">Workflow Tasks</div>
+                                <div>${workflowTasksHtml}</div>
+                            </div>
+                        `;
+                        modalContent.innerHTML = html;
+                    });
+                }).catch(error => {
+                    modalContent.innerHTML = `<pre style="color: #ff6b6b;">Error loading execution details:\n${error.message}</pre>`;
+                });
+            }
+
+            // If completed and we have final status, show that instead of polling
+            if (isCompleted && window.currentFinalExecutionStatus) {
+                // Fetch detailed task logs
+                rewst.getDetailedTaskLogs(executionId).then(detailedLogs => {
+                    // Create set of executed task IDs
+                    const executedTaskIds = new Set();
+                    const taskFirstExecutionTime = {};
+                    
+                    detailedLogs.forEach(log => {
+                        if (log.workflowTaskId) {
+                            executedTaskIds.add(log.workflowTaskId);
+                            if (!taskFirstExecutionTime[log.workflowTaskId]) {
+                                taskFirstExecutionTime[log.workflowTaskId] = log.createdAt;
+                            }
+                        }
+                    });
+                    
+                    // Create a sorted copy of only executed workflow tasks
+                    let sortedTasks = [];
+                    if (window.currentWorkflowDetails && window.currentWorkflowDetails.tasks) {
+                        sortedTasks = window.currentWorkflowDetails.tasks
+                            .filter(task => executedTaskIds.has(task.id))
+                            .sort((a, b) => {
+                                const timeA = taskFirstExecutionTime[a.id] || Number.MAX_VALUE;
+                                const timeB = taskFirstExecutionTime[b.id] || Number.MAX_VALUE;
+                                return timeA - timeB;
+                            });
+                    }
+                    
+                    // Create map of workflow task ID to latest task log status
+                    const taskStatusMap = {};
+                    detailedLogs.forEach(log => {
+                        if (log.workflowTaskId) {
+                            taskStatusMap[log.workflowTaskId] = log.status;
+                        }
+                    });
+                    
+                    let workflowTasksHtml = 'No tasks executed';
+                    if (sortedTasks && sortedTasks.length > 0) {
+                        workflowTasksHtml = sortedTasks.map(task => {
+                            let statusIcon = '';
+                            
+                            if (taskStatusMap[task.id]) {
+                                const status = taskStatusMap[task.id];
+                                // Add icon based on status
+                                if (status.toLowerCase() === 'succeeded') {
+                                    statusIcon = '<span style="color: #28a745; margin-right: 8px; font-weight: bold;">✓</span>';
+                                } else if (status.toLowerCase() === 'failed') {
+                                    statusIcon = '<span style="color: #dc3545; margin-right: 8px; font-weight: bold;">✗</span>';
+                                } else {
+                                    // Show spinner for running status
+                                    statusIcon = '<span style="display: inline-block; width: 12px; height: 12px; border: 2px solid rgba(255,255,255,0.2); border-top-color: #ffffff; border-radius: 50%; animation: spin 0.8s linear infinite; margin-right: 8px; vertical-align: middle;"></span>';
+                                }
+                            }
+                            return `<div style="padding: 6px 0;">${statusIcon}${formatTaskName(task.name)}</div>`;
+                        }).join('');
+                    }
+
+                    let html = `
+                        <div class="modal-status" style="${window.currentFinalExecutionStatus.status === 'succeeded' ? 'color: #28a745;' : 'color: #dc3545;'}">
+                            ${window.currentFinalExecutionStatus.status === 'succeeded' ? '✓ Completed' : '✗ Failed'}
+                        </div>
+                        <div class="modal-section">
+                            <div class="modal-label">Workflow Tasks</div>
+                            <div>${workflowTasksHtml}</div>
+                        </div>
+                    `;
+                    
+                    // If form config has output_var defined, display the workflow result
+                    if (window.currentFormConfig && window.currentFormConfig.output_var && window.currentFinalExecutionStatus.conductor?.output) {
+                        const output = window.currentFinalExecutionStatus.conductor.output;
+                        const outputVarName = window.currentFormConfig.output_var;
+                        const outputValue = output[outputVarName];
+                        
+                        if (outputValue !== undefined && outputValue !== null) {
+                            const displayValue = typeof outputValue === 'string' ? outputValue : JSON.stringify(outputValue, null, 2);
+                            const outputHtml = `
+                                <div class="modal-section">
+                                    <div class="modal-label">Workflow Result:</div>
+                                    <pre style="background: rgba(0,0,0,0.3); padding: 12px; border-radius: 4px; max-height: 200px; overflow-y: auto; font-size: 12px; white-space: pre-wrap; word-wrap: break-word;">${escapeHtml(displayValue)}</pre>
+                                </div>
+                            `;
+                            html += outputHtml;
+                        }
+                    }
+                    
+                    modalContent.innerHTML = html;
+                }).catch(error => {
+                    modalContent.innerHTML = `<pre style="color: #ff6b6b;">Error loading task logs:\n${error.message}</pre>`;
+                });
+            } else {
+                // Initial load for executing modal
+                updateModal();
+            }
+
+            // Poll every 5 seconds if not completed
+            if (!isCompleted) {
+                window.currentModalPollInterval = setInterval(updateModal, 5000);
+            }
+
+            // Show modal
+            console.log('Adding active class to modal, current display:', window.getComputedStyle(modal).display);
+            modal.classList.add('active');
+            modal.style.display = 'flex';  // Directly set display to ensure it shows
+            console.log('Active class added, new classes:', modal.className);
+            console.log('New computed display:', window.getComputedStyle(modal).display);
+
+            // Close button handler
+            const closeBtn = document.getElementById('modalCloseBtn');
+            
+            const overlayClickHandler = (e) => {
+                if (e.target === modal) {
+                    closeHandler();
+                }
+            };
+
+            const closeHandler = () => {
+                console.log('Closing modal, removing active class');
+                modal.classList.remove('active');
+                modal.style.display = 'none';  // Directly set display to ensure it hides
+                if (window.currentModalPollInterval) {
+                    clearInterval(window.currentModalPollInterval);
+                    window.currentModalPollInterval = null;
+                }
+                closeBtn.removeEventListener('click', closeHandler);
+                modal.removeEventListener('click', overlayClickHandler);
+            };
+
+            closeBtn.addEventListener('click', closeHandler);
+            modal.addEventListener('click', overlayClickHandler);
+        }
+        
+        
+        // ============================================
+        // LIBRARY DEPENDENCY CHECK
+        // ============================================
+        if (typeof RewstLib === 'undefined' || !RewstLib.forms) {
+            console.error('❌ CRITICAL ERROR: RewstLib library not loaded!');
+            const previewContent = document.getElementById('previewContent');
+            if (previewContent) {
+                previewContent.innerHTML = `<div class="preview-placeholder" style="color: #dc3545; font-size: 18px; font-weight: 600; padding: 40px; text-align: center; line-height: 1.6;">
+                    <strong>❌ Critical Error</strong><br><br>
+                    The Rewst Form Viewer requires the rewst-library.js to be loaded first.<br><br>
+                    Please ensure the library script is loaded before this page loads.
+                </div>`;
+            }
+            throw new Error('RewstLib library not loaded - cannot continue');
+        }
+        
+        // Configure library settings
+        if (typeof SKIP_CACHE !== 'undefined') {
+            RewstLib.config.setSkipCache(SKIP_CACHE);
+            console.log('[CONFIG] Global SKIP_CACHE set to:', SKIP_CACHE);
+        }
+        
+        if (!FETCH_FORMS_WORKFLOW_ID) {
+            console.error('FETCH_FORMS_WORKFLOW_ID not configured');
+            displayFormsFetchError('Workflow ID not configured. Update FETCH_FORMS_WORKFLOW_ID in the script.');
+        } else {
+            // Detect URL parameter
+            const detectedFormId = detectUrlFormId();
+            
+            console.log('=== PAGE INITIALIZATION ===');
+            console.log('FETCH_FORMS_WORKFLOW_ID:', FETCH_FORMS_WORKFLOW_ID);
+            console.log('Detected urlFormId:', detectedFormId);
+            console.log('urlFormId is truthy?', !!detectedFormId);
+            
+            // Check if form_id parameter is in URL
+            if (detectedFormId) {
+                console.log('✓ form_id parameter detected in URL, loading form directly');
+                console.log('Calling loadFormFromUrlParameter with:', detectedFormId);
+                
+                // Hide the dropdown and loading sections immediately
+                const dropdown = document.getElementById('open_existing_dropdown');
+                const loading = document.getElementById('open_existing_loading');
+                const formsSection = document.getElementById('open_existing_section');
+                
+                if (dropdown) {
+                    dropdown.style.display = 'none';
+                }
+                if (loading) {
+                    loading.style.display = 'none';
+                }
+                if (formsSection) {
+                    formsSection.style.display = 'none';
+                }
+                
+                loadFormFromUrlParameter(detectedFormId).catch(error => {
+                    console.error('Form load from URL failed:', error);
+                });
+            } else {
+                console.log('✗ No form_id parameter provided');
+                // Show "No Form ID Provided" message instead of fetching forms list
+                const previewContent = document.getElementById('previewContent');
+                if (previewContent) {
+                    // Try to get URL from parent window if in iframe, otherwise use current location
+                    let baseUrl = '/forms_v2';
+                    try {
+                        if (window.parent && window.parent !== window && window.parent.location) {
+                            const parentUrl = window.parent.location.href;
+                            baseUrl = parentUrl.split('?')[0];
+                        }
+                    } catch (e) {
+                        // If we can't access parent (cross-origin), fall back to a generic path
+                        console.log('Cannot access parent window URL, using default path');
+                    }
+                    
+                    const exampleUrl = `${baseUrl}?form_id=1`;
+                    previewContent.innerHTML = `<div class="preview-placeholder" style="color: #ffc107; font-size: 16px; font-weight: 600; line-height: 1.6;">No Form ID Provided<br><span style="font-size: 14px; font-weight: normal; margin-top: 12px; display: block;">Form ID is specified in the URL (ie, <code style="background: rgba(0,0,0,0.2); padding: 2px 6px; border-radius: 3px;">${escapeHtml(exampleUrl)}</code>)</span></div>`;
+                }
+                
+                // Hide the dropdown and loading sections
+                const dropdown = document.getElementById('open_existing_dropdown');
+                const loading = document.getElementById('open_existing_loading');
+                const formsSection = document.getElementById('open_existing_section');
+                
+                if (dropdown) {
+                    dropdown.style.display = 'none';
+                }
+                if (loading) {
+                    loading.style.display = 'none';
+                }
+                if (formsSection) {
+                    formsSection.style.display = 'none';
+                }
+                
+                // DISABLED: Existing forms lookup functionality
+                // To re-enable later, uncomment the code below:
+                /*
+                console.log('Calling fetchExistingForms()');
+                fetchExistingForms().catch(error => {
+                    console.error('Form fetch failed:', error);
+                    displayFormsFetchError(error.message);
+                });
+                */
+            }
+            console.log('===========================');
+        }
+    </script>
+</body>
+</html>
