@@ -1476,9 +1476,15 @@
   /* ============================================
    MULTI-SELECT COMPONENT STYLES
    ============================================ */
+  /* Ensure form-group with multi-select allows dropdown overflow */
+  .form-group:has(.multi-select-container) {
+    overflow: visible;
+  }
+
   .multi-select-container {
     position: relative;
     width: 100%;
+    overflow: visible;
   }
 
   .multi-select-display {
@@ -1493,6 +1499,7 @@
     cursor: pointer;
     flex-wrap: wrap;
     transition: all 0.2s ease;
+    overflow: visible;
   }
 
   .multi-select-display:focus-within {
@@ -1564,7 +1571,8 @@
     max-height: 0;
     overflow: hidden;
     transition: max-height 0.2s ease;
-    z-index: 1000;
+    z-index: 10000;
+    margin-top: 0;
   }
 
   .multi-select-options.open {
