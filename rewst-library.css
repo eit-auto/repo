@@ -1604,6 +1604,15 @@
     border-bottom: 1px solid #314a59;
   }
 
+  .multi-select-option.multi-select-select-all {
+    background: rgba(90, 159, 184, 0.15);
+    font-weight: 500;
+  }
+
+  .multi-select-option.multi-select-select-all:hover {
+    background: rgba(90, 159, 184, 0.25);
+  }
+
   .multi-select-option:hover {
     background: rgba(90, 159, 184, 0.1);
   }
