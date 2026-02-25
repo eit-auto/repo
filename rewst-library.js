@@ -55,16 +55,6 @@ const RewstLib = (function() {
         { name: 'varName', label: 'Variable Name', type: 'text', required: true },
         { name: 'orgId', label: 'Organization ID (optional)', type: 'text', required: false }
       ]
-    },
-    pc_setup: {
-      name: 'PC Setup',
-      description: 'Retrieves PC setup field configurations from org variable',
-      type: 'form_extend',
-      function: 'RewstLib.orgVariables.get',
-      inputs: [
-        { name: 'varName', label: 'Variable Name', type: 'text', required: true, defaultValue: 'pc_setup' },
-        { name: 'orgId', label: 'Organization ID', type: 'text', required: true }
-      ]
     }
   };
   // ========================================
@@ -535,6 +525,7 @@ const RewstLib = (function() {
       // Apply visibility
       console.log(`[FORMS] Setting ${config.field_name} display to: ${shouldShow ? 'visible' : 'none'}`);
       formGroup.style.display = shouldShow ? '' : 'none';
+      formGroup.style.marginBottom = shouldShow ? '' : '0';
     });
   }
   /**
