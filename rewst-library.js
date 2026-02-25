@@ -1171,16 +1171,25 @@ const RewstLib = (function() {
     if (!toggleBtn) {
       console.error('[MULTI-SELECT] Toggle button not found - cannot attach click handler');
     } else {
-      toggleBtn.addEventListener('click', (e) => {
-        console.log('[MULTI-SELECT] Toggle button clicked, dropdown element:', !!dropdown);
-        e.stopPropagation();
-        toggleDropdown();
-      });
+      // Make entire display area clickable to open dropdown
+      const displayArea = container.querySelector('.multi-select-display');
+      if (displayArea) {
+        displayArea.addEventListener('click', (e) => {
+          // Don't toggle if clicking on the X button to remove a tag
+          if (e.target.classList.contains('multi-select-tag-remove')) {
+            return;
+          }
+          console.log('[MULTI-SELECT] Display area clicked, dropdown element:', !!dropdown);
+          e.stopPropagation();
+          toggleDropdown();
+        });
+      }
     }
 
     container.addEventListener('click', (e) => {
       if (e.target.classList.contains('multi-select-tag-remove')) {
         e.preventDefault();
+        e.stopPropagation();
         const value = e.target.dataset.value;
         selected = selected.filter(v => v !== value);
         updateTags();
