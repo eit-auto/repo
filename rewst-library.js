@@ -1084,6 +1084,21 @@ const RewstLib = (function() {
   }
 
   /**
+   * Map result items to options format for dropdowns
+   * @param {Array} items - Array of result items
+   * @param {string} valueName - Property name for value
+   * @param {string} labelName - Property name for label
+   * @returns {Array} Array of {value, label} objects
+   */
+  function mapResultsToOptions(items, valueName, labelName) {
+    if (!items || !Array.isArray(items)) return [];
+    return items.map(item => ({
+      value: item[valueName] || item.id || item.Id,
+      label: item[labelName] || item.name || item.Name
+    })).filter(opt => opt.value && opt.label);
+  }
+
+  /**
    * Show "Waiting for..." message when field depends on parent field selection
    * @param {HTMLElement} formGroup - Form group container
    * @param {object} config - Field configuration
