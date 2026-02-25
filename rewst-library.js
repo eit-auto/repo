@@ -1174,6 +1174,26 @@ const RewstLib = (function() {
   }
 
   /**
+   * Hide "Waiting for..." message and show field again
+   * @param {HTMLElement} formGroup - Form group container
+   * @param {object} config - Field configuration
+   */
+  function hideWaitingMessage(formGroup, config) {
+    const waitingBox = formGroup.querySelector('.field-waiting-message');
+    if (waitingBox) waitingBox.remove();
+    
+    // Show multi-select display or regular input
+    const multiSelectDisplay = formGroup.querySelector('.multi-select-display');
+    const input = formGroup.querySelector('input, select, textarea');
+    
+    if (multiSelectDisplay) {
+      multiSelectDisplay.style.display = '';
+    } else if (input) {
+      input.style.display = '';
+    }
+  }
+
+  /**
    * Initialize dependent fields - show waiting message for all fields with dependencies
    * @param {Array} fieldConfigs - All field configurations
    */
