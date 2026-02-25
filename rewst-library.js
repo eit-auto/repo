@@ -1084,18 +1084,98 @@ const RewstLib = (function() {
   }
 
   /**
-   * Map result items to options format for dropdowns
-   * @param {Array} items - Array of result items
-   * @param {string} valueName - Property name for value
-   * @param {string} labelName - Property name for label
-   * @returns {Array} Array of {value, label} objects
+   * Show "Waiting for..." message when field depends on parent field selection
+   * @param {HTMLElement} formGroup - Form group container
+   * @param {object} config - Field configuration
+   * @param {Array} fieldConfigs - All field configurations
    */
-  function mapResultsToOptions(items, valueName, labelName) {
-    if (!items || !Array.isArray(items)) return [];
-    return items.map(item => ({
-      value: item[valueName] || item.id || item.Id,
-      label: item[labelName] || item.name || item.Name
-    })).filter(opt => opt.value && opt.label);
+  function showWaitingMessage(formGroup, config, fieldConfigs) {
+    const depFields = config.dependant_fields.split(',').map(f => f.trim());
+    const parentFieldLabels = depFields.map(fieldName => {
+      const parentConfig = fieldConfigs.find(f => f.field_name === fieldName);
+      return parentConfig ? parentConfig.field_displayname : fieldName;
+    });
+    
+    // Hide multi-select display or regular input
+    const multiSelectDisplay = formGroup.querySelector('.multi-select-display');
+    const input = formGroup.querySelector('input, select, textarea');
+    
+    if (multiSelectDisplay) {
+      multiSelectDisplay.style.display = 'none';
+    } else if (input) {
+      input.style.display = 'none';
+    }
+    
+    const waitingBox = document.createElement('div');
+    waitingBox.className = 'field-waiting-message';
+    waitingBox.setAttribute('data-field-name', config.field_name);
+    waitingBox.innerHTML = `Waiting for ${parentFieldLabels.join(' and ')} selection`;
+    formGroup.appendChild(waitingBox);
+  }
+
+  /**
+   * Show "Loading..." message when field is loading data
+   * @param {HTMLElement} formGroup - Form group container
+   * @param {object} config - Field configuration
+   */
+  function showLoadingMessage(formGroup, config) {
+    // Hide multi-select display or regular input
+    const multiSelectDisplay = formGroup.querySelector('.multi-select-display');
+    const input = formGroup.querySelector('input, select, textarea');
+    
+    if (multiSelectDisplay) {
+      multiSelectDisplay.style.display = 'none';
+    } else if (input) {
+      input.style.display = 'none';
+    }
+    
+    const existingLoading = formGroup.querySelector('.field-loading-message');
+    if (existingLoading) existingLoading.remove();
+    const loadingBox = document.createElement('div');
+    loadingBox.className = 'field-loading-message';
+    loadingBox.setAttribute('data-field-name', config.field_name);
+    loadingBox.innerHTML = '<div style="display: flex; align-items: center; gap: 8px; justify-content: center;"><div class="loading-spinner" style="display: inline-block; width: 16px; height: 16px; border: 2px solid rgba(102, 126, 234, 0.3); border-top-color: #667eea; border-radius: 50%; animation: spin 0.8s linear infinite;"></div><span>Loading...</span></div>';
+    formGroup.appendChild(loadingBox);
+  }
+
+  /**
+   * Hide "Loading..." message and show field again
+   * @param {HTMLElement} formGroup - Form group container
+   * @param {object} config - Field configuration
+   */
+  function hideLoadingMessage(formGroup, config) {
+    const loadingBox = formGroup.querySelector('.field-loading-message');
+    if (loadingBox) loadingBox.remove();
+    
+    // Show multi-select display or regular input
+    const multiSelectDisplay = formGroup.querySelector('.multi-select-display');
+    const input = formGroup.querySelector('input, select, textarea');
+    
+    if (multiSelectDisplay) {
+      multiSelectDisplay.style.display = '';
+    } else if (input) {
+      input.style.display = '';
+    }
+  }
+
+  /**
+   * Hide "Waiting for..." message and show field again
+   * @param {HTMLElement} formGroup - Form group container
+   * @param {object} config - Field configuration
+   */
+  function hideWaitingMessage(formGroup, config) {
+    const waitingBox = formGroup.querySelector('.field-waiting-message');
+    if (waitingBox) waitingBox.remove();
+    
+    // Show multi-select display or regular input
+    const multiSelectDisplay = formGroup.querySelector('.multi-select-display');
+    const input = formGroup.querySelector('input, select, textarea');
+    
+    if (multiSelectDisplay) {
+      multiSelectDisplay.style.display = '';
+    } else if (input) {
+      input.style.display = '';
+    }
   }
 
   
@@ -1370,7 +1450,11 @@ const RewstLib = (function() {
       initializeMultiSelect,
       renderMultiSelectContainer,
       initializeDropdownMultiSelect,
-      mapResultsToOptions
+      mapResultsToOptions,
+      showWaitingMessage,
+      showLoadingMessage,
+      hideLoadingMessage,
+      hideWaitingMessage
     },
     // GraphQL Operations
     graphqlOperations: {
