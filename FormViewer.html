@@ -1074,22 +1074,17 @@
             
             // Initialize multi-select components
             fieldConfigs.forEach(config => {
-                if (config.multi_select && config.type !== 'dropdown_graphql') {
-                    const multiSelectId = `ms_${config.field_name}`;
-                    const container = document.getElementById(multiSelectId);
-                    if (container) {
-                        let options = [];
-                        // For dropdown_static, get options from config
-                        if (config.type === 'dropdown_static' && config.options) {
-                            options = Object.entries(config.options).map(([label, value]) => ({
-                                label,
-                                value
-                            }));
-                        }
-                        // Initialize with library function
-                        RewstLib.utils.initializeMultiSelect(container, options, []);
-                        console.log(`>>> Initialized multi-select for: ${config.field_name}`);
+                if (config.multi_select && config.type !== 'dropdown_graphql' && !config.workflow_id) {
+                    let options = [];
+                    // For dropdown_static, get options from config
+                    if (config.type === 'dropdown_static' && config.options) {
+                        options = Object.entries(config.options).map(([label, value]) => ({
+                            label,
+                            value
+                        }));
                     }
+                    // Initialize with helper function
+                    RewstLib.utils.initializeDropdownMultiSelect(config.field_name, options);
                 }
             });
             
@@ -1401,19 +1396,15 @@
                                 }
                             });
                             
-                            // If multi-select, re-initialize the component with loaded options
+                            // If multi-select, initialize the component with loaded options
                             if (config.multi_select) {
-                                const multiSelectId = `ms_${config.field_name}`;
-                                const container = document.getElementById(multiSelectId);
-                                if (container) {
-                                    const options = itemsArray.map(item => ({
-                                        value: item[config.value_name] || item.id,
-                                        label: item[config.label_name] || item.name
-                                    }));
-                                    RewstLib.utils.initializeMultiSelect(container, options, []);
-                                    console.log(`>>> Re-initialized multi-select for: ${config.field_name} with ${options.length} options`);
-                                }
+                                const msOptions = RewstLib.utils.mapResultsToOptions(itemsArray, config.value_name, config.label_name);
+                                RewstLib.utils.initializeDropdownMultiSelect(config.field_name, msOptions);
                             }
+                        } else {
+                            // No results - show "None Found"
+                            input.innerHTML = `<option value="">${RewstLib.utils.getGrammaticalPhrase(config.field_displayname, 'Select', {noResults: true})}</option>`;
+                            console.log(`[DROPDOWN] No results for ${config.field_name}, showing "None Found"`);
                         }
                     }
                 }).catch(error => {
@@ -1620,17 +1611,32 @@
                 const input = document.querySelector(`select[name="${config.field_name}"]`);
                 if (input && result.conductor && result.conductor.output && result.conductor.output.options) {
                     const options = result.conductor.output.options;
-                    input.innerHTML = `<option value="">-- Select a ${config.field_displayname.toLowerCase()} --</option>`;
-                    options.forEach(option => {
-                        const value = option[config.value_name] || option.id || option.Id;
-                        const label = option[config.label_name] || option.name || option.Name;
-                        if (value && label) {
-                            const opt = document.createElement('option');
-                            opt.value = value;
-                            opt.textContent = label;
-                            input.appendChild(opt);
+                    
+                    if (options.length > 0) {
+                        // Has results
+                        // If multi-select, initialize the component with loaded options
+                        if (config.multi_select) {
+                            const msOptions = RewstLib.utils.mapResultsToOptions(options, config.value_name, config.label_name);
+                            RewstLib.utils.initializeDropdownMultiSelect(config.field_name, msOptions);
+                        } else {
+                            // Single select - populate options normally
+                            input.innerHTML = `<option value="">${RewstLib.utils.getGrammaticalPhrase(config.field_displayname)}</option>`;
+                            options.forEach(option => {
+                                const value = option[config.value_name] || option.id || option.Id;
+                                const label = option[config.label_name] || option.name || option.Name;
+                                if (value && label) {
+                                    const opt = document.createElement('option');
+                                    opt.value = value;
+                                    opt.textContent = label;
+                                    input.appendChild(opt);
+                                }
+                            });
                         }
-                    });
+                    } else {
+                        // No results - show "None Found"
+                        input.innerHTML = `<option value="">${RewstLib.utils.getGrammaticalPhrase(config.field_displayname, 'Select', {noResults: true})}</option>`;
+                        console.log(`[DROPDOWN] No workflow results for ${config.field_name}, showing "None Found"`);
+                    }
                 }
             }).catch(error => {
                 console.error(`Error executing workflow for ${config.field_name}:`, error);
@@ -1809,29 +1815,7 @@
             } else if (config.type === 'dropdown_static') {
                 if (config.multi_select) {
                     // Custom multi-select component
-                    const multiSelectId = `ms_${config.field_name}`;
-                    html += `
-                        <label>${displayName}</label>
-                        ${config.description ? `<div class="field-description">${escapeHtml(config.description)}</div>` : ''}
-                        <div class="multi-select-container" id="${multiSelectId}">
-                            <div class="multi-select-display">
-                                <div class="multi-select-tags"></div>
-                                <div class="multi-select-toggle">▼</div>
-                            </div>
-                            <div class="multi-select-options"></div>
-                            <select name="${config.field_name}" class="multi-select-hidden-select">
-                    `;
-                    
-                    if (config.options && typeof config.options === 'object') {
-                        Object.entries(config.options).forEach(([key, value]) => {
-                            html += `<option value="${escapeHtml(value)}">${escapeHtml(key)}</option>`;
-                        });
-                    }
-                    
-                    html += `
-                            </select>
-                        </div>
-                    `;
+                    html += RewstLib.utils.renderMultiSelectContainer(config.field_name, displayName, config.description);
                 } else {
                     // Single select (original logic)
                     html += `
@@ -1851,30 +1835,23 @@
                     html += '</select>';
                 }
             } else if (config.type === 'dropdown') {
-                const multiSelectAttr = config.multi_select ? 'multiple' : '';
-                html += `
-                    <label>${displayName}</label>
-                    ${config.description ? `<div class="field-description">${escapeHtml(config.description)}</div>` : ''}
-                    <select name="${config.field_name}" ${multiSelectAttr}>
-                        <option value="">${RewstLib.utils.getGrammaticalPhrase(config.field_displayname)}</option>
-                    </select>
-                `;
-            } else if (config.type === 'dropdown_graphql') {
                 if (config.multi_select) {
                     // Custom multi-select component
-                    const multiSelectId = `ms_${config.field_name}`;
+                    html += RewstLib.utils.renderMultiSelectContainer(config.field_name, displayName, config.description);
+                } else {
+                    // Single select (original logic)
                     html += `
                         <label>${displayName}</label>
                         ${config.description ? `<div class="field-description">${escapeHtml(config.description)}</div>` : ''}
-                        <div class="multi-select-container" id="${multiSelectId}">
-                            <div class="multi-select-display">
-                                <div class="multi-select-tags"></div>
-                                <div class="multi-select-toggle">▼</div>
-                            </div>
-                            <div class="multi-select-options"></div>
-                            <select name="${config.field_name}" class="multi-select-hidden-select"></select>
-                        </div>
+                        <select name="${config.field_name}">
+                            <option value="">${RewstLib.utils.getGrammaticalPhrase(config.field_displayname)}</option>
+                        </select>
                     `;
+                }
+            } else if (config.type === 'dropdown_graphql') {
+                if (config.multi_select) {
+                    // Custom multi-select component
+                    html += RewstLib.utils.renderMultiSelectContainer(config.field_name, displayName, config.description);
                 } else {
                     // Single select (original logic)
                     html += `
