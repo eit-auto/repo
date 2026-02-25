@@ -688,9 +688,8 @@
   }
   /* Allow multi-select dropdowns to expand */
   .form-group select[multiple] {
-    overflow: visible;
-    height: auto;
-    min-height: 100px;
+    overflow: auto;
+    height: 150px;
   }
   .form-group .searchable-select-input {
     padding: 0.35rem 0.75rem;
