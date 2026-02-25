@@ -851,18 +851,26 @@ const RewstLib = (function() {
    *   - capitalize: bool (default: true) - Capitalize the verb
    *   - article: bool (default: true) - Include 'a' or 'an'
    *   - dashPrefix: bool (default: true) - Add '-- ' prefix and ' --' suffix
-   * @returns {string} Grammatically correct phrase
+   *   - noResults: bool (default: false) - If true, return "None Found" instead
+   * @returns {string} Grammatically correct phrase or "None Found" if no results
    * @example
    *   getGrammaticalPhrase('Organizations')  // "-- Select an Organizations --"
    *   getGrammaticalPhrase('User', 'Add')    // "-- Add a User --"
    *   getGrammaticalPhrase('Email', 'Enter', {article: false})  // "-- Enter Email --"
+   *   getGrammaticalPhrase('Items', 'Select', {noResults: true})  // "None Found"
    */
   function getGrammaticalPhrase(text, verb = 'Select', options = {}) {
     const {
       capitalize = true,
       article = true,
-      dashPrefix = true
+      dashPrefix = true,
+      noResults = false
     } = options;
+    
+    // Return "None Found" if no results available
+    if (noResults) {
+      return 'None Found';
+    }
     
     let result = '';
     
