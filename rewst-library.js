@@ -1017,6 +1017,35 @@ const RewstLib = (function() {
   }
 
   /**
+   * Format cell value for display based on field type
+   * @param {string} colName - Column name
+   * @param {*} value - Cell value
+   * @param {object} fieldTypes - Field type mapping
+   * @returns {string} Formatted cell value
+   */
+  function formatCellValue(colName, value, fieldTypes = {}) {
+    if (!value) return '';
+    
+    const fieldType = fieldTypes[colName];
+    
+    if (fieldType === 'datetime') {
+      return formatDateTimeDisplay(value);
+    } else if (fieldType === 'date') {
+      return formatDateDisplay(value);
+    }
+    
+    return escapeHtml(String(value));
+  }
+
+  /**
+   * Get all available GraphQL operations
+   * @returns {object} All GraphQL operations metadata
+   */
+  function getGraphQLOperations() {
+    return GRAPHQL_OPERATIONS;
+  }
+  
+  /**
    * Generate multi-select container HTML
    * @param {string} fieldName - Field name
    * @param {string} displayName - Display name for label
