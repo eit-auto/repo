@@ -52,6 +52,7 @@
     border-radius: 8px;
     box-sizing: border-box;
     overflow-x: hidden;
+    overflow-y: visible;
     display: flex;
     flex-direction: column;
     gap: 1rem;
@@ -629,6 +630,8 @@
     margin-bottom: 1.125rem;
     display: flex;
     flex-direction: column;
+    position: relative;
+    z-index: auto;
   }
   .form-group-vert {
     display: flex;
@@ -685,6 +688,148 @@
     max-width: 100%;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+
+  /* ============================================
+   CUSTOM MULTI-SELECT COMPONENT
+   ============================================ */
+  .custom-multi-select {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0.5rem 0.75rem;
+    border: 2px solid var(--form-border-color);
+    border-radius: 4px;
+    background: var(--form-bg-color);
+    color: inherit;
+    font-size: 0.95rem;
+    min-height: 37px;
+    flex-wrap: wrap;
+    cursor: pointer;
+    transition: all 0.2s ease;
+  }
+  
+  .custom-multi-select:focus-within {
+    outline: none;
+    border-color: var(--form-accent-color);
+    box-shadow: 0 0 0 3px rgba(90, 159, 184, 0.1);
+  }
+
+  .multi-select-tags {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    flex: 1;
+    align-items: center;
+  }
+
+  .multi-select-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: #5a9fb8;
+    color: #ffffff;
+    padding: 4px 8px;
+    border-radius: 3px;
+    font-size: 0.85rem;
+    white-space: nowrap;
+  }
+
+  .multi-select-tag-remove {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    background: rgba(255, 255, 255, 0.3);
+    border: none;
+    border-radius: 2px;
+    color: #ffffff;
+    cursor: pointer;
+    padding: 0;
+    font-size: 12px;
+    transition: background 0.2s ease;
+  }
+
+  .multi-select-tag-remove:hover {
+    background: rgba(255, 255, 255, 0.5);
+  }
+
+  .multi-select-placeholder {
+    color: #888;
+    font-style: italic;
+  }
+
+  .multi-select-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    background: none;
+    border: none;
+    color: #888;
+    cursor: pointer;
+    padding: 0;
+    font-size: 14px;
+    flex-shrink: 0;
+    transition: color 0.2s ease;
+  }
+
+  .multi-select-toggle:hover {
+    color: var(--form-accent-color);
+  }
+
+  .multi-select-dropdown {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    background: var(--form-bg-color);
+    border: 2px solid var(--form-accent-color);
+    border-top: none;
+    border-radius: 0 0 4px 4px;
+    max-height: 200px;
+    overflow-y: auto;
+    z-index: 1000;
+    display: none;
+    margin-top: -2px;
+  }
+
+  .multi-select-dropdown.open {
+    display: block;
+  }
+
+  .multi-select-option {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    border-bottom: 1px solid #404040;
+    cursor: pointer;
+    transition: background 0.15s ease;
+  }
+
+  .multi-select-option:hover {
+    background: rgba(90, 159, 184, 0.1);
+  }
+
+  .multi-select-option:last-child {
+    border-bottom: none;
+  }
+
+  .multi-select-option input[type="checkbox"] {
+    cursor: pointer;
+    accent-color: #5a9fb8;
+    flex-shrink: 0;
+  }
+
+  .multi-select-option label {
+    flex: 1;
+    cursor: pointer;
+    margin: 0;
+    font-weight: 400;
   }
   .form-group .searchable-select-input {
     padding: 0.35rem 0.75rem;
@@ -759,7 +904,7 @@
   }
   .radio-item label {
     margin-bottom: 0;
-    margin-left: -2px;
+    margin-left: 5px;
     font-weight: 400;
     cursor: pointer;
   }
@@ -769,18 +914,18 @@
     gap: 0.125rem;
   }
   .checkbox-wrapper label {
-    margin-left: -2px;
+    margin-left: 5px;
     margin-bottom: 0;
   }
   .waiting-box {
     padding: 0.35rem 0.75rem;
-    border: 2px solid #b8860b;
+    border: 2px solid #333333;
     border-radius: 4px;
-    background: #fffacd;
-    color: #8b8b00;
-    font-size: 0.9rem;
+    background: #d8d8d8;
+    color: #333333;
+    font-size: 0.85rem;
     text-align: center;
-    font-weight: 500;
+    font-weight: 600;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -805,11 +950,11 @@
   }
   .field-waiting-message {
     padding: 0.35rem 0.75rem;
-    border: 2px solid #b8860b;
+    border: 2px solid #333333;
     border-radius: 4px;
-    background: #fffacd;
-    color: #8b8b00;
-    font-size: 0.95rem;
+    background: #d8d8d8;
+    color: #333333;
+    font-size: 0.85rem;
     text-align: center;
     display: flex;
     align-items: center;
@@ -818,6 +963,7 @@
     line-height: 1.0;
     height: 37px;
     box-sizing: border-box;
+    font-weight: 600;
   }
   .modal-overlay {
     position: fixed;
@@ -1329,6 +1475,163 @@
     --form-bg-color: #991a1a;
     --form-border-color: #808080;
     --form-accent-color: #5a9fb8;
+  }
+
+  /* ============================================
+   MULTI-SELECT COMPONENT STYLES
+   ============================================ */
+  /* Ensure form-group with multi-select allows dropdown overflow */
+  .form-group:has(.multi-select-container) {
+    overflow: visible !important;
+  }
+
+  .multi-select-container {
+    position: relative;
+    width: 100%;
+    overflow: visible;
+  }
+
+  .multi-select-display {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0.5rem 0.75rem;
+    border: 2px solid var(--form-border-color);
+    border-radius: 4px;
+    background: var(--form-bg-color);
+    min-height: 37px;
+    cursor: pointer;
+    flex-wrap: wrap;
+    transition: all 0.2s ease;
+    overflow: visible;
+    user-select: none;
+  }
+
+  .multi-select-display:hover {
+    border-color: var(--form-accent-color);
+  }
+
+  .multi-select-display:focus-within {
+    border-color: var(--form-accent-color);
+    box-shadow: 0 0 0 3px rgba(90, 159, 184, 0.1);
+  }
+
+  .multi-select-tags {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    flex: 1;
+    align-items: center;
+  }
+
+  .multi-select-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    background: #5a9fb8;
+    color: #ffffff;
+    border-radius: 4px;
+    font-size: 0.85rem;
+    font-weight: 500;
+    white-space: nowrap;
+  }
+
+  .multi-select-tag-remove {
+    cursor: pointer;
+    font-weight: bold;
+    opacity: 0.8;
+    transition: opacity 0.2s;
+    pointer-events: auto;
+    background: none;
+    border: none;
+    padding: 0;
+    margin: 0;
+    font-size: inherit;
+    color: inherit;
+  }
+
+  .multi-select-tag-remove:hover {
+    opacity: 1;
+  }
+
+  .multi-select-placeholder {
+    color: #888;
+    font-size: 0.95rem;
+  }
+
+  .multi-select-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    color: #888;
+    transition: color 0.2s;
+    flex-shrink: 0;
+  }
+
+  .multi-select-display:hover .multi-select-toggle {
+    color: var(--form-accent-color);
+  }
+
+  .multi-select-options {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    background: var(--form-bg-color);
+    border: 2px solid var(--form-border-color);
+    border-top: none;
+    border-radius: 0 0 4px 4px;
+    display: none;
+    overflow-y: auto;
+    z-index: 10000;
+    margin-top: 0;
+    max-height: 250px;
+  }
+
+  .multi-select-options.open {
+    display: block;
+  }
+
+  .multi-select-option {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 0.5rem 0.75rem;
+    cursor: pointer;
+    transition: background 0.2s;
+    border-bottom: 1px solid #314a59;
+  }
+
+  .multi-select-option.multi-select-select-all {
+    background: rgba(90, 159, 184, 0.15);
+    font-weight: 500;
+  }
+
+  .multi-select-option.multi-select-select-all:hover {
+    background: rgba(90, 159, 184, 0.25);
+  }
+
+  .multi-select-option:hover {
+    background: rgba(90, 159, 184, 0.1);
+  }
+
+  .multi-select-option input[type="checkbox"] {
+    cursor: pointer;
+    accent-color: #5a9fb8;
+  }
+
+  .multi-select-option label {
+    flex: 1;
+    cursor: pointer;
+    margin: 0;
+    font-size: 0.95rem;
+  }
+
+  .multi-select-hidden-select {
+    display: none;
   }
 
 /* Version 1.0.3 */
