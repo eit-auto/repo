@@ -1162,10 +1162,12 @@ const GRAPHQL_OPERATIONS = {
       input.style.display = 'none';
     }
     
-    // Disable refresh button if it exists
+    // Disable refresh button and show spinner
     const refreshBtn = formGroup.querySelector('.dropdown-refresh-btn');
     if (refreshBtn) {
       refreshBtn.disabled = true;
+      refreshBtn.setAttribute('data-original-text', refreshBtn.textContent);
+      refreshBtn.innerHTML = '<div style="display: inline-block; width: 16px; height: 16px; border: 2px solid rgba(90, 159, 184, 0.3); border-top-color: #5a9fb8; border-radius: 50%; animation: spin 0.8s linear infinite;"></div>';
     }
     
     const existingLoading = formGroup.querySelector('.field-loading-message');
@@ -1202,10 +1204,13 @@ const GRAPHQL_OPERATIONS = {
     const loadingBox = formGroup.querySelector('.field-loading-message');
     if (loadingBox) loadingBox.remove();
     
-    // Re-enable refresh button if it exists
+    // Re-enable refresh button and restore original text
     const refreshBtn = formGroup.querySelector('.dropdown-refresh-btn');
     if (refreshBtn) {
       refreshBtn.disabled = false;
+      const originalText = refreshBtn.getAttribute('data-original-text');
+      refreshBtn.textContent = originalText || '↻';
+      refreshBtn.removeAttribute('data-original-text');
     }
     
     // Show multi-select display or regular input
