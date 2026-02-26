@@ -1231,13 +1231,55 @@ const RewstLib = (function() {
   }
 
   /**
-   * Handle field state when dependency is met
-   * @param {object} config - Field configuration
+   * Update dependent fields when a parent field changes
+   * @param {string} changedFieldName - Name of field that changed
    * @param {Array} allFieldConfigs - All field configurations
-   * @param {function} onDataFetchingField - Callback for data-fetching field types
-   * @param {function} onNonDataFetchingField - Callback for non-data-fetching field types
+   * @param {object} formConfig - Form configuration
+   * @param {function} onLoadFieldOptions - Callback to load field options for data-fetching types
+   *   Signature: (config, allFieldConfigs, formConfig) => void
    */
-  function handleDependencyMet(config, allFieldConfigs, onDataFetchingField, onNonDataFetchingField) {
+  function updateDependentFields(changedFieldName, allFieldConfigs, formConfig, onLoadFieldOptions) {
+    const dependentFields = allFieldConfigs.filter(config => 
+      config.dependant_fields && config.dependant_fields.includes(changedFieldName)
+    );
+    
+    console.log(`[DEPENDENCIES] Found ${dependentFields.length} dependent fields for: ${changedFieldName}`);
+    dependentFields.forEach(df => console.log(`    - ${df.field_name} depends on ${changedFieldName}`));
+    
+    // Process dependent fields
+    dependentFields.forEach(depConfig => {
+      // Check if all dependencies are still met
+      const depsMet = areDependenciesMet(depConfig, allFieldConfigs);
+      console.log(`[DEPENDENCIES] Dependencies for ${depConfig.field_name}: ${depsMet ? 'MET' : 'NOT MET'}`);
+      
+      if (!depsMet) {
+        // Dependencies no longer met - show waiting message
+        const formGroup = document.querySelector(`[data-field-name="${depConfig.field_name}"]`);
+        if (formGroup) {
+          hideLoadingMessage(formGroup, depConfig);
+          showWaitingMessage(formGroup, depConfig, allFieldConfigs);
+          console.log(`[DEPENDENCIES] Showing waiting message for ${depConfig.field_name}`);
+        }
+      } else {
+        // Dependencies still met - reload options for data-fetching types
+        // Callback for data-fetching field types
+        const onDataFetching = (config, fieldConfigs) => {
+          if (onLoadFieldOptions) {
+            onLoadFieldOptions(config, fieldConfigs, formConfig);
+          }
+        };
+        
+        // Callback for non-data-fetching field types
+        const onNonDataFetching = (config, formGroup) => {
+          console.log(`[DEPENDENCIES] Non-data-fetching field ${config.field_name}, hiding waiting message`);
+        };
+        
+        handleDependencyMet(depConfig, allFieldConfigs, onDataFetching, onNonDataFetching);
+      }
+    });
+  }
+
+  
     const formGroup = document.querySelector(`[data-field-name="${config.field_name}"]`);
     if (!formGroup) return;
     
@@ -1535,7 +1577,8 @@ const RewstLib = (function() {
       hideWaitingMessage,
       initializeDependentFields,
       areDependenciesMet,
-      handleDependencyMet
+      handleDependencyMet,
+      updateDependentFields
     },
     // GraphQL Operations
     graphqlOperations: {
