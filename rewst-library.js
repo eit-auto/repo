@@ -1333,7 +1333,15 @@ const RewstLib = (function() {
     return result;
   }
 
-  
+  /**
+   * Update dependent fields when a parent field changes
+   * @param {string} changedFieldName - Name of field that changed
+   * @param {Array} allFieldConfigs - All field configurations
+   * @param {object} formConfig - Form configuration
+   * @param {function} onLoadFieldOptions - Callback to load field options for data-fetching types
+   *   Signature: (config, allFieldConfigs, formConfig) => void
+   */
+  function updateDependentFields(changedFieldName, allFieldConfigs, formConfig, onLoadFieldOptions) {
     const dependentFields = allFieldConfigs.filter(config => 
       config.dependant_fields && config.dependant_fields.includes(changedFieldName)
     );
