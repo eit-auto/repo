@@ -1273,12 +1273,6 @@
                 updateColumnDisplay();
             }
             
-            // Set submit workflow (handle both submitWorkflow and form_workflow)
-            const submitWorkflowValue = config.submitWorkflow || config.form_workflow;
-            if (hiddenSubmitWorkflow && submitWorkflowValue) {
-                hiddenSubmitWorkflow.value = submitWorkflowValue;
-            }
-            
             // Load field configs (handle both fieldConfigs and field_configs)
             const fieldConfigsArray = config.fieldConfigs || config.field_configs;
             if (fieldConfigsArray && Array.isArray(fieldConfigsArray)) {
@@ -1379,79 +1373,11 @@
                 }
             }
             
-            // Load output variable name
-            let hiddenOutputVar = document.getElementById('hidden_output_var');
-            if (!hiddenOutputVar) {
-                hiddenOutputVar = document.createElement('input');
-                hiddenOutputVar.type = 'hidden';
-                hiddenOutputVar.id = 'hidden_output_var';
-                document.body.appendChild(hiddenOutputVar);
-            }
-            hiddenOutputVar.value = config.output_var || config.outputVar || '';
-            
-            // Load submit_type
-            const submitTypeValue = config.submit_type || 'workflow';
-            if (hiddenSubmitType) {
-                hiddenSubmitType.value = submitTypeValue;
-            }
-            
-            // Load graphql_submit operation
-            const graphqlOperationValue = config.graphql_submit?.operation || '';
-            if (hiddenGraphQLSubmitOp) {
-                hiddenGraphQLSubmitOp.value = graphqlOperationValue;
-            }
-            
-            // Load graphql_submit variables into dynamically generated inputs
-            if (graphqlOperationValue) {
-                // Trigger the operation selection to generate inputs
-                const graphqlSubmitOpSelect = document.getElementById('graphql_submit_op');
-                if (graphqlSubmitOpSelect) {
-                    graphqlSubmitOpSelect.value = graphqlOperationValue;
-                    graphqlSubmitOpSelect.dispatchEvent(new Event('change'));
-                    
-                    // After inputs are generated, populate their values
-                    setTimeout(() => {
-                        const graphqlVars = config.graphql_submit?.variables || {};
-                        console.log('[LOAD] GraphQL variables to restore:', graphqlVars);
-                        
-                        Object.entries(graphqlVars).forEach(([varName, varValue]) => {
-                            const input = document.getElementById(`graphql_input_${varName}`);
-                            console.log('[LOAD] Looking for input:', `graphql_input_${varName}`, 'found:', !!input);
-                            if (input) {
-                                if (input.type === 'checkbox') {
-                                    input.checked = varValue;
-                                } else {
-                                    input.value = varValue;
-                                }
-                                console.log('[LOAD] Set', varName, 'to:', varValue);
-                            }
-                        });
-                        
-                        // Store in hidden field for persistence
-                        const hiddenGraphQLSubmitVars = document.getElementById('hidden_graphql_submit_vars') || (() => {
-                            const field = document.createElement('input');
-                            field.type = 'hidden';
-                            field.id = 'hidden_graphql_submit_vars';
-                            document.body.appendChild(field);
-                            return field;
-                        })();
-                        hiddenGraphQLSubmitVars.value = JSON.stringify(graphqlVars);
-                        console.log('[LOAD] Stored graphql variables:', hiddenGraphQLSubmitVars.value);
-                        
-                        // Update the JSON preview AFTER variables are stored
-                        updateFieldConfigsDisplay();
-                    }, 200);
-                } else {
-                    // If no graphql operation, update preview immediately
-                    updateFieldConfigsDisplay();
-                }
-            } else {
-                // Update the JSON preview if no graphql section
-                updateFieldConfigsDisplay();
-            }
-            
             console.log('Form loaded successfully');
             console.log('Loaded field configs:', fieldConfigs);
+            
+            // Update JSON preview
+            updateFieldConfigsDisplay();
         }
 
         // ============================================
@@ -1476,30 +1402,6 @@
         hiddenFormColumns.style.display = 'none';
         hiddenFormColumns.innerHTML = '<option value="1" selected>1</option><option value="2">2</option><option value="3">3</option>';
         document.body.appendChild(hiddenFormColumns);
-        
-        const hiddenSubmitWorkflow = document.createElement('select');
-        hiddenSubmitWorkflow.id = 'form_submit_workflow';
-        hiddenSubmitWorkflow.style.display = 'none';
-        hiddenSubmitWorkflow.innerHTML = '<option value="">-- Select a workflow --</option>';
-        document.body.appendChild(hiddenSubmitWorkflow);
-        
-        const hiddenSubmitType = document.createElement('input');
-        hiddenSubmitType.type = 'hidden';
-        hiddenSubmitType.id = 'hidden_submit_type';
-        hiddenSubmitType.value = 'workflow';
-        document.body.appendChild(hiddenSubmitType);
-        
-        const hiddenGraphQLSubmitOp = document.createElement('input');
-        hiddenGraphQLSubmitOp.type = 'hidden';
-        hiddenGraphQLSubmitOp.id = 'hidden_graphql_submit_op';
-        hiddenGraphQLSubmitOp.value = '';
-        document.body.appendChild(hiddenGraphQLSubmitOp);
-        
-        const hiddenGraphQLSubmitVars = document.createElement('input');
-        hiddenGraphQLSubmitVars.type = 'hidden';
-        hiddenGraphQLSubmitVars.id = 'hidden_graphql_submit_vars';
-        hiddenGraphQLSubmitVars.value = '{}';
-        document.body.appendChild(hiddenGraphQLSubmitVars);
         
         // DOM element references used throughout the code
         // Initialize DOM element references
@@ -1983,27 +1885,9 @@
                 show_form: showName,
                 column_count: columnCount,
                 show_vert_sep: document.getElementById('show_vert_sep') ? document.getElementById('show_vert_sep').checked : false,
-                form_workflow: submitWorkflowId,
-                output_var: document.getElementById('hidden_output_var') ? document.getElementById('hidden_output_var').value : '',
-                submit_type: document.getElementById('hidden_submit_type') ? document.getElementById('hidden_submit_type').value : 'workflow',
-                graphql_submit: {
-                    operation: document.getElementById('hidden_graphql_submit_op') ? document.getElementById('hidden_graphql_submit_op').value : '',
-                    variables: {}
-                },
                 user: userName,
                 field_configs: fieldConfigs
             };
-            
-            // Populate graphql_submit variables from hidden field
-            const hiddenGraphQLSubmitVars = document.getElementById('hidden_graphql_submit_vars');
-            if (hiddenGraphQLSubmitVars && hiddenGraphQLSubmitVars.value) {
-                try {
-                    formConfig.graphql_submit.variables = JSON.parse(hiddenGraphQLSubmitVars.value);
-                } catch (e) {
-                    console.warn('Failed to parse stored graphql variables:', e);
-                    formConfig.graphql_submit.variables = {};
-                }
-            }
             
             if (fieldConfigs.length === 0 && !formName && !submitWorkflowId) {
                 display.innerHTML = '<span style="color: #999;">[No configuration yet]</span>';
@@ -3812,9 +3696,6 @@
         // Function to check if save button should be enabled
         function updateSaveButtonState() {
             const formName = document.getElementById('form_name').value.trim();
-            const submitType = document.getElementById('hidden_submit_type') ? document.getElementById('hidden_submit_type').value : 'workflow';
-            const submitWorkflow = hiddenSubmitWorkflow.value;
-            const graphqlOperation = document.getElementById('hidden_graphql_submit_op') ? document.getElementById('hidden_graphql_submit_op').value : '';
             const hasElements = fieldConfigs.length > 0;
             
             // Check if all dropdowns have workflows
@@ -3900,99 +3781,6 @@
         const generalSettingsCancel = document.getElementById('generalSettingsCancel');
         
         const showNameModal = document.getElementById('show_name_modal');
-        const submitWorkflowModal = document.getElementById('form_submit_workflow_modal');
-        const submitTypeRadios = document.querySelectorAll('input[name="submit_type"]');
-        const submitWorkflowSection = document.getElementById('submit_workflow_section');
-        const submitGraphQLSection = document.getElementById('submit_graphql_section');
-        const outputVarSection = document.getElementById('output_var_section');
-        const graphqlSubmitOp = document.getElementById('graphql_submit_op');
-        const graphqlInputsContainer = document.getElementById('graphql_inputs_container');
-        
-        // Populate GraphQL operation dropdown from metadata (submit type only)
-        if (graphqlSubmitOp && RewstLib && RewstLib.graphqlOperations) {
-            const allOperations = RewstLib.graphqlOperations.getAll();
-            Object.entries(allOperations).forEach(([operationKey, operation]) => {
-                if (operation.type === 'submit') {
-                    const option = document.createElement('option');
-                    option.value = operationKey;
-                    option.textContent = operation.name;
-                    graphqlSubmitOp.appendChild(option);
-                }
-            });
-        }
-        
-        // Add event listener to Submit Workflow modal dropdown
-        if (submitWorkflowModal) {
-            submitWorkflowModal.addEventListener('change', () => {
-                updateSaveButtonState();
-            });
-        }
-        
-        if (graphqlSubmitOp) {
-            graphqlSubmitOp.addEventListener('change', (e) => {
-                const operationName = e.target.value;
-                graphqlInputsContainer.innerHTML = ''; // Clear previous inputs
-                
-                if (operationName) {
-                    const operation = RewstLib.graphqlOperations.get(operationName);
-                    if (operation && operation.inputs) {
-                        operation.inputs.forEach(input => {
-                            let inputHTML = '';
-                            const inputId = `graphql_input_${input.name}`;
-                            const requiredAttr = input.required ? 'required' : '';
-                            
-                            if (input.type === 'text') {
-                                inputHTML = `
-                                    <div class="mb-15">
-                                        <label style="display: block; color: #ffffff; font-weight: 600; margin-bottom: 8px; font-size: 14px;">${input.label}</label>
-                                        <input type="text" id="${inputId}" class="form-field-input" class="form-input" ${requiredAttr}>
-                                    </div>
-                                `;
-                            } else if (input.type === 'textarea') {
-                                inputHTML = `
-                                    <div class="mb-15">
-                                        <label style="display: block; color: #ffffff; font-weight: 600; margin-bottom: 8px; font-size: 14px;">${input.label}</label>
-                                        <textarea id="${inputId}" class="form-field-input" style="width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box; font-family: inherit; min-height: 80px;" ${requiredAttr}></textarea>
-                                    </div>
-                                `;
-                            } else if (input.type === 'checkbox') {
-                                inputHTML = `
-                                    <div class="mb-15">
-                                        <label style="display: flex; align-items: center; gap: 10px; color: #ffffff; font-weight: 600; font-size: 14px; cursor: pointer;">
-                                            <input type="checkbox" id="${inputId}" class="checkbox-input" ${requiredAttr}>
-                                            ${input.label}
-                                        </label>
-                                    </div>
-                                `;
-                            }
-                            
-                            if (inputHTML) {
-                                graphqlInputsContainer.innerHTML += inputHTML;
-                            }
-                        });
-                    }
-                }
-                // Update button state when graphql operation changes
-                updateSaveButtonState();
-            });
-        }
-        
-        // Add event listeners to submit_type radio buttons
-        submitTypeRadios.forEach(radio => {
-            radio.addEventListener('change', (e) => {
-                if (e.target.value === 'workflow') {
-                    submitWorkflowSection.style.display = 'block';
-                    submitGraphQLSection.style.display = 'none';
-                    outputVarSection.style.display = 'block';
-                } else if (e.target.value === 'graphql') {
-                    submitWorkflowSection.style.display = 'none';
-                    submitGraphQLSection.style.display = 'block';
-                    outputVarSection.style.display = 'none';
-                }
-                // Update button state when submit type changes
-                updateSaveButtonState();
-            });
-        });
         
         // Open modal and sync values from hidden fields to modal
         generalSettingsBtn.addEventListener('click', async () => {
@@ -4011,67 +3799,6 @@
             }
             
             showNameModal.checked = hiddenShowName.checked;
-            submitWorkflowModal.value = hiddenSubmitWorkflow.value;
-            document.getElementById('output_var_name').value = document.getElementById('hidden_output_var') ? document.getElementById('hidden_output_var').value : '';
-            
-            // Sync submit_type radio buttons
-            if (hiddenSubmitType) {
-                const submitTypeValue = hiddenSubmitType.value || 'workflow';
-                const submitTypeRadios = document.querySelectorAll('input[name="submit_type"]');
-                submitTypeRadios.forEach(radio => {
-                    radio.checked = radio.value === submitTypeValue;
-                });
-                
-                // Show/hide sections based on submit type
-                const submitWorkflowSection = document.getElementById('submit_workflow_section');
-                const submitGraphQLSection = document.getElementById('submit_graphql_section');
-                const outputVarSection = document.getElementById('output_var_section');
-                
-                if (submitTypeValue === 'workflow') {
-                    if (submitWorkflowSection) submitWorkflowSection.style.display = 'block';
-                    if (submitGraphQLSection) submitGraphQLSection.style.display = 'none';
-                    if (outputVarSection) outputVarSection.style.display = 'block';
-                } else if (submitTypeValue === 'graphql') {
-                    if (submitWorkflowSection) submitWorkflowSection.style.display = 'none';
-                    if (submitGraphQLSection) submitGraphQLSection.style.display = 'block';
-                    if (outputVarSection) outputVarSection.style.display = 'none';
-                }
-            }
-            
-            // Sync graphql_submit operation and trigger input generation
-            const hiddenGraphQLSubmitVars = document.getElementById('hidden_graphql_submit_vars');
-            const graphqlSubmitOpSelect = document.getElementById('graphql_submit_op');
-            if (hiddenGraphQLSubmitOp && graphqlSubmitOpSelect) {
-                graphqlSubmitOpSelect.value = hiddenGraphQLSubmitOp.value;
-                graphqlSubmitOpSelect.dispatchEvent(new Event('change'));
-                
-                // Populate existing variable values from hidden field
-                setTimeout(() => {
-                    if (hiddenGraphQLSubmitVars && hiddenGraphQLSubmitVars.value) {
-                        try {
-                            const graphqlVars = JSON.parse(hiddenGraphQLSubmitVars.value);
-                            console.log('[MODAL] GraphQL variables from hidden field:', graphqlVars);
-                            const graphqlInputsContainer = document.getElementById('graphql_inputs_container');
-                            if (graphqlInputsContainer) {
-                                Object.entries(graphqlVars).forEach(([varName, varValue]) => {
-                                    const input = document.getElementById(`graphql_input_${varName}`);
-                                    console.log('[MODAL] Looking for input:', `graphql_input_${varName}`, 'found:', !!input);
-                                    if (input) {
-                                        if (input.type === 'checkbox') {
-                                            input.checked = varValue;
-                                        } else {
-                                            input.value = varValue;
-                                        }
-                                        console.log('[MODAL] Set', varName, 'to:', varValue);
-                                    }
-                                });
-                            }
-                        } catch (e) {
-                            console.warn('Failed to parse graphql variables:', e);
-                        }
-                    }
-                }, 200);
-            }
             
             generalSettingsModal.classList.add('active');
         });
@@ -4343,40 +4070,9 @@
                         show_form: showName,
                         column_count: columnCount,
                         show_vert_sep: document.getElementById('show_vert_sep') ? document.getElementById('show_vert_sep').checked : false,
-                        form_workflow: submitWorkflowId,
-                        output_var: document.getElementById('hidden_output_var') ? document.getElementById('hidden_output_var').value : '',
-                        submit_type: document.getElementById('hidden_submit_type') ? document.getElementById('hidden_submit_type').value : 'workflow',
-                        graphql_submit: {
-                            operation: document.getElementById('hidden_graphql_submit_op') ? document.getElementById('hidden_graphql_submit_op').value : '',
-                            variables: {}
-                        },
                         user: userName,
                         field_configs: fieldConfigs
                     };
-                    
-                    // Populate graphql_submit variables from dynamically generated inputs
-                    const graphqlInputsContainer = document.getElementById('graphql_inputs_container');
-                    const hiddenGraphQLSubmitVars = document.getElementById('hidden_graphql_submit_vars');
-                    
-                    // Try to get from hidden field first (from general settings), then from DOM
-                    if (hiddenGraphQLSubmitVars && hiddenGraphQLSubmitVars.value) {
-                        try {
-                            formConfig.graphql_submit.variables = JSON.parse(hiddenGraphQLSubmitVars.value);
-                        } catch (e) {
-                            console.warn('Failed to parse stored graphql variables:', e);
-                            formConfig.graphql_submit.variables = {};
-                        }
-                    } else if (graphqlInputsContainer) {
-                        const inputs = graphqlInputsContainer.querySelectorAll('[id^="graphql_input_"]');
-                        inputs.forEach(input => {
-                            const varName = input.id.replace('graphql_input_', '');
-                            if (input.type === 'checkbox') {
-                                formConfig.graphql_submit.variables[varName] = input.checked;
-                            } else {
-                                formConfig.graphql_submit.variables[varName] = input.value;
-                            }
-                        });
-                    }
                     
                     // Add form_id if we're updating an existing form
                     if (loadedFormId) {
