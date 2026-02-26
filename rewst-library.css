@@ -1429,7 +1429,7 @@
   .multi-select-tag {
     display: inline-flex;
     align-items: center;
-    gap: 2px;
+    gap: 6px;
     padding: 0px 4px;
     background: #5a9fb8;
     color: #ffffff;
