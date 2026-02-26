@@ -52,46 +52,6 @@
                     </label>
                 </div>
                 
-                <!-- Submit Type -->
-                <div class="mb-20">
-                    <label style="display: block; color: #ffffff; font-weight: 600; margin-bottom: 10px; font-size: 14px;">Submit Type</label>
-                    <div style="display: flex; gap: 20px;">
-                        <label style="display: flex; align-items: center; gap: 8px; color: #ffffff; font-weight: 400; cursor: pointer;">
-                            <input type="radio" id="submit_type_workflow" name="submit_type" value="workflow" checked style="cursor: pointer;">
-                            Workflow
-                        </label>
-                        <label style="display: flex; align-items: center; gap: 8px; color: #ffffff; font-weight: 400; cursor: pointer;">
-                            <input type="radio" id="submit_type_graphql" name="submit_type" value="graphql" style="cursor: pointer;">
-                            GraphQL
-                        </label>
-                    </div>
-                </div>
-                
-                <!-- Submit Workflow Dropdown -->
-                <div id="submit_workflow_section" style="margin-bottom: 30px;">
-                    <label style="display: block; color: #ffffff; font-weight: 600; margin-bottom: 8px; font-size: 14px;">Submit Workflow</label>
-                    <select id="form_submit_workflow_modal" class="search-input" style="width: 100%;">
-                        <option value="">-- Select a workflow --</option>
-                    </select>
-                </div>
-                
-                <!-- GraphQL Operation Dropdown -->
-                <div id="submit_graphql_section" style="margin-bottom: 30px; display: none;">
-                    <label style="display: block; color: #ffffff; font-weight: 600; margin-bottom: 8px; font-size: 14px;">Operation</label>
-                    <select id="graphql_submit_op" class="search-input" style="width: 100%;">
-                        <option value="">-- Select an operation --</option>
-                    </select>
-                    
-                    <!-- Dynamic inputs container -->
-                    <div id="graphql_inputs_container" style="margin-top: 20px;"></div>
-                </div>
-                
-                <!-- Output Variable Name (Workflow only) -->
-                <div id="output_var_section" style="margin-bottom: 30px;">
-                    <label style="display: block; color: #ffffff; font-weight: 600; margin-bottom: 8px; font-size: 14px;">Output Variable Name</label>
-                    <input type="text" id="output_var_name" class="form-field-input" placeholder="e.g., form_output" style="width: 100%;">
-                </div>
-                
                 <div class="flex-gap-10-center">
                     <button id="generalSettingsSave" class="btn btn-green" class="px-30">Save</button>
                     <button id="generalSettingsCancel" class="btn btn-grey" class="px-30">Cancel</button>
@@ -1300,8 +1260,8 @@
                 formNameInput.value = formNameValue;
             }
             
-            // Set show name (handle both showName and show_form)
-            const showNameValue = config.showName !== undefined ? config.showName : config.show_form;
+            // Set show title (handle show_title)
+            const showNameValue = config.show_title;
             if (hiddenShowName && showNameValue !== undefined) {
                 hiddenShowName.checked = showNameValue;
             }
@@ -3873,15 +3833,8 @@
             });
             const allFormExtendsHaveDependants = formExtendWithoutDependants.length === 0;
             
-            // Determine if submit requirements are met based on submit_type
-            let submitIsValid = false;
-            if (submitType === 'workflow') {
-                submitIsValid = submitWorkflow !== '';
-            } else if (submitType === 'graphql') {
-                submitIsValid = graphqlOperation !== '';
-            }
-            
-            const canSave = formName !== '' && submitIsValid && hasElements && allDropdownsHaveWorkflows && allFormExtendsHaveDependants;
+            // Determine if save requirements are met
+            const canSave = formName !== '' && hasElements && allDropdownsHaveWorkflows && allFormExtendsHaveDependants;
             
             saveFormBtn.disabled = !canSave;
             
@@ -3891,13 +3844,6 @@
                 const items = [
                     { label: 'Form Name', valid: formName !== '' }
                 ];
-                
-                // Add submit requirement based on type
-                if (submitType === 'workflow') {
-                    items.push({ label: 'Submit Workflow', valid: submitWorkflow !== '' });
-                } else if (submitType === 'graphql') {
-                    items.push({ label: 'GraphQL Operation', valid: graphqlOperation !== '' });
-                }
                 
                 items.push({ label: 'Form Elements', valid: hasElements });
                 
@@ -5374,15 +5320,58 @@
                 console.log('[AUTO-LOAD] Both selections made:', { clientId, extendType });
                 
                 try {
+                    // Check if there are unsaved changes in element settings (only if panel is open)
+                    if (selectedElementUid && settingsPanel && settingsPanel.style.display === 'block' && hasUnsavedFormChanges()) {
+                        console.log('[AUTO-LOAD] Unsaved element changes detected before loading form');
+                        const fieldDisplayName = originalElementSettings ? originalElementSettings.field_displayname : 'Unknown';
+                        const confirmed = await confirmUnsavedChanges(fieldDisplayName);
+                        if (!confirmed) {
+                            console.log('[AUTO-LOAD] User cancelled loading form due to unsaved element changes');
+                            return; // Don't load form
+                        }
+                        console.log('[AUTO-LOAD] User confirmed to discard element changes and load form');
+                        // Close element settings without saving
+                        await closeElementSettings(true);
+                    }
+                    
+                    // Fetch the form config from org variable
                     const orgVar = await RewstLib.orgVariables.get(extendType, clientId);
                     
-                    if (orgVar && orgVar.value) {
-                        console.log('[AUTO-LOAD] Form config found:', orgVar.name);
-                        // TODO: Load the form configuration with the retrieved data
-                        console.log('[AUTO-LOAD] Config value:', orgVar.value);
-                    } else {
+                    if (!orgVar || !orgVar.value) {
                         console.log('[AUTO-LOAD] No form config found for this selection');
+                        return;
                     }
+                    
+                    console.log('[AUTO-LOAD] Form config found:', orgVar.name);
+                    
+                    // Parse form_config (it might be a JSON string)
+                    let formConfig;
+                    if (typeof orgVar.value === 'string') {
+                        try {
+                            formConfig = JSON.parse(orgVar.value);
+                            console.log('[AUTO-LOAD] Parsed form config from JSON string');
+                        } catch (e) {
+                            console.error('[AUTO-LOAD] Error parsing form config:', e);
+                            return;
+                        }
+                    } else {
+                        formConfig = orgVar.value;
+                        console.log('[AUTO-LOAD] Using form config object directly');
+                    }
+                    
+                    console.log('[AUTO-LOAD] Final parsed config:', formConfig);
+                    
+                    // Store org variable info globally (similar to loadedFormId in Load button)
+                    loadedFormId = {
+                        uuid: orgVar.id,
+                        name: extendType
+                    };
+                    console.log('[AUTO-LOAD] Stored org variable info:', loadedFormId);
+                    
+                    // Load the form configuration
+                    console.log('[AUTO-LOAD] Calling loadFormConfiguration...');
+                    loadFormConfiguration(formConfig);
+                    
                 } catch (error) {
                     console.error('[AUTO-LOAD] Error fetching form config:', error);
                 }
