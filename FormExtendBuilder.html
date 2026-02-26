@@ -3930,23 +3930,6 @@
                 });
             }
             
-            // Check form-level submit configuration based on submit_type
-            const submitType = document.getElementById('hidden_submit_type') ? document.getElementById('hidden_submit_type').value : 'workflow';
-            const submitWorkflow = hiddenSubmitWorkflow ? hiddenSubmitWorkflow.value : '';
-            const graphqlOperation = document.getElementById('hidden_graphql_submit_op') ? document.getElementById('hidden_graphql_submit_op').value : '';
-            
-            console.log('[VALIDATE] submitType:', submitType, 'submitWorkflow:', submitWorkflow, 'graphqlOperation:', graphqlOperation);
-            
-            if (submitType === 'workflow') {
-                if (!submitWorkflow || submitWorkflow === '') {
-                    errors.push('Please select a <strong>Submit Workflow</strong> in General Settings.');
-                }
-            } else if (submitType === 'graphql') {
-                if (!graphqlOperation || graphqlOperation === '') {
-                    errors.push('Please select a <strong>GraphQL Operation</strong> in General Settings.');
-                }
-            }
-            
             console.log('[VALIDATE] Final errors:', errors);
             return errors;
         }
@@ -4056,14 +4039,23 @@
                     // Update sequences based on current DOM order before saving
                     updateElementSequences();
                     
+                    // Get selected Client ID and Form Extend Type
+                    const clientDropdown = document.getElementById('select_client_dropdown');
+                    const extendTypeDropdown = document.getElementById('form_extend_type_dropdown');
+                    
+                    const clientId = clientDropdown?.value;
+                    const extendType = extendTypeDropdown?.value;
+                    
+                    if (!clientId || !extendType) {
+                        throw new Error('Client and Form Extend Type must be selected');
+                    }
+                    
                     // Build the form configuration
                     const extendTitle = extendTitleInput ? extendTitleInput.value : '';
                     
                     const showName = showNameCheckbox ? showNameCheckbox.checked : true;
                     
                     const columnCount = columnsSelect ? parseInt(columnsSelect.value) : 2;
-                    
-                    const submitWorkflowId = submitWorkflowSelect ? submitWorkflowSelect.value : '';
                     
                     const formConfig = {
                         extend_title: extendTitle,
@@ -4074,83 +4066,28 @@
                         field_configs: fieldConfigs
                     };
                     
-                    // Add form_id if we're updating an existing form
-                    if (loadedFormId) {
-                        formConfig.form_id = loadedFormId.name;
-                    }
+                    console.log('[SAVE HANDLER] Form configuration to save:', formConfig);
+                    console.log('[SAVE HANDLER] Client ID:', clientId);
+                    console.log('[SAVE HANDLER] Extend Type:', extendType);
                     
-                    console.log('Form configuration to save:', formConfig);
-                    
-                    // Determine the next sequential form number
-                    let nextFormNumber = 1;
-                    
-                    if (!loadedFormId) {
-                        // Only find next number when creating (not updating)
-                        console.log('[SAVE HANDLER] Determining next form number...');
-                        
-                        let existingForms = [];
-                        try {
-                            existingForms = await fetchExistingFormsList();
-                            console.log('[SAVE HANDLER] Existing forms:', existingForms);
-                        } catch (fetchError) {
-                            // If we can't fetch existing forms, abort the save
-                            console.error('[SAVE HANDLER] Failed to fetch existing forms:', fetchError.message);
-                            
-                            savingSpinner.style.display = 'none';
-                            savingMessage.textContent = 'Error: Could not fetch existing forms.\n\n' + fetchError.message;
-                            savingMessage.style.color = '#dc3545';
-                            savingOkButton.style.display = 'block';
-                            saveConfirmYes.disabled = false;
-                            
-                            throw fetchError;
-                        }
-                        
-                        // Extract form numbers from form_X names
-                        const formNumbers = existingForms.map(form => {
-                            const match = form.form_id.match(/form_(\d+)/);
-                            return match ? parseInt(match[1]) : 0;
-                        }).filter(n => !isNaN(n));
-                        
-                        if (formNumbers.length > 0) {
-                            nextFormNumber = Math.max(...formNumbers) + 1;
-                        }
-                        
-                        console.log('[SAVE HANDLER] Next form number:', nextFormNumber);
-                    }
-                    
-                    // Prepare the org variable name and value
-                    const orgVariableName = loadedFormId ? loadedFormId.name : `form_${nextFormNumber}`;
-                    const orgVariableUUID = loadedFormId ? loadedFormId.uuid : null;
+                    // Create or update the org variable using RewstLib
                     const orgVariableValue = JSON.stringify(formConfig);
+                    console.log('[SAVE HANDLER] Calling createOrUpdate with varName:', extendType, 'org_id:', clientId);
                     
-                    console.log('[SAVE HANDLER] Org Variable Name:', orgVariableName);
-                    console.log('[SAVE HANDLER] Org Variable UUID:', orgVariableUUID);
-                    console.log('[SAVE HANDLER] Org Variable Value length:', orgVariableValue.length);
-                    
-                    // Execute the org variable save
-                    if (loadedFormId) {
-                        // Update existing variable
-                        console.log('[SAVE HANDLER] Updating existing org variable');
-                        await RewstLib.orgVariables.update(orgVariableUUID, orgVariableName, orgVariableValue);
-                    } else {
-                        // Create new variable
-                        console.log('[SAVE HANDLER] Creating new org variable');
-                        await RewstLib.orgVariables.create(orgVariableName, orgVariableValue);
-                    }
+                    await RewstLib.orgVariables.createOrUpdate(extendType, orgVariableValue, { org_id: clientId });
                     
                     // Update saving status to success
                     savingSpinner.style.display = 'none';
-                    savingMessage.textContent = loadedFormId ? 'Successfully Updated' : 'Successfully Saved';
+                    savingMessage.textContent = 'Successfully Saved';
                     savingMessage.style.color = '#ffffff';
                     
-                    // Auto-close after 1 second and reload page
+                    console.log('[SAVE HANDLER] Save completed successfully');
+                    
+                    // Auto-close after 1 second
                     setTimeout(() => {
                         savingStatusModal.classList.remove('active');
                         savingMessage.style.color = '#ffffff';
                         saveConfirmYes.disabled = false;
-                        
-                        // Reload the page to refresh the dropdown
-                        location.reload();
                     }, 1000);
                     
                 } catch (error) {
