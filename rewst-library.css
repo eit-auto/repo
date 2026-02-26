@@ -867,6 +867,12 @@
     box-sizing: border-box;
     font-weight: 600;
   }
+
+  /* Hide all input elements when waiting message is present */
+  .form-group:has(.field-waiting-message) > :not(label):not(.field-description):not(.field-waiting-message) {
+    display: none;
+  }
+
   .modal-overlay {
     position: fixed;
     top: 0;
