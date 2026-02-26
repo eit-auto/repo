@@ -190,16 +190,7 @@
     <div class="main-panel">
         <!-- Top Control Bar -->
         <div class="control-bar" style="border-bottom: 1px solid #ffffff; padding-bottom: 15px; margin-bottom: 20px;">
-            <!-- Form Extend Type Row -->
-            <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 15px;">
-                <label class="field-label" class="nowrap">Form Extend Type:</label>
-                <select id="form_extend_type_dropdown" class="form-field-select" style="flex: 1; max-width: 400px;">
-                    <option value="">-- Select an extend type --</option>
-                </select>
-                <div id="form_extend_description" style="flex: 1; max-width: 400px; color: #e0e0e0; font-size: 14px; font-style: italic;"></div>
-            </div>
-            
-            <!-- Select Client Row -->
+            <!-- Select Client and Form Extend Type Row -->
             <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 15px;">
                 <label class="field-label" class="nowrap">Select Client:</label>
                 <select id="select_client_dropdown" class="form-field-select" style="flex: 1; max-width: 400px;">
@@ -208,10 +199,25 @@
                 <div class="waiting-box" id="select_client_loading" style="flex: 1; max-width: 400px; display: none; height: 42px; margin-top: 0;">
                     <h4 style="font-size: 14px;">Loading Clients<span class="spinner" style="width: 16px; height: 16px; border-width: 2px;"></span></h4>
                 </div>
+                
+                <label class="field-label" class="nowrap">Form Extend Type:</label>
+                <select id="form_extend_type_dropdown" class="form-field-select" style="flex: 1; max-width: 400px;">
+                    <option value="">-- Select a form extend type --</option>
+                </select>
+            </div>
+            
+            <!-- Open Existing Row -->
+            <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 15px;">
+                <label class="field-label" class="nowrap">Open Existing:</label>
+                <select id="open_existing_dropdown" class="form-field-select" style="flex: 1; max-width: 400px;">
+                    <option value="">-- Select a form --</option>
+                </select>
+                <div class="waiting-box" id="open_existing_loading" style="flex: 1; max-width: 400px; display: none; height: 42px; margin-top: 0;">
+                    <h4 style="font-size: 14px;">Loading Forms<span class="spinner" style="width: 16px; height: 16px; border-width: 2px;"></span></h4>
+                </div>
                 <button id="loadFormBtn" class="btn btn-blue" class="nowrap" disabled>Load</button>
                 <button id="deleteFormBtn" class="btn btn-red" class="nowrap" disabled title="Delete this form configuration">Delete</button>
             </div>
-
             
             <!-- Form Name and Buttons Row -->
             <div style="display: grid; grid-template-columns: 1fr auto auto auto auto; gap: 20px; width: 100%; align-items: end;">
@@ -1537,8 +1543,8 @@
         
         // DOM element references used throughout the code
         // Initialize DOM element references
-        openExistingLoading = document.getElementById('select_client_loading');
-        openExistingDropdown = document.getElementById('select_client_dropdown');
+        openExistingLoading = document.getElementById('open_existing_loading');
+        openExistingDropdown = document.getElementById('open_existing_dropdown');
         loadFormBtn = document.getElementById('loadFormBtn');
         deleteFormBtn = document.getElementById('deleteFormBtn');
         columnsSelect = hiddenFormColumns;
@@ -5255,170 +5261,103 @@
         }
         
         // ============================================
-        // INITIALIZE FORM EXTEND TYPES
-        // ============================================
-        function initializeFormExtendTypes() {
-            try {
-                const dropdown = document.getElementById('form_extend_type_dropdown');
-                const descriptionDiv = document.getElementById('form_extend_description');
-                
-                if (!dropdown) {
-                    console.warn('Form extend type dropdown not found');
-                    return;
-                }
-                
-                // Get GRAPHQL_OPERATIONS from RewstLib and filter for form_extend type
-                const operations = RewstLib.graphqlOperations.getAll();
-                const formExtendOps = {};
-                
-                Object.entries(operations).forEach(([key, op]) => {
-                    if (op.type === 'form_extend') {
-                        formExtendOps[key] = op;
-                    }
-                });
-                
-                console.log('Form extend operations found:', Object.keys(formExtendOps));
-                
-                // Populate dropdown
-                Object.entries(formExtendOps).forEach(([key, op]) => {
-                    const option = document.createElement('option');
-                    option.value = key;
-                    option.textContent = op.name;
-                    option.dataset.description = op.description || '';
-                    dropdown.appendChild(option);
-                });
-                
-                // Add change event listener to update description
-                dropdown.addEventListener('change', (e) => {
-                    const selectedOption = dropdown.options[dropdown.selectedIndex];
-                    const description = selectedOption.dataset.description || '';
-                    descriptionDiv.textContent = description;
-                    
-                    // Check if we should auto-load
-                    checkAndAutoLoad();
-                });
-                
-                console.log('Form extend types initialized');
-            } catch (error) {
-                console.error('Error initializing form extend types:', error);
-            }
-        }
-        
-        // ============================================
         // INITIALIZE SELECT CLIENT
         // ============================================
         async function initializeSelectClient() {
             try {
                 const dropdown = document.getElementById('select_client_dropdown');
-                const loadingDiv = document.getElementById('select_client_loading');
-                
                 if (!dropdown) {
-                    console.warn('Select client dropdown not found');
+                    console.warn('[INIT] select_client_dropdown element not found');
                     return;
                 }
                 
-                console.log('Fetching sub-organizations for parent org:', window.ORG_ID);
-                loadingDiv.style.display = 'flex';
+                const loading = document.getElementById('select_client_loading');
+                if (loading) loading.style.display = 'flex';
                 
-                // Get sub-organizations
-                const organizations = await RewstLib.organizations.getSubOrganizations(window.ORG_ID);
+                if (!RewstLib) {
+                    console.error('[INIT] RewstLib not loaded');
+                    if (loading) loading.style.display = 'none';
+                    return;
+                }
                 
-                console.log('Sub-organizations fetched:', organizations.length);
+                console.log('[INIT] Fetching sub-organizations...');
+                const clients = await RewstLib.organizations.getSubOrganizations(window.ORG_ID);
                 
-                // Populate dropdown with org names
-                organizations.forEach(org => {
+                if (loading) loading.style.display = 'none';
+                
+                if (!clients || clients.length === 0) {
+                    console.warn('[INIT] No clients found');
+                    dropdown.innerHTML = '<option value="">-- No clients available --</option>';
+                    return;
+                }
+                
+                console.log('[INIT] Clients loaded:', clients.length);
+                
+                // Clear existing options and add new ones
+                dropdown.innerHTML = '<option value="">-- Select a client --</option>';
+                
+                clients.forEach(client => {
                     const option = document.createElement('option');
-                    option.value = org.id;
-                    option.textContent = org.name;
+                    option.value = client.id;
+                    option.textContent = client.name;
                     dropdown.appendChild(option);
                 });
                 
-                loadingDiv.style.display = 'none';
-                console.log('Select client dropdown initialized');
-                
-                // Attach change listener for auto-load
-                dropdown.addEventListener('change', checkAndAutoLoad);
+                console.log('[INIT] Client dropdown populated with', clients.length, 'clients');
             } catch (error) {
-                console.error('Error initializing select client:', error);
-                const loadingDiv = document.getElementById('select_client_loading');
-                if (loadingDiv) {
-                    loadingDiv.style.display = 'none';
-                }
+                console.error('[INIT] Error initializing clients:', error);
+                const loading = document.getElementById('select_client_loading');
+                if (loading) loading.style.display = 'none';
             }
         }
         
         // ============================================
-        // AUTO-LOAD FORM CONFIGURATION
+        // INITIALIZE FORM EXTEND TYPES
         // ============================================
-        async function checkAndAutoLoad() {
-            const extendTypeDropdown = document.getElementById('form_extend_type_dropdown');
-            const clientDropdown = document.getElementById('select_client_dropdown');
-            
-            if (!extendTypeDropdown || !clientDropdown) {
-                console.warn('Dropdowns not found');
-                return;
-            }
-            
-            const extendType = extendTypeDropdown.value;
-            const clientOrgId = clientDropdown.value;
-            
-            // Only auto-load if both are selected
-            if (!extendType || !clientOrgId) {
-                console.log('Not ready to auto-load. Extend Type:', extendType, 'Client:', clientOrgId);
-                return;
-            }
-            
-            console.log('Auto-loading form configuration. Extend Type:', extendType, 'Client Org ID:', clientOrgId);
-            
+        function initializeFormExtendTypes() {
             try {
-                // Show loading state
-                const loadingDiv = document.getElementById('select_client_loading');
-                if (loadingDiv) {
-                    loadingDiv.style.display = 'flex';
+                const dropdown = document.getElementById('form_extend_type_dropdown');
+                if (!dropdown) {
+                    console.warn('[INIT] form_extend_type_dropdown element not found');
+                    return;
                 }
                 
-                // Get the org variable with the form configuration
-                const orgVariable = await RewstLib.orgVariables.get(extendType, clientOrgId);
-                
-                // Hide loading state
-                if (loadingDiv) {
-                    loadingDiv.style.display = 'none';
+                if (!RewstLib) {
+                    console.error('[INIT] RewstLib not loaded');
+                    return;
                 }
                 
-                if (!orgVariable || !orgVariable.value) {
-                    console.log('No existing configuration found. Starting with blank form builder.');
-                    // Initialize blank form builder
-                    initializeBlankFormBuilder();
-                } else {
-                    console.log('Configuration found. Loading:', orgVariable);
-                    // Load the existing configuration
-                    loadFormConfiguration(orgVariable);
+                console.log('[INIT] Fetching GraphQL operations...');
+                const allOperations = RewstLib.graphqlOperations.getAll();
+                
+                // Convert object to array and filter for form_extend type
+                const formExtendOps = Object.entries(allOperations)
+                    .filter(([key, op]) => op.type === 'form_extend')
+                    .map(([key, op]) => ({ key, ...op }));
+                
+                if (!formExtendOps || formExtendOps.length === 0) {
+                    console.warn('[INIT] No form_extend operations found');
+                    dropdown.innerHTML = '<option value="">-- No form extend types available --</option>';
+                    return;
                 }
+                
+                console.log('[INIT] Form extend types loaded:', formExtendOps.length);
+                
+                // Clear existing options and add new ones
+                dropdown.innerHTML = '<option value="">-- Select a form extend type --</option>';
+                
+                formExtendOps.forEach(op => {
+                    const option = document.createElement('option');
+                    option.value = op.key;
+                    option.textContent = op.name || op.key;
+                    option.dataset.description = op.description || '';
+                    dropdown.appendChild(option);
+                });
+                
+                console.log('[INIT] Form extend type dropdown populated with', formExtendOps.length, 'types');
             } catch (error) {
-                console.error('Error auto-loading form configuration:', error);
-                const loadingDiv = document.getElementById('select_client_loading');
-                if (loadingDiv) {
-                    loadingDiv.style.display = 'none';
-                }
+                console.error('[INIT] Error initializing form extend types:', error);
             }
-        }
-        
-        // ============================================
-        // INITIALIZE BLANK FORM BUILDER
-        // ============================================
-        function initializeBlankFormBuilder() {
-            console.log('Initializing blank form builder');
-            // TODO: Reset form builder to blank state
-            // This would clear any existing elements, reset form name, etc.
-        }
-        
-        // ============================================
-        // LOAD FORM CONFIGURATION
-        // ============================================
-        function loadFormConfiguration(orgVariable) {
-            console.log('Loading form configuration from org variable:', orgVariable.name);
-            // TODO: Parse and load the form configuration into the builder
-            // This would parse the JSON value and populate the form builder
         }
         
         // ============================================
@@ -5426,31 +5365,35 @@
         // ============================================
         console.log('Page loaded, starting initialization...');
         
+        // Initialize select client dropdown
+        initializeSelectClient().catch(error => {
+            console.error('Error in initializeSelectClient:', error);
+        });
+        
+        // Initialize form extend type dropdown
+        try {
+            initializeFormExtendTypes();
+        } catch (error) {
+            console.error('Error in initializeFormExtendTypes:', error);
+        }
+        
         // Fetch workflows
         initializeWorkflows().catch(error => {
             console.error('Error in initializeWorkflows:', error);
         });
         
-        // Initialize form extend types
-        initializeFormExtendTypes();
-        
-        // Initialize select client
-        initializeSelectClient().catch(error => {
-            console.error('Error in initializeSelectClient:', error);
-        });
-        
-        // Fetch existing forms - DISABLED: now using initializeSelectClient instead
-        // try {
-        //     fetchExistingForms().then(() => {
-        //         console.log('Background fetch of existing forms complete');
-        //     }).catch(error => {
-        //         console.error('Background fetch of existing forms failed:', error);
-        //         // Continue anyway - the fetch will happen on first checkbox click
-        //     });
-        // } catch (error) {
-        //     console.error('Error initiating background fetch:', error);
-        //     // Continue anyway - the fetch will happen on first checkbox click
-        // }
+        // Fetch existing forms
+        try {
+            fetchExistingForms().then(() => {
+                console.log('Background fetch of existing forms complete');
+            }).catch(error => {
+                console.error('Background fetch of existing forms failed:', error);
+                // Continue anyway - the fetch will happen on first checkbox click
+            });
+        } catch (error) {
+            console.error('Error initiating background fetch:', error);
+            // Continue anyway - the fetch will happen on first checkbox click
+        }
         // Set username after raw block - Jinja will process this
         userName = "{{ CTX.user.username }}";
     </script>
