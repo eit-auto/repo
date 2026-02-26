@@ -461,6 +461,33 @@ const GRAPHQL_OPERATIONS = {
       throw error;
     }
   }
+  /**
+   * Delete an org variable by ID
+   * @param {string} id - Variable ID
+   * @returns {Promise<boolean>} True if deletion was successful
+   */
+  async function deleteOrgVariableById(id) {
+    const mutation = `
+      mutation deleteOrgVariable($id: ID!) {
+        deleteOrgVariable(id: $id)
+      }
+    `;
+    const variables = { id };
+    
+    console.log('[REWSTLIB] Deleting org variable:', id);
+    try {
+      const data = await graphqlQuery(mutation, variables);
+      if (data && data.deleteOrgVariable) {
+        console.log('[REWSTLIB] Successfully deleted org variable:', id);
+        return true;
+      } else {
+        throw new Error('Delete returned unexpected response');
+      }
+    } catch (error) {
+      console.error('[REWSTLIB] Failed to delete org variable:', error.message);
+      throw error;
+    }
+  }
   // ========================================
   // FORM RENDERING & CONDITIONAL VISIBILITY
   // ========================================
@@ -1784,7 +1811,8 @@ const GRAPHQL_OPERATIONS = {
       getDatatableConfigs: getDatatableConfigs,
       create: createOrgVariable,
       update: updateOrgVariable,
-      createOrUpdate: createOrUpdateOrgVariable
+      createOrUpdate: createOrUpdateOrgVariable,
+      delete: deleteOrgVariableById
     },
     // Forms
     forms: {
