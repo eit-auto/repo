@@ -23,9 +23,9 @@
         <div class="modal" style="max-width: 400px;">
             <button class="btn-close" id="saveModalCloseBtn">&times;</button>
             <p style="color: #ffffff;  font-size: 16px; text-align: center;">Confirm save changes?</p>
-            <div style="display: flex; gap: 10px; justify-content: center;">
-                <button id="saveConfirmNo" class="btn btn-grey" style="padding: 10px 20px;">Cancel</button>
-                <button id="saveConfirmYes" class="btn btn-blue" style="padding: 10px 20px;">Yes</button>
+            <div class="flex-gap-10-center">
+                <button id="saveConfirmNo" class="btn btn-grey" class="px-20">Cancel</button>
+                <button id="saveConfirmYes" class="btn btn-blue" class="px-20">Yes</button>
             </div>
         </div>
     </div>
@@ -34,8 +34,8 @@
         <div class="modal" style="max-width: 500px;">
             <button class="btn-close" id="validationModalCloseBtn">&times;</button>
             <div id="validationErrorContent" style="color: #ffffff; margin: 0 0 30px 0; font-size: 16px;"></div>
-            <div style="display: flex; gap: 10px; justify-content: center;">
-                <button id="validationErrorOk" class="btn btn-blue" style="padding: 10px 30px;">OK</button>
+            <div class="flex-gap-10-center">
+                <button id="validationErrorOk" class="btn btn-blue" class="px-30">OK</button>
             </div>
         </div>
     </div>
@@ -45,15 +45,15 @@
             <h2 style="margin-top: 0; margin-bottom: 20px; color: #ffffff; text-align: center;">General Settings</h2>
             <div style="color: #ffffff;">
                 <!-- Show Form Name -->
-                <div style="margin-bottom: 20px;">
+                <div class="mb-20">
                     <label style="display: flex; align-items: center; gap: 10px; color: #ffffff; font-weight: 600; font-size: 14px; cursor: pointer;">
-                        <input type="checkbox" id="show_name_modal" checked style="width: 18px; height: 18px; cursor: pointer;">
+                        <input type="checkbox" id="show_name_modal" checked class="checkbox-input">
                         Show Form Name
                     </label>
                 </div>
                 
                 <!-- Submit Type -->
-                <div style="margin-bottom: 20px;">
+                <div class="mb-20">
                     <label style="display: block; color: #ffffff; font-weight: 600; margin-bottom: 10px; font-size: 14px;">Submit Type</label>
                     <div style="display: flex; gap: 20px;">
                         <label style="display: flex; align-items: center; gap: 8px; color: #ffffff; font-weight: 400; cursor: pointer;">
@@ -92,9 +92,9 @@
                     <input type="text" id="output_var_name" class="form-field-input" placeholder="e.g., form_output" style="width: 100%;">
                 </div>
                 
-                <div style="display: flex; gap: 10px; justify-content: center;">
-                    <button id="generalSettingsSave" class="btn btn-green" style="padding: 10px 30px;">Save</button>
-                    <button id="generalSettingsCancel" class="btn btn-grey" style="padding: 10px 30px;">Cancel</button>
+                <div class="flex-gap-10-center">
+                    <button id="generalSettingsSave" class="btn btn-green" class="px-30">Save</button>
+                    <button id="generalSettingsCancel" class="btn btn-grey" class="px-30">Cancel</button>
                 </div>
             </div>
         </div>
@@ -109,9 +109,9 @@
     <div class="modal-overlay" id="deleteOptionModal">
         <div class="modal" style="max-width: 400px;">
             <p style="color: #ffffff; margin: 0 0 30px 0; font-size: 16px; text-align: center;">Confirm Delete?</p>
-            <div style="display: flex; gap: 10px; justify-content: center;">
-                <button id="deleteOptionNo" class="btn btn-grey" style="padding: 10px 20px;">No</button>
-                <button id="deleteOptionYes" class="btn btn-red" style="padding: 10px 20px;">Yes</button>
+            <div class="flex-gap-10-center">
+                <button id="deleteOptionNo" class="btn btn-grey" class="px-20">No</button>
+                <button id="deleteOptionYes" class="btn btn-red" class="px-20">Yes</button>
             </div>
         </div>
     </div>
@@ -120,9 +120,9 @@
         <div class="modal" style="max-width: 450px;">
             <p style="color: #ffffff; margin: 0 0 15px 0; font-size: 16px; text-align: center;">Confirm Delete Form Configuration?</p>
             <p style="color: #ffcccc; margin: 0 0 30px 0; font-size: 14px; text-align: center;">This cannot be undone. The form configuration will be permanently deleted.</p>
-            <div style="display: flex; gap: 10px; justify-content: center;">
-                <button id="deleteFormConfirmNo" class="btn btn-grey" style="padding: 10px 30px;">Cancel</button>
-                <button id="deleteFormConfirmYes" class="btn btn-red" style="padding: 10px 30px;">Delete Permanently</button>
+            <div class="flex-gap-10-center">
+                <button id="deleteFormConfirmNo" class="btn btn-grey" class="px-30">Cancel</button>
+                <button id="deleteFormConfirmYes" class="btn btn-red" class="px-30">Delete Permanently</button>
             </div>
         </div>
     </div>
@@ -130,9 +130,9 @@
     <div class="modal-overlay" id="unsavedChangesModal">
         <div class="modal" style="max-width: 450px;">
             <p id="unsavedChangesMessage" style="color: #ffffff; margin: 0 0 30px 0; font-size: 16px; text-align: center;">You have unsaved changes. Are you sure you want to continue without saving?</p>
-            <div style="display: flex; gap: 10px; justify-content: center;">
-                <button id="unsavedChangesCancel" class="btn btn-grey" style="padding: 10px 20px;">Cancel</button>
-                <button id="unsavedChangesContinue" class="btn btn-red" style="padding: 10px 20px;">Discard Changes</button>
+            <div class="flex-gap-10-center">
+                <button id="unsavedChangesCancel" class="btn btn-grey" class="px-20">Cancel</button>
+                <button id="unsavedChangesContinue" class="btn btn-red" class="px-20">Discard Changes</button>
             </div>
         </div>
     </div>
@@ -146,7 +146,7 @@
                 <div id="savingMessage" style="font-size: 18px; font-weight: 600; word-wrap: break-word; overflow-wrap: break-word; white-space: normal;"></div>
             </div>
             <div id="savingOkButton" style="display: none; margin-top: 20px;">
-                <button id="savingStatusOk" class="btn btn-blue" style="padding: 10px 30px;">OK</button>
+                <button id="savingStatusOk" class="btn btn-blue" class="px-30">OK</button>
             </div>
         </div>
     </div>
@@ -157,7 +157,7 @@
             <h2 style="margin-top: 0; margin-bottom: 20px; color: #ffffff; text-align: center;">Workflow Response</h2>
             <div id="workflowResponseContent" style="background: #1a1a1a; padding: 20px; border-radius: 4px; font-family: 'Courier New', monospace; font-size: 12px; color: #00ff00; max-height: 60vh; overflow-y: auto; white-space: pre-wrap; word-wrap: break-word; line-height: 1.4;"></div>
             <div style="display: flex; gap: 10px; justify-content: center; margin-top: 20px;">
-                <button id="workflowResponseOk" class="btn btn-blue" style="padding: 10px 30px;">OK</button>
+                <button id="workflowResponseOk" class="btn btn-blue" class="px-30">OK</button>
             </div>
         </div>
     </div>
@@ -170,11 +170,11 @@
             <!-- Orientation Selection -->
             <div style="padding: 20px 20px 10px 20px; display: flex; justify-content: center; gap: 20px;">
                 <label style="display: flex; align-items: center; gap: 8px; color: #ffffff; font-weight: 600; cursor: pointer;">
-                    <input type="radio" name="previewOrientation" value="landscape" checked style="width: 18px; height: 18px; cursor: pointer;">
+                    <input type="radio" name="previewOrientation" value="landscape" checked class="checkbox-input">
                     Landscape
                 </label>
                 <label style="display: flex; align-items: center; gap: 8px; color: #ffffff; font-weight: 600; cursor: pointer;">
-                    <input type="radio" name="previewOrientation" value="portrait" style="width: 18px; height: 18px; cursor: pointer;">
+                    <input type="radio" name="previewOrientation" value="portrait" class="checkbox-input">
                     Portrait
                 </label>
             </div>
@@ -192,44 +192,44 @@
         <div class="control-bar" style="border-bottom: 1px solid #ffffff; padding-bottom: 15px; margin-bottom: 20px;">
             <!-- Open Existing Row -->
             <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 15px;">
-                <label class="field-label" style="white-space: nowrap;">Open Existing:</label>
+                <label class="field-label" class="nowrap">Open Existing:</label>
                 <select id="open_existing_dropdown" class="form-field-select" style="flex: 1; max-width: 400px;">
                     <option value="">-- Select a form --</option>
                 </select>
                 <div class="waiting-box" id="open_existing_loading" style="flex: 1; max-width: 400px; display: none; height: 42px; margin-top: 0;">
                     <h4 style="font-size: 14px;">Loading Forms<span class="spinner" style="width: 16px; height: 16px; border-width: 2px;"></span></h4>
                 </div>
-                <button id="loadFormBtn" class="btn btn-blue" style="white-space: nowrap;" disabled>Load</button>
-                <button id="deleteFormBtn" class="btn btn-red" style="white-space: nowrap;" disabled title="Delete this form configuration">Delete</button>
+                <button id="loadFormBtn" class="btn btn-blue" class="nowrap" disabled>Load</button>
+                <button id="deleteFormBtn" class="btn btn-red" class="nowrap" disabled title="Delete this form configuration">Delete</button>
             </div>
             
             <!-- Form Name and Buttons Row -->
             <div style="display: grid; grid-template-columns: 1fr auto auto auto auto; gap: 20px; width: 100%; align-items: end;">
                 <!-- Form Name -->
                 <div style="display: flex; align-items: center; gap: 10px;">
-                    <label for="form_name" class="field-label" style="white-space: nowrap;">Form Name</label>
+                    <label for="form_name" class="field-label" class="nowrap">Form Name</label>
                     <input type="text" id="form_name" class="form-field-input" placeholder="Enter form name..." autocomplete="off" style="flex: 1;">
                 </div>
                 
                 <!-- General Settings Button -->
                 <div>
-                    <button id="generalSettingsBtn" class="btn btn-bluegrey" style="white-space: nowrap;">General Settings</button>
+                    <button id="generalSettingsBtn" class="btn btn-bluegrey" class="nowrap">General Settings</button>
                 </div>
                 
                 
                 <!-- Preview Button -->
                 <div>
-                    <button id="previewBtn" class="btn btn-blue" style="white-space: nowrap;">Preview</button>
+                    <button id="previewBtn" class="btn btn-blue" class="nowrap">Preview</button>
                 </div>
                 
                 <!-- Reset Button -->
                 <div>
-                    <button id="resetFormBtn" class="btn btn-gold" style="white-space: nowrap;">Reset</button>
+                    <button id="resetFormBtn" class="btn btn-gold" class="nowrap">Reset</button>
                 </div>
                 
                 <!-- Save Button -->
                 <div style="position: relative;">
-                    <button id="saveFormBtn" class="btn btn-green" style="white-space: nowrap;">Save</button>
+                    <button id="saveFormBtn" class="btn btn-green" class="nowrap">Save</button>
                     <div id="saveValidationTooltip" style="display: none; position: absolute; top: 100%; right: 0; margin-top: 10px; background: #2d4a5c; border: 1px solid #667eea; border-radius: 6px; padding: 12px 15px; min-width: 250px; box-shadow: 0 4px 12px rgba(0,0,0,0.3); z-index: 2000;">
                         <div style="color: #ffffff; font-weight: 600; font-size: 13px; margin-bottom: 8px;">Required Elements:</div>
                         <div id="validationItems" style="display: flex; flex-direction: column; gap: 6px;"></div>
@@ -289,20 +289,20 @@
                     <div style="display: flex; justify-content: center; align-items: center; gap: 15px; margin-bottom: 20px;">
                         <label style="color: #ffffff; font-weight: 600; font-size: 14px;">Columns:</label>
                         <label style="display: flex; align-items: center; gap: 8px; color: #ffffff; font-weight: 600; cursor: pointer;">
-                            <input type="radio" name="formColumns" value="1" id="formColumns1" checked style="width: 18px; height: 18px; cursor: pointer;">
+                            <input type="radio" name="formColumns" value="1" id="formColumns1" checked class="checkbox-input">
                             One
                         </label>
                         <label style="display: flex; align-items: center; gap: 8px; color: #ffffff; font-weight: 600; cursor: pointer;">
-                            <input type="radio" name="formColumns" value="2" id="formColumns2" style="width: 18px; height: 18px; cursor: pointer;">
+                            <input type="radio" name="formColumns" value="2" id="formColumns2" class="checkbox-input">
                             Two
                         </label>
                         <label style="display: flex; align-items: center; gap: 8px; color: #ffffff; font-weight: 600; cursor: pointer;">
-                            <input type="radio" name="formColumns" value="3" id="formColumns3" style="width: 18px; height: 18px; cursor: pointer;">
+                            <input type="radio" name="formColumns" value="3" id="formColumns3" class="checkbox-input">
                             Three
                         </label>
                         
                         <label style="display: flex; align-items: center; gap: 8px; color: #ffffff; font-weight: 600; cursor: pointer; margin-left: auto;">
-                            <input type="checkbox" id="show_vert_sep" style="width: 18px; height: 18px; cursor: pointer;">
+                            <input type="checkbox" id="show_vert_sep" class="checkbox-input">
                             Show Vertical Separators
                         </label>
                     </div>
@@ -335,7 +335,7 @@
 
                     <!-- Show JSON Checkbox -->
                     <div style="margin-top: 20px; display: flex; align-items: center; gap: 10px;">
-                        <input type="checkbox" id="showJsonCheckbox" style="width: 18px; height: 18px; cursor: pointer;">
+                        <input type="checkbox" id="showJsonCheckbox" class="checkbox-input">
                         <label for="showJsonCheckbox" style="margin: 0; color: #ffffff; font-weight: 600; font-size: 14px; cursor: pointer;">Show JSON</label>
                     </div>
 
@@ -2513,9 +2513,9 @@
             // Add Dropdown Type selector for dropdown elements
             if (['dropdown', 'dropdown_static', 'dropdown_graphql'].includes(fieldConfig.type)) {
                 formHTML += `
-                    <div style="margin-bottom: 15px;">
-                        <label style="display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;">Dropdown Type</label>
-                        <select id="dropdown_type" style="width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box;">
+                    <div class="mb-15">
+                        <label class="form-label">Dropdown Type</label>
+                        <select id="dropdown_type" class="form-input">
                             <option value="dropdown" ${fieldConfig.type === 'dropdown' ? 'selected' : ''}>Workflow</option>
                             <option value="dropdown_static" ${fieldConfig.type === 'dropdown_static' ? 'selected' : ''}>Static</option>
                             <option value="dropdown_graphql" ${fieldConfig.type === 'dropdown_graphql' ? 'selected' : ''}>GraphQL</option>
@@ -2523,30 +2523,30 @@
                     </div>
                     
                     <div style="margin-bottom: 15px; display: flex; align-items: center; gap: 10px;">
-                        <input type="checkbox" id="multi_select" ${fieldConfig.multi_select ? 'checked' : ''} style="width: 18px; height: 18px; cursor: pointer;">
+                        <input type="checkbox" id="multi_select" ${fieldConfig.multi_select ? 'checked' : ''} class="checkbox-input">
                         <label for="multi_select" style="margin: 0; color: #ffffff; font-weight: 600; font-size: 14px; cursor: pointer;">Multi-select</label>
                     </div>
                 `;
             }
             
             formHTML += `
-                <div style="margin-bottom: 15px;">
-                    <label style="display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;">Field Name</label>
-                    <input type="text" id="field_name" value="${fieldConfig.field_name}" style="width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box;">
+                <div class="mb-15">
+                    <label class="form-label">Field Name</label>
+                    <input type="text" id="field_name" value="${fieldConfig.field_name}" class="form-input">
                 </div>
             `;
             
             // Display Name and Description only for non-form_extend elements
             if (fieldConfig.type !== 'form_extend') {
                 formHTML += `
-                    <div style="margin-bottom: 15px;">
-                        <label style="display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;">Display Name</label>
-                        <input type="text" id="field_displayname" value="${fieldConfig.field_displayname}" style="width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box;">
+                    <div class="mb-15">
+                        <label class="form-label">Display Name</label>
+                        <input type="text" id="field_displayname" value="${fieldConfig.field_displayname}" class="form-input">
                     </div>
                     
-                    <div style="margin-bottom: 15px;">
-                        <label style="display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;">Description</label>
-                        <input type="text" id="description" value="${fieldConfig.description || ''}" style="width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box;">
+                    <div class="mb-15">
+                        <label class="form-label">Description</label>
+                        <input type="text" id="description" value="${fieldConfig.description || ''}" class="form-input">
                     </div>
                 `;
             }
@@ -2563,13 +2563,13 @@
                 }
                 
                 formHTML += `
-                    <div style="margin-bottom: 15px;">
-                        <label style="display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;">Extend Variable</label>
-                        <select id="extend_var" style="width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box;">
+                    <div class="mb-15">
+                        <label class="form-label">Extend Variable</label>
+                        <select id="extend_var" class="form-input">
                             ${extendVarOptions}
                         </select>
                     </div>
-                    <div id="extend_var_inputs_container" style="margin-bottom: 15px;"></div>
+                    <div id="extend_var_inputs_container" class="mb-15"></div>
                 `;
             }
             
@@ -2578,12 +2578,12 @@
                 formHTML += `
 
                 <div style="margin-bottom: 15px; display: flex; align-items: center; gap: 10px;">
-                    <input type="checkbox" id="hidden" ${fieldConfig.hidden ? 'checked' : ''} style="width: 18px; height: 18px; cursor: pointer;">
+                    <input type="checkbox" id="hidden" ${fieldConfig.hidden ? 'checked' : ''} class="checkbox-input">
                     <label for="hidden" style="margin: 0; color: #ffffff; font-weight: 600; font-size: 14px; cursor: pointer;">Hidden</label>
                 </div>
                 
                 <div style="margin-bottom: 15px; display: flex; align-items: center; gap: 10px;">
-                    <input type="checkbox" id="required" ${fieldConfig.required ? 'checked' : ''} style="width: 18px; height: 18px; cursor: pointer;">
+                    <input type="checkbox" id="required" ${fieldConfig.required ? 'checked' : ''} class="checkbox-input">
                     <label for="required" style="margin: 0; color: #ffffff; font-weight: 600; font-size: 14px; cursor: pointer;">Required</label>
                 </div>
             `;
@@ -2593,23 +2593,23 @@
             if (fieldConfig.type === 'checkbox') {
                 formHTML += `
                     <div style="margin-bottom: 15px; display: flex; align-items: center; gap: 10px;">
-                        <input type="checkbox" id="default_checked" ${fieldConfig.default_checked ? 'checked' : ''} style="width: 18px; height: 18px; cursor: pointer;">
+                        <input type="checkbox" id="default_checked" ${fieldConfig.default_checked ? 'checked' : ''} class="checkbox-input">
                         <label for="default_checked" style="margin: 0; color: #ffffff; font-weight: 600; font-size: 14px; cursor: pointer;">Default Checked</label>
                     </div>
                 `;
             } else if (fieldConfig.type === 'radio') {
                 formHTML += `
-                    <div style="margin-bottom: 20px;">
+                    <div class="mb-20">
                         <div style="display: flex; gap: 8px; align-items: flex-end; margin-bottom: 8px;">
                             <div style="flex: 1;">
                                 <label style="color: #ffffff; font-weight: 600; font-size: 14px; margin: 0 0 8px 0; display: block;">Options</label>
-                                <div style="display: flex; gap: 8px;">
+                                <div class="flex-gap-8">
                                     <div style="flex: 1; color: #999; font-size: 12px; font-weight: 600;">Label</div>
                                     <div style="flex: 1; color: #999; font-size: 12px; font-weight: 600;">Value</div>
                                 </div>
                             </div>
                             <div>
-                                <button id="addRadioOptionBtn" style="background: #667eea; color: white; border: none; border-radius: 4px; padding: 8px 12px; cursor: pointer; font-weight: 600; font-size: 15px;" title="Add Option">+</button>
+                                <button id="addRadioOptionBtn" class="btn-builder-blue" title="Add Option">+</button>
                             </div>
                         </div>
                         <div id="radioOptionsList" style="display: flex; flex-direction: column; gap: 8px;">
@@ -2622,7 +2622,7 @@
                             <div class="radio-option-row" data-index="${index}" style="display: flex; gap: 8px; align-items: center;">
                                 <input type="text" class="radio-option-label" value="${key}" placeholder="Label" style="flex: 1; padding: 8px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; font-size: 13px; width: 50%;">
                                 <input type="text" class="radio-option-value" value="${value}" placeholder="Value" style="flex: 1; padding: 8px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; font-size: 13px; width: 50%;">
-                                <button class="delete-radio-option-btn" style="background: #dc3545; color: white; border: none; border-radius: 4px; padding: 7px 11px; cursor: pointer; font-weight: 600; font-size: 12px;" title="Delete Option">⊘</button>
+                                <button class="delete-radio-option-btn" class="btn-builder-red" title="Delete Option">⊘</button>
                             </div>
                         `;
                     });
@@ -2631,9 +2631,9 @@
                 formHTML += `
                         </div>
                     </div>
-                    <div style="margin-bottom: 15px;">
-                        <label style="display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;">Default Select</label>
-                        <select id="default_select" style="width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box;">
+                    <div class="mb-15">
+                        <label class="form-label">Default Select</label>
+                        <select id="default_select" class="form-input">
                             <option value="">-- None --</option>
                 `;
                 
@@ -2651,22 +2651,22 @@
                 `;
             } else if (fieldConfig.type === 'text') {
                 formHTML += `
-                    <div style="margin-bottom: 15px;">
-                        <label style="display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;">Default Value</label>
-                        <input type="text" id="default_value" value="${fieldConfig.default_value || ''}" style="width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box;">
+                    <div class="mb-15">
+                        <label class="form-label">Default Value</label>
+                        <input type="text" id="default_value" value="${fieldConfig.default_value || ''}" class="form-input">
                     </div>
                 `;
             } else if (fieldConfig.type === 'textarea') {
                 formHTML += `
-                    <div style="margin-bottom: 15px;">
-                        <label style="display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;">Default Value</label>
+                    <div class="mb-15">
+                        <label class="form-label">Default Value</label>
                         <textarea id="default_value" style="width: 100%; height: 80px; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box;">${fieldConfig.default_value || ''}</textarea>
                     </div>
                 `;
             } else if (fieldConfig.type === 'html') {
                 formHTML += `
-                    <div style="margin-bottom: 15px;">
-                        <label style="display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;">Content</label>
+                    <div class="mb-15">
+                        <label class="form-label">Content</label>
                         <div style="margin-bottom: 8px; padding: 10px; background: rgba(102, 126, 234, 0.1); border: 1px solid rgba(102, 126, 234, 0.3); border-radius: 4px; font-size: 12px; color: #ffffff;">
                             <div style="font-weight: 600; margin-bottom: 4px;">💡 Reference other fields:</div>
                             <div style="color: #ccc;">Use <code style="background: rgba(0,0,0,0.3); padding: 2px 6px; border-radius: 3px; font-family: 'Courier New', monospace;">[[field_name]]</code> to reference values from other form elements.</div>
@@ -2684,31 +2684,31 @@
                 `;
             } else if (fieldConfig.type === 'date') {
                 formHTML += `
-                    <div style="margin-bottom: 15px;">
-                        <label style="display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;">Default Value</label>
-                        <input type="date" id="default_value" value="${fieldConfig.default_value || ''}" style="width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box;">
+                    <div class="mb-15">
+                        <label class="form-label">Default Value</label>
+                        <input type="date" id="default_value" value="${fieldConfig.default_value || ''}" class="form-input">
                     </div>
                 `;
             } else if (fieldConfig.type === 'date_time') {
                 formHTML += `
-                    <div style="margin-bottom: 15px;">
-                        <label style="display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;">Default Value</label>
-                        <input type="datetime-local" id="default_value" value="${fieldConfig.default_value || ''}" style="width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box;">
+                    <div class="mb-15">
+                        <label class="form-label">Default Value</label>
+                        <input type="datetime-local" id="default_value" value="${fieldConfig.default_value || ''}" class="form-input">
                     </div>
                 `;
             } else if (fieldConfig.type === 'dropdown_static') {
                 formHTML += `
-                    <div style="margin-bottom: 20px;">
+                    <div class="mb-20">
                         <div style="display: flex; gap: 8px; align-items: flex-end; margin-bottom: 8px;">
                             <div style="flex: 1;">
                                 <label style="color: #ffffff; font-weight: 600; font-size: 14px; margin: 0 0 8px 0; display: block;">Options</label>
-                                <div style="display: flex; gap: 8px;">
+                                <div class="flex-gap-8">
                                     <div style="flex: 1; color: #999; font-size: 12px; font-weight: 600;">Label</div>
                                     <div style="flex: 1; color: #999; font-size: 12px; font-weight: 600;">Value</div>
                                 </div>
                             </div>
                             <div>
-                                <button id="addOptionBtn" style="background: #667eea; color: white; border: none; border-radius: 4px; padding: 8px 12px; cursor: pointer; font-weight: 600; font-size: 15px;" title="Add Option">+</button>
+                                <button id="addOptionBtn" class="btn-builder-blue" title="Add Option">+</button>
                             </div>
                         </div>
                         <div id="optionsList" style="display: flex; flex-direction: column; gap: 8px;">
@@ -2721,7 +2721,7 @@
                             <div class="option-row" data-index="${index}" style="display: flex; gap: 8px; align-items: center;">
                                 <input type="text" class="option-label" value="${key}" placeholder="Label" style="flex: 1; padding: 8px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; font-size: 13px; width: 50%;">
                                 <input type="text" class="option-value" value="${value}" placeholder="Value" style="flex: 1; padding: 8px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; font-size: 13px; width: 50%;">
-                                <button class="delete-option-btn" style="background: #dc3545; color: white; border: none; border-radius: 4px; padding: 7px 11px; cursor: pointer; font-weight: 600; font-size: 12px;" title="Delete Option">⊘</button>
+                                <button class="delete-option-btn" class="btn-builder-red" title="Delete Option">⊘</button>
                             </div>
                         `;
                     });
@@ -2730,9 +2730,9 @@
                 formHTML += `
                         </div>
                     </div>
-                    <div style="margin-bottom: 15px;">
-                        <label style="display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;">Default Value</label>
-                        <select id="default_value" style="width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box;">
+                    <div class="mb-15">
+                        <label class="form-label">Default Value</label>
+                        <select id="default_value" class="form-input">
                             <option value="">-- Select a default value --</option>
                 `;
                 
@@ -2762,7 +2762,7 @@
                 
                 formHTML += `
                     <div style="margin-bottom: 15px; position: relative;">
-                        <label style="display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;">Workflow (Option Generators Only)</label>
+                        <label class="form-label">Workflow (Option Generators Only)</label>
                         <input type="text" id="workflow_id_search" placeholder="Search or select a workflow..." value="${currentWorkflowName}" autocomplete="off" style="width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 6px; color: #ffffff; box-sizing: border-box; position: relative; z-index: 10;">
                         <datalist id="workflow_list">
                             ${workflowDatalist}
@@ -2773,29 +2773,29 @@
                 `;
                 
                 formHTML += `
-                    <div style="margin-bottom: 15px;">
-                        <label style="display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;">Label Name</label>
-                        <input type="text" id="label_name" value="${fieldConfig.label_name || ''}" style="width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box;">
+                    <div class="mb-15">
+                        <label class="form-label">Label Name</label>
+                        <input type="text" id="label_name" value="${fieldConfig.label_name || ''}" class="form-input">
                     </div>
-                    <div style="margin-bottom: 15px;">
-                        <label style="display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;">Value Name</label>
-                        <input type="text" id="value_name" value="${fieldConfig.value_name || ''}" style="width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box;">
+                    <div class="mb-15">
+                        <label class="form-label">Value Name</label>
+                        <input type="text" id="value_name" value="${fieldConfig.value_name || ''}" class="form-input">
                     </div>
-                    <div style="margin-bottom: 15px;">
-                        <label style="display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;">Default Selector Name</label>
-                        <input type="text" id="default_selector" value="${fieldConfig.default_selector || 'default'}" style="width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box;">
+                    <div class="mb-15">
+                        <label class="form-label">Default Selector Name</label>
+                        <input type="text" id="default_selector" value="${fieldConfig.default_selector || 'default'}" class="form-input">
                     </div>
-                    <div style="margin-bottom: 20px;">
+                    <div class="mb-20">
                         <div style="display: flex; gap: 8px; align-items: flex-end; margin-bottom: 8px;">
                             <div style="flex: 1;">
                                 <label style="color: #ffffff; font-weight: 600; font-size: 14px; margin: 0 0 8px 0; display: block;">Workflow Input</label>
-                                <div style="display: flex; gap: 8px;">
+                                <div class="flex-gap-8">
                                     <div style="flex: 1; color: #999; font-size: 12px; font-weight: 600;">Key</div>
                                     <div style="flex: 1; color: #999; font-size: 12px; font-weight: 600;">Value</div>
                                 </div>
                             </div>
                             <div>
-                                <button id="addWorkflowInputBtn" style="background: #667eea; color: white; border: none; border-radius: 4px; padding: 8px 12px; cursor: pointer; font-weight: 600; font-size: 15px;" title="Add Input">+</button>
+                                <button id="addWorkflowInputBtn" class="btn-builder-blue" title="Add Input">+</button>
                             </div>
                         </div>
                         <div id="workflowInputList" style="display: flex; flex-direction: column; gap: 8px;">
@@ -2808,7 +2808,7 @@
                             <div class="workflow-input-row" data-index="${index}" style="display: flex; gap: 8px; align-items: center;">
                                 <input type="text" class="workflow-input-key" value="${key}" placeholder="Key" style="flex: 1; padding: 8px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; font-size: 13px; width: 50%;">
                                 <input type="text" class="workflow-input-value" value="${typeof value === 'object' ? JSON.stringify(value) : value}" placeholder="Value" style="flex: 1; padding: 8px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; font-size: 13px; width: 50%;">
-                                <button class="delete-workflow-input-btn" style="background: #dc3545; color: white; border: none; border-radius: 4px; padding: 7px 11px; cursor: pointer; font-weight: 600; font-size: 12px;" title="Delete Input">⊘</button>
+                                <button class="delete-workflow-input-btn" class="btn-builder-red" title="Delete Input">⊘</button>
                             </div>
                         `;
                     });
@@ -2879,8 +2879,8 @@
             }
             
             formHTML += `
-                <div style="margin-bottom: 15px;">
-                    <label style="display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;">Dependant Fields</label>
+                <div class="mb-15">
+                    <label class="form-label">Dependant Fields</label>
                     <div style="position: relative;">
                         <button type="button" id="dependant_fields_btn" style="width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; text-align: left; cursor: pointer; font-size: 14px;">
                             <span id="dependant_fields_display">${currentDependantFields.length > 0 ? currentDependantFields.length + ' field(s) selected' : 'Select dependant fields...'}</span>
@@ -2897,36 +2897,36 @@
             if (fieldConfig.type !== 'form_extend') {
                 formHTML += `
                 
-                <div style="margin-bottom: 15px;">
+                <div class="mb-15">
                     <label style="display: flex; align-items: center; gap: 8px; color: #ffffff; font-weight: 600; font-size: 14px; margin-bottom: 0; cursor: pointer;">
-                        <input type="checkbox" id="enable_conditions" ${fieldConfig.condition_1 || fieldConfig.condition_2 ? 'checked' : ''} style="width: 18px; height: 18px; cursor: pointer;">
+                        <input type="checkbox" id="enable_conditions" ${fieldConfig.condition_1 || fieldConfig.condition_2 ? 'checked' : ''} class="checkbox-input">
                         Set Show/Hide Conditions
                     </label>
                 </div>
                 
                 <div id="conditions_container" style="${fieldConfig.condition_1 || fieldConfig.condition_2 ? 'display: block;' : 'display: none;'}">
-                    <div style="margin-bottom: 15px;">
-                        <label style="display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;">Condition 1</label>
-                        <input type="text" id="condition_1" value="${RewstLib.utils.escapeHtml(fieldConfig.condition_1 || '')}" style="width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box;">
+                    <div class="mb-15">
+                        <label class="form-label">Condition 1</label>
+                        <input type="text" id="condition_1" value="${RewstLib.utils.escapeHtml(fieldConfig.condition_1 || '')}" class="form-input">
                     </div>
                     
-                    <div style="margin-bottom: 15px;">
-                        <label style="display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;">Condition 1 Action</label>
-                        <select id="condition_1_action" style="width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box;">
+                    <div class="mb-15">
+                        <label class="form-label">Condition 1 Action</label>
+                        <select id="condition_1_action" class="form-input">
                             <option value="">-- None --</option>
                             <option value="show" ${fieldConfig.condition_1_action === 'show' ? 'selected' : ''}>Show</option>
                             <option value="hide" ${fieldConfig.condition_1_action === 'hide' ? 'selected' : ''}>Hide</option>
                         </select>
                     </div>
                     
-                    <div style="margin-bottom: 15px;">
-                        <label style="display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;">Condition 2</label>
-                        <input type="text" id="condition_2" value="${RewstLib.utils.escapeHtml(fieldConfig.condition_2 || '')}" style="width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box;">
+                    <div class="mb-15">
+                        <label class="form-label">Condition 2</label>
+                        <input type="text" id="condition_2" value="${RewstLib.utils.escapeHtml(fieldConfig.condition_2 || '')}" class="form-input">
                     </div>
                     
-                    <div style="margin-bottom: 20px;">
-                        <label style="display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;">Condition 2 Action</label>
-                        <select id="condition_2_action" style="width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box;">
+                    <div class="mb-20">
+                        <label class="form-label">Condition 2 Action</label>
+                        <select id="condition_2_action" class="form-input">
                             <option value="">-- None --</option>
                             <option value="show" ${fieldConfig.condition_2_action === 'show' ? 'selected' : ''}>Show</option>
                             <option value="hide" ${fieldConfig.condition_2_action === 'hide' ? 'selected' : ''}>Hide</option>
@@ -3009,23 +3009,23 @@
                                     
                                     if (input.type === 'text') {
                                         inputHTML = `
-                                            <div style="margin-bottom: 15px;">
+                                            <div class="mb-15">
                                                 <label style="display: block; color: #ffffff; font-weight: 600; margin-bottom: 8px; font-size: 14px;">${input.label}</label>
-                                                <input type="text" id="${inputId}" class="form-field-input" style="width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box;" ${requiredAttr}>
+                                                <input type="text" id="${inputId}" class="form-field-input" class="form-input" ${requiredAttr}>
                                             </div>
                                         `;
                                     } else if (input.type === 'textarea') {
                                         inputHTML = `
-                                            <div style="margin-bottom: 15px;">
+                                            <div class="mb-15">
                                                 <label style="display: block; color: #ffffff; font-weight: 600; margin-bottom: 8px; font-size: 14px;">${input.label}</label>
                                                 <textarea id="${inputId}" class="form-field-input" style="width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box; font-family: inherit; min-height: 80px;" ${requiredAttr}></textarea>
                                             </div>
                                         `;
                                     } else if (input.type === 'checkbox') {
                                         inputHTML = `
-                                            <div style="margin-bottom: 15px;">
+                                            <div class="mb-15">
                                                 <label style="display: flex; align-items: center; gap: 10px; color: #ffffff; font-weight: 600; font-size: 14px; cursor: pointer;">
-                                                    <input type="checkbox" id="${inputId}" style="width: 18px; height: 18px; cursor: pointer;" ${requiredAttr}>
+                                                    <input type="checkbox" id="${inputId}" class="checkbox-input" ${requiredAttr}>
                                                     ${input.label}
                                                 </label>
                                             </div>
@@ -3083,23 +3083,23 @@
                                         if (input.type === 'text') {
                                             const defaultVal = input.defaultValue ? input.defaultValue : '';
                                             inputHTML = `
-                                                <div style="margin-bottom: 15px;">
+                                                <div class="mb-15">
                                                     <label style="display: block; color: #ffffff; font-weight: 600; margin-bottom: 8px; font-size: 14px;">${input.label}</label>
-                                                    <input type="text" id="${inputId}" class="form-field-input" style="width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box;" value="${defaultVal}" ${requiredAttr}>
+                                                    <input type="text" id="${inputId}" class="form-field-input" class="form-input" value="${defaultVal}" ${requiredAttr}>
                                                 </div>
                                             `;
                                         } else if (input.type === 'textarea') {
                                             inputHTML = `
-                                                <div style="margin-bottom: 15px;">
+                                                <div class="mb-15">
                                                     <label style="display: block; color: #ffffff; font-weight: 600; margin-bottom: 8px; font-size: 14px;">${input.label}</label>
                                                     <textarea id="${inputId}" class="form-field-input" style="width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box; font-family: inherit; min-height: 80px;" ${requiredAttr}></textarea>
                                                 </div>
                                             `;
                                         } else if (input.type === 'checkbox') {
                                             inputHTML = `
-                                                <div style="margin-bottom: 15px;">
+                                                <div class="mb-15">
                                                     <label style="display: flex; align-items: center; gap: 10px; color: #ffffff; font-weight: 600; font-size: 14px; cursor: pointer;">
-                                                        <input type="checkbox" id="${inputId}" style="width: 18px; height: 18px; cursor: pointer;" ${requiredAttr}>
+                                                        <input type="checkbox" id="${inputId}" class="checkbox-input" ${requiredAttr}>
                                                         ${input.label}
                                                     </label>
                                                 </div>
@@ -3176,7 +3176,7 @@
                         newRow.innerHTML = `
                             <input type="text" class="option-label" value="" placeholder="Label" style="flex: 1; padding: 8px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; font-size: 13px; width: 50%;">
                             <input type="text" class="option-value" value="" placeholder="Value" style="flex: 1; padding: 8px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; font-size: 13px; width: 50%;">
-                            <button class="delete-option-btn" style="background: #dc3545; color: white; border: none; border-radius: 4px; padding: 7px 11px; cursor: pointer; font-weight: 600; font-size: 12px;" title="Delete Option">⊘</button>
+                            <button class="delete-option-btn" class="btn-builder-red" title="Delete Option">⊘</button>
                         `;
                         optionsList.appendChild(newRow);
                         attachDeleteOptionListener(newRow.querySelector('.delete-option-btn'));
@@ -3205,7 +3205,7 @@
                         newRow.innerHTML = `
                             <input type="text" class="radio-option-label" value="" placeholder="Label" style="flex: 1; padding: 8px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; font-size: 13px; width: 50%;">
                             <input type="text" class="radio-option-value" value="" placeholder="Value" style="flex: 1; padding: 8px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; font-size: 13px; width: 50%;">
-                            <button class="delete-radio-option-btn" style="background: #dc3545; color: white; border: none; border-radius: 4px; padding: 7px 11px; cursor: pointer; font-weight: 600; font-size: 12px;" title="Delete Option">⊘</button>
+                            <button class="delete-radio-option-btn" class="btn-builder-red" title="Delete Option">⊘</button>
                         `;
                         radioOptionsList.appendChild(newRow);
                         attachDeleteRadioOptionListener(newRow.querySelector('.delete-radio-option-btn'));
@@ -3245,7 +3245,7 @@
                         newRow.innerHTML = `
                             <input type="text" class="workflow-input-key" value="" placeholder="Key" style="flex: 1; padding: 8px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; font-size: 13px; width: 50%;">
                             <input type="text" class="workflow-input-value" value="" placeholder="Value" style="flex: 1; padding: 8px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; font-size: 13px; width: 50%;">
-                            <button class="delete-workflow-input-btn" style="background: #dc3545; color: white; border: none; border-radius: 4px; padding: 7px 11px; cursor: pointer; font-weight: 600; font-size: 12px;" title="Delete Input">⊘</button>
+                            <button class="delete-workflow-input-btn" class="btn-builder-red" title="Delete Input">⊘</button>
                         `;
                         workflowInputList.appendChild(newRow);
                         attachDeleteWorkflowInputListener(newRow.querySelector('.delete-workflow-input-btn'));
@@ -3981,23 +3981,23 @@
                             
                             if (input.type === 'text') {
                                 inputHTML = `
-                                    <div style="margin-bottom: 15px;">
+                                    <div class="mb-15">
                                         <label style="display: block; color: #ffffff; font-weight: 600; margin-bottom: 8px; font-size: 14px;">${input.label}</label>
-                                        <input type="text" id="${inputId}" class="form-field-input" style="width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box;" ${requiredAttr}>
+                                        <input type="text" id="${inputId}" class="form-field-input" class="form-input" ${requiredAttr}>
                                     </div>
                                 `;
                             } else if (input.type === 'textarea') {
                                 inputHTML = `
-                                    <div style="margin-bottom: 15px;">
+                                    <div class="mb-15">
                                         <label style="display: block; color: #ffffff; font-weight: 600; margin-bottom: 8px; font-size: 14px;">${input.label}</label>
                                         <textarea id="${inputId}" class="form-field-input" style="width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box; font-family: inherit; min-height: 80px;" ${requiredAttr}></textarea>
                                     </div>
                                 `;
                             } else if (input.type === 'checkbox') {
                                 inputHTML = `
-                                    <div style="margin-bottom: 15px;">
+                                    <div class="mb-15">
                                         <label style="display: flex; align-items: center; gap: 10px; color: #ffffff; font-weight: 600; font-size: 14px; cursor: pointer;">
-                                            <input type="checkbox" id="${inputId}" style="width: 18px; height: 18px; cursor: pointer;" ${requiredAttr}>
+                                            <input type="checkbox" id="${inputId}" class="checkbox-input" ${requiredAttr}>
                                             ${input.label}
                                         </label>
                                     </div>
@@ -4577,11 +4577,11 @@
                     if (showDetailsButton) {
                         savingOkButton.innerHTML = `
                             <button id="showErrorDetailsBtn" style="padding: 10px 20px; background: #667eea; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: 600;">Show Details</button>
-                            <button id="savingStatusOkNew" class="btn btn-grey" style="padding: 10px 30px;">OK</button>
+                            <button id="savingStatusOkNew" class="btn btn-grey" class="px-30">OK</button>
                         `;
                     } else {
                         savingOkButton.innerHTML = `
-                            <button id="savingStatusOkNew" class="btn btn-blue" style="padding: 10px 30px;">OK</button>
+                            <button id="savingStatusOkNew" class="btn btn-blue" class="px-30">OK</button>
                         `;
                     }
                     
