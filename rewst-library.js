@@ -1231,14 +1231,109 @@ const RewstLib = (function() {
   }
 
   /**
-   * Update dependent fields when a parent field changes
-   * @param {string} changedFieldName - Name of field that changed
-   * @param {Array} allFieldConfigs - All field configurations
-   * @param {object} formConfig - Form configuration
-   * @param {function} onLoadFieldOptions - Callback to load field options for data-fetching types
-   *   Signature: (config, allFieldConfigs, formConfig) => void
+   * Process GraphQL variables - replace [[ field_name ]] tags with actual form values
+   * @param {object} variables - GraphQL variables with potential [[ ]] tags
+   * @param {object} formData - Current form data with field values
+   * @returns {object} Processed variables with replacements applied
    */
-  function updateDependentFields(changedFieldName, allFieldConfigs, formConfig, onLoadFieldOptions) {
+  function processGraphQLDropdownVariables(variables, formData) {
+    const processed = {};
+    Object.keys(variables).forEach(key => {
+      let value = variables[key];
+      if (typeof value === 'string' && value.startsWith('[[') && value.endsWith(']]')) {
+        const fieldName = value.slice(2, -2).trim();
+        if (formData.hasOwnProperty(fieldName)) {
+          const fieldValue = formData[fieldName];
+          if (Array.isArray(fieldValue)) {
+            processed[key] = JSON.stringify(fieldValue);
+            console.log(`[DROPDOWN] Replaced [[ ${fieldName} ]] with JSON array:`, processed[key]);
+          } else {
+            processed[key] = fieldValue;
+            console.log(`[DROPDOWN] Replaced [[ ${fieldName} ]] with:`, processed[key]);
+          }
+        } else {
+          processed[key] = value;
+          console.warn(`[DROPDOWN] Field not found: ${fieldName}`);
+        }
+      } else {
+        processed[key] = value;
+      }
+    });
+    return processed;
+  }
+
+  /**
+   * Load GraphQL dropdown options using metadata-driven approach
+   * @param {object} config - Field configuration
+   * @param {object} formConfig - Form configuration
+   * @returns {Promise} Array or object of dropdown options
+   */
+  async function loadGraphQLDropdownOptions(config, formConfig) {
+    console.log(`[DROPDOWN] Loading for ${config.field_name}, operation: ${config.graphql_op}`);
+    
+    // Collect current form data for variable replacement
+    const currentFormData = {};
+    if (formConfig && formConfig.field_configs) {
+      formConfig.field_configs.forEach(fc => {
+        const inp = document.querySelector(`input[name="${fc.field_name}"], select[name="${fc.field_name}"], textarea[name="${fc.field_name}"]`);
+        if (inp) {
+          if (inp.type === 'checkbox') {
+            currentFormData[fc.field_name] = inp.checked;
+          } else if (inp.type === 'radio') {
+            const checked = document.querySelector(`input[name="${fc.field_name}"]:checked`);
+            currentFormData[fc.field_name] = checked ? checked.value : null;
+          } else {
+            currentFormData[fc.field_name] = inp.value;
+          }
+        }
+      });
+    }
+    
+    const opMetadata = RewstLib.graphqlOperations.get(config.graphql_op);
+    if (!opMetadata) {
+      throw new Error(`Unknown operation: ${config.graphql_op}`);
+    }
+    
+    console.log(`[DROPDOWN] Metadata:`, opMetadata);
+    
+    // Map function path to library reference
+    let libraryFn;
+    if (opMetadata.function === 'RewstLib.organizations.getSubOrganizations') {
+      libraryFn = RewstLib.organizations.getSubOrganizations;
+    } else if (opMetadata.function === 'RewstLib.orgVariables.get') {
+      libraryFn = RewstLib.orgVariables.get;
+    } else {
+      throw new Error(`Unknown function: ${opMetadata.function}`);
+    }
+    
+    if (!libraryFn) {
+      throw new Error(`Function unavailable: ${opMetadata.function}`);
+    }
+    
+    // Process variables
+    let vars = {};
+    if (config.graphql_op_variables) {
+      vars = processGraphQLDropdownVariables(config.graphql_op_variables, currentFormData);
+      console.log(`[DROPDOWN] Processed vars:`, vars);
+    } else if (config.graphql_op === 'list_orgs') {
+      vars.parentOrgId = window.ORG_ID;
+    }
+    
+    // Call library function with appropriate parameters
+    let result;
+    if (config.graphql_op === 'list_orgs') {
+      result = await libraryFn(vars.parentOrgId || window.ORG_ID);
+    } else if (config.graphql_op === 'get_org_var') {
+      result = await libraryFn(vars.varName, vars.orgId);
+    } else {
+      throw new Error(`No mapping for: ${config.graphql_op}`);
+    }
+    
+    console.log(`[DROPDOWN] Result:`, result);
+    return result;
+  }
+
+  
     const dependentFields = allFieldConfigs.filter(config => 
       config.dependant_fields && config.dependant_fields.includes(changedFieldName)
     );
@@ -1585,7 +1680,9 @@ const RewstLib = (function() {
       initializeDependentFields,
       areDependenciesMet,
       handleDependencyMet,
-      updateDependentFields
+      updateDependentFields,
+      processGraphQLDropdownVariables,
+      loadGraphQLDropdownOptions
     },
     // GraphQL Operations
     graphqlOperations: {
