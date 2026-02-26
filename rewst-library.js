@@ -1105,7 +1105,14 @@ const RewstLib = (function() {
    * @param {Array} fieldConfigs - All field configurations
    */
   function showWaitingMessage(formGroup, config, fieldConfigs) {
-    const depFields = config.dependant_fields.split(',').map(f => f.trim());
+    // Handle both object (new format) and string (old format) for dependant_fields
+    let depFields;
+    if (typeof config.dependant_fields === 'object') {
+      depFields = Object.keys(config.dependant_fields);
+    } else {
+      depFields = config.dependant_fields.split(',').map(f => f.trim());
+    }
+    
     const parentFieldLabels = depFields.map(fieldName => {
       const parentConfig = fieldConfigs.find(f => f.field_name === fieldName);
       return parentConfig ? parentConfig.field_displayname : fieldName;
