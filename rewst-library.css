@@ -919,10 +919,10 @@
   }
   .waiting-box {
     padding: 0.35rem 0.75rem;
-    border: 2px solid #b8860b;
+    border: 2px solid #333333;
     border-radius: 4px;
-    background: #fffacd;
-    color: #8b8b00;
+    background: #e8e8e8;
+    color: #333333;
     font-size: 0.9rem;
     text-align: center;
     font-weight: 500;
@@ -950,10 +950,10 @@
   }
   .field-waiting-message {
     padding: 0.35rem 0.75rem;
-    border: 2px solid #b8860b;
+    border: 2px solid #333333;
     border-radius: 4px;
-    background: #fffacd;
-    color: #8b8b00;
+    background: #e8e8e8;
+    color: #333333;
     font-size: 0.95rem;
     text-align: center;
     display: flex;
