@@ -677,7 +677,7 @@
     border: 2px solid var(--form-border-color);
     border-radius: 4px;
     background: var(--form-bg-color);
-    color: #aaa;
+    color: inherit;
     font-size: 0.95rem;
     line-height: 1.0;
     transition: all 0.2s ease;
@@ -690,7 +690,7 @@
     text-overflow: ellipsis;
   }
 
-  /* Style placeholder option in single-select dropdowns */
+  /* Style placeholder option in single-select dropdowns when expanded */
   .form-group select option:first-child {
     color: #aaa;
   }
@@ -1468,7 +1468,7 @@
   }
 
   .multi-select-placeholder {
-    color: #aaa;
+    color: #ffffff;
     font-size: 0.95rem;
   }
 
