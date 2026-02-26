@@ -1424,9 +1424,14 @@ const RewstLib = (function() {
    *   Signature: (config, allFieldConfigs, formConfig) => void
    */
   function updateDependentFields(changedFieldName, allFieldConfigs, formConfig, onLoadFieldOptions) {
-    const dependentFields = allFieldConfigs.filter(config => 
-      config.dependant_fields && config.dependant_fields.includes(changedFieldName)
-    );
+    const dependentFields = allFieldConfigs.filter(config => {
+      if (!config.dependant_fields) return false;
+      if (typeof config.dependant_fields === 'object') {
+        return changedFieldName in config.dependant_fields;
+      } else {
+        return config.dependant_fields.includes(changedFieldName);
+      }
+    });
     
     console.log(`[DEPENDENCIES] Found ${dependentFields.length} dependent fields for: ${changedFieldName}`);
     dependentFields.forEach(df => console.log(`    - ${df.field_name} depends on ${changedFieldName}`));
