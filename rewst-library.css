@@ -690,6 +690,11 @@
     text-overflow: ellipsis;
   }
 
+  /* Style placeholder option in single-select dropdowns */
+  .form-group select option:first-child {
+    color: #aaa;
+  }
+
   /* ============================================
    DROPDOWN REFRESH BUTTON
    ============================================ */
@@ -1463,7 +1468,7 @@
   }
 
   .multi-select-placeholder {
-    color: #ffffff;
+    color: #aaa;
     font-size: 0.95rem;
   }
 
