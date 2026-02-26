@@ -796,7 +796,6 @@
     align-items: center;
     gap: 0.125rem;
     margin-top: 0.25rem;
-    margin-bottom: 0.25rem;
   }
   .radio-item input[type="radio"] {
     width: 18px;
