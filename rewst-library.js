@@ -30,7 +30,7 @@ const GRAPHQL_OPERATIONS = {
       name: 'Create or Update Org Variable',
       description: 'Creates a new org variable or updates an existing one',
       type: 'submit',
-      function: 'RewstLib.orgVariables.createOrUpdateOrgVariable',
+      function: 'RewstLib.orgVariables.createOrUpdate',
       inputs: [
         { name: 'varName', label: 'Variable Name', type: 'text', required: true },
         { name: 'varValue', label: 'Variable Value', type: 'textarea', required: true },
