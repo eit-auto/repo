@@ -1538,6 +1538,9 @@ const RewstLib = (function() {
       return;
     }
 
+    // Mark as initialized to prevent double-initialization
+    container.setAttribute('data-initialized', 'true');
+
     let selected = [...(selectedValues || [])];
 
     // Update UI with current selection
