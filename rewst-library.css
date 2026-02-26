@@ -696,7 +696,7 @@
   .dropdown-refresh-container {
     position: relative;
     display: flex;
-    align-items: center;
+    align-items: flex;
     gap: 8px;
     width: 100%;
   }
