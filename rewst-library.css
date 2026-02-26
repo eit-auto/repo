@@ -703,8 +703,8 @@
 
   .dropdown-refresh-btn {
     flex-shrink: 0;
-    width: auto;
-    height: auto;
+    width: 24px;
+    height: 37px;
     padding: 0;
     border: none;
     border-radius: 0;
