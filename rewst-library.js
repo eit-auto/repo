@@ -1279,7 +1279,14 @@ const RewstLib = (function() {
     });
   }
 
-  
+  /**
+   * Handle field state when dependency is met
+   * @param {object} config - Field configuration
+   * @param {Array} allFieldConfigs - All field configurations
+   * @param {function} onDataFetchingField - Callback for data-fetching field types
+   * @param {function} onNonDataFetchingField - Callback for non-data-fetching field types
+   */
+  function handleDependencyMet(config, allFieldConfigs, onDataFetchingField, onNonDataFetchingField) {
     const formGroup = document.querySelector(`[data-field-name="${config.field_name}"]`);
     if (!formGroup) return;
     
