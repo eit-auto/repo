@@ -1200,7 +1200,19 @@ const RewstLib = (function() {
   function initializeDependentFields(fieldConfigs) {
     fieldConfigs.forEach(config => {
       const formGroup = document.querySelector(`[data-field-name="${config.field_name}"]`);
-      if (formGroup && config.dependant_fields && !config.hidden) {
+      if (!formGroup || !config.dependant_fields || config.hidden) return;
+      
+      // Check if dependant_fields is object (new format) or string (old format)
+      const isObjectFormat = typeof config.dependant_fields === 'object';
+      
+      if (isObjectFormat) {
+        // New format: only show waiting for blocking: true dependencies
+        const hasBlockingDeps = Object.values(config.dependant_fields).some(dep => dep.blocking === true);
+        if (hasBlockingDeps) {
+          showWaitingMessage(formGroup, config, fieldConfigs);
+        }
+      } else {
+        // Old format: show waiting for all dependencies
         showWaitingMessage(formGroup, config, fieldConfigs);
       }
     });
@@ -1215,19 +1227,43 @@ const RewstLib = (function() {
   function areDependenciesMet(config, allFieldConfigs) {
     if (!config.dependant_fields) return true;
     
-    const depFields = config.dependant_fields.split(',').map(f => f.trim());
-    return depFields.every(depFieldName => {
-      const depField = allFieldConfigs.find(f => f.field_name === depFieldName);
-      if (!depField) return false;
-      const input = document.querySelector(`input[name="${depFieldName}"], select[name="${depFieldName}"], textarea[name="${depFieldName}"]`);
-      if (!input) return false;
-      if (input.type === 'checkbox') return input.checked;
-      if (input.type === 'radio') {
-        const checkedRadio = document.querySelector(`input[name="${depFieldName}"]:checked`);
-        return !!checkedRadio;
-      }
-      return input.value && input.value.trim() !== '';
-    });
+    // Check if dependant_fields is object (new format) or string (old format)
+    const isObjectFormat = typeof config.dependant_fields === 'object';
+    
+    if (isObjectFormat) {
+      // New format: only check blocking: true dependencies
+      const blockingDeps = Object.entries(config.dependant_fields)
+        .filter(([_, dep]) => dep.blocking === true)
+        .map(([fieldName, _]) => fieldName);
+      
+      return blockingDeps.every(depFieldName => {
+        const depField = allFieldConfigs.find(f => f.field_name === depFieldName);
+        if (!depField) return false;
+        const input = document.querySelector(`input[name="${depFieldName}"], select[name="${depFieldName}"], textarea[name="${depFieldName}"]`);
+        if (!input) return false;
+        if (input.type === 'checkbox') return input.checked;
+        if (input.type === 'radio') {
+          const checkedRadio = document.querySelector(`input[name="${depFieldName}"]:checked`);
+          return !!checkedRadio;
+        }
+        return input.value && input.value.trim() !== '';
+      });
+    } else {
+      // Old format: check all dependencies
+      const depFields = config.dependant_fields.split(',').map(f => f.trim());
+      return depFields.every(depFieldName => {
+        const depField = allFieldConfigs.find(f => f.field_name === depFieldName);
+        if (!depField) return false;
+        const input = document.querySelector(`input[name="${depFieldName}"], select[name="${depFieldName}"], textarea[name="${depFieldName}"]`);
+        if (!input) return false;
+        if (input.type === 'checkbox') return input.checked;
+        if (input.type === 'radio') {
+          const checkedRadio = document.querySelector(`input[name="${depFieldName}"]:checked`);
+          return !!checkedRadio;
+        }
+        return input.value && input.value.trim() !== '';
+      });
+    }
   }
 
   /**
@@ -1331,6 +1367,45 @@ const RewstLib = (function() {
     
     console.log(`[DROPDOWN] Result:`, result);
     return result;
+  }
+
+  /**
+   * Get values of all dependencies (both blocking and non-blocking)
+   * @param {object} config - Field configuration
+   * @param {Array} allFieldConfigs - All field configurations
+   * @returns {object} Object with dependency field names and their values
+   */
+  function getDependencyValues(config, allFieldConfigs) {
+    if (!config.dependant_fields) return {};
+    
+    const values = {};
+    const isObjectFormat = typeof config.dependant_fields === 'object';
+    
+    let depFieldNames = [];
+    if (isObjectFormat) {
+      depFieldNames = Object.keys(config.dependant_fields);
+    } else {
+      depFieldNames = config.dependant_fields.split(',').map(f => f.trim());
+    }
+    
+    depFieldNames.forEach(depFieldName => {
+      const depField = allFieldConfigs.find(f => f.field_name === depFieldName);
+      if (!depField) return;
+      
+      const input = document.querySelector(`input[name="${depFieldName}"], select[name="${depFieldName}"], textarea[name="${depFieldName}"]`);
+      if (!input) return;
+      
+      if (input.type === 'checkbox') {
+        values[depFieldName] = input.checked;
+      } else if (input.type === 'radio') {
+        const checkedRadio = document.querySelector(`input[name="${depFieldName}"]:checked`);
+        values[depFieldName] = checkedRadio ? checkedRadio.value : null;
+      } else {
+        values[depFieldName] = input.value;
+      }
+    });
+    
+    return values;
   }
 
   /**
@@ -1689,6 +1764,7 @@ const RewstLib = (function() {
       areDependenciesMet,
       handleDependencyMet,
       updateDependentFields,
+      getDependencyValues,
       processGraphQLDropdownVariables,
       loadGraphQLDropdownOptions
     },
