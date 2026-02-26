@@ -1162,13 +1162,35 @@ const GRAPHQL_OPERATIONS = {
       input.style.display = 'none';
     }
     
+    // Disable refresh button if it exists
+    const refreshBtn = formGroup.querySelector('.dropdown-refresh-btn');
+    if (refreshBtn) {
+      refreshBtn.disabled = true;
+    }
+    
     const existingLoading = formGroup.querySelector('.field-loading-message');
     if (existingLoading) existingLoading.remove();
+    
     const loadingBox = document.createElement('div');
     loadingBox.className = 'field-loading-message';
     loadingBox.setAttribute('data-field-name', config.field_name);
+    loadingBox.style.flex = '1';
     loadingBox.innerHTML = '<div style="display: flex; align-items: center; gap: 8px; justify-content: center;"><div class="loading-spinner" style="display: inline-block; width: 16px; height: 16px; border: 2px solid rgba(102, 126, 234, 0.3); border-top-color: #667eea; border-radius: 50%; animation: spin 0.8s linear infinite;"></div><span>Loading...</span></div>';
-    formGroup.appendChild(loadingBox);
+    
+    // Append inside dropdown-refresh-container if it exists, otherwise to formGroup
+    const refreshContainer = formGroup.querySelector('.dropdown-refresh-container');
+    if (refreshContainer) {
+      // Check if there's a flex wrapper (for multi-select)
+      const flexWrapper = refreshContainer.querySelector('[style*="flex: 1"]');
+      if (flexWrapper) {
+        flexWrapper.appendChild(loadingBox);
+      } else {
+        // For single select, insert before refresh button
+        refreshContainer.insertBefore(loadingBox, refreshContainer.querySelector('.dropdown-refresh-btn'));
+      }
+    } else {
+      formGroup.appendChild(loadingBox);
+    }
   }
 
   /**
@@ -1179,6 +1201,12 @@ const GRAPHQL_OPERATIONS = {
   function hideLoadingMessage(formGroup, config) {
     const loadingBox = formGroup.querySelector('.field-loading-message');
     if (loadingBox) loadingBox.remove();
+    
+    // Re-enable refresh button if it exists
+    const refreshBtn = formGroup.querySelector('.dropdown-refresh-btn');
+    if (refreshBtn) {
+      refreshBtn.disabled = false;
+    }
     
     // Show multi-select display or regular input
     const multiSelectDisplay = formGroup.querySelector('.multi-select-display');
