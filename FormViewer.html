@@ -1108,7 +1108,7 @@
                     // Add change listener to trigger dependent fields (for any field type)
                     const changeHandler = () => {
                         console.log(`>>> Change event fired for: ${config.field_name}`);
-                        updateDependentFields(config.field_name, fieldConfigs, formConfig);
+                        RewstLib.utils.updateDependentFields(config.field_name, fieldConfigs, formConfig, loadFieldOptions);
                         // Also evaluate conditional visibility for other fields
                         console.log(`>>> About to evaluate conditional visibility for all fields`);
                         evaluateConditionalVisibility(fieldConfigs);
@@ -1130,12 +1130,7 @@
             });
             
             // Initialize field UI states - show waiting for dependent fields
-            fieldConfigs.forEach(config => {
-                const formGroup = document.querySelector(`[data-field-name="${config.field_name}"]`);
-                if (formGroup && config.dependant_fields && !config.hidden) {
-                    RewstLib.utils.showWaitingMessage(formGroup, config, fieldConfigs);
-                }
-            });
+            RewstLib.utils.initializeDependentFields(fieldConfigs);
             
             // Load dropdown workflows AFTER all fields are rendered
             // Dropdowns without dependencies load immediately
@@ -1173,19 +1168,7 @@
             }
             
             if (config.dependant_fields) {
-                const depFields = config.dependant_fields.split(',').map(f => f.trim());
-                const allDepsMet = depFields.every(depFieldName => {
-                    const depField = allFieldConfigs.find(f => f.field_name === depFieldName);
-                    if (!depField) return false;
-                    const input = document.querySelector(`input[name="${depFieldName}"], select[name="${depFieldName}"], textarea[name="${depFieldName}"]`);
-                    if (!input) return false;
-                    if (input.type === 'checkbox') return input.checked;
-                    if (input.type === 'radio') {
-                        const checkedRadio = document.querySelector(`input[name="${depFieldName}"]:checked`);
-                        return !!checkedRadio;
-                    }
-                    return input.value && input.value.trim() !== '';
-                });
+                const allDepsMet = RewstLib.utils.areDependenciesMet(config, allFieldConfigs);
                 
                 if (!allDepsMet) {
                     console.log(`Dependencies not met for ${config.field_name}, skipping workflow`);
@@ -1605,7 +1588,7 @@
             
             // Only execute workflow for fields that are not form_extend
             if (config.type !== 'form_extend') {
-                return rewst.runWorkflowSmart(config.workflow_id, workflowInput, options).then(result => {
+                return RewstLib.workflows.execute(config.workflow_id, workflowInput, options).then(result => {
                 console.log(`Workflow result for ${config.field_name}:`, result);
                 if (formGroup) RewstLib.utils.hideLoadingMessage(formGroup, config);
                 
@@ -1649,55 +1632,6 @@
         }
         
         
-        function updateDependentFields(changedFieldName, allFieldConfigs, formConfig) {
-            console.log(`>>> updateDependentFields called for: ${changedFieldName}`);
-            
-            // Find all fields that depend on the changed field
-            const dependentFields = allFieldConfigs.filter(config => 
-                config.dependant_fields && config.dependant_fields.includes(changedFieldName)
-            );
-            
-            console.log(`>>> Found ${dependentFields.length} dependent fields`);
-            dependentFields.forEach(df => console.log(`    - ${df.field_name} depends on ${changedFieldName}`));
-            
-            // Reload options for dependent fields and clear their cache
-            dependentFields.forEach(depConfig => {
-                if (depConfig.workflow_id) {
-                    console.log(`>>> Reloading options for dependent field ${depConfig.field_name}`);
-                    
-                    // Clear the cache for this dependent field's workflow
-                    // This ensures fresh data will be fetched when the parent value changed
-                    try {
-                        if (typeof RewstLib !== 'undefined' && RewstLib.workflows && RewstLib.workflows.clearWorkflowCache) {
-                            RewstLib.workflows.clearWorkflowCache(depConfig.workflow_id);
-                            console.log(`>>> Cache cleared for workflow: ${depConfig.workflow_id}`);
-                        } else {
-                            console.log(`>>> RewstLib not available yet, skipping cache clear for: ${depConfig.workflow_id}`);
-                        }
-                    } catch (e) {
-                        console.log(`>>> Error clearing cache: ${e.message}`);
-                    }
-                    
-                    console.log(`>>> Calling loadFieldOptions for ${depConfig.field_name}`);
-                    loadFieldOptions(depConfig, allFieldConfigs, formConfig);
-                } else if (depConfig.type === 'dropdown_graphql' && depConfig.graphql_op) {
-                    console.log(`>>> Reloading GraphQL options for dependent field ${depConfig.field_name}`);
-                    console.log(`>>> Calling loadFieldOptions for ${depConfig.field_name}`);
-                    loadFieldOptions(depConfig, allFieldConfigs, formConfig);
-                } else if (depConfig.type === 'form_extend') {
-                    console.log(`>>> Reloading extended form for dependent field ${depConfig.field_name}`);
-                    console.log(`>>> Calling loadFieldOptions for ${depConfig.field_name}`);
-                    loadFieldOptions(depConfig, allFieldConfigs, formConfig);
-                } else {
-                    // Non-data-fetching field types: just hide waiting message and show field
-                    console.log(`>>> Non-data-fetching field ${depConfig.field_name}, hiding waiting message`);
-                    const formGroup = document.querySelector(`[data-field-name="${depConfig.field_name}"]`);
-                    if (formGroup) {
-                        RewstLib.utils.hideWaitingMessage(formGroup, depConfig);
-                    }
-                }
-            });
-        }
 
         function renderFieldHTML(config, allFieldConfigs) {
             // Determine if field should be hidden based on hidden property
