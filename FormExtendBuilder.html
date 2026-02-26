@@ -181,10 +181,10 @@
             
             <!-- Form Name and Buttons Row -->
             <div style="display: grid; grid-template-columns: 1fr auto auto auto auto; gap: 20px; width: 100%; align-items: end;">
-                <!-- Form Name -->
-                <div style="display: flex; align-items: center; gap: 10px;">
-                    <label for="form_name" class="field-label" class="nowrap">Form Name</label>
-                    <input type="text" id="form_name" class="form-field-input" placeholder="Enter form name..." autocomplete="off" style="flex: 1;">
+                <!-- Form Extend Title -->
+            <div style="display: flex; align-items: center; gap: 10px;">
+                    <label for="extend_title" class="field-label" class="nowrap">Form Extend Title</label>
+                    <input type="text" id="extend_title" class="form-field-input" placeholder="Enter form extend title..." autocomplete="off" style="flex: 1;">
                 </div>
                 
                 <!-- General Settings Button -->
@@ -815,7 +815,7 @@
                         const parsed = JSON.parse(variable.value);
                         return {
                             form_id: variable.name,
-                            form_name: parsed.form_name || variable.name,
+                            form_name: parsed.extend_title || parsed.form_name || variable.name,
                             form_config: variable.value,
                             form_config_parsed: parsed
                         };
@@ -940,13 +940,13 @@
 
                     // Build form objects from variables
                     availableForms = variables.map(v => {
-                        let formName = v.name;
+                        let extendTitle = v.name;
                         let formConfig = null;
                         
                         try {
                             formConfig = JSON.parse(v.value);
-                            if (formConfig.form_name) {
-                                formName = formConfig.form_name;
+                            if (formConfig.extend_title) {
+                                extendTitle = formConfig.extend_title;
                             }
                         } catch (e) {
                             console.warn(`Failed to parse form config for ${v.name}:`, e);
@@ -956,7 +956,7 @@
                         return {
                             id: v.id,
                             form_id: v.name.replace('form_', ''),
-                            form_name: formName,
+                            form_name: extendTitle,
                             form_config: v.value,
                             form_config_parsed: formConfig
                         };
@@ -1254,10 +1254,10 @@
                 droppedElementCount[type] = 0;
             });
             
-            // Set form name (handle both formName and form_name)
-            const formNameValue = config.formName || config.form_name;
-            if (formNameInput && formNameValue) {
-                formNameInput.value = formNameValue;
+            // Set form extend title
+            const extendTitleValue = config.extend_title;
+            if (extendTitleInput && extendTitleValue) {
+                extendTitleInput.value = extendTitleValue;
             }
             
             // Set show title (handle show_title)
@@ -1790,9 +1790,9 @@
         }
         
         // Add event listener to form name input
-        const formNameInput = document.getElementById('form_name');
-        if (formNameInput) {
-            formNameInput.addEventListener('input', () => {
+        const extendTitleInput = document.getElementById('extend_title');
+        if (extendTitleInput) {
+            extendTitleInput.addEventListener('input', () => {
                 updateFieldConfigsDisplay();
                 updateSaveButtonState();
             });
@@ -1864,8 +1864,8 @@
         function updateFieldConfigsDisplay() {
             const display = document.getElementById('fieldConfigsDisplay');
             
-            // Get form name
-            const formName = formNameInput ? formNameInput.value : '';
+            // Get form extend title
+            const extendTitle = extendTitleInput ? extendTitleInput.value : '';
             
             // Get show name checkbox
             const showName = showNameCheckbox ? showNameCheckbox.checked : true;
@@ -1881,7 +1881,7 @@
             
             // Build complete form configuration object
             const formConfig = {
-                form_name: formName,
+                extend_title: extendTitle,
                 show_form: showName,
                 column_count: columnCount,
                 show_vert_sep: document.getElementById('show_vert_sep') ? document.getElementById('show_vert_sep').checked : false,
@@ -1889,7 +1889,7 @@
                 field_configs: fieldConfigs
             };
             
-            if (fieldConfigs.length === 0 && !formName && !submitWorkflowId) {
+            if (fieldConfigs.length === 0 && !extendTitle && !submitWorkflowId) {
                 display.innerHTML = '<span style="color: #999;">[No configuration yet]</span>';
             } else {
                 display.textContent = JSON.stringify(formConfig, null, 2);
@@ -3695,7 +3695,7 @@
         
         // Function to check if save button should be enabled
         function updateSaveButtonState() {
-            const formName = document.getElementById('form_name').value.trim();
+            const extendTitle = document.getElementById('extend_title').value.trim();
             const hasElements = fieldConfigs.length > 0;
             
             // Check if all dropdowns have workflows
@@ -3715,7 +3715,7 @@
             const allFormExtendsHaveDependants = formExtendWithoutDependants.length === 0;
             
             // Determine if save requirements are met
-            const canSave = formName !== '' && hasElements && allDropdownsHaveWorkflows && allFormExtendsHaveDependants;
+            const canSave = extendTitle !== '' && hasElements && allDropdownsHaveWorkflows && allFormExtendsHaveDependants;
             
             saveFormBtn.disabled = !canSave;
             
@@ -3723,7 +3723,7 @@
             const validationItems = document.getElementById('validationItems');
             if (validationItems) {
                 const items = [
-                    { label: 'Form Name', valid: formName !== '' }
+                    { label: 'Form Extend Title', valid: extendTitle !== '' }
                 ];
                 
                 items.push({ label: 'Form Elements', valid: hasElements });
@@ -4057,7 +4057,7 @@
                     updateElementSequences();
                     
                     // Build the form configuration
-                    const formName = formNameInput ? formNameInput.value : '';
+                    const extendTitle = extendTitleInput ? extendTitleInput.value : '';
                     
                     const showName = showNameCheckbox ? showNameCheckbox.checked : true;
                     
@@ -4066,7 +4066,7 @@
                     const submitWorkflowId = submitWorkflowSelect ? submitWorkflowSelect.value : '';
                     
                     const formConfig = {
-                        form_name: formName,
+                        extend_title: extendTitle,
                         show_form: showName,
                         column_count: columnCount,
                         show_vert_sep: document.getElementById('show_vert_sep') ? document.getElementById('show_vert_sep').checked : false,
@@ -4332,9 +4332,9 @@
             resetFormBtn.addEventListener('click', () => {
                 console.log('Reset button clicked');
                 
-                // Clear form name
-                if (formNameInput) {
-                    formNameInput.value = '';
+                // Clear form extend title
+                if (extendTitleInput) {
+                    extendTitleInput.value = '';
                 }
                 
                 // Reset show name checkbox to default (checked)
@@ -4433,7 +4433,7 @@
         // Function to generate preview HTML
         function generatePreview(orientation = 'landscape') {
             // Generate preview HTML based on current form configuration
-            const formName = formNameInput ? formNameInput.value : '';
+            const extendTitle = extendTitleInput ? extendTitleInput.value : '';
             
             const showName = showNameCheckbox ? showNameCheckbox.checked : true;
             
@@ -4449,9 +4449,9 @@
             // Build preview HTML
             let previewHTML = '<div class="form-container">';
             
-            // Add form name if enabled
-            if (showName && formName) {
-                previewHTML += '<h2 style="color: #ffffff; margin-top: 0; margin-bottom: 30px; text-align: center;">' + formName + '</h2>';
+            // Add form extend title if enabled
+            if (showName && extendTitle) {
+                previewHTML += '<h2 style="color: #ffffff; margin-top: 0; margin-bottom: 30px; text-align: center;">' + extendTitle + '</h2>';
             }
             
             // Group fields by column
