@@ -5361,6 +5361,35 @@
         }
         
         // ============================================
+        // AUTO-LOAD FORM CONFIG ON SELECTION
+        // ============================================
+        async function checkAndAutoLoad() {
+            const clientDropdown = document.getElementById('select_client_dropdown');
+            const extendTypeDropdown = document.getElementById('form_extend_type_dropdown');
+            
+            const clientId = clientDropdown?.value;
+            const extendType = extendTypeDropdown?.value;
+            
+            if (clientId && extendType) {
+                console.log('[AUTO-LOAD] Both selections made:', { clientId, extendType });
+                
+                try {
+                    const orgVar = await RewstLib.orgVariables.get(extendType, clientId);
+                    
+                    if (orgVar && orgVar.value) {
+                        console.log('[AUTO-LOAD] Form config found:', orgVar.name);
+                        // TODO: Load the form configuration with the retrieved data
+                        console.log('[AUTO-LOAD] Config value:', orgVar.value);
+                    } else {
+                        console.log('[AUTO-LOAD] No form config found for this selection');
+                    }
+                } catch (error) {
+                    console.error('[AUTO-LOAD] Error fetching form config:', error);
+                }
+            }
+        }
+        
+        // ============================================
         // PAGE LOAD - FETCH FORMS AND INITIALIZE
         // ============================================
         console.log('Page loaded, starting initialization...');
@@ -5375,6 +5404,18 @@
             initializeFormExtendTypes();
         } catch (error) {
             console.error('Error in initializeFormExtendTypes:', error);
+        }
+        
+        // Add change listeners to both dropdowns for auto-load
+        const clientDropdown = document.getElementById('select_client_dropdown');
+        const extendTypeDropdown = document.getElementById('form_extend_type_dropdown');
+        
+        if (clientDropdown) {
+            clientDropdown.addEventListener('change', checkAndAutoLoad);
+        }
+        
+        if (extendTypeDropdown) {
+            extendTypeDropdown.addEventListener('change', checkAndAutoLoad);
         }
         
         // Fetch workflows
