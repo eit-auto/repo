@@ -1550,7 +1550,7 @@ const RewstLib = (function() {
       if (selected.length === 0) {
         const placeholder = document.createElement('span');
         placeholder.className = 'multi-select-placeholder';
-        placeholder.textContent = 'Select options...';
+        placeholder.textContent = '-- Select options --';
         tagsContainer.appendChild(placeholder);
       } else {
         selected.forEach(value => {
