@@ -1,0 +1,131 @@
+/**
+ * Form Builder CSS
+ * Version: 1.0.0
+ * Shared styles for FormBuilder and FormExtendBuilder
+ * Cache buster: 1770321740
+ */
+
+/* ============================================
+ TEXT COLORS & TYPOGRAPHY
+ ============================================ */
+.text-white { color: #ffffff; }
+.text-white-bold { color: #ffffff; font-weight: 600; }
+.text-white-normal { color: #ffffff; font-weight: normal; }
+.text-white-center { color: #ffffff; text-align: center; }
+.text-white-sm { color: #ffffff; font-size: 13px; }
+.text-white-base { color: #ffffff; font-size: 14px; }
+.text-white-lg { color: #ffffff; font-size: 16px; }
+.text-white-xl { color: #ffffff; font-size: 18px; }
+.text-white-bold-sm { color: #ffffff; font-weight: 600; font-size: 13px; }
+.text-white-bold-base { color: #ffffff; font-weight: 600; font-size: 14px; }
+.text-white-bold-lg { color: #ffffff; font-weight: 600; font-size: 16px; }
+.text-white-bold-xl { color: #ffffff; font-weight: 600; font-size: 18px; }
+
+.text-grey { color: #999; }
+.text-grey-sm { color: #999; font-size: 12px; }
+.text-grey-nowrap { color: #999; font-size: 12px; white-space: nowrap; }
+.text-grey-center { color: #999; text-align: center; }
+.text-grey-center-pad { color: #999; text-align: center; padding: 10px; }
+
+.text-light-grey { color: #ccc; }
+.text-light-grey-sm { color: #ccc; margin-top: 6px; font-size: 12px; }
+
+.text-error { color: #dc3545; font-weight: 600; }
+.text-error-light { color: #ffcccc; margin: 0 0 30px 0; font-size: 14px; text-align: center; }
+.text-error-light-center { color: #ffcccc; font-size: 14px; text-align: center; }
+
+.text-blue-accent { color: #667eea; font-weight: 600; }
+
+/* ============================================
+ SPACING & LAYOUT
+ ============================================ */
+.p-20 { padding: 20px; }
+.p-15-30 { padding: 15px 30px 30px 30px; }
+.pb-15 { padding-bottom: 15px; }
+.mb-0 { margin: 0; }
+.mb-6 { margin-bottom: 6px; }
+.mb-8 { margin-bottom: 8px; }
+.mb-10 { margin-bottom: 10px; }
+.mb-12 { margin-bottom: 12px; }
+.mb-15 { margin-bottom: 15px; }
+.mb-20 { margin-bottom: 20px; }
+.mb-30 { margin: 0 0 30px 0; }
+.mb-center { margin: 0 0 30px 0; text-align: center; }
+.mt-0 { margin-top: 0; }
+.mt-6 { margin-top: 6px; }
+.ml-10 { margin-left: 10px; }
+.ml-auto { margin-left: auto; }
+
+.border-bottom-white { border-bottom: 1px solid #ffffff; padding-bottom: 15px; margin-bottom: 20px; }
+
+/* ============================================
+ FLEX LAYOUTS
+ ============================================ */
+.flex-row { display: flex; flex-direction: row; }
+.flex-row-gap-6 { display: flex; flex-direction: row; gap: 6px; }
+.flex-row-gap-8 { display: flex; flex-direction: row; gap: 8px; }
+.flex-row-gap-10 { display: flex; flex-direction: row; gap: 10px; }
+.flex-row-center { display: flex; align-items: center; }
+.flex-row-center-gap-6 { display: flex; align-items: center; gap: 6px; }
+.flex-row-center-gap-8 { display: flex; align-items: center; gap: 8px; }
+.flex-row-center-gap-10 { display: flex; align-items: center; gap: 10px; }
+.flex-row-center-gap-10-white-bold { display: flex; align-items: center; gap: 10px; color: #ffffff; font-weight: 600; font-size: 14px; cursor: pointer; }
+.flex-row-center-gap-10-pointer { display: flex; align-items: center; gap: 10px; cursor: pointer; }
+.flex-row-center-gap-10-margin { display: flex; align-items: center; gap: 10px; margin-bottom: 15px; }
+.flex-row-center-gap-8-white { display: flex; align-items: center; gap: 8px; color: #ffffff; font-weight: 600; cursor: pointer; }
+.flex-row-center-gap-8-white-400 { display: flex; align-items: center; gap: 8px; color: #ffffff; font-weight: 400; cursor: pointer; }
+.flex-row-center-gap-8-white-sm { display: flex; align-items: center; gap: 8px; color: #ffffff; font-weight: 600; font-size: 14px; margin-bottom: 0; cursor: pointer; }
+.flex-row-center-gap-8-ml-auto { display: flex; align-items: center; gap: 8px; color: #ffffff; font-weight: 600; cursor: pointer; margin-left: auto; }
+.flex-row-gap-8-font-sm { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.flex-row-shrink-0 { cursor: pointer; flex-shrink: 0; }
+
+.flex-col { display: flex; flex-direction: column; }
+.flex-col-gap-6 { display: flex; flex-direction: column; gap: 6px; }
+.flex-col-gap-8 { display: flex; flex-direction: column; gap: 8px; }
+.flex-col-gap-20 { display: flex; flex-direction: column; gap: 20px; }
+.flex-col-gap-30 { display: flex; flex-direction: column; gap: 30px; align-items: flex-start; }
+.flex-col-width-100 { display: flex; flex-direction: column; width: 100%; padding: 10px; }
+
+/* ============================================
+ BUTTONS & CLICKABLE ELEMENTS
+ ============================================ */
+.btn-no-bg { background: none; border: none; color: white; cursor: pointer; font-size: 18px; padding: 0; margin-left: 10px; }
+.cursor-pointer { cursor: pointer; }
+.cursor-pointer-16 { cursor: pointer; width: 16px; height: 16px; }
+
+/* ============================================
+ INPUTS & FORM FIELDS
+ ============================================ */
+.input-field { flex: 1; padding: 8px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; font-size: 13px; }
+.input-field-key { flex: 1; padding: 8px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; font-size: 13px; width: 50%; }
+.input-field-value { flex: 1; padding: 8px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; font-size: 13px; width: 50%; }
+
+/* ============================================
+ LABELS & TITLES
+ ============================================ */
+.label-block { display: block; color: #ffffff; font-weight: 600; margin-bottom: 10px; font-size: 14px; }
+.label-block-sm { display: block; color: #ffffff; font-weight: 600; margin-bottom: 8px; font-size: 14px; }
+.label-white { color: #ffffff; font-weight: 600; font-size: 14px; }
+.label-white-sm { color: #ffffff; font-weight: 600; font-size: 13px; margin-bottom: 8px; display: block; }
+
+/* ============================================
+ MODALS & CONTAINERS
+ ============================================ */
+.modal-title-center { color: #ffffff; margin: 0; font-size: 18px; text-align: center; padding: 20px; }
+.modal-title { margin-top: 0; margin-bottom: 20px; color: #ffffff; text-align: center; }
+.modal-content-white { color: #ffffff; padding: 20px; }
+.modal-content-field { color: #ffffff; margin: 0 0 30px 0; font-size: 16px; }
+.modal-content-field-center { color: #ffffff; margin: 0 0 30px 0; font-size: 16px; text-align: center; }
+
+/* ============================================
+ CODE/DEBUG DISPLAY
+ ============================================ */
+.code-block { background: #1a1a1a; padding: 20px; border-radius: 4px; font-family: 'Courier New', monospace; font-size: 12px; color: #00ff00; max-height: 60vh; overflow-y: auto; white-space: pre-wrap; word-wrap: break-word; line-height: 1.4; }
+.code-block-sm { background: #222; padding: 15px; border-radius: 4px; font-family: 'Courier New', monospace; font-size: 12px; color: #00ff00; max-height: 300px; overflow-y: auto; white-space: pre-wrap; word-wrap: break-word; line-height: 1.4; }
+.code-inline { background: rgba(0,0,0,0.3); padding: 2px 6px; border-radius: 3px; font-family: 'Courier New', monospace; }
+
+/* ============================================
+ STATES & VALIDATION
+ ============================================ */
+.state-error { color: #dc3545; font-weight: bold; font-size: 16px; }
+.state-success { color: #28a745; font-weight: bold; font-size: 16px; }
