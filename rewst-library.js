@@ -1102,7 +1102,7 @@ const GRAPHQL_OPERATIONS = {
           <div class="multi-select-toggle">▼</div>
         </div>
         <div class="multi-select-options"></div>
-        <select name="${fieldName}" class="multi-select-hidden-select" multiple></select>
+        <select name="${fieldName}" class="multi-select-hidden-select" data-selected-values="[]"></select>
       </div>
     `;
   }
@@ -1651,17 +1651,11 @@ const GRAPHQL_OPERATIONS = {
         });
       }
 
-      // Update hidden select selected state
+      // Update hidden select selected state via data attribute
       if (hiddenSelect) {
-        console.log(`[MULTI-SELECT] updateTags - hiddenSelect has ${hiddenSelect.options.length} options before marking`);
-        Array.from(hiddenSelect.options).forEach(opt => {
-          const shouldBeSelected = selected.includes(opt.value);
-          opt.selected = shouldBeSelected;
-          if (shouldBeSelected) {
-            console.log(`[MULTI-SELECT] Marked option selected: ${opt.value}`);
-          }
-        });
-        console.log(`[MULTI-SELECT] updateTags - after marking, ${Array.from(hiddenSelect.options).filter(o => o.selected).length} options are selected`);
+        console.log(`[MULTI-SELECT] updateTags - storing selected values:`, selected);
+        hiddenSelect.setAttribute('data-selected-values', JSON.stringify(selected));
+        console.log(`[MULTI-SELECT] updateTags - after marking, data attribute contains:`, hiddenSelect.getAttribute('data-selected-values'));
       }
 
       if (onChange) {
