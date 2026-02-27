@@ -5290,17 +5290,36 @@ async function initializeWorkflows() {
 function resetForm() {
     console.log('Resetting form...');
     
-    // Clear form extend title
+    // Clear form extend title (FormExtendBuilder-specific)
+    const extendTitleInput = document.getElementById('extend_title');
     if (extendTitleInput) {
         extendTitleInput.value = '';
     }
     
-    // Reset show name checkbox to default (checked)
-    if (hiddenShowName) {
-        hiddenShowName.checked = true;
+    // Clear form name (FormBuilder-specific)
+    const formNameInput = document.getElementById('form_name');
+    if (formNameInput) {
+        formNameInput.value = '';
     }
     
-    // Reset columns to 1
+    // Reset show name checkbox to default (checked)
+    const showNameCheckbox = document.getElementById('show_name_modal');
+    if (showNameCheckbox) {
+        showNameCheckbox.checked = true;
+    }
+    
+    // Reset show vertical separator
+    const showVertSepCheckbox = document.getElementById('show_vert_sep');
+    if (showVertSepCheckbox) {
+        showVertSepCheckbox.checked = false;
+    }
+    
+    // Reset columns to default (1)
+    const formColumnsRadio = document.querySelector('input[name="formColumns"][value="1"]');
+    if (formColumnsRadio) {
+        formColumnsRadio.checked = true;
+    }
+    const hiddenFormColumns = document.getElementById('hiddenFormColumns');
     if (hiddenFormColumns) {
         hiddenFormColumns.value = '1';
         updateColumnDisplay();
