@@ -1249,7 +1249,7 @@ const deleteFormConfirmModal = document.getElementById('deleteFormConfirmModal')
 const deleteFormConfirmYes = document.getElementById('deleteFormConfirmYes');
 const deleteFormConfirmNo = document.getElementById('deleteFormConfirmNo');
 
-if (deleteFormBtn && deleteFormConfirmModal && deleteFormConfirmYes && deleteFormConfirmNo) {
+if (deleteFormBtn && deleteFormConfirmModal && deleteFormConfirmYes && deleteFormConfirmNo && openExistingDropdown) {
     // Enable/disable Delete button based on dropdown selection
     openExistingDropdown.addEventListener('change', () => {
         deleteFormBtn.disabled = !openExistingDropdown.value;
