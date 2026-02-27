@@ -1451,7 +1451,8 @@
                     let extendConfig;
                     try {
                         const parsed = JSON.parse(orgVar.value);
-                        extendConfig = parsed.extend_config;
+                        // Support both old nested format (extend_config) and new flat format
+                        extendConfig = parsed.extend_config || parsed;
                         console.log(`[FORM_EXTEND] Parsed extend_config:`, extendConfig);
                     } catch (e) {
                         console.error(`[FORM_EXTEND] Failed to parse org variable value:`, e);
@@ -1518,8 +1519,9 @@
                         });
                     }
                     
-                    // Render extend_title if provided
-                    if (extendConfig.extend_title) {
+                    // Render extend_title if provided and show_title is true (default true if not specified)
+                    const shouldShowTitle = extendConfig.show_title !== false;
+                    if (extendConfig.extend_title && shouldShowTitle) {
                         console.log(`[FORM_EXTEND] Rendering title: ${extendConfig.extend_title}`);
                         const titleElement = document.createElement('h3');
                         titleElement.textContent = extendConfig.extend_title;
@@ -1551,10 +1553,17 @@
                     // Create a wrapper div for column layout
                     const columnWrapper = document.createElement('div');
                     columnWrapper.style.display = 'flex';
-                    columnWrapper.style.gap = '20px';
+                    columnWrapper.style.gap = '30px';
+                    
+                    // Use column_count from config if provided, otherwise detect from fields
+                    let columnCount = extendConfig.column_count;
+                    if (!columnCount) {
+                        columnCount = Math.max(...Object.keys(extendedColumns).map(Number));
+                    }
+                    
+                    const showVertSep = extendConfig.show_vert_sep === true;
                     
                     // Render columns
-                    const columnCount = Math.max(...Object.keys(extendedColumns).map(Number));
                     for (let i = 1; i <= columnCount; i++) {
                         const columnDiv = document.createElement('div');
                         columnDiv.style.flex = '1';
@@ -1571,6 +1580,15 @@
                         }
                         
                         columnWrapper.appendChild(columnDiv);
+                        
+                        // Add vertical separator if not the last column
+                        if (showVertSep && i < columnCount) {
+                            const separator = document.createElement('div');
+                            separator.style.width = '1px';
+                            separator.style.background = '#ffffff';
+                            separator.style.margin = '0';
+                            columnWrapper.appendChild(separator);
+                        }
                     }
                     
                     extendedSection.appendChild(columnWrapper);
