@@ -4459,50 +4459,78 @@ if (saveConfirmYes) {
             
             console.log('Form configuration to save:', formConfig);
             
-            // Determine the next sequential form number
-            let nextFormNumber = 1;
+            let orgVariableName, orgVariableUUID, orgVariableValue, targetOrgId;
             
-            if (!loadedFormId) {
-                // Only find next number when creating (not updating)
-                console.log('[SAVE HANDLER] Determining next form number...');
+            if (isFormExtend) {
+                // FormExtendBuilder: use extend type name and client org ID
+                const extendTypeDropdown = document.getElementById('form_extend_type_dropdown');
+                const clientDropdown = document.getElementById('select_client_dropdown');
                 
-                let existingForms = [];
-                try {
-                    existingForms = await fetchExistingFormsList();
-                    console.log('[SAVE HANDLER] Existing forms:', existingForms);
-                } catch (fetchError) {
-                    // If we can't fetch existing forms, abort the save
-                    console.error('[SAVE HANDLER] Failed to fetch existing forms:', fetchError.message);
-                    
-                    savingSpinner.style.display = 'none';
-                    savingMessage.textContent = 'Error: Could not fetch existing forms.\n\n' + fetchError.message;
-                    savingMessage.style.color = '#dc3545';
-                    savingOkButton.style.display = 'block';
-                    saveConfirmYes.disabled = false;
-                    
-                    throw fetchError;
+                if (!extendTypeDropdown || !extendTypeDropdown.value) {
+                    throw new Error('Please select an Extend Type');
                 }
                 
-                // Extract form numbers from form_X names
-                const formNumbers = existingForms.map(form => {
-                    const match = form.form_id.match(/form_(\d+)/);
-                    return match ? parseInt(match[1]) : 0;
-                }).filter(n => !isNaN(n));
-                
-                if (formNumbers.length > 0) {
-                    nextFormNumber = Math.max(...formNumbers) + 1;
+                if (!clientDropdown || !clientDropdown.value) {
+                    throw new Error('Please select a Client');
                 }
                 
-                console.log('[SAVE HANDLER] Next form number:', nextFormNumber);
+                orgVariableName = extendTypeDropdown.value;
+                targetOrgId = clientDropdown.value;
+                orgVariableUUID = loadedFormId ? loadedFormId.uuid : null;
+                orgVariableValue = JSON.stringify(formConfig);
+                
+                console.log('[SAVE HANDLER] FormExtend - Using name:', orgVariableName, 'for client org:', targetOrgId);
+            } else {
+                // FormBuilder: use form_# numbering under window.ORG_ID
+                targetOrgId = window.ORG_ID;
+                
+                // Determine the next sequential form number
+                let nextFormNumber = 1;
+                
+                if (!loadedFormId) {
+                    // Only find next number when creating (not updating)
+                    console.log('[SAVE HANDLER] Determining next form number...');
+                    
+                    let existingForms = [];
+                    try {
+                        existingForms = await fetchExistingFormsList();
+                        console.log('[SAVE HANDLER] Existing forms:', existingForms);
+                    } catch (fetchError) {
+                        // If we can't fetch existing forms, abort the save
+                        console.error('[SAVE HANDLER] Failed to fetch existing forms:', fetchError.message);
+                        
+                        savingSpinner.style.display = 'none';
+                        savingMessage.textContent = 'Error: Could not fetch existing forms.\n\n' + fetchError.message;
+                        savingMessage.style.color = '#dc3545';
+                        savingOkButton.style.display = 'block';
+                        saveConfirmYes.disabled = false;
+                        
+                        throw fetchError;
+                    }
+                    
+                    // Extract form numbers from form_X names
+                    const formNumbers = existingForms.map(form => {
+                        const match = form.form_id.match(/form_(\d+)/);
+                        return match ? parseInt(match[1]) : 0;
+                    }).filter(n => !isNaN(n));
+                    
+                    if (formNumbers.length > 0) {
+                        nextFormNumber = Math.max(...formNumbers) + 1;
+                    }
+                    
+                    console.log('[SAVE HANDLER] Next form number:', nextFormNumber);
+                }
+                
+                orgVariableName = loadedFormId ? loadedFormId.name : `form_${nextFormNumber}`;
+                orgVariableUUID = loadedFormId ? loadedFormId.uuid : null;
+                orgVariableValue = JSON.stringify(formConfig);
+                
+                console.log('[SAVE HANDLER] FormBuilder - Using name:', orgVariableName);
             }
-            
-            // Prepare the org variable name and value
-            const orgVariableName = loadedFormId ? loadedFormId.name : `form_${nextFormNumber}`;
-            const orgVariableUUID = loadedFormId ? loadedFormId.uuid : null;
-            const orgVariableValue = JSON.stringify(formConfig);
             
             console.log('[SAVE HANDLER] Org Variable Name:', orgVariableName);
             console.log('[SAVE HANDLER] Org Variable UUID:', orgVariableUUID);
+            console.log('[SAVE HANDLER] Target Org ID:', targetOrgId);
             console.log('[SAVE HANDLER] Org Variable Value length:', orgVariableValue.length);
             
             // Execute the org variable save
@@ -4512,8 +4540,24 @@ if (saveConfirmYes) {
                 await RewstLib.orgVariables.update(orgVariableUUID, orgVariableName, orgVariableValue);
             } else {
                 // Create new variable
-                console.log('[SAVE HANDLER] Creating new org variable');
-                await RewstLib.orgVariables.create(orgVariableName, orgVariableValue);
+                console.log('[SAVE HANDLER] Creating new org variable under org:', targetOrgId);
+                
+                // For FormExtend, we need to create the variable under the client's org ID
+                if (isFormExtend) {
+                    // Temporarily switch org context to save under client org
+                    const originalOrgId = window.ORG_ID;
+                    window.ORG_ID = targetOrgId;
+                    
+                    try {
+                        await RewstLib.orgVariables.create(orgVariableName, orgVariableValue);
+                    } finally {
+                        // Restore original org ID
+                        window.ORG_ID = originalOrgId;
+                    }
+                } else {
+                    // FormBuilder uses standard creation
+                    await RewstLib.orgVariables.create(orgVariableName, orgVariableValue);
+                }
             }
             
             // Update saving status to success
