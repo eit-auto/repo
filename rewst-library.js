@@ -1655,6 +1655,17 @@ const GRAPHQL_OPERATIONS = {
       const optionsContainer = dropdown;
       optionsContainer.innerHTML = '';
 
+      // Populate hidden select with option elements (for form submission)
+      if (hiddenSelect) {
+        hiddenSelect.innerHTML = '';
+        options.forEach(option => {
+          const opt = document.createElement('option');
+          opt.value = option.value;
+          opt.textContent = option.label;
+          hiddenSelect.appendChild(opt);
+        });
+      }
+
       // Add SELECT ALL checkbox at the top
       const selectAllDiv = document.createElement('div');
       selectAllDiv.className = 'multi-select-option multi-select-select-all';
