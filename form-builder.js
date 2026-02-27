@@ -1249,14 +1249,23 @@ const deleteFormConfirmModal = document.getElementById('deleteFormConfirmModal')
 const deleteFormConfirmYes = document.getElementById('deleteFormConfirmYes');
 const deleteFormConfirmNo = document.getElementById('deleteFormConfirmNo');
 
-if (deleteFormBtn && deleteFormConfirmModal && deleteFormConfirmYes && deleteFormConfirmNo && openExistingDropdown) {
-    // Enable/disable Delete button based on dropdown selection
-    openExistingDropdown.addEventListener('change', () => {
-        deleteFormBtn.disabled = !openExistingDropdown.value;
-    });
+if (deleteFormBtn && deleteFormConfirmModal && deleteFormConfirmYes && deleteFormConfirmNo) {
+    // FormBuilder flow: uses openExistingDropdown
+    if (openExistingDropdown) {
+        // Enable/disable Delete button based on dropdown selection
+        openExistingDropdown.addEventListener('change', () => {
+            deleteFormBtn.disabled = !openExistingDropdown.value;
+        });
+    }
     
-    // Show delete confirmation modal
+    // Show delete confirmation modal (works for both FormBuilder and FormExtendBuilder)
     deleteFormBtn.addEventListener('click', () => {
+        // Check if a form is selected (FormBuilder uses openExistingDropdown, FormExtendBuilder uses loadedFormId)
+        const hasSelection = (openExistingDropdown && openExistingDropdown.value) || loadedFormId;
+        if (!hasSelection) {
+            console.error('No form selected to delete');
+            return;
+        }
         deleteFormConfirmModal.classList.add('active');
     });
     
@@ -1267,17 +1276,33 @@ if (deleteFormBtn && deleteFormConfirmModal && deleteFormConfirmYes && deleteFor
     
     // Confirm delete
     deleteFormConfirmYes.addEventListener('click', async () => {
-        const selectedIndex = parseInt(openExistingDropdown.value);
+        let formUUID, formName;
         
-        if (isNaN(selectedIndex) || selectedIndex < 0 || selectedIndex >= availableForms.length) {
-            console.error('Invalid form selection for delete');
+        // FormBuilder flow
+        if (openExistingDropdown && openExistingDropdown.value) {
+            const selectedIndex = parseInt(openExistingDropdown.value);
+            
+            if (isNaN(selectedIndex) || selectedIndex < 0 || selectedIndex >= availableForms.length) {
+                console.error('Invalid form selection for delete');
+                deleteFormConfirmModal.classList.remove('active');
+                return;
+            }
+            
+            const selectedForm = availableForms[selectedIndex];
+            formUUID = selectedForm.id;
+            formName = selectedForm.name;
+        }
+        // FormExtendBuilder flow
+        else if (loadedFormId) {
+            formUUID = loadedFormId.uuid;
+            formName = loadedFormId.name;
+        }
+        // Fallback
+        else {
+            console.error('No form selected to delete');
             deleteFormConfirmModal.classList.remove('active');
             return;
         }
-        
-        const selectedForm = availableForms[selectedIndex];
-        const formUUID = selectedForm.id;
-        const formName = selectedForm.name;
         
         console.log('Deleting form:', { uuid: formUUID, name: formName });
         
@@ -1310,19 +1335,29 @@ if (deleteFormBtn && deleteFormConfirmModal && deleteFormConfirmYes && deleteFor
             
             console.log('Form deleted successfully');
             
-            // Remove from availableForms array
-            availableForms.splice(selectedIndex, 1);
-            
-            // Update dropdown
-            const deletedOption = openExistingDropdown.options[selectedIndex + 1]; // +1 because first option is placeholder
-            if (deletedOption) {
-                openExistingDropdown.removeChild(deletedOption);
+            // FormBuilder cleanup
+            if (openExistingDropdown && availableForms) {
+                const selectedIndex = parseInt(openExistingDropdown.value);
+                availableForms.splice(selectedIndex, 1);
+                
+                // Update dropdown
+                const deletedOption = openExistingDropdown.options[selectedIndex + 1]; // +1 because first option is placeholder
+                if (deletedOption) {
+                    openExistingDropdown.removeChild(deletedOption);
+                }
+                
+                // Reset dropdown
+                openExistingDropdown.value = '';
+                deleteFormBtn.disabled = true;
+                if (loadFormBtn) loadFormBtn.disabled = true;
             }
             
-            // Reset dropdown
-            openExistingDropdown.value = '';
-            deleteFormBtn.disabled = true;
-            loadFormBtn.disabled = true;
+            // FormExtendBuilder cleanup
+            if (loadedFormId) {
+                fieldConfigs.length = 0;
+                loadedFormId = null;
+                resetForm();
+            }
             
             // Show success message
             showSuccessMessage('Form Configuration Deleted Successfully');
@@ -1331,6 +1366,15 @@ if (deleteFormBtn && deleteFormConfirmModal && deleteFormConfirmYes && deleteFor
             console.error('Error deleting form:', error);
             alert('Error deleting form: ' + error.message);
         }
+    });
+    
+    // Close modal on outside click
+    deleteFormConfirmModal.addEventListener('click', (e) => {
+        if (e.target === deleteFormConfirmModal) {
+            deleteFormConfirmModal.classList.remove('active');
+        }
+    });
+}
     });
     
     // Close modal on outside click
