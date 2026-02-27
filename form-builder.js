@@ -3709,10 +3709,21 @@ const saveModalCloseBtn = document.getElementById('saveModalCloseBtn');
 
 // Function to check if save button should be enabled
 function updateSaveButtonState() {
-    const formName = document.getElementById('form_name').value.trim();
-    const submitType = document.getElementById('hidden_submit_type') ? document.getElementById('hidden_submit_type').value : 'workflow';
-    const submitWorkflow = hiddenSubmitWorkflow.value;
-    const graphqlOperation = document.getElementById('hidden_graphql_submit_op') ? document.getElementById('hidden_graphql_submit_op').value : '';
+    // Guard: only run if the save button exists and critical objects are initialized
+    if (!saveFormBtn || typeof fieldConfigs === 'undefined') return;
+    
+    // Get form name - FormBuilder uses 'form_name', FormExtendBuilder uses 'extend_title'
+    const formNameElement = document.getElementById('form_name') || document.getElementById('extend_title');
+    const formName = formNameElement ? formNameElement.value.trim() : '';
+    
+    const submitTypeElement = document.getElementById('hidden_submit_type');
+    const submitType = submitTypeElement ? submitTypeElement.value : 'workflow';
+    
+    const submitWorkflow = (hiddenSubmitWorkflow && hiddenSubmitWorkflow.value) ? hiddenSubmitWorkflow.value : '';
+    
+    const graphqlOpElement = document.getElementById('hidden_graphql_submit_op');
+    const graphqlOperation = graphqlOpElement ? graphqlOpElement.value : '';
+    
     const hasElements = fieldConfigs.length > 0;
     
     // Check if all dropdowns have workflows
