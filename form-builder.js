@@ -5118,6 +5118,240 @@ async function initializeWorkflows() {
 }
 
 // ============================================
+// FORM EXTEND BUILDER SPECIFIC FUNCTIONS
+// ============================================
+
+/**
+ * Reset the form builder UI to initial state
+ * Clears title, fields, columns, and counters
+ */
+function resetForm() {
+    console.log('Resetting form...');
+    
+    // Clear form extend title
+    if (extendTitleInput) {
+        extendTitleInput.value = '';
+    }
+    
+    // Reset show name checkbox to default (checked)
+    if (hiddenShowName) {
+        hiddenShowName.checked = true;
+    }
+    
+    // Reset columns to 1
+    if (hiddenFormColumns) {
+        hiddenFormColumns.value = '1';
+        updateColumnDisplay();
+    }
+    
+    // Clear all field configs
+    fieldConfigs.length = 0;
+    
+    // Clear all dropped elements from columns
+    const leftFormColumn = document.getElementById('leftFormColumn');
+    const rightFormColumn = document.getElementById('rightFormColumn');
+    const thirdFormColumn = document.getElementById('thirdFormColumn');
+    
+    if (leftFormColumn) leftFormColumn.innerHTML = '';
+    if (rightFormColumn) rightFormColumn.innerHTML = '';
+    if (thirdFormColumn) thirdFormColumn.innerHTML = '';
+    
+    // Reset element counters
+    ELEMENT_TYPES.forEach(type => {
+        droppedElementCount[type] = 0;
+    });
+    
+    // Close settings panel if open
+    if (selectedElementUid) {
+        closeElementSettings();
+    }
+    
+    // Clear the loaded form ID (back to create mode)
+    loadedFormId = null;
+    
+    // Update displays
+    updateFieldConfigsDisplay();
+    updateSaveButtonState();
+    
+    console.log('Form reset - ready to create new form');
+}
+
+/**
+ * Initialize the client/organization selection dropdown
+ * Populates from RewstLib.organizations.getSubOrganizations()
+ */
+async function initializeSelectClient() {
+    try {
+        const dropdown = document.getElementById('select_client_dropdown');
+        if (!dropdown) {
+            console.warn('[INIT] select_client_dropdown element not found');
+            return;
+        }
+        
+        const loading = document.getElementById('select_client_loading');
+        if (loading) loading.style.display = 'flex';
+        
+        if (!RewstLib) {
+            console.error('[INIT] RewstLib not loaded');
+            if (loading) loading.style.display = 'none';
+            return;
+        }
+        
+        console.log('[INIT] Fetching sub-organizations...');
+        const clients = await RewstLib.organizations.getSubOrganizations(window.ORG_ID);
+        
+        if (loading) loading.style.display = 'none';
+        
+        if (!clients || clients.length === 0) {
+            console.warn('[INIT] No clients found');
+            dropdown.innerHTML = '<option value="">-- No clients available --</option>';
+            return;
+        }
+        
+        console.log('[INIT] Clients loaded:', clients.length);
+        
+        // Clear existing options and add new ones
+        dropdown.innerHTML = '<option value="">-- Select a client --</option>';
+        
+        clients.forEach(client => {
+            const option = document.createElement('option');
+            option.value = client.id;
+            option.textContent = client.name;
+            dropdown.appendChild(option);
+        });
+        
+        console.log('[INIT] Client dropdown populated with', clients.length, 'clients');
+    } catch (error) {
+        console.error('[INIT] Error initializing clients:', error);
+        const loading = document.getElementById('select_client_loading');
+        if (loading) loading.style.display = 'none';
+    }
+}
+
+/**
+ * Initialize the form extend types dropdown
+ * Populates from RewstLib GraphQL operations
+ */
+function initializeFormExtendTypes() {
+    try {
+        const dropdown = document.getElementById('form_extend_type_dropdown');
+        if (!dropdown) {
+            console.warn('[INIT] form_extend_type_dropdown element not found');
+            return;
+        }
+        
+        if (!RewstLib) {
+            console.error('[INIT] RewstLib not loaded');
+            return;
+        }
+        
+        console.log('[INIT] Fetching GraphQL operations...');
+        const allOperations = RewstLib.graphqlOperations.getAll();
+        
+        // Convert object to array and filter for form_extend type
+        const formExtendOps = Object.entries(allOperations)
+            .filter(([key, op]) => op.type === 'form_extend')
+            .map(([key, op]) => ({ key, ...op }));
+        
+        if (!formExtendOps || formExtendOps.length === 0) {
+            console.warn('[INIT] No form_extend operations found');
+            dropdown.innerHTML = '<option value="">-- No form extend types available --</option>';
+            return;
+        }
+        
+        console.log('[INIT] Form extend types loaded:', formExtendOps.length);
+        
+        // Clear existing options and add new ones
+        dropdown.innerHTML = '<option value="">-- Select a form extend type --</option>';
+        
+        formExtendOps.forEach(op => {
+            const option = document.createElement('option');
+            option.value = op.key;
+            option.textContent = op.name || op.key;
+            option.dataset.description = op.description || '';
+            dropdown.appendChild(option);
+        });
+        
+        console.log('[INIT] Form extend type dropdown populated with', formExtendOps.length, 'types');
+    } catch (error) {
+        console.error('[INIT] Error initializing form extend types:', error);
+    }
+}
+
+/**
+ * Auto-load form configuration when both client and extend type selections are made
+ * Fetches from org variable and loads form configuration
+ */
+async function checkAndAutoLoad() {
+    const clientDropdown = document.getElementById('select_client_dropdown');
+    const extendTypeDropdown = document.getElementById('form_extend_type_dropdown');
+    
+    const clientId = clientDropdown?.value;
+    const extendType = extendTypeDropdown?.value;
+    
+    if (clientId && extendType) {
+        console.log('[AUTO-LOAD] Both selections made:', { clientId, extendType });
+        
+        try {
+            // Check if there are unsaved changes in element settings (only if panel is open)
+            if (selectedElementUid && settingsPanel && settingsPanel.style.display === 'block' && hasUnsavedFormChanges()) {
+                console.log('[AUTO-LOAD] Unsaved element changes detected before loading form');
+                const fieldDisplayName = originalElementSettings ? originalElementSettings.field_displayname : 'Unknown';
+                const confirmed = await confirmUnsavedChanges(fieldDisplayName);
+                if (!confirmed) {
+                    console.log('[AUTO-LOAD] User cancelled loading form due to unsaved element changes');
+                    return; // Don't load form
+                }
+                console.log('[AUTO-LOAD] User confirmed to discard element changes and load form');
+                // Close element settings without saving
+                await closeElementSettings(true);
+            }
+            
+            // Fetch the form config from org variable
+            const orgVar = await RewstLib.orgVariables.get(extendType, clientId);
+            
+            if (!orgVar || !orgVar.value) {
+                console.log('[AUTO-LOAD] No form config found for this selection');
+                return;
+            }
+            
+            console.log('[AUTO-LOAD] Form config found:', orgVar.name);
+            
+            // Parse form_config (it might be a JSON string)
+            let formConfig;
+            if (typeof orgVar.value === 'string') {
+                try {
+                    formConfig = JSON.parse(orgVar.value);
+                    console.log('[AUTO-LOAD] Parsed form config from JSON string');
+                } catch (e) {
+                    console.error('[AUTO-LOAD] Error parsing form config:', e);
+                    return;
+                }
+            } else {
+                formConfig = orgVar.value;
+                console.log('[AUTO-LOAD] Using form config object directly');
+            }
+            
+            console.log('[AUTO-LOAD] Final parsed config:', formConfig);
+            
+            // Store org variable info globally (similar to loadedFormId in Load button)
+            loadedFormId = {
+                uuid: orgVar.id,
+                name: extendType
+            };
+            console.log('[AUTO-LOAD] Stored org variable info:', loadedFormId);
+            
+            // Load the form configuration
+            console.log('[AUTO-LOAD] Calling loadFormConfiguration...');
+            loadFormConfiguration(formConfig);
+            
+        } catch (error) {
+            console.error('[AUTO-LOAD] Error fetching form config:', error);
+        }
+    }
+}
+
+// ============================================
 // PAGE LOAD - FETCH FORMS AND INITIALIZE
 // ============================================
 console.log('Page loaded, starting initialization...');
