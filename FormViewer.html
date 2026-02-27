@@ -963,7 +963,7 @@
             // Group by column
             const columns = {};
             fieldConfigs.forEach(config => {
-                const col = config.column || 1;
+                const col = config.column !== undefined ? config.column : 1;
                 if (!columns[col]) {
                     columns[col] = [];
                 }
@@ -975,8 +975,15 @@
                 columns[col].sort((a, b) => (a.sequence || 999) - (b.sequence || 999));
             });
 
-            // Determine column layout
-            const sortedColumns = Object.keys(columns).sort((a, b) => a - b);
+            // Render column 0 (full-width top)
+            if (columns[0]) {
+                columns[0].forEach(config => {
+                    html += renderFieldHTML(config, fieldConfigs);
+                });
+            }
+
+            // Determine column layout for middle columns (1, 2, 3, etc.)
+            const sortedColumns = Object.keys(columns).filter(c => c !== '0' && c !== '99').sort((a, b) => a - b);
 
             if (columnCount === 1) {
                 // Single column - render all fields in order
@@ -1113,6 +1120,58 @@
                         console.log(`>>> About to evaluate conditional visibility for all fields`);
                         evaluateConditionalVisibility(fieldConfigs);
                         console.log(`>>> Conditional visibility evaluation complete`);
+                        
+                        // Load options for any dropdowns that just became visible
+                        fieldConfigs.forEach(fc => {
+                            const formGroup = document.querySelector(`[data-field-name="${fc.field_name}"]`);
+                            if (formGroup && formGroup.style.display !== 'none') {
+                                if (fc.type === 'dropdown' || fc.type === 'dropdown_graphql') {
+                                    // Skip if this field is dependent on the changed field
+                                    // (updateDependentFields already handled it)
+                                    const isDependentOnChanged = fc.dependant_fields && (
+                                        (typeof fc.dependant_fields === 'object' && config.field_name in fc.dependant_fields) ||
+                                        (typeof fc.dependant_fields === 'string' && fc.dependant_fields.includes(config.field_name))
+                                    );
+                                    
+                                    if (isDependentOnChanged) {
+                                        console.log(`[CONDITIONAL] Field ${fc.field_name} is dependent on ${config.field_name}, skipping (already handled by updateDependentFields)`);
+                                        return;
+                                    }
+                                    
+                                    if (!fc.multi_select) {
+                                        const select = formGroup.querySelector('select');
+                                        // Check if options haven't been loaded yet (only has placeholder)
+                                        if (select && select.querySelectorAll('option').length <= 1) {
+                                            console.log(`[CONDITIONAL] Field ${fc.field_name} became visible, loading options`);
+                                            loadFieldOptions(fc, fieldConfigs, formConfig);
+                                        }
+                                    } else {
+                                        // For multi-select, check if it's already been initialized
+                                        const multiSelectContainer = formGroup.querySelector('.multi-select-container');
+                                        if (multiSelectContainer && !multiSelectContainer.hasAttribute('data-initialized')) {
+                                            console.log(`[CONDITIONAL] Multi-select field ${fc.field_name} became visible, loading options`);
+                                            loadFieldOptions(fc, fieldConfigs, formConfig);
+                                        }
+                                    }
+                                }
+                            }
+                        });
+                        
+                        // Update refresh button states for all dependent fields
+                        fieldConfigs.forEach(fc => {
+                            if (fc.dependant_fields) {
+                                const isObjectFormat = typeof fc.dependant_fields === 'object';
+                                let isDependentOnChanged = false;
+                                if (isObjectFormat) {
+                                    isDependentOnChanged = config.field_name in fc.dependant_fields;
+                                } else {
+                                    isDependentOnChanged = fc.dependant_fields.includes(config.field_name);
+                                }
+                                if (isDependentOnChanged) {
+                                    updateRefreshButtonState(fc.field_name, fc, fieldConfigs);
+                                }
+                            }
+                        });
                     };
                     
                     input.addEventListener('change', changeHandler);
@@ -1128,6 +1187,12 @@
                     }
                 }
             });
+            
+            // Attach refresh button handlers
+            
+            // Setup refresh buttons after all functions are defined
+            setupRefreshButtonHandlers(fieldConfigs, formConfig);
+            
             
             // Initialize field UI states - show waiting for dependent fields
             RewstLib.utils.initializeDependentFields(fieldConfigs);
@@ -1242,7 +1307,8 @@
             // Use library's loadGraphQLDropdownOptions instead of local function
             
             // Check if this field config has skip_cache flag
-            const skipCache = config.skip_cache === true;
+            // Also skip cache if this field has blocking dependencies (means parent changed)
+            const skipCache = config.skip_cache === true || (config.dependant_fields && Object.values(config.dependant_fields).some(dep => dep.blocking === true));
             const options = skipCache ? { skip_cache: true } : {};
             
             // Handle dropdown_graphql separately
@@ -1364,7 +1430,20 @@
                     console.log(`[FORM_EXTEND] Retrieved org variable:`, orgVar);
                     
                     if (!orgVar || !orgVar.value) {
-                        console.log(`[FORM_EXTEND] No org variable found`);
+                        console.log(`[FORM_EXTEND] No org variable found, clearing extended fields`);
+                        // Remove the extended section entirely
+                        const extendedSection = document.getElementById('extendedFieldsSection');
+                        if (extendedSection) {
+                            extendedSection.remove();
+                        }
+                        // Remove old extended fields from the main form
+                        const baseFieldNames = new Set(formConfig.field_configs.map(f => f.field_name));
+                        document.querySelectorAll('[data-field-name]').forEach(formGroup => {
+                            const fieldName = formGroup.getAttribute('data-field-name');
+                            if (!baseFieldNames.has(fieldName)) {
+                                formGroup.remove();
+                            }
+                        });
                         return;
                     }
                     
@@ -1376,11 +1455,37 @@
                         console.log(`[FORM_EXTEND] Parsed extend_config:`, extendConfig);
                     } catch (e) {
                         console.error(`[FORM_EXTEND] Failed to parse org variable value:`, e);
+                        // Remove the extended section on parse error
+                        const extendedSection = document.getElementById('extendedFieldsSection');
+                        if (extendedSection) {
+                            extendedSection.remove();
+                        }
+                        // Remove old extended fields from the main form
+                        const baseFieldNames = new Set(formConfig.field_configs.map(f => f.field_name));
+                        document.querySelectorAll('[data-field-name]').forEach(formGroup => {
+                            const fieldName = formGroup.getAttribute('data-field-name');
+                            if (!baseFieldNames.has(fieldName)) {
+                                formGroup.remove();
+                            }
+                        });
                         return;
                     }
                     
                     if (!extendConfig || !extendConfig.field_configs || !Array.isArray(extendConfig.field_configs)) {
-                        console.log(`[FORM_EXTEND] No field_configs found in extend_config`);
+                        console.log(`[FORM_EXTEND] No field_configs found in extend_config, clearing extended fields`);
+                        // Remove the extended section
+                        const extendedSection = document.getElementById('extendedFieldsSection');
+                        if (extendedSection) {
+                            extendedSection.remove();
+                        }
+                        // Remove old extended fields from the main form
+                        const baseFieldNames = new Set(formConfig.field_configs.map(f => f.field_name));
+                        document.querySelectorAll('[data-field-name]').forEach(formGroup => {
+                            const fieldName = formGroup.getAttribute('data-field-name');
+                            if (!baseFieldNames.has(fieldName)) {
+                                formGroup.remove();
+                            }
+                        });
                         return;
                     }
                     
@@ -1397,8 +1502,20 @@
                         extendedSection.id = 'extendedFieldsSection';
                         extendedSection.className = 'form-container';
                         extendedSection.style.borderTop = '1px solid #ffffff';
-                        extendedSection.style.paddingTop = '15px';
+                        extendedSection.style.marginTop = '12px';
+                        extendedSection.style.paddingTop = '11px';
                         previewContent.appendChild(extendedSection);
+                    } else {
+                        // Clear existing content when dependency changes
+                        extendedSection.innerHTML = '';
+                        // Remove any form-groups that are NOT in the base formConfig (these are old extended fields)
+                        const baseFieldNames = new Set(formConfig.field_configs.map(f => f.field_name));
+                        document.querySelectorAll('[data-field-name]').forEach(formGroup => {
+                            const fieldName = formGroup.getAttribute('data-field-name');
+                            if (!baseFieldNames.has(fieldName)) {
+                                formGroup.remove();
+                            }
+                        });
                     }
                     
                     // Render extend_title if provided
@@ -1525,7 +1642,61 @@
             }
         }
         
-        
+        function updateRefreshButtonState(fieldName, config, allFieldConfigs) {
+            const btn = document.querySelector(`.dropdown-refresh-btn[data-field-name="${fieldName}"]`);
+            if (!btn) return;
+            
+            // Only check if blocking dependencies are met
+            // Loading state is managed separately during refresh click
+            const depsMet = RewstLib.utils.areDependenciesMet(config, allFieldConfigs);
+            
+            btn.disabled = !depsMet;
+            console.log(`[REFRESH] Button state for ${fieldName}: disabled=${btn.disabled} (depsMet=${depsMet})`);
+        }
+
+        function setupRefreshButtonHandlers(fieldConfigs, formConfig) {
+            const refreshButtons = document.querySelectorAll('.dropdown-refresh-btn');
+            refreshButtons.forEach(btn => {
+                const fieldName = btn.getAttribute('data-field-name');
+                const config = fieldConfigs.find(c => c.field_name === fieldName);
+                if (!config) {
+                    console.error(`[REFRESH] Could not find config for field: ${fieldName}`);
+                    return;
+                }
+                
+                btn.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    console.log(`[REFRESH] User clicked refresh for field: ${fieldName}`);
+                    
+                    // Disable button and show loading state
+                    btn.disabled = true;
+                    btn.classList.add('loading');
+                    
+                    // Force skip_cache for refresh
+                    const originalSkipCache = config.skip_cache;
+                    config.skip_cache = true;
+                    
+                    // Call loadFieldOptions with all required parameters
+                    loadFieldOptions(config, fieldConfigs, formConfig).then(() => {
+                        console.log(`[REFRESH] Refresh complete for ${fieldName}`);
+                        // Restore original skip_cache setting
+                        config.skip_cache = originalSkipCache;
+                        // Re-enable button and remove loading state, then check dependencies
+                        btn.classList.remove('loading');
+                        updateRefreshButtonState(fieldName, config, fieldConfigs);
+                    }).catch(error => {
+                        console.error(`[REFRESH] Error refreshing ${fieldName}:`, error);
+                        // Restore original skip_cache setting
+                        config.skip_cache = originalSkipCache;
+                        btn.classList.remove('loading');
+                        updateRefreshButtonState(fieldName, config, fieldConfigs);
+                    });
+                });
+                
+                // Set initial button state
+                updateRefreshButtonState(fieldName, config, fieldConfigs);
+            });
+        }
 
         function renderFieldHTML(config, allFieldConfigs) {
             // Determine if field should be hidden based on hidden property
@@ -1629,30 +1800,72 @@
                 }
             } else if (config.type === 'dropdown') {
                 if (config.multi_select) {
-                    // Custom multi-select component
-                    html += RewstLib.utils.renderMultiSelectContainer(config.field_name, displayName, config.description);
+                    // Custom multi-select component with refresh button
+                    const multiSelectId = `ms_${config.field_name}`;
+                    const descriptionHtml = config.description ? `<div class="field-description">${escapeHtml(config.description)}</div>` : '';
+                    html += `
+                        <label>${displayName}</label>
+                        ${descriptionHtml}
+                        <div class="dropdown-refresh-container">
+                            <div style="flex: 1;">
+                                <div class="multi-select-container" id="${multiSelectId}">
+                                    <div class="multi-select-display">
+                                        <div class="multi-select-tags"></div>
+                                        <div class="multi-select-toggle">▼</div>
+                                    </div>
+                                    <div class="multi-select-options"></div>
+                                    <select name="${config.field_name}" class="multi-select-hidden-select"></select>
+                                </div>
+                            </div>
+                            <button type="button" class="dropdown-refresh-btn" data-field-name="${config.field_name}" title="Refresh options">↻</button>
+                        </div>
+                    `;
                 } else {
-                    // Single select (original logic)
+                    // Single select with refresh button
                     html += `
                         <label>${displayName}</label>
                         ${config.description ? `<div class="field-description">${escapeHtml(config.description)}</div>` : ''}
-                        <select name="${config.field_name}">
-                            <option value="">${RewstLib.utils.getGrammaticalPhrase(config.field_displayname)}</option>
-                        </select>
+                        <div class="dropdown-refresh-container">
+                            <select name="${config.field_name}">
+                                <option value="">${RewstLib.utils.getGrammaticalPhrase(config.field_displayname)}</option>
+                            </select>
+                            <button type="button" class="dropdown-refresh-btn" data-field-name="${config.field_name}" title="Refresh options">↻</button>
+                        </div>
                     `;
                 }
             } else if (config.type === 'dropdown_graphql') {
                 if (config.multi_select) {
-                    // Custom multi-select component
-                    html += RewstLib.utils.renderMultiSelectContainer(config.field_name, displayName, config.description);
+                    // Custom multi-select component with refresh button
+                    const multiSelectId = `ms_${config.field_name}`;
+                    const descriptionHtml = config.description ? `<div class="field-description">${escapeHtml(config.description)}</div>` : '';
+                    html += `
+                        <label>${displayName}</label>
+                        ${descriptionHtml}
+                        <div class="dropdown-refresh-container">
+                            <div style="flex: 1;">
+                                <div class="multi-select-container" id="${multiSelectId}">
+                                    <div class="multi-select-display">
+                                        <div class="multi-select-tags"></div>
+                                        <div class="multi-select-toggle">▼</div>
+                                    </div>
+                                    <div class="multi-select-options"></div>
+                                    <select name="${config.field_name}" class="multi-select-hidden-select"></select>
+                                </div>
+                            </div>
+                            <button type="button" class="dropdown-refresh-btn" data-field-name="${config.field_name}" title="Refresh options">↻</button>
+                        </div>
+                    `;
                 } else {
-                    // Single select (original logic)
+                    // Single select with refresh button
                     html += `
                         <label>${displayName}</label>
                         ${config.description ? `<div class="field-description">${escapeHtml(config.description)}</div>` : ''}
-                        <select name="${config.field_name}">
-                            <option value="">${RewstLib.utils.getGrammaticalPhrase(config.field_displayname)}</option>
-                        </select>
+                        <div class="dropdown-refresh-container">
+                            <select name="${config.field_name}">
+                                <option value="">${RewstLib.utils.getGrammaticalPhrase(config.field_displayname)}</option>
+                            </select>
+                            <button type="button" class="dropdown-refresh-btn" data-field-name="${config.field_name}" title="Refresh options">↻</button>
+                        </div>
                     `;
                 }
             } else if (config.type === 'html') {
