@@ -1,6 +1,5 @@
 // Username will be set after the raw block via Jinja injection
 let userName = "unknown_user";
-{% raw %}
 // ============================================
 // REWST APP LIBRARY (Simplified)
 // ============================================
@@ -5066,7 +5065,6 @@ if (previewModal) {
     });
 }
 
-{% endraw %}
 // ============================================
 // INITIALIZE WORKFLOWS
 // ============================================
@@ -5141,5 +5139,3 @@ try {
     console.error('Error initiating background fetch:', error);
     // Continue anyway - the fetch will happen on first checkbox click
 }
-// Set username after raw block - Jinja will process this
-userName = "{{ CTX.user.username }}";
