@@ -1653,11 +1653,7 @@ const GRAPHQL_OPERATIONS = {
 
       // Update hidden select selected state
       if (hiddenSelect) {
-        console.log(`[MULTI-SELECT] updateTags updating hidden select:`, {
-          selected: selected,
-          optionCount: hiddenSelect.options.length,
-          selectedCount: selected.length
-        });
+        console.log(`[MULTI-SELECT] updateTags - hiddenSelect has ${hiddenSelect.options.length} options before marking`);
         Array.from(hiddenSelect.options).forEach(opt => {
           const shouldBeSelected = selected.includes(opt.value);
           opt.selected = shouldBeSelected;
@@ -1665,6 +1661,7 @@ const GRAPHQL_OPERATIONS = {
             console.log(`[MULTI-SELECT] Marked option selected: ${opt.value}`);
           }
         });
+        console.log(`[MULTI-SELECT] updateTags - after marking, ${Array.from(hiddenSelect.options).filter(o => o.selected).length} options are selected`);
       }
 
       if (onChange) {
