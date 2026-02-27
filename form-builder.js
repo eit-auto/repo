@@ -3799,25 +3799,15 @@ function updateSaveButtonState() {
     // Guard: only run if the save button exists and critical objects are initialized
     if (!saveFormBtn || typeof fieldConfigs === 'undefined') return;
     
+    // Detect if this is FormExtendBuilder (has extend_title) or FormBuilder (has form_name)
+    const extendTitleInput = document.getElementById('extend_title');
+    const isFormExtend = !!extendTitleInput;
+    
     // Get form name - FormBuilder uses 'form_name', FormExtendBuilder uses 'extend_title'
-    const formNameElement = document.getElementById('form_name') || document.getElementById('extend_title');
+    const formNameElement = isFormExtend ? extendTitleInput : document.getElementById('form_name');
     const formName = formNameElement ? formNameElement.value.trim() : '';
     
-    const submitTypeElement = document.getElementById('hidden_submit_type');
-    const submitType = submitTypeElement ? submitTypeElement.value : 'workflow';
-    
-    const submitWorkflow = (hiddenSubmitWorkflow && hiddenSubmitWorkflow.value) ? hiddenSubmitWorkflow.value : '';
-    
-    const graphqlOpElement = document.getElementById('hidden_graphql_submit_op');
-    const graphqlOperation = graphqlOpElement ? graphqlOpElement.value : '';
-    
     const hasElements = fieldConfigs.length > 0;
-    
-    // Check if all dropdowns have workflows
-    const dropdownsWithoutWorkflow = fieldConfigs.filter(f => 
-        f.type === 'dropdown' && (!f.workflow_id || f.workflow_id === '')
-    );
-    const allDropdownsHaveWorkflows = dropdownsWithoutWorkflow.length === 0;
     
     // Check if all form_extend elements have at least one dependant field
     const formExtendWithoutDependants = fieldConfigs.filter(f => {
@@ -3829,15 +3819,37 @@ function updateSaveButtonState() {
     });
     const allFormExtendsHaveDependants = formExtendWithoutDependants.length === 0;
     
-    // Determine if submit requirements are met based on submit_type
-    let submitIsValid = false;
-    if (submitType === 'workflow') {
-        submitIsValid = submitWorkflow !== '';
-    } else if (submitType === 'graphql') {
-        submitIsValid = graphqlOperation !== '';
-    }
+    let canSave;
     
-    const canSave = formName !== '' && submitIsValid && hasElements && allDropdownsHaveWorkflows && allFormExtendsHaveDependants;
+    if (isFormExtend) {
+        // FormExtendBuilder: only needs form name, has fields, and form_extends properly configured
+        canSave = formName !== '' && hasElements && allFormExtendsHaveDependants;
+    } else {
+        // FormBuilder: needs form name, submit workflow/graphql, fields, dropdowns, and form_extends
+        const submitTypeElement = document.getElementById('hidden_submit_type');
+        const submitType = submitTypeElement ? submitTypeElement.value : 'workflow';
+        
+        const submitWorkflow = (hiddenSubmitWorkflow && hiddenSubmitWorkflow.value) ? hiddenSubmitWorkflow.value : '';
+        
+        const graphqlOpElement = document.getElementById('hidden_graphql_submit_op');
+        const graphqlOperation = graphqlOpElement ? graphqlOpElement.value : '';
+        
+        // Check if all dropdowns have workflows
+        const dropdownsWithoutWorkflow = fieldConfigs.filter(f => 
+            f.type === 'dropdown' && (!f.workflow_id || f.workflow_id === '')
+        );
+        const allDropdownsHaveWorkflows = dropdownsWithoutWorkflow.length === 0;
+        
+        // Determine if submit requirements are met based on submit_type
+        let submitIsValid = false;
+        if (submitType === 'workflow') {
+            submitIsValid = submitWorkflow !== '';
+        } else if (submitType === 'graphql') {
+            submitIsValid = graphqlOperation !== '';
+        }
+        
+        canSave = formName !== '' && submitIsValid && hasElements && allDropdownsHaveWorkflows && allFormExtendsHaveDependants;
+    }
     
     saveFormBtn.disabled = !canSave;
     
@@ -3848,24 +3860,46 @@ function updateSaveButtonState() {
             { label: 'Form Name', valid: formName !== '' }
         ];
         
-        // Add submit requirement based on type
-        if (submitType === 'workflow') {
-            items.push({ label: 'Submit Workflow', valid: submitWorkflow !== '' });
-        } else if (submitType === 'graphql') {
-            items.push({ label: 'GraphQL Operation', valid: graphqlOperation !== '' });
+        if (isFormExtend) {
+            // FormExtendBuilder validation items
+            items.push({ label: 'Form Elements', valid: hasElements });
+        } else {
+            // FormBuilder validation items
+            const submitTypeElement = document.getElementById('hidden_submit_type');
+            const submitType = submitTypeElement ? submitTypeElement.value : 'workflow';
+            const submitWorkflow = (hiddenSubmitWorkflow && hiddenSubmitWorkflow.value) ? hiddenSubmitWorkflow.value : '';
+            const graphqlOpElement = document.getElementById('hidden_graphql_submit_op');
+            const graphqlOperation = graphqlOpElement ? graphqlOpElement.value : '';
+            
+            // Add submit requirement based on type
+            if (submitType === 'workflow') {
+                items.push({ label: 'Submit Workflow', valid: submitWorkflow !== '' });
+            } else if (submitType === 'graphql') {
+                items.push({ label: 'GraphQL Operation', valid: graphqlOperation !== '' });
+            }
+            
+            items.push({ label: 'Form Elements', valid: hasElements });
+            
+            // Add validation for each dropdown without a workflow
+            const dropdownsWithoutWorkflow = fieldConfigs.filter(f => 
+                f.type === 'dropdown' && (!f.workflow_id || f.workflow_id === '')
+            );
+            dropdownsWithoutWorkflow.forEach(dropdown => {
+                items.push({
+                    label: `${dropdown.field_name} Workflow`,
+                    valid: false
+                });
+            });
         }
         
-        items.push({ label: 'Form Elements', valid: hasElements });
-        
-        // Add validation for each dropdown without a workflow
-        dropdownsWithoutWorkflow.forEach(dropdown => {
-            items.push({
-                label: `${dropdown.field_name} Workflow`,
-                valid: false
-            });
+        // Add validation for each form_extend without dependant fields (both apps)
+        const formExtendWithoutDependants = fieldConfigs.filter(f => {
+            if (f.type !== 'form_extend') return false;
+            if (!f.dependant_fields) return true;
+            if (typeof f.dependant_fields === 'string') return f.dependant_fields === '';
+            if (typeof f.dependant_fields === 'object') return Object.keys(f.dependant_fields).length === 0;
+            return true;
         });
-        
-        // Add validation for each form_extend without dependant fields
         formExtendWithoutDependants.forEach(formExtend => {
             items.push({
                 label: `${formExtend.field_name} Dependant Fields`,
