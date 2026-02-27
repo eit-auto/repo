@@ -1375,15 +1375,6 @@ if (deleteFormBtn && deleteFormConfirmModal && deleteFormConfirmYes && deleteFor
         }
     });
 }
-    });
-    
-    // Close modal on outside click
-    deleteFormConfirmModal.addEventListener('click', (e) => {
-        if (e.target === deleteFormConfirmModal) {
-            deleteFormConfirmModal.classList.remove('active');
-        }
-    });
-}
 
 // Handle column changes
 function updateColumnDisplay() {
