@@ -116,6 +116,16 @@
         </div>
     </div>
 
+    <div class="modal-overlay" id="deleteArrayItemModal">
+        <div class="modal" style="max-width: 400px;">
+            <p style="color: #ffffff; margin: 0 0 30px 0; font-size: 16px; text-align: center;">Confirm Delete?</p>
+            <div class="flex-gap-10-center">
+                <button id="deleteArrayItemNo" class="btn btn-grey" class="px-20">No</button>
+                <button id="deleteArrayItemYes" class="btn btn-red" class="px-20">Yes</button>
+            </div>
+        </div>
+    </div>
+
     <div class="modal-overlay" id="deleteFormConfirmModal">
         <div class="modal" style="max-width: 450px;">
             <p style="color: #ffffff; margin: 0 0 15px 0; font-size: 16px; text-align: center;">Confirm Delete Form Configuration?</p>
@@ -248,6 +258,9 @@
                     <hr style="margin: 12px auto 0 auto; border: none; border-top: 1px solid #ffffff; width: 100%;">
                 </div>
                 <div style="padding: 10px 20px 20px 0; display: flex; flex-direction: column; gap: 10px;">
+                    <div class="draggable-element" draggable="true" data-type="array">
+                        Array
+                    </div>
                     <div class="draggable-element" draggable="true" data-type="checkbox">
                         Checkbox
                     </div>
@@ -722,6 +735,9 @@
         // ============================================
         // Centralized configuration for all element types
         const ELEMENT_TYPE_DEFAULTS = {
+            'array': {
+                items: {}
+            },
             'checkbox': {
                 default_checked: false
             },
@@ -1254,6 +1270,22 @@
                             });
                         }
                     }
+                } else if (elementType === 'array') {
+                    // Collect array items from individual text fields
+                    const arrayItemRows = document.querySelectorAll('.array-item-row');
+                    const items = {};
+                    arrayItemRows.forEach(row => {
+                        const labelInput = row.querySelector('.array-item-label');
+                        const valueInput = row.querySelector('.array-item-value');
+                        if (labelInput && valueInput) {
+                            const label = labelInput.value.trim();
+                            const value = valueInput.value.trim();
+                            if (label && value) {
+                                items[label] = value;
+                            }
+                        }
+                    });
+                    fieldConfig.items = items;
                 }
             } catch (error) {
                 console.error('Error saving type-specific fields:', error);
@@ -2590,6 +2622,43 @@
             }
             
             // Add type-specific fields
+            if (fieldConfig.type === 'array') {
+                formHTML += `
+                    <div class="mb-20">
+                        <div style="display: flex; gap: 8px; align-items: flex-end; margin-bottom: 8px;">
+                            <div style="flex: 1;">
+                                <label style="color: #ffffff; font-weight: 600; font-size: 14px; margin: 0 0 8px 0; display: block;">Items</label>
+                                <div class="flex-gap-8">
+                                    <div style="flex: 1; color: #999; font-size: 12px; font-weight: 600;">Label</div>
+                                    <div style="flex: 1; color: #999; font-size: 12px; font-weight: 600;">Value</div>
+                                </div>
+                            </div>
+                            <div>
+                                <button id="addArrayItemBtn" class="btn-builder-blue" title="Add Item">+</button>
+                            </div>
+                        </div>
+                        <div id="arrayItemsList" style="display: flex; flex-direction: column; gap: 8px;">
+                `;
+                
+                // Add existing array items as editable fields
+                if (fieldConfig.items && typeof fieldConfig.items === 'object') {
+                    Object.entries(fieldConfig.items).forEach(([key, value], index) => {
+                        formHTML += `
+                            <div class="array-item-row" data-index="${index}" style="display: flex; gap: 8px; align-items: center;">
+                                <input type="text" class="array-item-label" value="${key}" placeholder="Label" style="flex: 1; padding: 8px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; font-size: 13px; width: 50%;">
+                                <input type="text" class="array-item-value" value="${value}" placeholder="Value" style="flex: 1; padding: 8px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; font-size: 13px; width: 50%;">
+                                <button class="delete-array-item-btn" class="btn-builder-red" title="Delete Item">⊘</button>
+                            </div>
+                        `;
+                    });
+                }
+                
+                formHTML += `
+                        </div>
+                    </div>
+                `;
+            }
+            
             if (fieldConfig.type === 'checkbox') {
                 formHTML += `
                     <div style="margin-bottom: 15px; display: flex; align-items: center; gap: 10px;">
@@ -3180,11 +3249,33 @@
                         `;
                         optionsList.appendChild(newRow);
                         attachDeleteOptionListener(newRow.querySelector('.delete-option-btn'));
+                        
+                        // Add input listeners to detect changes
+                        newRow.querySelector('.option-label').addEventListener('input', () => {
+                            formHasBeenModified = true;
+                            updateElementSettingsSaveButtonVisibility();
+                        });
+                        newRow.querySelector('.option-value').addEventListener('input', () => {
+                            formHasBeenModified = true;
+                            updateElementSettingsSaveButtonVisibility();
+                        });
+                        
+                        // Trigger save button on adding new option
+                        formHasBeenModified = true;
+                        updateElementSettingsSaveButtonVisibility();
                     });
                     
-                    // Attach delete listeners to existing buttons
+                    // Attach delete listeners to existing buttons and input listeners
                     document.querySelectorAll('.delete-option-btn').forEach(btn => {
                         attachDeleteOptionListener(btn);
+                    });
+                    
+                    // Add input listeners to existing options
+                    document.querySelectorAll('.option-label, .option-value').forEach(input => {
+                        input.addEventListener('input', () => {
+                            formHasBeenModified = true;
+                            updateElementSettingsSaveButtonVisibility();
+                        });
                     });
                 }
             }
@@ -3214,6 +3305,20 @@
                         const labelInput = newRow.querySelector('.radio-option-label');
                         labelInput.addEventListener('input', updateRadioDefaultSelect);
                         
+                        // Add input listeners to detect changes
+                        newRow.querySelector('.radio-option-label').addEventListener('input', () => {
+                            formHasBeenModified = true;
+                            updateElementSettingsSaveButtonVisibility();
+                        });
+                        newRow.querySelector('.radio-option-value').addEventListener('input', () => {
+                            formHasBeenModified = true;
+                            updateElementSettingsSaveButtonVisibility();
+                        });
+                        
+                        // Trigger save button on adding new radio option
+                        formHasBeenModified = true;
+                        updateElementSettingsSaveButtonVisibility();
+                        
                         updateRadioDefaultSelect();
                     });
                     
@@ -3222,9 +3327,21 @@
                         attachDeleteRadioOptionListener(btn);
                     });
                     
-                    // Attach input listeners to existing label fields
+                    // Attach input listeners to existing label fields and add save button listeners
                     document.querySelectorAll('.radio-option-label').forEach(input => {
                         input.addEventListener('input', updateRadioDefaultSelect);
+                        input.addEventListener('input', () => {
+                            formHasBeenModified = true;
+                            updateElementSettingsSaveButtonVisibility();
+                        });
+                    });
+                    
+                    // Add input listeners to existing radio option values
+                    document.querySelectorAll('.radio-option-value').forEach(input => {
+                        input.addEventListener('input', () => {
+                            formHasBeenModified = true;
+                            updateElementSettingsSaveButtonVisibility();
+                        });
                     });
                 }
             }
@@ -3249,11 +3366,84 @@
                         `;
                         workflowInputList.appendChild(newRow);
                         attachDeleteWorkflowInputListener(newRow.querySelector('.delete-workflow-input-btn'));
+                        
+                        // Add input listeners to detect changes
+                        newRow.querySelector('.workflow-input-key').addEventListener('input', () => {
+                            formHasBeenModified = true;
+                            updateElementSettingsSaveButtonVisibility();
+                        });
+                        newRow.querySelector('.workflow-input-value').addEventListener('input', () => {
+                            formHasBeenModified = true;
+                            updateElementSettingsSaveButtonVisibility();
+                        });
+                        
+                        // Trigger save button on adding new workflow input
+                        formHasBeenModified = true;
+                        updateElementSettingsSaveButtonVisibility();
                     });
                     
-                    // Attach delete listeners to existing buttons
+                    // Attach delete listeners to existing buttons and input listeners
                     document.querySelectorAll('.delete-workflow-input-btn').forEach(btn => {
                         attachDeleteWorkflowInputListener(btn);
+                    });
+                    
+                    // Add input listeners to existing workflow inputs
+                    document.querySelectorAll('.workflow-input-key, .workflow-input-value').forEach(input => {
+                        input.addEventListener('input', () => {
+                            formHasBeenModified = true;
+                            updateElementSettingsSaveButtonVisibility();
+                        });
+                    });
+                }
+            }
+            
+            // Add listeners for array items
+            if (fieldConfig.type === 'array') {
+                const addArrayItemBtn = document.getElementById('addArrayItemBtn');
+                const arrayItemsList = document.getElementById('arrayItemsList');
+                
+                if (addArrayItemBtn && arrayItemsList) {
+                    addArrayItemBtn.addEventListener('click', (e) => {
+                        e.preventDefault();
+                        const index = arrayItemsList.children.length;
+                        const newRow = document.createElement('div');
+                        newRow.className = 'array-item-row';
+                        newRow.dataset.index = index;
+                        newRow.style.cssText = 'display: flex; gap: 8px; align-items: center;';
+                        newRow.innerHTML = `
+                            <input type="text" class="array-item-label" value="" placeholder="Label" style="flex: 1; padding: 8px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; font-size: 13px; width: 50%;">
+                            <input type="text" class="array-item-value" value="" placeholder="Value" style="flex: 1; padding: 8px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; font-size: 13px; width: 50%;">
+                            <button class="delete-array-item-btn" class="btn-builder-red" title="Delete Item">⊘</button>
+                        `;
+                        arrayItemsList.appendChild(newRow);
+                        attachDeleteArrayItemListener(newRow.querySelector('.delete-array-item-btn'));
+                        
+                        // Add input listeners to detect changes
+                        newRow.querySelector('.array-item-label').addEventListener('input', () => {
+                            formHasBeenModified = true;
+                            updateElementSettingsSaveButtonVisibility();
+                        });
+                        newRow.querySelector('.array-item-value').addEventListener('input', () => {
+                            formHasBeenModified = true;
+                            updateElementSettingsSaveButtonVisibility();
+                        });
+                        
+                        // Trigger save button on adding new item
+                        formHasBeenModified = true;
+                        updateElementSettingsSaveButtonVisibility();
+                    });
+                    
+                    // Attach delete listeners to existing buttons and input listeners
+                    document.querySelectorAll('.delete-array-item-btn').forEach(btn => {
+                        attachDeleteArrayItemListener(btn);
+                    });
+                    
+                    // Add input listeners to existing array items
+                    document.querySelectorAll('.array-item-label, .array-item-value').forEach(input => {
+                        input.addEventListener('input', () => {
+                            formHasBeenModified = true;
+                            updateElementSettingsSaveButtonVisibility();
+                        });
                     });
                 }
             }
@@ -3301,6 +3491,8 @@
                         deleteOptionModal.classList.remove('active');
                         deleteOptionYes.removeEventListener('click', handleYes);
                         deleteOptionNo.removeEventListener('click', handleNo);
+                        formHasBeenModified = true;
+                        updateElementSettingsSaveButtonVisibility();
                     };
                     
                     // Handler for No button
@@ -3343,6 +3535,8 @@
                         deleteOptionModal.classList.remove('active');
                         deleteOptionYes.removeEventListener('click', handleYes);
                         deleteOptionNo.removeEventListener('click', handleNo);
+                        formHasBeenModified = true;
+                        updateElementSettingsSaveButtonVisibility();
                     };
                     
                     // Handler for No button
@@ -3367,6 +3561,50 @@
                 });
             }
             
+            function attachDeleteArrayItemListener(btn) {
+                btn.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    
+                    const deleteArrayItemModal = document.getElementById('deleteArrayItemModal');
+                    const deleteArrayItemYes = document.getElementById('deleteArrayItemYes');
+                    const deleteArrayItemNo = document.getElementById('deleteArrayItemNo');
+                    const rowToDelete = btn.closest('.array-item-row');
+                    
+                    // Show the modal
+                    deleteArrayItemModal.classList.add('active');
+                    
+                    // Handler for Yes button
+                    const handleYes = () => {
+                        rowToDelete.remove();
+                        deleteArrayItemModal.classList.remove('active');
+                        deleteArrayItemYes.removeEventListener('click', handleYes);
+                        deleteArrayItemNo.removeEventListener('click', handleNo);
+                        formHasBeenModified = true;
+                        updateElementSettingsSaveButtonVisibility();
+                    };
+                    
+                    // Handler for No button
+                    const handleNo = () => {
+                        deleteArrayItemModal.classList.remove('active');
+                        deleteArrayItemYes.removeEventListener('click', handleYes);
+                        deleteArrayItemNo.removeEventListener('click', handleNo);
+                    };
+                    
+                    // Attach handlers
+                    deleteArrayItemYes.addEventListener('click', handleYes);
+                    deleteArrayItemNo.addEventListener('click', handleNo);
+                    
+                    // Close on outside click
+                    const handleOutsideClick = (event) => {
+                        if (event.target === deleteArrayItemModal) {
+                            handleNo();
+                            deleteArrayItemModal.removeEventListener('click', handleOutsideClick);
+                        }
+                    };
+                    deleteArrayItemModal.addEventListener('click', handleOutsideClick);
+                });
+            }
+            
             function attachDeleteWorkflowInputListener(btn) {
                 btn.addEventListener('click', (e) => {
                     e.preventDefault();
@@ -3385,6 +3623,8 @@
                         deleteOptionModal.classList.remove('active');
                         deleteOptionYes.removeEventListener('click', handleYes);
                         deleteOptionNo.removeEventListener('click', handleNo);
+                        formHasBeenModified = true;
+                        updateElementSettingsSaveButtonVisibility();
                     };
                     
                     // Handler for No button
@@ -3713,6 +3953,24 @@
                 if (defaultSelectInput) {
                     tempConfig.default_select = defaultSelectInput.value || null;
                 }
+                
+                // For array
+                const arrayItemRows = document.querySelectorAll('.array-item-row');
+                if (arrayItemRows.length > 0) {
+                    const items = {};
+                    arrayItemRows.forEach(row => {
+                        const labelInput = row.querySelector('.array-item-label');
+                        const valueInput = row.querySelector('.array-item-value');
+                        if (labelInput && valueInput) {
+                            const label = labelInput.value.trim();
+                            const value = valueInput.value.trim();
+                            if (label && value) {
+                                items[label] = value;
+                            }
+                        }
+                    });
+                    tempConfig.items = items;
+                }
             }
             
             console.log('Current form values:', tempConfig);
@@ -3774,6 +4032,19 @@
             
             console.log('Form has not been modified');
             return false;
+        }
+        
+        function updateElementSettingsSaveButtonVisibility() {
+            const saveButton = document.getElementById('saveSettings');
+            const validationError = validateFormExtendSettings();
+            
+            if (hasUnsavedFormChanges() && !validationError) {
+                saveButton.style.display = 'inline-block';
+                saveButton.disabled = false;
+            } else {
+                saveButton.style.display = 'none';
+                saveButton.disabled = true;
+            }
         }
         
         /**
