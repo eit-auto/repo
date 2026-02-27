@@ -1681,50 +1681,77 @@ if (document.readyState === 'loading') {
 function updateFieldConfigsDisplay() {
     const display = document.getElementById('fieldConfigsDisplay');
     
-    // Get form name
-    const formName = formNameInput ? formNameInput.value : '';
+    // Detect if this is FormExtendBuilder (has extend_title) or FormBuilder (has form_name)
+    const extendTitleInput = document.getElementById('extend_title');
+    const isFormExtend = !!extendTitleInput;
     
-    // Get show name checkbox
-    const showName = showNameCheckbox ? showNameCheckbox.checked : true;
+    let formConfig;
     
-    // Get column count
-    const columnCount = columnsSelect ? parseInt(columnsSelect.value) : 2;
-    
-    // Get submit workflow
-    const submitWorkflowId = submitWorkflowSelect ? submitWorkflowSelect.value : '';
-    const submitWorkflow = submitWorkflowId ? availableWorkflows.find(w => w.id === submitWorkflowId) : null;
-    const submitWorkflowName = submitWorkflow ? submitWorkflow.name : '';
-    const submitWorkflowType = submitWorkflow ? submitWorkflow.type : '';
-    
-    // Build complete form configuration object
-    const formConfig = {
-        form_name: formName,
-        show_form: showName,
-        column_count: columnCount,
-        show_vert_sep: document.getElementById('show_vert_sep') ? document.getElementById('show_vert_sep').checked : false,
-        form_workflow: submitWorkflowId,
-        output_var: document.getElementById('hidden_output_var') ? document.getElementById('hidden_output_var').value : '',
-        submit_type: document.getElementById('hidden_submit_type') ? document.getElementById('hidden_submit_type').value : 'workflow',
-        graphql_submit: {
-            operation: document.getElementById('hidden_graphql_submit_op') ? document.getElementById('hidden_graphql_submit_op').value : '',
-            variables: {}
-        },
-        user: userName,
-        field_configs: fieldConfigs
-    };
-    
-    // Populate graphql_submit variables from hidden field
-    const hiddenGraphQLSubmitVars = document.getElementById('hidden_graphql_submit_vars');
-    if (hiddenGraphQLSubmitVars && hiddenGraphQLSubmitVars.value) {
-        try {
-            formConfig.graphql_submit.variables = JSON.parse(hiddenGraphQLSubmitVars.value);
-        } catch (e) {
-            console.warn('Failed to parse stored graphql variables:', e);
-            formConfig.graphql_submit.variables = {};
+    if (isFormExtend) {
+        // FormExtendBuilder config structure
+        const formName = extendTitleInput.value;
+        const showTitle = document.getElementById('show_name_modal') ? document.getElementById('show_name_modal').checked : true;
+        const columnCount = document.querySelector('input[name="formColumns"]:checked') ? parseInt(document.querySelector('input[name="formColumns"]:checked').value) : 2;
+        const showVertSep = document.getElementById('show_vert_sep') ? document.getElementById('show_vert_sep').checked : false;
+        
+        formConfig = {
+            extend_title: formName,
+            show_title: showTitle,
+            column_count: columnCount,
+            show_vert_sep: showVertSep,
+            user: userName,
+            field_configs: fieldConfigs
+        };
+    } else {
+        // FormBuilder config structure
+        // Get form name
+        const formName = formNameInput ? formNameInput.value : '';
+        
+        // Get show name checkbox
+        const showName = showNameCheckbox ? showNameCheckbox.checked : true;
+        
+        // Get column count
+        const columnCount = columnsSelect ? parseInt(columnsSelect.value) : 2;
+        
+        // Get submit workflow
+        const submitWorkflowId = submitWorkflowSelect ? submitWorkflowSelect.value : '';
+        const submitWorkflow = submitWorkflowId ? availableWorkflows.find(w => w.id === submitWorkflowId) : null;
+        const submitWorkflowName = submitWorkflow ? submitWorkflow.name : '';
+        const submitWorkflowType = submitWorkflow ? submitWorkflow.type : '';
+        
+        // Build complete form configuration object
+        formConfig = {
+            form_name: formName,
+            show_form: showName,
+            column_count: columnCount,
+            show_vert_sep: document.getElementById('show_vert_sep') ? document.getElementById('show_vert_sep').checked : false,
+            form_workflow: submitWorkflowId,
+            output_var: document.getElementById('hidden_output_var') ? document.getElementById('hidden_output_var').value : '',
+            submit_type: document.getElementById('hidden_submit_type') ? document.getElementById('hidden_submit_type').value : 'workflow',
+            graphql_submit: {
+                operation: document.getElementById('hidden_graphql_submit_op') ? document.getElementById('hidden_graphql_submit_op').value : '',
+                variables: {}
+            },
+            user: userName,
+            field_configs: fieldConfigs
+        };
+        
+        // Populate graphql_submit variables from hidden field
+        const hiddenGraphQLSubmitVars = document.getElementById('hidden_graphql_submit_vars');
+        if (hiddenGraphQLSubmitVars && hiddenGraphQLSubmitVars.value) {
+            try {
+                formConfig.graphql_submit.variables = JSON.parse(hiddenGraphQLSubmitVars.value);
+            } catch (e) {
+                console.warn('Failed to parse stored graphql variables:', e);
+                formConfig.graphql_submit.variables = {};
+            }
         }
     }
     
-    if (fieldConfigs.length === 0 && !formName && !submitWorkflowId) {
+    const formName = isFormExtend ? extendTitleInput.value : (formNameInput ? formNameInput.value : '');
+    const hasFields = fieldConfigs.length > 0;
+    
+    if (!hasFields && !formName) {
         display.innerHTML = '<span style="color: #999;">[No configuration yet]</span>';
     } else {
         display.textContent = JSON.stringify(formConfig, null, 2);
@@ -4186,20 +4213,26 @@ function validateFieldConfigs() {
         });
     }
     
-    // Check form-level submit configuration based on submit_type
-    const submitType = document.getElementById('hidden_submit_type') ? document.getElementById('hidden_submit_type').value : 'workflow';
-    const submitWorkflow = hiddenSubmitWorkflow ? hiddenSubmitWorkflow.value : '';
-    const graphqlOperation = document.getElementById('hidden_graphql_submit_op') ? document.getElementById('hidden_graphql_submit_op').value : '';
+    // Check form-level submit configuration based on submit_type (FormBuilder only, not FormExtend)
+    const extendTitleInput = document.getElementById('extend_title');
+    const isFormExtend = !!extendTitleInput;
     
-    console.log('[VALIDATE] submitType:', submitType, 'submitWorkflow:', submitWorkflow, 'graphqlOperation:', graphqlOperation);
-    
-    if (submitType === 'workflow') {
-        if (!submitWorkflow || submitWorkflow === '') {
-            errors.push('Please select a <strong>Submit Workflow</strong> in General Settings.');
-        }
-    } else if (submitType === 'graphql') {
-        if (!graphqlOperation || graphqlOperation === '') {
-            errors.push('Please select a <strong>GraphQL Operation</strong> in General Settings.');
+    if (!isFormExtend) {
+        // FormBuilder-specific validation
+        const submitType = document.getElementById('hidden_submit_type') ? document.getElementById('hidden_submit_type').value : 'workflow';
+        const submitWorkflow = hiddenSubmitWorkflow ? hiddenSubmitWorkflow.value : '';
+        const graphqlOperation = document.getElementById('hidden_graphql_submit_op') ? document.getElementById('hidden_graphql_submit_op').value : '';
+        
+        console.log('[VALIDATE] submitType:', submitType, 'submitWorkflow:', submitWorkflow, 'graphqlOperation:', graphqlOperation);
+        
+        if (submitType === 'workflow') {
+            if (!submitWorkflow || submitWorkflow === '') {
+                errors.push('Please select a <strong>Submit Workflow</strong> in General Settings.');
+            }
+        } else if (submitType === 'graphql') {
+            if (!graphqlOperation || graphqlOperation === '') {
+                errors.push('Please select a <strong>GraphQL Operation</strong> in General Settings.');
+            }
         }
     }
     
