@@ -913,16 +913,41 @@ function loadFormConfiguration(config) {
         droppedElementCount[type] = 0;
     });
     
-    // Set form name (handle both formName and form_name)
-    const formNameValue = config.formName || config.form_name;
-    if (formNameInput && formNameValue) {
-        formNameInput.value = formNameValue;
+    // Set form name (handle form_name, formName, and extend_title)
+    const formNameValue = config.extend_title || config.formName || config.form_name;
+    if (formNameValue) {
+        // For FormExtendBuilder, set extend_title
+        const extendTitleInput = document.getElementById('extend_title');
+        if (extendTitleInput) {
+            extendTitleInput.value = formNameValue;
+        }
+        // For FormBuilder, set form_name input
+        if (formNameInput) {
+            formNameInput.value = formNameValue;
+        }
     }
     
-    // Set show name (handle both showName and show_form)
-    const showNameValue = config.showName !== undefined ? config.showName : config.show_form;
-    if (hiddenShowName && showNameValue !== undefined) {
-        hiddenShowName.checked = showNameValue;
+    // Set show name (handle show_form, showName, and show_title)
+    const showNameValue = config.show_title !== undefined ? config.show_title : (config.showName !== undefined ? config.showName : config.show_form);
+    if (showNameValue !== undefined) {
+        // For FormExtendBuilder
+        const showNameCheckbox = document.getElementById('show_name_modal');
+        if (showNameCheckbox) {
+            showNameCheckbox.checked = showNameValue;
+        }
+        // For FormBuilder
+        if (hiddenShowName) {
+            hiddenShowName.checked = showNameValue;
+        }
+    }
+    
+    // Set show vertical separator (Extend-specific)
+    const showVertSepValue = config.show_vert_sep;
+    if (showVertSepValue !== undefined) {
+        const showVertSepCheckbox = document.getElementById('show_vert_sep');
+        if (showVertSepCheckbox) {
+            showVertSepCheckbox.checked = showVertSepValue;
+        }
     }
     
     // Set columns (handle both columnCount and column_count)
@@ -4288,57 +4313,81 @@ if (saveConfirmYes) {
             updateElementSequences();
             
             // Build the form configuration
-            const formName = formNameInput ? formNameInput.value : '';
+            // Detect if this is FormExtendBuilder (has extend_title) or FormBuilder (has form_name)
+            const extendTitleInput = document.getElementById('extend_title');
+            const isFormExtend = !!extendTitleInput;
             
-            const showName = showNameCheckbox ? showNameCheckbox.checked : true;
+            let formConfig;
             
-            const columnCount = columnsSelect ? parseInt(columnsSelect.value) : 2;
-            
-            const submitWorkflowId = submitWorkflowSelect ? submitWorkflowSelect.value : '';
-            
-            const formConfig = {
-                form_name: formName,
-                show_form: showName,
-                column_count: columnCount,
-                show_vert_sep: document.getElementById('show_vert_sep') ? document.getElementById('show_vert_sep').checked : false,
-                form_workflow: submitWorkflowId,
-                output_var: document.getElementById('hidden_output_var') ? document.getElementById('hidden_output_var').value : '',
-                submit_type: document.getElementById('hidden_submit_type') ? document.getElementById('hidden_submit_type').value : 'workflow',
-                graphql_submit: {
-                    operation: document.getElementById('hidden_graphql_submit_op') ? document.getElementById('hidden_graphql_submit_op').value : '',
-                    variables: {}
-                },
-                user: userName,
-                field_configs: fieldConfigs
-            };
-            
-            // Populate graphql_submit variables from dynamically generated inputs
-            const graphqlInputsContainer = document.getElementById('graphql_inputs_container');
-            const hiddenGraphQLSubmitVars = document.getElementById('hidden_graphql_submit_vars');
-            
-            // Try to get from hidden field first (from general settings), then from DOM
-            if (hiddenGraphQLSubmitVars && hiddenGraphQLSubmitVars.value) {
-                try {
-                    formConfig.graphql_submit.variables = JSON.parse(hiddenGraphQLSubmitVars.value);
-                } catch (e) {
-                    console.warn('Failed to parse stored graphql variables:', e);
-                    formConfig.graphql_submit.variables = {};
-                }
-            } else if (graphqlInputsContainer) {
-                const inputs = graphqlInputsContainer.querySelectorAll('[id^="graphql_input_"]');
-                inputs.forEach(input => {
-                    const varName = input.id.replace('graphql_input_', '');
-                    if (input.type === 'checkbox') {
-                        formConfig.graphql_submit.variables[varName] = input.checked;
-                    } else {
-                        formConfig.graphql_submit.variables[varName] = input.value;
-                    }
-                });
+            if (isFormExtend) {
+                // FormExtendBuilder config structure
+                const formName = extendTitleInput.value;
+                const showTitle = document.getElementById('show_name_modal') ? document.getElementById('show_name_modal').checked : true;
+                const columnCount = document.querySelector('input[name="formColumns"]:checked') ? parseInt(document.querySelector('input[name="formColumns"]:checked').value) : 2;
+                const showVertSep = document.getElementById('show_vert_sep') ? document.getElementById('show_vert_sep').checked : false;
+                
+                formConfig = {
+                    extend_title: formName,
+                    show_title: showTitle,
+                    column_count: columnCount,
+                    show_vert_sep: showVertSep,
+                    user: userName,
+                    field_configs: fieldConfigs
+                };
+            } else {
+                // FormBuilder config structure
+                const formName = formNameInput ? formNameInput.value : '';
+                const showName = showNameCheckbox ? showNameCheckbox.checked : true;
+                const columnCount = columnsSelect ? parseInt(columnsSelect.value) : 2;
+                const submitWorkflowId = submitWorkflowSelect ? submitWorkflowSelect.value : '';
+                
+                formConfig = {
+                    form_name: formName,
+                    show_form: showName,
+                    column_count: columnCount,
+                    show_vert_sep: document.getElementById('show_vert_sep') ? document.getElementById('show_vert_sep').checked : false,
+                    form_workflow: submitWorkflowId,
+                    output_var: document.getElementById('hidden_output_var') ? document.getElementById('hidden_output_var').value : '',
+                    submit_type: document.getElementById('hidden_submit_type') ? document.getElementById('hidden_submit_type').value : 'workflow',
+                    graphql_submit: {
+                        operation: document.getElementById('hidden_graphql_submit_op') ? document.getElementById('hidden_graphql_submit_op').value : '',
+                        variables: {}
+                    },
+                    user: userName,
+                    field_configs: fieldConfigs
+                };
             }
             
-            // Add form_id if we're updating an existing form
-            if (loadedFormId) {
-                formConfig.form_id = loadedFormId.name;
+            // Save common properties
+            if (!isFormExtend) {
+                // Populate graphql_submit variables from dynamically generated inputs (FormBuilder only)
+                const graphqlInputsContainer = document.getElementById('graphql_inputs_container');
+                const hiddenGraphQLSubmitVars = document.getElementById('hidden_graphql_submit_vars');
+                
+                // Try to get from hidden field first (from general settings), then from DOM
+                if (hiddenGraphQLSubmitVars && hiddenGraphQLSubmitVars.value) {
+                    try {
+                        formConfig.graphql_submit.variables = JSON.parse(hiddenGraphQLSubmitVars.value);
+                    } catch (e) {
+                        console.warn('Failed to parse stored graphql variables:', e);
+                        formConfig.graphql_submit.variables = {};
+                    }
+                } else if (graphqlInputsContainer) {
+                    const inputs = graphqlInputsContainer.querySelectorAll('[id^="graphql_input_"]');
+                    inputs.forEach(input => {
+                        const varName = input.id.replace('graphql_input_', '');
+                        if (input.type === 'checkbox') {
+                            formConfig.graphql_submit.variables[varName] = input.checked;
+                        } else {
+                            formConfig.graphql_submit.variables[varName] = input.value;
+                        }
+                    });
+                }
+                
+                // Add form_id if we're updating an existing form (FormBuilder only)
+                if (loadedFormId) {
+                    formConfig.form_id = loadedFormId.name;
+                }
             }
             
             console.log('Form configuration to save:', formConfig);
