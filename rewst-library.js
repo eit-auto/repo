@@ -1614,6 +1614,19 @@ const GRAPHQL_OPERATIONS = {
 
     let selected = [...(selectedValues || [])];
 
+    // Populate hidden select with option elements once during initialization
+    if (hiddenSelect) {
+      options.forEach(option => {
+        const opt = document.createElement('option');
+        opt.value = option.value;
+        opt.textContent = option.label;
+        if (selectedValues && selectedValues.includes(option.value)) {
+          opt.selected = true;
+        }
+        hiddenSelect.appendChild(opt);
+      });
+    }
+
     // Update UI with current selection
     function updateTags() {
       tagsContainer.innerHTML = '';
@@ -1638,7 +1651,7 @@ const GRAPHQL_OPERATIONS = {
         });
       }
 
-      // Update hidden select
+      // Update hidden select selected state
       if (hiddenSelect) {
         Array.from(hiddenSelect.options).forEach(opt => {
           opt.selected = selected.includes(opt.value);
@@ -1654,17 +1667,6 @@ const GRAPHQL_OPERATIONS = {
     function populateDropdown() {
       const optionsContainer = dropdown;
       optionsContainer.innerHTML = '';
-
-      // Populate hidden select with option elements (for form submission)
-      if (hiddenSelect) {
-        hiddenSelect.innerHTML = '';
-        options.forEach(option => {
-          const opt = document.createElement('option');
-          opt.value = option.value;
-          opt.textContent = option.label;
-          hiddenSelect.appendChild(opt);
-        });
-      }
 
       // Add SELECT ALL checkbox at the top
       const selectAllDiv = document.createElement('div');
