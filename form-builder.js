@@ -5541,6 +5541,7 @@ function formatElementTypeName(str) {
  * Initialize the element palette dynamically from PALETTE_DISPLAY
  * Creates draggable element cards from palette configuration
  * Consolidates dropdown variants into a single "Dropdown" entry
+ * Sorted alphabetically by display name
  */
 function initializeElementPalette() {
     try {
@@ -5553,8 +5554,10 @@ function initializeElementPalette() {
         // Clear existing elements
         container.innerHTML = '';
         
-        // Create draggable element for each type in PALETTE_DISPLAY
-        const paletteEntries = Object.entries(PALETTE_DISPLAY);
+        // Create draggable element for each type in PALETTE_DISPLAY, sorted alphabetically
+        const paletteEntries = Object.entries(PALETTE_DISPLAY)
+            .sort((a, b) => a[1].localeCompare(b[1]));  // Sort by display name (a[1], b[1])
+        
         console.log('[INIT] Creating palette with', paletteEntries.length, 'elements');
         
         paletteEntries.forEach(([type, displayName]) => {
@@ -5567,7 +5570,7 @@ function initializeElementPalette() {
             container.appendChild(element);
         });
         
-        console.log('[INIT] Element palette populated with', paletteEntries.length, 'elements');
+        console.log('[INIT] Element palette populated with', paletteEntries.length, 'elements (sorted alphabetically)');
     } catch (error) {
         console.error('[INIT] Error initializing element palette:', error);
     }
