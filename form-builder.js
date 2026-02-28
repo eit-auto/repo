@@ -5551,6 +5551,9 @@ function initializeElementPalette() {
             return;
         }
         
+        // Set gap spacing between draggables
+        container.style.gap = '5px';
+        
         // Clear existing elements
         container.innerHTML = '';
         
