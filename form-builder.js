@@ -5504,6 +5504,57 @@ function initializeFormExtendTypes() {
 }
 
 /**
+ * Convert snake_case or camelCase to Title Case
+ * @param {string} str - String to convert
+ * @returns {string} Title case string
+ */
+function formatElementTypeName(str) {
+    if (!str) return '';
+    // Convert snake_case to spaces
+    let formatted = str.replace(/_/g, ' ');
+    // Convert camelCase to spaces
+    formatted = formatted.replace(/([a-z])([A-Z])/g, '$1 $2');
+    // Capitalize each word
+    return formatted.replace(/\b\w/g, char => char.toUpperCase());
+}
+
+/**
+ * Initialize the element palette dynamically from ELEMENT_TYPE_DEFAULTS
+ * Creates draggable element cards from all available element types
+ */
+function initializeElementPalette() {
+    try {
+        const container = document.getElementById('elementPaletteContainer');
+        if (!container) {
+            console.warn('[INIT] elementPaletteContainer not found');
+            return;
+        }
+        
+        // Clear existing elements
+        container.innerHTML = '';
+        
+        // Create draggable element for each type in ELEMENT_TYPES
+        console.log('[INIT] Creating palette with', ELEMENT_TYPES.length, 'element types');
+        
+        ELEMENT_TYPES.forEach(type => {
+            const displayName = formatElementTypeName(type);
+            
+            const element = document.createElement('div');
+            element.className = 'draggable-element';
+            element.setAttribute('draggable', 'true');
+            element.setAttribute('data-type', type);
+            element.textContent = displayName;
+            
+            container.appendChild(element);
+        });
+        
+        console.log('[INIT] Element palette populated with', ELEMENT_TYPES.length, 'elements');
+    } catch (error) {
+        console.error('[INIT] Error initializing element palette:', error);
+    }
+}
+
+/**
  * Auto-load form configuration when both client and extend type selections are made
  * Fetches from org variable and loads form configuration
  */
