@@ -1967,6 +1967,22 @@
                         input.value = '';
                     }
                 });
+                
+                // Reset multi-select fields
+                document.querySelectorAll('#previewContent .multi-select-hidden-select').forEach(hiddenSelect => {
+                    // Clear the data-selected-values attribute
+                    hiddenSelect.setAttribute('data-selected-values', '[]');
+                    
+                    // Clear the tags display
+                    const container = hiddenSelect.closest('.multi-select-container');
+                    if (container) {
+                        const tagsContainer = container.querySelector('.multi-select-tags');
+                        if (tagsContainer) {
+                            tagsContainer.innerHTML = '<span class="multi-select-placeholder">-- Select options --</span>';
+                        }
+                    }
+                });
+                
                 console.log('Form reset');
             });
         }
@@ -1997,6 +2013,7 @@
                 // Collect form data using field_configs
                 const formData = {};
                 
+                // Collect from main form config
                 if (formConfig && formConfig.field_configs) {
                     formConfig.field_configs.forEach(config => {
                         const input = document.querySelector(`input[name="${config.field_name}"], select[name="${config.field_name}"], textarea[name="${config.field_name}"]`);
@@ -2008,8 +2025,11 @@
                                 const checkedRadio = document.querySelector(`input[name="${config.field_name}"]:checked`);
                                 formData[config.field_name] = checkedRadio ? checkedRadio.value : null;
                             } else if (input.tagName === 'SELECT' && config.multi_select) {
-                                // Multi-select: collect all selected values as array
-                                formData[config.field_name] = Array.from(input.selectedOptions).map(opt => opt.value).filter(val => val !== '');
+                                // Multi-select: read from data-selected-values attribute
+                                const dataAttr = input.getAttribute('data-selected-values');
+                                const selectedValues = dataAttr ? JSON.parse(dataAttr) : [];
+                                formData[config.field_name] = selectedValues;
+                                console.log(`[SUBMIT] Multi-select ${config.field_name}: ${selectedValues.length} items selected`, selectedValues);
                             } else {
                                 formData[config.field_name] = input.value;
                             }
@@ -2017,8 +2037,66 @@
                     });
                 }
                 
+                // Also collect from extended fields (from form_extend)
+                // Find all form-groups that are NOT in the main config (these are extended fields)
+                const baseFieldNames = new Set(formConfig && formConfig.field_configs ? formConfig.field_configs.map(f => f.field_name) : []);
+                document.querySelectorAll('[data-field-name]').forEach(formGroup => {
+                    const fieldName = formGroup.getAttribute('data-field-name');
+                    if (!baseFieldNames.has(fieldName) && !formData.hasOwnProperty(fieldName)) {
+                        const input = formGroup.querySelector('input[type="text"], input[type="email"], input[type="date"], input[type="datetime-local"], select, textarea');
+                        const checkboxInput = formGroup.querySelector('input[type="checkbox"]');
+                        const radioInput = formGroup.querySelector('input[type="radio"]');
+                        
+                        if (checkboxInput) {
+                            formData[fieldName] = checkboxInput.checked;
+                        } else if (radioInput) {
+                            const checkedRadio = formGroup.querySelector('input[type="radio"]:checked');
+                            formData[fieldName] = checkedRadio ? checkedRadio.value : null;
+                        } else if (input && input.tagName === 'SELECT') {
+                            // Could be multi-select - check for data-selected-values attribute
+                            const dataAttr = input.getAttribute('data-selected-values');
+                            if (dataAttr) {
+                                const selectedValues = JSON.parse(dataAttr);
+                                formData[fieldName] = selectedValues;
+                                if (selectedValues.length > 0) {
+                                    console.log(`[SUBMIT] Extended multi-select ${fieldName}: ${selectedValues.length} items selected`, selectedValues);
+                                }
+                            } else {
+                                // Fallback to selectedOptions for regular selects
+                                const selectedValues = Array.from(input.selectedOptions).map(opt => opt.value).filter(val => val !== '');
+                                formData[fieldName] = selectedValues;
+                            }
+                        } else if (input) {
+                            formData[fieldName] = input.value;
+                        }
+                    }
+                });
+                
+                // Prepare all field configs (main + extended) for validation
+                let allFieldConfigs = formConfig.field_configs || [];
+                
+                // Find extended field configs from the DOM (if they exist in data attributes)
+                const extendedFieldConfigs = [];
+                document.querySelectorAll('[data-field-name]').forEach(formGroup => {
+                    const fieldName = formGroup.getAttribute('data-field-name');
+                    if (!baseFieldNames.has(fieldName)) {
+                        // This is an extended field - check if it's required by looking for required indicators
+                        const label = formGroup.querySelector('label');
+                        const isRequired = label && label.textContent.includes('Required');
+                        if (isRequired || formGroup.querySelector('input, select, textarea')) {
+                            extendedFieldConfigs.push({
+                                field_name: fieldName,
+                                field_displayname: label ? label.textContent.replace(/ - Required.*/, '').trim() : fieldName,
+                                required: isRequired
+                            });
+                        }
+                    }
+                });
+                
+                allFieldConfigs = [...allFieldConfigs, ...extendedFieldConfigs];
+                
                 // Validate required fields using RewstLib
-                const validation = RewstLib.forms.validateForm(formData, formConfig.field_configs);
+                const validation = RewstLib.forms.validateForm(formData, allFieldConfigs);
                 
                 if (!validation.isValid) {
                     const validationErrorModal = document.getElementById('validationErrorModal');
