@@ -400,6 +400,25 @@ const ELEMENT_TYPE_DEFAULTS = {
 // List of all available element types
 const ELEMENT_TYPES = Object.keys(ELEMENT_TYPE_DEFAULTS);
 
+/**
+ * Palette display configuration
+ * Maps internal element types to their display names in the palette
+ * Consolidates dropdown variants (dropdown, dropdown_static, dropdown_graphql) into single "Dropdown" entry
+ */
+const PALETTE_DISPLAY = {
+    'array': 'Array',
+    'checkbox': 'Checkbox',
+    'radio': 'Radio',
+    'text': 'Text',
+    'form_extend': 'Form Extend',
+    'textarea': 'Textarea',
+    'html': 'HTML',
+    'horizontal_line': 'Horizontal Line',
+    'date': 'Date',
+    'date_time': 'Date Time',
+    'dropdown': 'Dropdown'  // Consolidates dropdown, dropdown_static, dropdown_graphql
+};
+
 // ============================================
 // ORG VARIABLE OPERATIONS
 // ============================================
@@ -5519,8 +5538,9 @@ function formatElementTypeName(str) {
 }
 
 /**
- * Initialize the element palette dynamically from ELEMENT_TYPE_DEFAULTS
- * Creates draggable element cards from all available element types
+ * Initialize the element palette dynamically from PALETTE_DISPLAY
+ * Creates draggable element cards from palette configuration
+ * Consolidates dropdown variants into a single "Dropdown" entry
  */
 function initializeElementPalette() {
     try {
@@ -5533,12 +5553,11 @@ function initializeElementPalette() {
         // Clear existing elements
         container.innerHTML = '';
         
-        // Create draggable element for each type in ELEMENT_TYPES
-        console.log('[INIT] Creating palette with', ELEMENT_TYPES.length, 'element types');
+        // Create draggable element for each type in PALETTE_DISPLAY
+        const paletteEntries = Object.entries(PALETTE_DISPLAY);
+        console.log('[INIT] Creating palette with', paletteEntries.length, 'elements');
         
-        ELEMENT_TYPES.forEach(type => {
-            const displayName = formatElementTypeName(type);
-            
+        paletteEntries.forEach(([type, displayName]) => {
             const element = document.createElement('div');
             element.className = 'draggable-element';
             element.setAttribute('draggable', 'true');
@@ -5548,7 +5567,7 @@ function initializeElementPalette() {
             container.appendChild(element);
         });
         
-        console.log('[INIT] Element palette populated with', ELEMENT_TYPES.length, 'elements');
+        console.log('[INIT] Element palette populated with', paletteEntries.length, 'elements');
     } catch (error) {
         console.error('[INIT] Error initializing element palette:', error);
     }
