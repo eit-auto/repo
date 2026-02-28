@@ -5654,6 +5654,9 @@ async function checkAndAutoLoad() {
 // ============================================
 console.log('Page loaded, starting initialization...');
 
+// Initialize element palette
+initializeElementPalette();
+
 // Fetch workflows
 initializeWorkflows().catch(error => {
     console.error('Error in initializeWorkflows:', error);
