@@ -5552,6 +5552,8 @@ function initializeElementPalette() {
         }
         
         // Set gap spacing between draggables
+        container.style.display = 'flex';
+        container.style.flexDirection = 'column';
         container.style.gap = '5px';
         
         // Clear existing elements
