@@ -1716,9 +1716,7 @@ function updateFieldConfigsDisplay() {
             column_count: columnCount,
             show_vert_sep: showVertSep,
             user: (typeof rewstUser !== 'undefined' && rewstUser ? rewstUser.username : 'unknown_user'),
-            permissions: {
-                roleIds: []
-            },
+            permissions: [],
             field_configs: fieldConfigs
         };
         
@@ -1726,10 +1724,10 @@ function updateFieldConfigsDisplay() {
         const hiddenFormPermissionsExt = document.getElementById('hidden_form_permissions');
         if (hiddenFormPermissionsExt && hiddenFormPermissionsExt.value) {
             try {
-                formConfig.permissions.roleIds = JSON.parse(hiddenFormPermissionsExt.value);
+                formConfig.permissions = JSON.parse(hiddenFormPermissionsExt.value);
             } catch (e) {
                 console.warn('Failed to parse form permissions:', e);
-                formConfig.permissions.roleIds = [];
+                formConfig.permissions = [];
             }
         }
     } else {
@@ -1763,9 +1761,7 @@ function updateFieldConfigsDisplay() {
                 variables: {}
             },
             user: (typeof rewstUser !== 'undefined' && rewstUser ? rewstUser.username : 'unknown_user'),
-            permissions: {
-                roleIds: []
-            },
+            permissions: [],
             field_configs: fieldConfigs
         };
         
@@ -1784,10 +1780,10 @@ function updateFieldConfigsDisplay() {
         const hiddenFormPermissions = document.getElementById('hidden_form_permissions');
         if (hiddenFormPermissions && hiddenFormPermissions.value) {
             try {
-                formConfig.permissions.roleIds = JSON.parse(hiddenFormPermissions.value);
+                formConfig.permissions = JSON.parse(hiddenFormPermissions.value);
             } catch (e) {
                 console.warn('Failed to parse form permissions:', e);
-                formConfig.permissions.roleIds = [];
+                formConfig.permissions = [];
             }
         }
     }
@@ -4510,9 +4506,7 @@ if (saveConfirmYes) {
                     column_count: columnCount,
                     show_vert_sep: showVertSep,
                     user: (typeof rewstUser !== 'undefined' && rewstUser ? rewstUser.username : 'unknown_user'),
-                    permissions: {
-                        roleIds: []
-                    },
+                    permissions: [],
                     field_configs: fieldConfigs
                 };
             } else {
@@ -4535,9 +4529,7 @@ if (saveConfirmYes) {
                         variables: {}
                     },
                     user: (typeof rewstUser !== 'undefined' && rewstUser ? rewstUser.username : 'unknown_user'),
-                    permissions: {
-                        roleIds: []
-                    },
+                    permissions: [],
                     field_configs: fieldConfigs
                 };
             }
@@ -4578,10 +4570,10 @@ if (saveConfirmYes) {
             const hiddenFormPermissionsSave = document.getElementById('hidden_form_permissions');
             if (hiddenFormPermissionsSave && hiddenFormPermissionsSave.value) {
                 try {
-                    formConfig.permissions.roleIds = JSON.parse(hiddenFormPermissionsSave.value);
+                    formConfig.permissions = JSON.parse(hiddenFormPermissionsSave.value);
                 } catch (e) {
                     console.warn('Failed to parse form permissions:', e);
-                    formConfig.permissions.roleIds = [];
+                    formConfig.permissions = [];
                 }
             }
             
