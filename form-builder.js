@@ -4132,6 +4132,43 @@ generalSettingsBtn.addEventListener('click', async () => {
         }, 200);
     }
     
+    // Initialize form permissions multi-select
+    const permissionsContainer = document.getElementById('form_permissions_container');
+    if (permissionsContainer && typeof allUserRoles !== 'undefined' && allUserRoles.length > 0) {
+        console.log('[GENERAL-SETTINGS] Initializing form permissions multi-select with', allUserRoles.length, 'roles');
+        
+        // Get current permissions from hidden field if it exists
+        const hiddenFormPermissions = document.getElementById('hidden_form_permissions');
+        let currentPermissions = [];
+        if (hiddenFormPermissions && hiddenFormPermissions.value) {
+            try {
+                currentPermissions = JSON.parse(hiddenFormPermissions.value);
+                if (!Array.isArray(currentPermissions)) {
+                    currentPermissions = [];
+                }
+            } catch (e) {
+                console.warn('[GENERAL-SETTINGS] Failed to parse form permissions:', e);
+                currentPermissions = [];
+            }
+        }
+        
+        // Render multi-select container with the appropriate function from RewstLib
+        const multiSelectHtml = RewstLib.forms.renderMultiSelectContainer('form_permissions', 'Form Permissions', 'Select which roles can access this form');
+        permissionsContainer.innerHTML = multiSelectHtml;
+        
+        // Initialize the multi-select with allUserRoles
+        // Convert allUserRoles format {label, value} to {value, label} if needed
+        const rolesOptions = allUserRoles.map(role => ({
+            value: role.value,
+            label: role.label
+        }));
+        
+        RewstLib.forms.initializeDropdownMultiSelect('form_permissions', rolesOptions, currentPermissions);
+        console.log('[GENERAL-SETTINGS] Form permissions multi-select initialized with', rolesOptions.length, 'available roles');
+    } else {
+        console.warn('[GENERAL-SETTINGS] Cannot initialize permissions multi-select - allUserRoles not available or empty');
+    }
+    
     generalSettingsModal.classList.add('active');
 });
 
@@ -4208,6 +4245,26 @@ generalSettingsSave.addEventListener('click', () => {
         hiddenGraphQLSubmitVars.value = JSON.stringify(variables);
     } else {
         hiddenGraphQLSubmitVars.value = '{}';
+    }
+    
+    // Sync form permissions
+    const multiSelectHiddenSelect = document.querySelector('select.multi-select-hidden-select[name="form_permissions"]');
+    const hiddenFormPermissions = document.getElementById('hidden_form_permissions') || (() => {
+        const field = document.createElement('input');
+        field.type = 'hidden';
+        field.id = 'hidden_form_permissions';
+        document.body.appendChild(field);
+        return field;
+    })();
+    
+    if (multiSelectHiddenSelect) {
+        // Get selected values from the multi-select's data attribute
+        const selectedValuesStr = multiSelectHiddenSelect.getAttribute('data-selected-values');
+        console.log('[GENERAL-SETTINGS] Form permissions selected:', selectedValuesStr);
+        hiddenFormPermissions.value = selectedValuesStr;
+    } else {
+        console.warn('[GENERAL-SETTINGS] Multi-select hidden field not found for form permissions');
+        hiddenFormPermissions.value = '[]';
     }
     
     // Update the JSON preview display
