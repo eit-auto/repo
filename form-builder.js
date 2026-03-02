@@ -1557,6 +1557,18 @@ if (formColumnsSelect) {
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', () => {
             console.log('DOM loaded, calling updateColumnDisplay');
+            
+            // Initialize hidden_form_permissions field if it doesn't exist
+            let hiddenFormPermissions = document.getElementById('hidden_form_permissions');
+            if (!hiddenFormPermissions) {
+                hiddenFormPermissions = document.createElement('input');
+                hiddenFormPermissions.type = 'hidden';
+                hiddenFormPermissions.id = 'hidden_form_permissions';
+                hiddenFormPermissions.value = '[]';
+                document.body.appendChild(hiddenFormPermissions);
+                console.log('[INIT] Created hidden_form_permissions field');
+            }
+            
             updateColumnDisplay();
             // Initialize checkbox disabled state
             const showVertSepCheckbox = document.getElementById('show_vert_sep');
@@ -1566,6 +1578,18 @@ if (formColumnsSelect) {
         });
     } else {
         console.log('DOM already loaded, calling updateColumnDisplay');
+        
+        // Initialize hidden_form_permissions field if it doesn't exist
+        let hiddenFormPermissions = document.getElementById('hidden_form_permissions');
+        if (!hiddenFormPermissions) {
+            hiddenFormPermissions = document.createElement('input');
+            hiddenFormPermissions.type = 'hidden';
+            hiddenFormPermissions.id = 'hidden_form_permissions';
+            hiddenFormPermissions.value = '[]';
+            document.body.appendChild(hiddenFormPermissions);
+            console.log('[INIT] Created hidden_form_permissions field');
+        }
+        
         updateColumnDisplay();
         // Initialize checkbox disabled state
         const showVertSepCheckbox = document.getElementById('show_vert_sep');
@@ -4930,6 +4954,12 @@ if (resetFormBtn) {
         const hiddenOutputVar = document.getElementById('hidden_output_var');
         if (hiddenOutputVar) {
             hiddenOutputVar.value = '';
+        }
+        
+        // Reset form permissions to default (empty array)
+        const hiddenFormPermissions = document.getElementById('hidden_form_permissions');
+        if (hiddenFormPermissions) {
+            hiddenFormPermissions.value = '[]';
         }
         
         // Reset GraphQL submit operation
