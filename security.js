@@ -213,6 +213,12 @@ function checkPagePermission(requiredRoleIds) {
 function showPermissionDenied(message) {
     console.error('[Security] Displaying permission denied message');
     
+    // Remove page-content from DOM to prevent any scripts from rendering
+    const pageContent = document.getElementById('page-content');
+    if (pageContent) {
+        pageContent.remove();
+    }
+    
     const errorHtml = `
         <div id="permission-denied-container" style="display: flex; align-items: center; justify-content: center; min-height: 100vh; background: #1a1a1a; margin: 0; padding: 0;">
             <div style="text-align: center; padding: 40px; background: #2E5F75; border-radius: 8px; max-width: 500px; box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);">
