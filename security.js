@@ -15,6 +15,11 @@
  *   5. rewstUser is now available globally for use in other scripts
  */
 
+// Hide body content until permission check completes
+if (document.body) {
+    document.body.style.display = 'none';
+}
+
 let rewstUser = null;
 
 // ============================================
@@ -123,6 +128,13 @@ if (rewstUser && window.ORG_ID) {
     });
 }
 
+// For config-based pages with no hardcoded permissions, show body content
+// (Permission check will be done against config's permissions later)
+if (typeof pagePermissions !== 'undefined' && pagePermissions.length === 0 && document.body) {
+    document.body.style.display = '';
+    console.log('[Security] No hardcoded permissions - showing body content (config-based page)');
+}
+
 // ============================================
 // PERMISSION CHECKING
 // ============================================
@@ -173,6 +185,10 @@ function checkPagePermission(requiredRoleIds) {
     }
     
     console.log('[Security] User has permission to view page');
+    // Show body content since permission is granted
+    if (document.body) {
+        document.body.style.display = '';
+    }
     return true;
 }
 
