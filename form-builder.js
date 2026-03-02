@@ -4213,9 +4213,16 @@ generalSettingsBtn.addEventListener('click', async () => {
         await closeElementSettings(true);
     }
     
-    showNameModal.checked = hiddenShowName.checked;
-    submitWorkflowModal.value = hiddenSubmitWorkflow.value;
-    document.getElementById('output_var_name').value = document.getElementById('hidden_output_var') ? document.getElementById('hidden_output_var').value : '';
+    if (showNameModal) {
+        showNameModal.checked = hiddenShowName.checked;
+    }
+    if (submitWorkflowModal) {
+        submitWorkflowModal.value = hiddenSubmitWorkflow.value;
+    }
+    const outputVarInput = document.getElementById('output_var_name');
+    if (outputVarInput) {
+        outputVarInput.value = document.getElementById('hidden_output_var') ? document.getElementById('hidden_output_var').value : '';
+    }
     
     // Sync submit_type radio buttons
     if (hiddenSubmitType) {
