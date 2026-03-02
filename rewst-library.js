@@ -970,11 +970,13 @@ const GRAPHQL_OPERATIONS = {
    * @param {string} text - Text to escape
    * @returns {string} Escaped text
    */
-  function escapeHtml(text) {
-    if (!text) return '';
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
+  if (typeof escapeHtml === 'undefined') {
+    var escapeHtml = function(text) {
+      if (!text) return '';
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    };
   }
   /**
    * Format task name from camelCase/snake_case to readable format
