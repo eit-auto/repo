@@ -4213,6 +4213,18 @@ generalSettingsBtn.addEventListener('click', async () => {
         await closeElementSettings(true);
     }
     
+    // Wait for user roles to be initialized if not already done
+    if (!allUserRoles || allUserRoles.length === 0) {
+        console.log('[GENERAL-SETTINGS] Waiting for user roles to initialize...');
+        try {
+            await initializeUserRoles();
+            console.log('[GENERAL-SETTINGS] User roles initialized, continuing...');
+        } catch (error) {
+            console.error('[GENERAL-SETTINGS] Failed to initialize user roles:', error);
+            // Continue anyway - permissions section will show warning
+        }
+    }
+    
     if (showNameModal) {
         showNameModal.checked = hiddenShowName.checked;
     }
@@ -4344,11 +4356,15 @@ generalSettingsModal.addEventListener('click', (e) => {
 // Save button - sync modal values back to hidden fields and trigger updates
 generalSettingsSave.addEventListener('click', () => {
     // Sync checkbox
-    hiddenShowName.checked = showNameModal.checked;
+    if (showNameModal) {
+        hiddenShowName.checked = showNameModal.checked;
+    }
     
     // Sync columns dropdown and trigger column update
     // Sync submit workflow
-    hiddenSubmitWorkflow.value = submitWorkflowModal.value;
+    if (submitWorkflowModal) {
+        hiddenSubmitWorkflow.value = submitWorkflowModal.value;
+    }
     
     // Sync output variable name
     const outputVarInput = document.getElementById('output_var_name');
