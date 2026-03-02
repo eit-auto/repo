@@ -48,6 +48,82 @@ try {
 }
 
 // ============================================
+// ROLE INITIALIZATION
+// ============================================
+
+let allUserRoles = [];
+
+/**
+ * Fetch all available Rewst user roles from GraphQL
+ * Populates global allUserRoles array
+ * 
+ * @returns {Promise<Array>} Array of {label, value} objects for each role
+ */
+async function initializeUserRoles() {
+    if (!window.ORG_ID) {
+        console.warn('[Security] ORG_ID not set - skipping role initialization');
+        return [];
+    }
+
+    const query = `
+        query GetRoles($modelName: LocalReferenceModel!, $orgId: ID!) {
+            roles: localReferenceOptions(
+                modelName: $modelName
+                orgId: $orgId
+                filterArg: {}
+            ) {
+                label
+                value
+            }
+        }
+    `;
+
+    console.log('[Security] Fetching available user roles for org:', window.ORG_ID);
+
+    try {
+        const response = await fetch('/graphql', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                query: query,
+                variables: {
+                    modelName: 'Role',
+                    orgId: window.ORG_ID
+                }
+            })
+        });
+
+        const data = await response.json();
+
+        if (data.errors) {
+            console.error('[Security] GraphQL errors fetching roles:', data.errors);
+            throw new Error(data.errors[0]?.message || 'GraphQL error occurred');
+        }
+
+        if (!data.data || !data.data.roles) {
+            console.error('[Security] No roles found in response');
+            throw new Error('No roles data in response');
+        }
+
+        allUserRoles = data.data.roles;
+        console.log('[Security] Successfully initialized', allUserRoles.length, 'user roles');
+        return allUserRoles;
+
+    } catch (error) {
+        console.error('[Security] Error initializing user roles:', error);
+        allUserRoles = [];
+        throw error;
+    }
+}
+
+// Auto-initialize roles if page has completed user initialization
+if (rewstUser && window.ORG_ID) {
+    initializeUserRoles().catch(error => {
+        console.warn('[Security] Failed to auto-initialize roles:', error.message);
+    });
+}
+
+// ============================================
 // PERMISSION CHECKING
 // ============================================
 
@@ -185,10 +261,11 @@ function userHasAllRoles(roleIds) {
     return roleIds.every(roleId => rewstUser.roleIds.includes(roleId));
 }
 
-// Export functions globally so they're accessible from page scripts
+// Export functions and data globally so they're accessible from page scripts
 if (typeof window !== 'undefined') {
     window.checkPagePermission = checkPagePermission;
     window.userHasRole = userHasRole;
     window.userHasAnyRole = userHasAnyRole;
     window.userHasAllRoles = userHasAllRoles;
+    window.initializeUserRoles = initializeUserRoles;
 }
