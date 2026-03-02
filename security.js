@@ -270,13 +270,11 @@ function showPermissionDenied(message) {
  * @param {string} text - Text to escape
  * @returns {string} Escaped text safe for HTML
  */
-if (typeof escapeHtml === 'undefined') {
-    function escapeHtml(text) {
-        if (!text) return '';
-        const div = document.createElement('div');
-        div.textContent = text;
-        return div.innerHTML;
-    }
+function escapeHtml(text) {
+    if (!text) return '';
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
 }
 
 // ============================================
