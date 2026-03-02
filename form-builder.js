@@ -1146,9 +1146,21 @@ function loadFormConfiguration(config) {
             updateFieldConfigsDisplay();
         }
     } else {
-        // Update the JSON preview if no graphql section
+        // If no graphql operation, update preview immediately
         updateFieldConfigsDisplay();
     }
+    
+    // Load form permissions into hidden field
+    let hiddenFormPermissions = document.getElementById('hidden_form_permissions');
+    if (!hiddenFormPermissions) {
+        hiddenFormPermissions = document.createElement('input');
+        hiddenFormPermissions.type = 'hidden';
+        hiddenFormPermissions.id = 'hidden_form_permissions';
+        document.body.appendChild(hiddenFormPermissions);
+    }
+    const permissionsValue = config.permissions || [];
+    hiddenFormPermissions.value = JSON.stringify(permissionsValue);
+    console.log('[LOAD] Loaded form permissions:', hiddenFormPermissions.value);
     
     console.log('Form loaded successfully');
     console.log('Loaded field configs:', fieldConfigs);
