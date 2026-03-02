@@ -4153,7 +4153,7 @@ generalSettingsBtn.addEventListener('click', async () => {
         }
         
         // Render multi-select container with the appropriate function from RewstLib
-        const multiSelectHtml = RewstLib.forms.renderMultiSelectContainer('form_permissions', 'Form Permissions', 'Select which roles can access this form');
+        const multiSelectHtml = RewstLib.forms.renderMultiSelectContainer('form_permissions', '', '');
         permissionsContainer.innerHTML = multiSelectHtml;
         
         // Initialize the multi-select with allUserRoles
