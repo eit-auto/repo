@@ -4163,7 +4163,17 @@ generalSettingsBtn.addEventListener('click', async () => {
             label: role.label
         }));
         
-        RewstLib.forms.initializeDropdownMultiSelect('form_permissions', rolesOptions, currentPermissions);
+        // Auto-select Admin role if no permissions are currently set
+        let selectedRoles = currentPermissions;
+        if (!selectedRoles || selectedRoles.length === 0) {
+            const adminRole = allUserRoles.find(role => role.label.toLowerCase() === 'admin');
+            if (adminRole) {
+                selectedRoles = [adminRole.value];
+                console.log('[GENERAL-SETTINGS] Auto-selecting Admin role:', adminRole.value);
+            }
+        }
+        
+        RewstLib.forms.initializeDropdownMultiSelect('form_permissions', rolesOptions, selectedRoles);
         console.log('[GENERAL-SETTINGS] Form permissions multi-select initialized with', rolesOptions.length, 'available roles');
     } else {
         console.warn('[GENERAL-SETTINGS] Cannot initialize permissions multi-select - allUserRoles not available or empty');
