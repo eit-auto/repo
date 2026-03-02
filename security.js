@@ -17,7 +17,7 @@
  */
 
 // Hide page content until permission check completes
-// (Modals and error messages remain in body)
+// (CSS rule #page-content { display: none; } handles initial hiding)
 const hidePageContent = () => {
     const pageContent = document.getElementById('page-content');
     if (pageContent) {
@@ -32,7 +32,7 @@ const showPageContent = () => {
     }
 };
 
-hidePageContent();
+// Note: hidePageContent() is called by CSS, not JavaScript for better performance
 
 let rewstUser = null;
 
