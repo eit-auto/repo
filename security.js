@@ -29,11 +29,23 @@ const showPageContent = () => {
     const pageContent = document.getElementById('page-content');
     console.log('[Security] showPageContent() called');
     console.log('[Security] pageContent element found:', !!pageContent);
+    
     if (pageContent) {
         console.log('[Security] Setting display to block with !important');
         pageContent.style.setProperty('display', 'block', 'important');
         console.log('[Security] After setProperty, display is now:', pageContent.style.display);
         console.log('[Security] Computed style display:', window.getComputedStyle(pageContent).display);
+    } else {
+        // Element doesn't exist yet, wait for DOM to be ready
+        console.log('[Security] page-content not found in DOM yet, waiting for DOMContentLoaded');
+        document.addEventListener('DOMContentLoaded', () => {
+            const pc = document.getElementById('page-content');
+            if (pc) {
+                console.log('[Security] After DOMContentLoaded, found page-content, showing it');
+                pc.style.setProperty('display', 'block', 'important');
+                console.log('[Security] Computed style display:', window.getComputedStyle(pc).display);
+            }
+        });
     }
 };
 
