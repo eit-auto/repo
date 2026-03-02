@@ -5012,6 +5012,24 @@ if (resetFormBtn) {
     resetFormBtn.addEventListener('click', () => {
         console.log('Reset button clicked');
         
+        // Reset Select Client dropdown (FormExtendBuilder-specific)
+        const clientDropdown = document.getElementById('select_client_dropdown');
+        if (clientDropdown) {
+            clientDropdown.value = '';
+        }
+        
+        // Reset Form Extend Type dropdown (FormExtendBuilder-specific)
+        const extendTypeDropdown = document.getElementById('form_extend_type_dropdown');
+        if (extendTypeDropdown) {
+            extendTypeDropdown.value = '';
+        }
+        
+        // Clear form extend title (FormExtendBuilder-specific)
+        const extendTitleInput = document.getElementById('extend_title');
+        if (extendTitleInput) {
+            extendTitleInput.value = '';
+        }
+        
         // Clear form name
         if (formNameInput) {
             formNameInput.value = '';
