@@ -47,6 +47,113 @@
             margin-bottom: 8px;
             font-size: 14px;
         }
+
+        /* Array Field Styling */
+        .array-field-container {
+            display: flex;
+            flex-direction: column;
+            gap: 0;
+            width: 100%;
+        }
+
+        .array-field-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+        }
+
+        .array-field-header label {
+            margin: 0;
+            font-weight: 600;
+            color: #ffffff;
+        }
+
+        .array-add-btn {
+            margin-left: auto;
+            padding: 6px 12px !important;
+            font-size: 0.9rem !important;
+        }
+
+        .array-instances {
+            display: flex;
+            flex-direction: column;
+            gap: 0;
+            margin-top: -0.5rem;
+            padding: 0;
+        }
+
+        .array-instance {
+            display: flex;
+            align-items: flex-end;
+            gap: 0.375rem;
+            padding: 0.5rem;
+            background: #2a2a2a;
+            border-radius: 4px;
+            border: 1px solid #404040;
+        }
+
+        .array-instance-fields {
+            display: flex;
+            flex: 1;
+            gap: 0.375rem;
+            align-items: flex-end;
+            flex-wrap: wrap;
+            margin: 0;
+        }
+
+        .array-instance-field {
+            display: flex;
+            flex-direction: column;
+            gap: 0.25rem;
+            flex: 1;
+            min-width: 150px;
+            margin: 0;
+        }
+
+        .array-instance-field label {
+            color: #a0a0a0;
+            font-weight: 600;
+            font-size: 0.8rem;
+            margin: 0;
+        }
+
+        .array-instance-field input {
+            padding: 0.35rem 0.5rem;
+            border: 2px solid #404040;
+            border-radius: 4px;
+            background: #1a1a1a;
+            color: #e0e0e0;
+            font-size: 0.9rem;
+            margin: 0;
+        }
+
+        .array-instance-field input:focus {
+            outline: none;
+            border-color: #5a9fb8;
+            box-shadow: 0 0 0 3px rgba(90, 159, 184, 0.1);
+        }
+
+        .array-instance-delete {
+            flex-shrink: 0;
+            background: #b8242f;
+            color: white;
+            border: none;
+            width: 28px;
+            height: 37px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 1rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s;
+            margin-bottom: 0;
+        }
+
+        .array-instance-delete:hover {
+            background: #dc3545;
+        }
     </style>
     <!-- Organization ID - must be set before loading rewst-library.js -->
     <script>
@@ -1193,6 +1300,8 @@
             // Setup refresh buttons after all functions are defined
             setupRefreshButtonHandlers(fieldConfigs, formConfig);
             
+            // Setup array field handlers
+            setupArrayFieldHandlers(fieldConfigs);
             
             // Initialize field UI states - show waiting for dependent fields
             RewstLib.utils.initializeDependentFields(fieldConfigs);
@@ -1672,6 +1781,62 @@
             console.log(`[REFRESH] Button state for ${fieldName}: disabled=${btn.disabled} (depsMet=${depsMet})`);
         }
 
+        function setupArrayFieldHandlers(fieldConfigs) {
+            const arrayConfigs = fieldConfigs.filter(f => f.type === 'array');
+            
+            arrayConfigs.forEach(config => {
+                console.log(`[ARRAY] Setting up handlers for: ${config.field_name}`);
+                
+                // Use more specific selector for the instances container
+                const arrayContainer = document.querySelector(`.array-instances[data-array-name="${config.field_name}"]`);
+                console.log(`[ARRAY] Found arrayContainer for ${config.field_name}:`, !!arrayContainer, arrayContainer?.id);
+                
+                if (!arrayContainer) {
+                    console.error(`[ARRAY] Could not find array instances container for ${config.field_name}`);
+                    return;
+                }
+                
+                const headerBtn = arrayContainer.closest('.array-field-container')?.querySelector('.array-add-btn');
+                console.log(`[ARRAY] Found Add button for ${config.field_name}:`, !!headerBtn);
+                
+                if (!headerBtn) {
+                    console.error(`[ARRAY] Could not find Add button for ${config.field_name}`);
+                    return;
+                }
+                
+                // Add button handler
+                headerBtn.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    console.log(`[ARRAY] Add button clicked for ${config.field_name}`);
+                    
+                    const itemsConfig = config.items || {};
+                    const instanceIndex = arrayContainer.children.length;
+                    
+                    const itemsHtml = Object.entries(itemsConfig).map(([label, fieldName]) =>
+                        `<div class="array-instance-field"><label>${escapeHtml(label)}</label><input type="text" name="${config.field_name}_${fieldName}_${instanceIndex}" placeholder="${escapeHtml(label)}"></div>`
+                    ).join('');
+                    
+                    const instanceHtml = `<div class="array-instance" data-instance-index="${instanceIndex}"><div class="array-instance-fields">${itemsHtml}</div><button type="button" class="array-instance-delete" title="Delete this row">×</button></div>`;
+                    
+                    arrayContainer.insertAdjacentHTML('beforeend', instanceHtml);
+                    
+                    // Attach delete handler to new instance
+                    const newInstance = arrayContainer.lastElementChild;
+                    const deleteBtn = newInstance.querySelector('.array-instance-delete');
+                    deleteBtn.addEventListener('click', () => {
+                        newInstance.remove();
+                    });
+                });
+                
+                // Attach delete handlers to existing instances
+                arrayContainer.querySelectorAll('.array-instance-delete').forEach(deleteBtn => {
+                    deleteBtn.addEventListener('click', () => {
+                        deleteBtn.closest('.array-instance').remove();
+                    });
+                });
+            });
+        }
+
         function setupRefreshButtonHandlers(fieldConfigs, formConfig) {
             const refreshButtons = document.querySelectorAll('.dropdown-refresh-btn');
             refreshButtons.forEach(btn => {
@@ -1892,6 +2057,29 @@
             } else if (config.type === 'horizontal_line') {
                 // Render horizontal line (content field contains the HR element or styling)
                 html += `${config.content || '<hr>'}`;
+            } else if (config.type === 'array') {
+                // Array field with add/remove functionality
+                const arrayId = `array_${config.field_name}_${Math.random().toString(36).substr(2, 5)}`;
+                const itemsConfig = config.items || {};
+                
+                // Generate default instance - compact template to avoid whitespace rendering
+                const itemsHtml = Object.entries(itemsConfig).map(([label, fieldName]) => 
+                    `<div class="array-instance-field"><label>${escapeHtml(label)}</label><input type="text" name="${config.field_name}_${fieldName}_0" placeholder="${escapeHtml(label)}"></div>`
+                ).join('');
+                
+                const defaultInstanceHtml = `<div class="array-instance" data-instance-index="0"><div class="array-instance-fields">${itemsHtml}</div><button type="button" class="array-instance-delete" title="Delete this row">×</button></div>`;
+                
+                html += `
+                    <div class="array-field-container">
+                        <div class="array-field-header">
+                            <label>${displayName}</label>
+                            <button type="button" class="btn btn-blue array-add-btn" data-array-name="${config.field_name}" data-array-id="${arrayId}" style="width: auto;">Add</button>
+                        </div>
+                        <div class="array-instances" id="${arrayId}" data-array-name="${config.field_name}">
+                            ${defaultInstanceHtml}
+                        </div>
+                    </div>
+                `;
             }
 
             html += '</div>';
@@ -1983,6 +2171,12 @@
                     }
                 });
                 
+                // Reset array fields
+                document.querySelectorAll('#previewContent .array-instances').forEach(arrayContainer => {
+                    // Remove all instances except keep the container empty
+                    arrayContainer.innerHTML = '';
+                });
+                
                 console.log('Form reset');
             });
         }
@@ -2016,6 +2210,30 @@
                 // Collect from main form config
                 if (formConfig && formConfig.field_configs) {
                     formConfig.field_configs.forEach(config => {
+                        if (config.type === 'array') {
+                            // Collect array field data
+                            const arrayContainer = document.querySelector(`[data-array-name="${config.field_name}"]`);
+                            if (arrayContainer) {
+                                const instances = [];
+                                arrayContainer.querySelectorAll('.array-instance').forEach(instance => {
+                                    const instanceData = {};
+                                    const inputs = instance.querySelectorAll('input[type="text"]');
+                                    
+                                    Object.entries(config.items || {}).forEach(([label, fieldName], index) => {
+                                        if (inputs[index]) {
+                                            instanceData[fieldName] = inputs[index].value;
+                                        }
+                                    });
+                                    
+                                    instances.push(instanceData);
+                                });
+                                
+                                formData[config.field_name] = instances;
+                                console.log(`[SUBMIT] Array field ${config.field_name}: ${instances.length} instances`, instances);
+                            }
+                            return; // Skip the normal input lookup for array types
+                        }
+                        
                         const input = document.querySelector(`input[name="${config.field_name}"], select[name="${config.field_name}"], textarea[name="${config.field_name}"]`);
                         
                         if (input) {
