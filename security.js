@@ -28,7 +28,7 @@ const hidePageContent = () => {
 const showPageContent = () => {
     const pageContent = document.getElementById('page-content');
     if (pageContent) {
-        pageContent.style.display = '';
+        pageContent.style.display = 'block';
     }
 };
 
