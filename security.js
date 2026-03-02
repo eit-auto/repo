@@ -216,6 +216,7 @@ function showPermissionDenied(message) {
     `;
     
     document.body.innerHTML = errorHtml;
+    document.body.style.display = ''; // Show body to display error message
     document.body.style.margin = '0';
     document.body.style.padding = '0';
     
