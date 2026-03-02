@@ -17,18 +17,18 @@
  */
 
 // Hide page content until permission check completes
-// (CSS rule #page-content { display: none; } handles initial hiding)
+// (CSS rule #page-content { display: none !important; } handles initial hiding)
 const hidePageContent = () => {
     const pageContent = document.getElementById('page-content');
     if (pageContent) {
-        pageContent.style.display = 'none';
+        pageContent.style.setProperty('display', 'none', 'important');
     }
 };
 
 const showPageContent = () => {
     const pageContent = document.getElementById('page-content');
     if (pageContent) {
-        pageContent.style.display = 'block';
+        pageContent.style.setProperty('display', 'block', 'important');
     }
 };
 
