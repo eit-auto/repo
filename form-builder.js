@@ -152,11 +152,7 @@ class RewstApp {
             }
         `;
 
-        const result = await this._graphql('getExecution', query, { id: executionId });
-        return result.workflowExecution || {};
-    }
 
-    async _waitForCompletion(executionId, onProgress = null) {
         const pollInterval = 2000;
         const maxAttempts = 150;
         let attempts = 0;
