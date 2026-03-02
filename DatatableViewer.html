@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Datatable Viewer</title>
-    <link rel="stylesheet" href="https://eit-auto.github.io/repo/rewst-library.css">
+    <link rel="stylesheet" href="https://eit-auto.github.io/repo/rewst-library.css?v=3.3.6">
     <style>
         :root {
             --form-text-color: #ffffff;
@@ -15,7 +15,7 @@
 
         .inline-input {
             width: 100%;
-            padding: 0.75rem;
+            padding: 0.25rem 0.25rem;
             border: 2px solid var(--form-border-color);
             border-radius: 4px;
             background: var(--form-bg-color);
@@ -25,6 +25,7 @@
             transition: all 0.2s ease;
             margin: 0;
             box-sizing: border-box;
+            overflow: hidden;
         }
         
         .inline-input:focus {
@@ -67,10 +68,387 @@
             padding: 0;
             margin: 0;
             background: #1a1a1a;
+        }.search-input:focus {
+            outline: none;
+            border-color: #5a9fb8;
+            box-shadow: 0 0 0 3px rgba(90, 159, 184, 0.1);
+        }
+
+        .search-input::placeholder {
+            color: #888;
+        }.btn-primary:hover {
+            background: #1f4051;
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(46, 95, 117, 0.4);
+        }.loading-spinner@keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }.success-modal-backdrop.success-modal h3 {
+            color: #4caf50;
+            margin-bottom: 1rem;
+            font-size: 1.1rem;
+        }.success-modal-button:hover {
+            background: #45a049;
+        }.table-container.table-container::-webkit-scrollbar {
+            width: 12px;
+            height: 12px;
+        }
+
+        .table-container::-webkit-scrollbar-track {
+            background: #1f4051;
+            border-radius: 6px;
+        }
+
+        .table-container::-webkit-scrollbar-thumb {
+            background: #5a9fb8;
+            border-radius: 6px;
+            border: 2px solid #1f4051;
+        }
+
+        .table-container::-webkit-scrollbar-thumb:hover {
+            background: #6db5ce;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        thead {
+            background: #32373e;
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
+
+        th {
+            padding: 0.75rem;
+            text-align: left;
+            font-weight: 700;
+            color: #ffffff;
+            border-bottom: 2px solid #556870;
+            font-size: 0.85rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            cursor: pointer;
+            user-select: none;
+            white-space: nowrap;
+        }
+
+        th.sortable::after {
+            content: ' ⇅';
+            opacity: 0.3;
+            font-size: 0.7rem;
+        }
+
+        th.sort-asc::after {
+            content: ' ▲';
+            opacity: 1;
+        }
+
+        th.sort-desc::after {
+            content: ' ▼';
+            opacity: 1;
+        }
+
+        tbody tr {
+            cursor: pointer;
+            transition: all 0.2s ease;
+            border-bottom: 1px solid #ffffff;
+            background: transparent;
+        }
+        
+        thead tr:hover {
+            background: transparent !important;
+        }
+        
+        td {
+            border-top: 2px solid #2f5a6f !important;
+        }
+
+
+
+        tbody tr.selected {
+            background: #2E5F75;
+            border-left: 4px solid #5a9fb8;
+        }
+
+        td {
+            padding: 0.75rem;
+            color: #ffffff;
+        }
+
+        .no-results {
+            text-align: center;
+            padding: 3rem;
+            color: #e0e0e0;
+            font-size: 1.1rem;
+        }.edit-backdrop.edit-section@keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translate(-50%, -52%);
+            }
+            to {
+                opacity: 1;
+                transform: translate(-50%, -50%);
+            }
+        }
+
+        .edit-section h2 {
+            color: #5a9fb8;
+            margin-bottom: 1.5rem;
+            font-size: 1.25rem;
+        }.form-group label {
+            font-weight: 600;
+            margin-bottom: 0.25rem;
+            color: #e0e0e0;
+            font-size: 0.8rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+
+        .form-group.full-width {
+            grid-column: 1 / -1;
+        }.btn-save:hover {
+            background: #1f4051;
+        }.btn-cancel:hover {
+            background: #5a6268;
+        }.btn-delete:hover {
+            background: #c82333;
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(220, 53, 69, 0.3);
+        }.status-message.status-message.status-message/* ===== INLINE EDITING MODE STYLES ===== */
+        .inline-edit-cell {
+            position: relative;
+            padding: 0.5rem !important;
+        }
+
+        .inline-edit-cell.read-only {
+            cursor: default;
+        }
+
+        .inline-cell-text {
+            padding: 0.5rem 0;
+        }
+
+        .inline-edit-controls {
+            display: flex;
+            gap: 0.5rem;
+            align-items: center;
+        }
+
+
+
+        .inline-save {
+            background: #4caf50;
+            color: white;
+        }
+
+        .inline-save:hover {
+            background: #45a049;
+        }
+
+        .inline-cancel {
+            background: #6c757d;
+            color: white;
+        }
+
+        .inline-cancel:hover {
+            background: #5a6268;
+        }.row-edit-controls button {
+            padding: 0.4rem 0.8rem;
+            border: none;
+            border-radius: 3px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            white-space: nowrap;
+        }.row-edit-btn:hover {
+            background: #1f4051;
+        }.row-delete-btn:hover {
+            background: #c82333;
+        }.row-save-btn:hover {
+            background: #45a049;
+        }.row-cancel-btn:hover {
+            background: #5a6268;
+        }
+
+        tr.editing {
+            background: rgba(90, 159, 184, 0.15) !important;
+        }
+
+        /* ===== INPUT VAR DROPDOWN STYLES ===== */.input-var-select:focus {
+            outline: none;
+            border-color: #5a9fb8;
+            box-shadow: 0 0 0 3px rgba(90, 159, 184, 0.1);
+        }
+
+        .input-var-select:disabled {
+            background: #1a1a1a;
+            color: #888;
+            cursor: not-allowed;
+            opacity: 0.6;
+        }
+        .edit-section.active {
+            position: fixed !important;
+            width: 600px !important;
+            height: auto !important;
+            max-height: none !important;
+            left: 50% !important;
+            top: 50% !important;
+            transform: translate(-50%, -50%) !important;
+            margin: 0 !important;
+            overflow-y: visible !important;
+            box-sizing: border-box !important;
+        }
+    
+    
+        #editFormGrid > div:nth-child(2)[style*="grid"] {
+            grid-template-columns: 1fr !important;
+        }
+    
+        #editSection input,
+        #editSection textarea,
+        #editSection select {
+            max-width: 100% !important;
+            width: 100% !important;
+            box-sizing: border-box !important;
+        }
+        
+        #editSection input[type="text"],
+        #editSection input[type="number"] {
+            background: var(--form-bg-color) !important;
+            color: var(--form-text-color) !important;
+            border: 2px solid var(--form-border-color) !important;
+            padding: 0.5rem 0.75rem !important;
+        }
+    
+        .edit-backdrop.active {
+            display: flex !important;
+            align-items: center;
+            justify-content: center;
+        }
+    
+        .edit-section.active {
+            padding: 1.5rem !important;
+            display: flex !important;
+            flex-direction: column !important;
+            max-height: none !important;
+            overflow-y: visible !important;
+            height: fit-content !important;
+        }
+    
+        #nonEditableGrid {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 1rem;
+        }
+
+        #nonEditableGrid:has(> :nth-child(n+5)) {
+            grid-template-columns: repeat(2, 1fr);
+        }
+
+        #nonEditableGrid:has(> :nth-child(n+9)) {
+            grid-template-columns: repeat(3, 1fr);
+        }
+    
+        #editableGrid {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 1rem;
+        }
+
+        #editableGrid:has(> :nth-child(n+5)) {
+            grid-template-columns: repeat(2, 1fr);
+        }
+
+        #editableGrid:has(> :nth-child(n+9)) {
+            grid-template-columns: repeat(3, 1fr);
+        }
+    
+        #nonEditableGrid:empty {
+            display: none !important;
+        }
+
+        #nonEditablePanel:has(#nonEditableGrid:empty) {
+            display: none !important;
+        }
+
+        #editableGrid:empty {
+            display: none !important;
+        }
+
+        #editablePanel:has(#editableGrid:empty) {
+            display: none !important;
+        }
+    
+        #nonEditableGrid > div {
+            display: flex;
+            flex-direction: column;
+            gap: 0;
+            line-height: 1.2;
+        }
+
+        #nonEditableGrid {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 0.1rem !important;
+            margin-bottom: 0 !important;
+        }
+
+        #nonEditableGrid:has(> :nth-child(n+5)) {
+            grid-template-columns: repeat(2, 1fr);
+        }
+
+        #nonEditableGrid:has(> :nth-child(n+9)) {
+            grid-template-columns: repeat(3, 1fr);
+        }
+    
+        #nonEditablePanel {
+            padding-bottom: 0 !important;
+            gap: 0.2rem !important;
+        }
+    
+        #editableGrid > div.form-group {
+            margin-bottom: 0 !important;
+            gap: 0.1rem !important;
+        }
+
+        #editableGrid > div.form-group[style*="flex-direction: row"] {
+            width: fit-content !important;
+        }
+
+        #editableGrid {
+            gap: 0.75rem !important;
+        }
+
+        #editablePanel {
+            padding-bottom: 0 !important;
+        }
+    
+        #editableGrid > div.form-group[style*="flex-direction: row"] label {
+            display: flex;
+            align-items: center;
+            height: 20px;
+        }
+        
+        #editableGrid > div.form-group[style*="flex-direction: row"] input[type="checkbox"] {
+            align-self: center;
+            margin: 0;
+        }
+        
+        /* Make all field labels bold */
+        #nonEditableGrid label,
+        #editableGrid label,
+        .form-group label {
+            font-weight: bold !important;
         }
     </style>
 </head>
 <body>
+
     <!-- Input Variable Selection Dropdowns -->
     <div id="inputVarContainer" style="display: none; padding: 1rem; background: #1f4051; border-radius: 8px; margin-bottom: 1rem; margin-left: 1rem; margin-right: 1rem; margin-top: 1rem;">
         <div id="inputVarDropdowns" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem;"></div>
@@ -80,12 +458,23 @@
     <div id="datatableName" style="padding: 1.5rem 0 0.75rem 0; font-size: 1.5rem; font-weight: bold; color: #ffffff; margin-bottom: 0.5rem; text-align: center;"></div>
 
     <div class="main-panel">
-        <div class="inner-panel" style="flex-direction: row; align-items: center; margin-bottom: 1rem;">
+
+                <div class="inner-panel" style="flex-direction: row; align-items: center; margin-bottom: 1rem;">
             <button id="addBtn" class="btn btn-blue">+</button>
+
             <div class="search-input-wrapper">
-                <input type="text" id="searchInput" class="search-input" placeholder="Search results...">
+                <input 
+                    type="text" 
+                    id="searchInput" 
+                    class="search-input" 
+                    placeholder="Search results..."
+                >
             </div>
+            
+            <!-- Filters -->
             <div id="filtersContainer" style="display: flex; gap: 1rem; align-items: center;"></div>
+            
+            <!-- Save button for column edit mode -->
             <button id="saveBtn" class="btn btn-green" style="display: none;">Save Changes</button>
         </div>
 
@@ -97,10 +486,12 @@
             </div>
         </div>
 
-        <div class="table-container" id="tableContainer">
+<div class="table-container" id="tableContainer">
+            <!-- Window mode instruction -->
             <div id="windowModeInstruction" style="display: none; padding: 0.375rem 1rem; margin-bottom: 0.5rem; text-align: center; color: #ffffff; font-size: 1rem; font-weight: bold;">
                 CLICK A ROW BELOW TO EDIT
             </div>
+            
             <div class="inner-panel" style="padding: 0; margin: 0; flex-direction: column;">
                 <table id="dataTable">
                     <thead id="tableHead"></thead>
@@ -114,6 +505,39 @@
             <div class="success-modal">
                 <h3>Saving...</h3>
                 <div class="spinner" style="margin: 1rem auto;"></div>
+            </div>
+        </div>
+
+        <!-- Batch Save Confirmation Modal -->
+        <div class="success-modal-backdrop" id="batchSaveConfirmBackdrop">
+            <div class="success-modal">
+                <h3>Confirm Save</h3>
+                <div id="batchSaveConfirmMessage" style="margin: 1rem 0; text-align: center; color: #e0e0e0;"></div>
+                <div style="display: flex; gap: 1rem; justify-content: center;">
+                    <button id="batchSaveConfirmYes" class="btn btn-blue">Save</button>
+                    <button id="batchSaveConfirmNo" class="btn btn-grey">Cancel</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Batch Save Modal -->
+        <div class="success-modal-backdrop" id="batchSaveBackdrop">
+            <div class="success-modal">
+                <h3 id="batchSaveTitle">Saving Changes...</h3>
+                <div class="spinner" style="margin: 1rem auto;"></div>
+                <div id="batchSaveMessage" style="margin-top: 1rem; text-align: center; color: #5a9fb8;"></div>
+            </div>
+        </div>
+
+        <!-- Delete Confirmation Modal -->
+        <div class="success-modal-backdrop" id="deleteConfirmBackdrop">
+            <div class="success-modal" style="border-color: #dc3545;">
+                <h3 style="color: #dc3545;">Delete Record</h3>
+                <div class="success-message">Are you sure you want to delete this record? This action cannot be undone.</div>
+                <div style="display: flex; gap: 1rem; justify-content: center;">
+                    <button class="btn btn-grey" id="deleteConfirmNo">Cancel</button>
+                    <button class="btn btn-red" id="deleteConfirmYes">Delete</button>
+                </div>
             </div>
         </div>
 
@@ -140,148 +564,605 @@
                     </svg>
                 </button>
             </div>
+
             <div class="inner-panel" id="nonEditablePanel" style="margin-bottom: 10px;">
                 <div class="form-grid" id="nonEditableGrid"></div>
             </div>
-            <div class="inner-panel" id="editablePanel">
+
+            <div class="inner-panel form-container" id="editablePanel">
                 <div class="form-grid" id="editableGrid"></div>
             </div>
+
             <div class="btn-group" style="padding-top: 10px;">
                 <button type="button" class="btn btn-grey" id="cancelBtn">Cancel</button>
                 <button type="submit" class="btn btn-green">Save Changes</button>
             </div>
         </div>
+        <div class="edit-backdrop" id="addBackdrop"></div>
+        <div class="edit-section" id="addSection">
+            <div class="info-box" id="addStatusMessage"></div>
+            <h2>Add New Record</h2>
+            <form id="addForm">
+                <div class="form-grid" id="addFormGrid"></div>
+                <div class="btn-group">
+                    <button type="button" class="btn btn-grey" id="addCancelBtn">Cancel</button>
+                    <button type="submit" class="btn btn-blue">Add Record</button>
+                </div>
+            </form>
+        </div>
     </div>
+
 
     <script>
         window.ORG_ID = '019176c2-059f-7391-afbc-97b201efbd93';
     </script>
     <script src="https://eit-auto.github.io/repo/rewst-library.js"></script>
     <script>
+        // ============================================
+        // PAGE CONFIGURATION
+        // ============================================
         const ORG_ID = window.ORG_ID;
+        // data_workflow: required - workflow ID for retrieving/updating data
+        // input_vars: optional - contains configuration variables like sql_query
         let data_workflow = null;
         let input_vars = null;
+        let sql_query = null;
         let datatableConfig = null;
         let output_var = null;
         let allow_create = true;
         let allow_delete = true;
         let allow_update = true;
-        let edit_type = 'window';
+        let edit_type = 'window'; // 'window' or 'column'
+
         let update_workflow = null;
         let update_vars = null;
-        let fieldTypes = {};
+        let fieldTypes = {}; // Store detected field types (date, datetime, text, etc.)
         let tableData = [];
         let filteredData = [];
         let col_display_table = [];
         let col_display_edit = [];
+        let currentSort = { column: null, direction: 'asc' };
+        let selectedRow = null;
+        let filterStates = {}; // Track filter checkbox states
+        let inputVarValues = {}; // Store dropdown/URL selected values
+        let inputVarConfig = []; // Will be populated from datatable config
+        let inputVarDependencies = {}; // Map of which vars depend on which
 
+        // ============================================
+        // UTILITY - Detect Field Types from Data
+        // ============================================
         function detectFieldTypes(records) {
             const detected = {};
-            if (!records || records.length === 0) return detected;
-            const dateTimePattern = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/;
-            const datePattern = /^\d{4}-\d{2}-\d{2}$/;
-            const dateTimeAltPattern = /^\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2}/;
+            
+            if (!records || records.length === 0) {
+                console.log('[FIELD_DETECT] No records to analyze');
+                return detected;
+            }
+
+            // Regex patterns for date/datetime detection
+            const dateTimePattern = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/; // ISO 8601 datetime
+            const datePattern = /^\d{4}-\d{2}-\d{2}$/; // ISO 8601 date
+            const dateTimeAltPattern = /^\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2}/; // MySQL datetime
+
+            // Get all column names from first record
             const columns = Object.keys(records[0]);
+
             columns.forEach(colName => {
-                let dateCount = 0, dateTimeCount = 0, valueCount = 0;
+                let dateCount = 0;
+                let dateTimeCount = 0;
+                let valueCount = 0;
+
+                // Sample records to detect field type
                 for (let i = 0; i < Math.min(records.length, 10); i++) {
                     const value = records[i][colName];
                     if (value && typeof value === 'string') {
                         valueCount++;
-                        if (dateTimePattern.test(value) || dateTimeAltPattern.test(value)) dateTimeCount++;
-                        else if (datePattern.test(value)) dateCount++;
+                        if (dateTimePattern.test(value) || dateTimeAltPattern.test(value)) {
+                            dateTimeCount++;
+                        } else if (datePattern.test(value)) {
+                            dateCount++;
+                        }
                     }
                 }
+
+                // If most values match a pattern, classify as that type
                 if (valueCount > 0) {
-                    if (dateTimeCount > valueCount * 0.7) detected[colName] = 'datetime';
-                    else if (dateCount > valueCount * 0.7) detected[colName] = 'date';
+                    if (dateTimeCount > valueCount * 0.7) {
+                        detected[colName] = 'datetime';
+                    } else if (dateCount > valueCount * 0.7) {
+                        detected[colName] = 'date';
+                    }
                 }
             });
+
+            console.log('[FIELD_DETECT] Detected field types:', detected);
             return detected;
         }
 
-        async function retrieveOrgVariable(variableName) {
-            const response = await fetch('/graphql', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    query: `{ visibleOrgVariables(visibleForOrgId: "${ORG_ID}" search: { organization: { id: { _eq: "${ORG_ID}" } } name: { _eq: "${variableName}" } }) { id name value } }`
-                })
+        // ============================================
+        // UTILITY - Generate Dynamic SQL for Updates
+        // ============================================
+        function generateDynamicSQL(action, record, columns) {
+            // Use table_name from config, prepend with "rewst."
+            if (!datatableConfig.table_name) {
+                throw new Error('table_name not found in datatable config');
+            }
+            const dbTable = 'rewst.' + datatableConfig.table_name;
+            
+            // Helper to format value based on column type
+            function formatValue(value, colType) {
+                if (value === null || value === undefined) {
+                    return 'NULL';
+                }
+                
+                // Numeric types - no quotes
+                if (colType === 'int' || colType === 'integer' || colType === 'bigint' || 
+                    colType === 'smallint' || colType === 'decimal' || colType === 'float' || 
+                    colType === 'numeric' || colType === 'double') {
+                    return String(value);
+                }
+                
+                // Boolean - 1 or 0, no quotes
+                if (colType === 'boolean') {
+                    return value ? '1' : '0';
+                }
+                
+                // String types - quoted and escaped
+                return `'${String(value).replace(/'/g, "''")}'`;
+            }
+            
+            // Get the primary key field
+            const pkField = columns.find(col => col.p_key === true)?.col_name || 'id';
+            const pkColConfig = columns.find(col => col.col_name === pkField);
+            const pkValue = record[pkField];
+            
+            if (!pkValue && action !== 'INSERT') {
+                throw new Error(`Primary key field "${pkField}" not found in record`);
+            }
+            
+            // Get columns that should be written (exclude gen, p_key, and non-editable)
+            const writableColumns = columns.filter(col => {
+                // Skip if marked as generated
+                if (col.gen === true) return false;
+                // Skip if primary key
+                if (col.p_key === true) return false;
+                // Skip if not editable (for INSERT/UPDATE context)
+                if (col.editable === false) return false;
+                return true;
             });
-            const data = await response.json();
-            const orgVariables = data.data?.visibleOrgVariables || [];
-            return orgVariables.length > 0 ? orgVariables[0] : null;
+            
+            let query = '';
+            
+            if (action === 'INSERT') {
+                const fields = writableColumns
+                    .filter(col => record[col.col_name] !== null && record[col.col_name] !== undefined)
+                    .map(col => `\`${col.col_name}\``)
+                    .join(', ');
+                
+                const values = writableColumns
+                    .filter(col => record[col.col_name] !== null && record[col.col_name] !== undefined)
+                    .map(col => formatValue(record[col.col_name], col.type))
+                    .join(', ');
+                
+                query = `INSERT INTO ${dbTable} (${fields}) VALUES (${values})`;
+            } 
+            else if (action === 'UPDATE') {
+                const updates = writableColumns
+                    .filter(col => record[col.col_name] !== null && record[col.col_name] !== undefined)
+                    .map(col => {
+                        const value = formatValue(record[col.col_name], col.type);
+                        return `\`${col.col_name}\` = ${value}`;
+                    })
+                    .join(', ');
+                
+                const pkFormattedValue = formatValue(pkValue, pkColConfig?.type || 'int');
+                query = `UPDATE ${dbTable} SET ${updates} WHERE \`${pkField}\` = ${pkFormattedValue}`;
+            } 
+            else if (action === 'DELETE') {
+                const pkFormattedValue = formatValue(pkValue, pkColConfig?.type || 'int');
+                query = `DELETE FROM ${dbTable} WHERE \`${pkField}\` = ${pkFormattedValue}`;
+            }
+            
+            if (!query) {
+                throw new Error(`Unknown action: ${action}`);
+            }
+            
+            // Append COMMIT;
+            return query + '; COMMIT;';
         }
 
+        // ============================================
+        // REWST APP LIBRARY
+        // ============================================
         class RewstApp {
             constructor(config = {}) {
                 this.graphqlUrl = config.graphqlPath || '/graphql';
                 this.orgId = config.orgId || null;
                 this.isInitialized = config.orgId ? true : false;
+                this.debugMode = config.debug || false;
+            }
+
+            _log(...args) {
+
+                if (this.debugMode) console.log('[Rewst]', ...args);
+            }
+
+            _error(message, error) {
+                console.error(`[Rewst Error] ${message}`);
+                if (error) console.error('Details:', error);
+            }
+
+            async getWorkflowTriggers(workflowId) {
+                const query = `
+                    query getTriggers($id: ID!) {
+                        workflowTriggers: workflow(where: {id: $id}) {
+                            triggers {
+                                id
+                                enabled
+                                orgInstances {
+                                    id
+                                    orgId
+                                }
+                            }
+                        }
+                    }
+                `;
+
+                const result = await this._graphql('getTriggers', query, { id: workflowId });
+                return result.workflowTriggers?.triggers || [];
             }
 
             async runWorkflowSmart(workflowId, inputData = {}, options = {}) {
-                if (!this.isInitialized) throw new Error('Rewst not initialized. Missing orgId.');
+                if (!this.isInitialized) {
+                    throw new Error('Rewst not initialized. Missing orgId.');
+                }
+
+                this._log('Running workflow:', workflowId);
+
+                // Execute workflow directly without fallback
                 return await this.runWorkflowWithWait(workflowId, inputData, options);
             }
 
             async runWorkflowWithWait(workflowId, inputData = {}, options = {}) {
-                const query = `mutation testWorkflow($id: ID!, $orgId: ID!, $input: JSON) { testResult: testWorkflow(id: $id, orgId: $orgId, input: $input) { executionId } }`;
-                const testResult = await this._graphql('testWorkflow', query, { id: workflowId, orgId: this.orgId, input: inputData });
+                const query = `
+                    mutation testWorkflow($id: ID!, $orgId: ID!, $input: JSON) {
+                        testResult: testWorkflow(id: $id, orgId: $orgId, input: $input) {
+                            executionId
+                        }
+                    }
+                `;
+
+                const testResult = await this._graphql('testWorkflow', query, { 
+                    id: workflowId, 
+                    orgId: this.orgId,
+                    input: inputData 
+                });
+                this._log('Workflow execution started:', testResult.testResult.executionId);
+                
                 return await this._waitForCompletion(testResult.testResult.executionId, options.onProgress);
             }
 
             async getExecutionStatus(executionId) {
-                const query = `query getExecution($id: ID!) { workflowExecution(where: {id: $id}) { id status conductor { errors output } } }`;
+                const query = `
+                    query getExecution($id: ID!) {
+                        workflowExecution(where: {id: $id}) {
+                            id
+                            status
+                            conductor {
+                                errors
+                                output
+                            }
+                            numSuccessfulTasks
+                        }
+                    }
+                `;
+
                 const result = await this._graphql('getExecution', query, { id: executionId });
                 return result.workflowExecution || {};
             }
 
             async _waitForCompletion(executionId, onProgress = null) {
-                const pollInterval = 2000, maxAttempts = 150;
-                let attempts = 0, emptyOutputRetries = 0, maxEmptyOutputRetries = 5;
+                const pollInterval = 2000;
+                const maxAttempts = 150;
+                let attempts = 0;
+                let emptyOutputRetries = 0;
+                const maxEmptyOutputRetries = 5;
+
                 await new Promise(resolve => setTimeout(resolve, 500));
+
                 while (attempts < maxAttempts) {
-                    const execution = await this.getExecutionStatus(executionId);
-                    if (onProgress) try { onProgress(execution.status); } catch (e) {}
-                    const terminalStates = ['COMPLETED', 'SUCCESS', 'succeeded', 'FAILED', 'failed', 'ERROR'];
-                    const isComplete = terminalStates.some(s => execution.status?.toUpperCase?.() === s.toUpperCase());
-                    if (isComplete) {
-                        const isFailed = ['FAILED', 'failed', 'ERROR'].some(s => execution.status?.toUpperCase?.() === s.toUpperCase());
-                        if (isFailed) throw new Error(`Workflow failed: ${execution.status}`);
-                        const hasOutput = execution.conductor && execution.conductor.output && Object.keys(execution.conductor.output).length > 0;
-                        if (!hasOutput && emptyOutputRetries < maxEmptyOutputRetries) {
-                            emptyOutputRetries++;
-                            await new Promise(resolve => setTimeout(resolve, pollInterval));
-                            attempts++;
-                            continue;
+                    try {
+                        const execution = await this.getExecutionStatus(executionId);
+                        
+                        console.log('Execution object:', execution);
+                        console.log('Execution status:', execution.status);
+
+                        if (onProgress) {
+                            try {
+                                onProgress(execution.status);
+                            } catch (e) {}
                         }
-                        return { ...execution, success: true };
+
+                        const terminalStates = ['COMPLETED', 'SUCCESS', 'succeeded', 'FAILED', 'failed', 'ERROR'];
+                        const isComplete = terminalStates.some(s => execution.status?.toUpperCase?.() === s.toUpperCase());
+
+                        if (isComplete) {
+                            const isFailed = ['FAILED', 'failed', 'ERROR'].some(s => execution.status?.toUpperCase?.() === s.toUpperCase());
+                            if (isFailed) {
+                                throw new Error(`Workflow failed: ${execution.status}`);
+                            }
+                            
+                            // Check if output is empty and retry if needed
+                            const hasOutput = execution.conductor && execution.conductor.output && Object.keys(execution.conductor.output).length > 0;
+                            if (!hasOutput && emptyOutputRetries < maxEmptyOutputRetries) {
+                                console.log(`[RETRY] Output is empty, retrying... (${emptyOutputRetries + 1}/${maxEmptyOutputRetries})`);
+                                emptyOutputRetries++;
+                                await new Promise(resolve => setTimeout(resolve, pollInterval));
+                                attempts++;
+                                continue; // Continue polling instead of returning
+                            }
+                            
+                            return { ...execution, success: true };
+                        }
+
+                        await new Promise(resolve => setTimeout(resolve, pollInterval));
+                        attempts++;
+
+                    } catch (err) {
+                        this._error('Error checking execution status', err);
+                        throw err;
                     }
-                    await new Promise(resolve => setTimeout(resolve, pollInterval));
-                    attempts++;
                 }
+
                 throw new Error('Workflow execution timeout');
             }
 
+
             async _graphql(operationName, query, variables) {
-                const response = await fetch(this.graphqlUrl, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ query, variables, operationName })
-                });
-                if (!response.ok) throw new Error(`HTTP ${response.status}`);
-                const data = await response.json();
-                if (data.errors) throw new Error(data.errors[0]?.message || 'GraphQL error');
-                return data.data;
+                const controller = new AbortController();
+                const timeout = setTimeout(() => controller.abort(), 30000);
+
+                try {
+                    const response = await fetch(this.graphqlUrl, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ query, variables, operationName }),
+                        signal: controller.signal
+                    });
+
+                    if (!response.ok) {
+                        const responseText = await response.text();
+                        throw new Error(`HTTP ${response.status}: ${responseText}`);
+                    }
+                    
+                    const data = await response.json();
+                    if (data.errors) {
+                        throw new Error(data.errors[0]?.message || 'GraphQL error');
+                    }
+                    
+                    return data.data;
+                } catch (err) {
+                    throw err;
+                } finally {
+                    clearTimeout(timeout);
+                }
             }
         }
 
-        const rewst = new RewstApp({ graphqlPath: '/graphql', orgId: ORG_ID, debug: true });
+        // ============================================
+        // REWST INITIALIZATION
+        // ============================================
+        const rewst = new RewstApp({ 
+            graphqlPath: '/graphql',
+            orgId: ORG_ID,
+            debug: true
+        });
 
+        // ============================================
+
+        async function retrieveOrgVariable(variableName) {
+            try {
+                console.log('[ORG VAR] Retrieving variable:', variableName);
+                
+                const response = await fetch('/graphql', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        query: `{
+                            visibleOrgVariables(
+                                visibleForOrgId: "${ORG_ID}"
+                                search: { 
+                                    organization: { id: { _eq: "${ORG_ID}" } }
+                                    name: { _eq: "${variableName}" }
+                                }
+                            ) {
+                                id
+                                name
+                                value
+                                category
+                                cascade
+                                createdAt
+                                updatedAt
+                            }
+                        }`
+                    })
+                });
+                
+                const data = await response.json();
+                console.log('[ORG VAR] Response:', data);
+                
+                if (data.errors) {
+                    const errorMessages = data.errors.map(err => err.message).join('\n');
+                    throw new Error(`Failed to retrieve org variable:\n${errorMessages}`);
+                }
+                
+                const orgVariables = data.data?.visibleOrgVariables || [];
+                
+                if (orgVariables.length > 0) {
+                    console.log('[ORG VAR] Found variable:', variableName);
+                    return orgVariables[0];
+                } else {
+                    console.log('[ORG VAR] Variable not found:', variableName);
+                    return null;
+                }
+            } catch (error) {
+                console.error('[ORG VAR] Exception:', error.message);
+                throw error;
+            }
+        }
+
+        // ============================================
+
+        // ============================================
+        // UTILITY - Extract SQL Error from Workflow Result
+        // ============================================
+
+        // ============================================
+        // UTILITY - Extract SQL Error from Workflow Error
+        // ============================================
+        function extractSQLError(error) {
+            // First check if error has conductorErrors attached
+            if (error.conductorErrors && Array.isArray(error.conductorErrors)) {
+                for (const err of error.conductorErrors) {
+                    if (err.result && err.result.result && err.result.result.errors) {
+                        const errorStr = String(err.result.result.errors);
+                        // Look for pattern: "SQL Error (MYSQL) [1146]: \"select * from ...;\" - [Error message here]"
+                        const sqlMatch = errorStr.match(/SQL Error[^\[]*\[([^\]]+)\]:\s*"[^"]*"\s*-\s*\[([^\]]+)\]/);
+                        if (sqlMatch && sqlMatch[2]) {
+                            // Return just the error message part: "Table 'rewst.org' doesn't exist"
+                            return sqlMatch[2];
+                        }
+                    }
+                }
+            }
+            
+            // Try parsing the error message as JSON (if it contains serialized error array)
+            try {
+                if (error.message && error.message.includes('[{')) {
+                    // Extract JSON array from message
+                    const jsonMatch = error.message.match(/(\[{[\s\S]*}\])/);
+                    if (jsonMatch) {
+                        const errorArray = JSON.parse(jsonMatch[1]);
+                        for (const err of errorArray) {
+                            if (err.result && err.result.result && err.result.result.errors) {
+                                const errorStr = String(err.result.result.errors);
+                                const sqlMatch = errorStr.match(/SQL Error[^\[]*\[([^\]]+)\]:\s*"[^"]*"\s*-\s*\[([^\]]+)\]/);
+                                if (sqlMatch && sqlMatch[2]) {
+                                    return sqlMatch[2];
+                                }
+                            }
+                        }
+                    }
+                }
+            } catch (e) {
+                console.log('[SQL ERROR] Could not parse JSON from error message');
+            }
+            
+            return null;
+        }
+
+        // ============================================
+        // GLOBAL STATE MANAGEMENT
+        // ============================================
+        
+        // Helper: Get input var value (from dropdown selection, URL params, or input_vars)
+        function getInputVarValue(varName) {
+            // Check dropdown selections first
+            if (inputVarValues[varName] !== undefined && inputVarValues[varName] !== '') {
+                return inputVarValues[varName];
+            }
+            // Check URL params
+            const urlValue = RewstLib.forms.getUrlParameter(varName);
+            if (urlValue) {
+                return urlValue;
+            }
+            // Check input_vars for static values (only if not empty)
+            if (input_vars[varName] !== undefined && input_vars[varName] !== '') {
+                return input_vars[varName];
+            }
+            return null;
+        }
+        
+        // Helper: Set input var value (from dropdown or URL)
+        function setInputVarValue(varName, value) {
+            inputVarValues[varName] = value;
+        }
+        
+        // Helper: Parse input_var field for dependencies and static values
+        function parseInputVar(inputVarStr) {
+            if (!inputVarStr) return { dependencies: [], staticVars: {} };
+            
+            const dependencies = [];
+            const staticVars = {};
+            
+            // Find all [[variable]] patterns
+            const depPattern = /\[\[(\w+)\]\]/g;
+            let match;
+            while ((match = depPattern.exec(inputVarStr)) !== null) {
+                dependencies.push(match[1]);
+            }
+            
+            // Find all key:value patterns (not in brackets)
+            const staticPattern = /(\w+):([^\[\]]+?)(?=\[\[|\s|$)/g;
+            while ((match = staticPattern.exec(inputVarStr)) !== null) {
+                staticVars[match[1]] = match[2].trim();
+            }
+            
+            return { dependencies, staticVars };
+        }
+        
+        // Helper: Check if all dependencies for a var are satisfied
+        function areDependenciesSatisfied(varName) {
+            const varConfig = inputVarConfig.find(v => v.name === varName);
+            if (!varConfig || !varConfig.input_var) return true;
+            
+            const { dependencies } = parseInputVar(varConfig.input_var);
+            return dependencies.every(dep => {
+                const value = getInputVarValue(dep);
+                return value !== null && value !== '' && value !== undefined;
+            });
+        }
+        
+        // Helper: Get dependencies in correct order (dependencies before dependents)
+        function getInputVarsInDependencyOrder() {
+            if (!inputVarConfig || inputVarConfig.length === 0) return [];
+            
+            const ordered = [];
+            const processed = new Set();
+            
+            function addVar(varName) {
+                if (processed.has(varName)) return;
+                
+                const varConfig = inputVarConfig.find(v => v.name === varName);
+                if (!varConfig) return;
+                
+                // Add dependencies first
+                if (varConfig.input_var) {
+                    const { dependencies } = parseInputVar(varConfig.input_var);
+                    dependencies.forEach(dep => addVar(dep));
+                }
+                
+                ordered.push(varConfig);
+                processed.add(varName);
+            }
+            
+            inputVarConfig.forEach(v => addVar(v.name));
+            return ordered;
+        }
+
+        // DOM ELEMENTS
+        
+        // ============================================
         const addBtn = document.getElementById('addBtn');
         const searchInput = document.getElementById('searchInput');
         const saveBtn = document.getElementById('saveBtn');
+const batchSaveBackdrop = document.getElementById('batchSaveBackdrop');
+        const batchSaveTitle = document.getElementById('batchSaveTitle');
+        const batchSaveMessage = document.getElementById('batchSaveMessage');
+        const batchSaveConfirmBackdrop = document.getElementById('batchSaveConfirmBackdrop');
+        const batchSaveConfirmMessage = document.getElementById('batchSaveConfirmMessage');
+        const batchSaveConfirmYes = document.getElementById('batchSaveConfirmYes');
+        const batchSaveConfirmNo = document.getElementById('batchSaveConfirmNo');
         const tableHead = document.getElementById('tableHead');
         const tableBody = document.getElementById('tableBody');
         const tableContainer = document.getElementById('tableContainer');
@@ -289,17 +1170,38 @@
         const datatableName = document.getElementById('datatableName');
         const loadingSpinner = document.getElementById('loadingSpinner');
         const savingModalBackdrop = document.getElementById('savingModalBackdrop');
+        const deleteConfirmBackdrop = document.getElementById('deleteConfirmBackdrop');
+        const deleteConfirmNo = document.getElementById('deleteConfirmNo');
+        const deleteConfirmYes = document.getElementById('deleteConfirmYes');
         const successModalBackdrop = document.getElementById('successModalBackdrop');
         const successMessage = document.getElementById('successMessage');
         const successBtn = document.getElementById('successBtn');
         const editBackdrop = document.getElementById('editBackdrop');
         const editSection = document.getElementById('editSection');
+        const editForm = document.getElementById('editForm');
+        const editFormGrid = document.getElementById('editFormGrid');
+        const editIdInput = document.getElementById('editId');
+        const statusMessage = document.getElementById('statusMessage');
         const cancelBtn = document.getElementById('cancelBtn');
-        const deleteBtn = document.getElementById('deleteBtn');
+        const addBackdrop = document.getElementById('addBackdrop');
+        const addSection = document.getElementById('addSection');
+        const addForm = document.getElementById('addForm');
+        const addFormGrid = document.getElementById('addFormGrid');
+        const addStatusMessage = document.getElementById('addStatusMessage');
+        const addCancelBtn = document.getElementById('addCancelBtn');
 
+        // ============================================
+        // UTILITY FUNCTIONS
+        // ============================================
         function formatColumnName(colName) {
             return colName.charAt(0).toUpperCase() + colName.slice(1).replace(/_/g, ' ');
         }
+
+
+        // ============================================
+        // SUCCESS MODAL
+        // ============================================
+        let successModalTimer;
 
         function closeSuccessModal() {
             successModalBackdrop.classList.remove('active');
@@ -308,147 +1210,1867 @@
         function showSuccessModal(message) {
             successMessage.textContent = message;
             successModalBackdrop.classList.add('active');
-            setTimeout(closeSuccessModal, 1000);
+            clearTimeout(successModalTimer);
+            successModalTimer = setTimeout(closeSuccessModal, 1000);
+
         }
 
         successBtn.addEventListener('click', closeSuccessModal);
+        successModalBackdrop.addEventListener('click', (e) => {
+            if (e.target === successModalBackdrop) {
+                closeSuccessModal();
+            }
+        });
 
+        // ============================================
+        // TABLE FUNCTIONS
+        // ============================================
         function buildTableStructure() {
             const headerRow = document.createElement('tr');
             col_display_table.forEach(colName => {
                 const th = document.createElement('th');
                 th.textContent = formatColumnName(colName);
-                
-                // Add type-specific class based on detected field type
-                const fieldType = fieldTypes[colName];
-                if (fieldType) {
-                    th.classList.add(`col-type-${fieldType}`);
-                }
-                
+                th.className = 'sortable';
+                th.setAttribute('data-column', colName);
+                th.addEventListener('click', () => {
+                    sortTable(colName);
+                });
                 headerRow.appendChild(th);
             });
+            
+            // Add Actions header for inline edit mode
+            if (edit_type === 'column') {
+                const actionsTh = document.createElement('th');
+                actionsTh.textContent = 'Actions';
+                actionsTh.style.cursor = 'default';
+                actionsTh.style.textAlign = 'center';
+                actionsTh.className = '';
+                headerRow.appendChild(actionsTh);
+            }
+            
             tableHead.innerHTML = '';
             tableHead.appendChild(headerRow);
         }
 
+        function renderFilters() {
+            const filtersContainer = document.getElementById('filtersContainer');
+            filtersContainer.innerHTML = '';
+            
+            if (!datatableConfig.filters || datatableConfig.filters.length === 0) {
+                return;
+            }
+            
+            datatableConfig.filters.forEach(filterConfig => {
+                const filterDiv = document.createElement('div');
+                filterDiv.style.display = 'flex';
+                filterDiv.style.alignItems = 'center';
+                filterDiv.style.gap = '0.5rem';
+                
+                const checkbox = document.createElement('input');
+                checkbox.type = 'checkbox';
+                checkbox.id = `filter_${filterConfig.col_name}`;
+                checkbox.checked = filterConfig.default_checked === true;
+                checkbox.style.cursor = 'pointer';
+                checkbox.style.width = '18px';
+                checkbox.style.height = '18px';
+                
+                // Store initial state
+                filterStates[filterConfig.col_name] = checkbox.checked;
+                
+                const label = document.createElement('label');
+                label.htmlFor = `filter_${filterConfig.col_name}`;
+                label.textContent = filterConfig.display_label || formatColumnName(filterConfig.col_name);
+                label.style.cursor = 'pointer';
+                label.style.color = '#e0e0e0';
+                label.style.fontSize = '0.9rem';
+                label.style.margin = '0';
+                label.style.userSelect = 'none';
+                
+                checkbox.addEventListener('change', () => {
+                    filterStates[filterConfig.col_name] = checkbox.checked;
+                    filterData(searchInput.value);
+                    renderTable();
+                });
+                
+                filterDiv.appendChild(checkbox);
+                filterDiv.appendChild(label);
+                filtersContainer.appendChild(filterDiv);
+            });
+        }
+
+        function filterData(query) {
+            const searchTerm = query.toLowerCase();
+            filteredData = tableData.filter(item => {
+                // Apply search filter
+                if (searchTerm) {
+                    const matchesSearch = col_display_table.some(col => 
+                        String(item[col]).toLowerCase().includes(searchTerm)
+                    );
+                    if (!matchesSearch) return false;
+                }
+                
+                // Apply checkbox filters
+                for (const [colName, isChecked] of Object.entries(filterStates)) {
+                    const filterConfig = datatableConfig.filters?.find(f => f.col_name === colName);
+                    if (!filterConfig) continue;
+                    
+                    // If filter is unchecked, hide records where column is true/1
+                    // If filter is checked, show all records
+                    if (!isChecked) {
+                        const value = RewstLib.utils.parseBooleanValue(item[colName]);
+                        if (value) return false;
+                    }
+                }
+                
+                return true;
+            });
+        }
+
+        function sortTable(column) {
+            if (currentSort.column === column) {
+                currentSort.direction = currentSort.direction === 'asc' ? 'desc' : 'asc';
+            } else {
+                currentSort.column = column;
+                currentSort.direction = 'asc';
+            }
+
+            filteredData.sort((a, b) => {
+                let aVal = a[column];
+                let bVal = b[column];
+
+                if (typeof aVal === 'number' && typeof bVal === 'number') {
+                    return currentSort.direction === 'asc' ? aVal - bVal : bVal - aVal;
+                }
+
+                aVal = String(aVal).toLowerCase();
+                bVal = String(bVal).toLowerCase();
+                
+                if (aVal < bVal) return currentSort.direction === 'asc' ? -1 : 1;
+                if (aVal > bVal) return currentSort.direction === 'asc' ? 1 : -1;
+                return 0;
+            });
+
+            renderTable();
+            updateSortIndicators(column);
+        }
+
+        function updateSortIndicators(column) {
+            document.querySelectorAll('th.sortable').forEach(th => {
+                th.classList.remove('sort-asc', 'sort-desc');
+            });
+            const activeHeader = document.querySelector(`th[data-column="${column}"]`);
+            if (activeHeader) {
+                activeHeader.classList.add(currentSort.direction === 'asc' ? 'sort-asc' : 'sort-desc');
+            }
+        }
+
         function renderTable() {
             tableBody.innerHTML = '';
+
             if (filteredData.length === 0) {
                 const tr = document.createElement('tr');
-                tr.innerHTML = `<td colspan="${col_display_table.length}" style="text-align: center; padding: 2rem; color: #888;">No records found</td>`;
+                const colCount = edit_type === 'column' ? col_display_table.length + 1 : col_display_table.length;
+                tr.innerHTML = `<td colspan="${colCount}" style="text-align: center; padding: 2rem; color: #888;">No records found</td>`;
                 tableBody.appendChild(tr);
                 return;
             }
+
             filteredData.forEach((row, index) => {
                 const tr = document.createElement('tr');
-                tr.style.cursor = 'pointer';
+                tr.dataset.rowIndex = index;
+                tr.dataset.originalData = JSON.stringify({...row});
+                tr.dataset.editing = 'false';
+                
                 col_display_table.forEach(colName => {
                     const td = document.createElement('td');
                     const value = row[colName];
-                    td.textContent = value || '';
+                    // Look up from datatableConfig.col_settings to get the full column config
+                    const colSetting = datatableConfig.col_settings.find(c => c.col_name === colName) || {};
+                    const isEditable = colSetting.editable !== false;
+                    const colType = colSetting.type || 'varchar';
                     
-                    // Add type-specific class based on detected field type
-                    const fieldType = fieldTypes[colName];
-                    if (fieldType) {
-                        td.classList.add(`col-type-${fieldType}`);
+                    if (edit_type === 'column') {
+                        // INLINE EDIT MODE
+                        td.className = 'inline-edit-cell';
+                        td.dataset.column = colName;
+                        td.dataset.fieldType = colType;
+                        td.dataset.value = value;
+                        
+                        if (isEditable) {
+                            // Render as form input based on field type
+                            let input;
+                            
+                            if (colType === 'boolean') {
+                                input = document.createElement('input');
+                                input.type = 'checkbox';
+                                input.checked = RewstLib.utils.parseBooleanValue(value);
+                                input.className = 'inline-input';
+                            } else if (colType === 'datetime' || colType === 'timestamp') {
+                                input = document.createElement('input');
+                                input.type = 'datetime-local';
+                                if (value) {
+                                    const date = new Date(value);
+                                    input.value = date.toISOString().slice(0, 16);
+                                }
+                                input.className = 'inline-input';
+                            } else if (colType === 'date') {
+                                input = document.createElement('input');
+                                input.type = 'date';
+                                if (value) {
+                                    const date = new Date(value);
+                                    input.value = date.toISOString().slice(0, 10);
+                                }
+                                input.className = 'inline-input';
+                            } else if (colType === 'time') {
+                                input = document.createElement('input');
+                                input.type = 'time';
+                                input.value = value || '';
+                                input.className = 'inline-input';
+                            } else if (colType === 'int' || colType === 'integer' || colType === 'bigint' || colType === 'smallint' || colType === 'decimal' || colType === 'float' || colType === 'numeric') {
+                                input = document.createElement('input');
+                                input.type = 'number';
+                                input.value = value || '';
+                                input.className = 'inline-input';
+                            } else {
+                                // Default to single-line text input (varchar, text, longtext, mediumtext, etc.)
+                                input = document.createElement('input');
+                                input.type = 'text';
+                                input.value = value || '';
+                                input.className = 'inline-input';
+                            }
+                            
+                            input.dataset.column = colName;
+                            input.addEventListener('change', () => {
+                                // Update tableData with the new value
+                                if (colType === 'boolean') {
+                                    tableData[index][colName] = input.checked;
+                                } else if (colType === 'datetime' || colType === 'timestamp') {
+                                    tableData[index][colName] = input.value;
+                                } else if (colType === 'int' || colType === 'integer' || colType === 'bigint' || 
+                                           colType === 'smallint' || colType === 'decimal' || colType === 'float' || colType === 'numeric') {
+                                    tableData[index][colName] = input.value ? parseInt(input.value) : null;
+                                } else {
+                                    tableData[index][colName] = input.value;
+                                }
+                                
+                                // Mark row as modified
+                                tr.dataset.modified = 'true';
+                            });
+                            
+                            td.appendChild(input);
+                        } else {
+                            // Non-editable column - show as read-only text
+                            td.className = 'inline-edit-cell read-only';
+                            const textSpan = document.createElement('span');
+                            textSpan.className = 'inline-cell-text';
+                            if (typeof value === 'boolean') {
+                                textSpan.textContent = value ? 'True' : 'False';
+                            } else {
+                                textSpan.textContent = RewstLib.utils.formatCellValue(colName, value, fieldTypes);
+                            }
+                            td.appendChild(textSpan);
+                        }
+                    } else {
+                        // WINDOW MODE: Make entire row clickable to edit
+                        if (colType === 'boolean') {
+                            const boolValue = RewstLib.utils.parseBooleanValue(value);
+                            td.textContent = boolValue ? 'True' : 'False';
+                        } else {
+                            console.log('[TABLE] Cell value:', colName, '=', value, 'fieldTypes[colName]=', fieldTypes[colName]);
+                            let formatted;
+                            if (fieldTypes[colName] === 'datetime') {
+                                console.log('[TABLE] Calling formatDateTimeDisplay directly for datetime field');
+                                formatted = RewstLib.utils.formatDateTimeDisplay(value);
+                                console.log('[TABLE] formatDateTimeDisplay result:', formatted);
+                            } else if (fieldTypes[colName] === 'date') {
+                                formatted = RewstLib.utils.formatDateDisplay(value);
+                            } else {
+                                formatted = RewstLib.utils.formatCellValue(colName, value, fieldTypes);
+                            }
+                            console.log('[TABLE] Final formatted result:', formatted);
+                            td.textContent = formatted;
+                        }
+                        td.style.cursor = 'pointer';
+                        td.addEventListener('click', () => {
+                            currentEditingRow = index;
+                            openEditForm(filteredData[index]);
+                        });
                     }
-                    
                     tr.appendChild(td);
                 });
-                tr.addEventListener('click', () => openEditForm(row));
+
+                // Actions column (only for inline edit mode)
+                if (edit_type === 'column') {
+                    const actionsTd = document.createElement('td');
+                    
+                    // INLINE MODE: Show Reset button
+                    const controlsDiv = document.createElement('div');
+                    controlsDiv.className = 'row-edit-controls';
+                    
+                    const resetBtn = document.createElement('button');
+                    resetBtn.className = 'row-cancel-btn';
+                    resetBtn.textContent = 'Reset';
+                    resetBtn.addEventListener('click', () => resetRow(index));
+                    controlsDiv.appendChild(resetBtn);
+                    
+                    if (allow_delete) {
+                        const deleteBtn = document.createElement('button');
+                        deleteBtn.className = 'row-delete-btn';
+                        deleteBtn.textContent = 'Delete';
+                        deleteBtn.addEventListener('click', () => deleteRowInline(index));
+                        controlsDiv.appendChild(deleteBtn);
+                    }
+                    
+                    actionsTd.appendChild(controlsDiv);
+                    tr.appendChild(actionsTd);
+                }
+                
+                // For window mode, make entire row clickable
+                if (edit_type !== 'column') {
+                    tr.style.cursor = 'pointer';
+                    tr.addEventListener('click', () => {
+                        currentEditingRow = index;
+                        openEditForm(filteredData[index]);
+                    });
+                }
+                
                 tableBody.appendChild(tr);
             });
         }
 
+        // ============================================
+        // SEARCH
+        // ============================================
         searchInput.addEventListener('input', (e) => {
-            const searchTerm = e.target.value.toLowerCase();
-            filteredData = tableData.filter(item => 
-                col_display_table.some(col => String(item[col]).toLowerCase().includes(searchTerm))
-            );
+            filterData(e.target.value);
             renderTable();
         });
 
-        function openEditForm(item) {
+        // Helper function to execute batch save
+        async function executeBatchSave(modifiedRows) {
+            try {
+                console.log('[BATCH_SAVE] Saving', modifiedRows.length, 'modified records');
+                
+                // Show "Saving Changes..." modal
+                batchSaveTitle.textContent = 'Saving Changes...';
+                batchSaveMessage.textContent = '';
+                batchSaveBackdrop.classList.add('active');
+                
+                // If using SQL, create batch update query
+                if (datatableConfig.use_sql === true && update_workflow) {
+                    const pkField = getPrimaryKeyField();
+                    let updateQueries = [];
+                    
+                    // Generate UPDATE query for each modified record
+                    modifiedRows.forEach(({ index, record }) => {
+                        const query = generateDynamicSQL('UPDATE', record, col_display_edit);
+                        // Remove the COMMIT; from individual queries (will add one at the end)
+                        const queryWithoutCommit = query.replace(/; COMMIT;$/, '');
+                        updateQueries.push(queryWithoutCommit);
+                    });
+                    
+                    // Batch all queries into a single payload with one COMMIT at the end
+                    const batchedSqlQuery = updateQueries.join('; ') + '; COMMIT;';
+                    
+                    console.log('[BATCH_SAVE] Executing batch query:', batchedSqlQuery);
+                    
+                    // Build payload with variable substitution
+                    let payload = { sql_query: batchedSqlQuery };
+                    
+                    // Substitute any [[variable]] patterns
+                    function substituteVariables(str) {
+                        if (typeof str !== 'string') return str;
+                        let result = str;
+                        const varPattern = /\[\[(\w+)\]\]/g;
+                        let match;
+                        while ((match = varPattern.exec(str)) !== null) {
+                            const varName = match[1];
+                            const varValue = getInputVarValue(varName);
+                            if (varValue) {
+                                result = result.replace(match[0], varValue);
+                            }
+                        }
+                        return result;
+                    }
+                    
+                    payload.sql_query = substituteVariables(payload.sql_query);
+                    
+                    // Execute single workflow call with all queries
+                    await rewst.runWorkflowSmart(update_workflow, payload);
+                    
+                    console.log('[BATCH_SAVE] All updates completed');
+                    
+                    // Clear modified flags
+                    modifiedRows.forEach(({ index }) => {
+                        const tr = document.querySelector(`tr[data-row-index="${index}"]`);
+                        if (tr) {
+                            tr.dataset.modified = 'false';
+                        }
+                    });
+                    
+                    // Show success modal for 1 second
+                    batchSaveTitle.textContent = '✓ Successfully Saved';
+                    batchSaveMessage.textContent = `${modifiedRows.length} record${modifiedRows.length !== 1 ? '(s)' : ''} saved`;
+                    setTimeout(() => {
+                        batchSaveBackdrop.classList.remove('active');
+                    }, 1000);
+                } else {
+                    batchSaveTitle.textContent = 'Error';
+                    batchSaveMessage.textContent = 'Update workflow not configured or use_sql is not enabled';
+                    setTimeout(() => {
+                        batchSaveBackdrop.classList.remove('active');
+                    }, 2000);
+                }
+                
+            } catch (error) {
+                console.error('[BATCH_SAVE] Error:', error);
+                batchSaveTitle.textContent = 'Error';
+                batchSaveMessage.textContent = error.message;
+                setTimeout(() => {
+                    batchSaveBackdrop.classList.remove('active');
+                }, 3000);
+            }
+        }
+
+        // Save button handler for batch updates in column edit mode
+        saveBtn.addEventListener('click', async () => {
+            try {
+                // Find all modified rows
+                const modifiedRows = [];
+                document.querySelectorAll('tbody tr[data-modified="true"]').forEach(tr => {
+                    const rowIndex = parseInt(tr.dataset.rowIndex);
+                    const record = filteredData[rowIndex];
+                    if (record) {
+                        modifiedRows.push({
+                            index: rowIndex,
+                            record: record
+                        });
+                    }
+                });
+                
+                if (modifiedRows.length === 0) {
+                    batchSaveTitle.textContent = 'No Changes';
+                    batchSaveMessage.textContent = 'There are no changes to save';
+                    batchSaveBackdrop.classList.add('active');
+                    setTimeout(() => {
+                        batchSaveBackdrop.classList.remove('active');
+                    }, 1000);
+                    return;
+                }
+                
+                // Show confirmation modal
+                const recordWord = modifiedRows.length === 1 ? 'record' : 'record(s)';
+                batchSaveConfirmMessage.textContent = `Confirm: Save changes to ${modifiedRows.length} ${recordWord}?`;
+                batchSaveConfirmBackdrop.classList.add('active');
+                
+                // Handle confirmation buttons
+                batchSaveConfirmYes.onclick = async () => {
+                    batchSaveConfirmBackdrop.classList.remove('active');
+                    await executeBatchSave(modifiedRows);
+                };
+                
+                batchSaveConfirmNo.onclick = () => {
+                    batchSaveConfirmBackdrop.classList.remove('active');
+                };
+                
+            } catch (error) {
+                console.error('[BATCH_SAVE] Error:', error);
+                batchSaveTitle.textContent = 'Error';
+                batchSaveMessage.textContent = error.message;
+                batchSaveBackdrop.classList.add('active');
+                setTimeout(() => {
+                    batchSaveBackdrop.classList.remove('active');
+                }, 3000);
+            }
+        });
+
+        // ============================================
+        // UTILITY - Get Primary Key Field Name
+        // ============================================
+        function getPrimaryKeyField() {
+            return col_display_edit.find(col => col.p_key === true)?.col_name || 
+                   col_display_edit.find(col => col.gen === true)?.col_name || 
+                   'id';
+        }
+
+        // ============================================
+        // EDIT FORM
+        // ============================================
+        function openEditForm(item, index) {
+            console.log('[OPEN_EDIT] Item data:', item);
+            const pkField = getPrimaryKeyField();
+            console.log('[OPEN_EDIT] Primary key field:', pkField);
+            console.log('[OPEN_EDIT] Item.' + pkField + ':', item[pkField]);
+            
+            // Show the modal first
+            console.log('[OPEN_EDIT] editBackdrop:', editBackdrop);
+            console.log('[OPEN_EDIT] editSection:', editSection);
             editBackdrop.classList.add('active');
             editSection.classList.add('active');
-            const editableGrid = document.getElementById('editableGrid');
-            editableGrid.innerHTML = '';
-            col_display_edit.forEach((colConfig) => {
-                const colName = colConfig.col_name;
-                const group = document.createElement('div');
-                group.className = 'form-group';
-                const label = document.createElement('label');
-                label.textContent = colConfig.col_label || formatColumnName(colName);
-                const input = document.createElement('input');
-                input.type = 'text';
-                input.value = item[colName] || '';
-                group.appendChild(label);
-                group.appendChild(input);
-                editableGrid.appendChild(group);
-            });
+            console.log('[OPEN_EDIT] Modal shown');
+            
+            if (editIdInput) {
+                editIdInput.value = item[pkField];
+            }
+
+            // Separate editable and non-editable fields
+            const editableFields = col_display_edit.filter(c => c.editable === true);
+            const nonEditableFields = col_display_edit.filter(c => !c.editable);
+
+            // Determine grid columns based on field count
+            function getGridColumns(fieldCount) {
+                if (fieldCount < 4) return 1;
+                if (fieldCount < 8) return 2;
+                if (fieldCount < 12) return 3;
+                return 4;
+            }
+
+            const nonEditableColumns = getGridColumns(nonEditableFields.length);
+            const editableColumns = getGridColumns(editableFields.length);
+
+            // Display non-editable fields in their own grid
+            if (nonEditableFields.length > 0) {
+                const nonEditableGrid = document.getElementById('nonEditableGrid');
+                nonEditableGrid.innerHTML = '';
+                
+                nonEditableFields.forEach((colConfig) => {
+                    const colName = colConfig.col_name;
+                    const value = item[colName] || '';
+                    const nonEditableDiv = document.createElement('div');
+                    nonEditableDiv.className = 'form-group';
+                    nonEditableDiv.style.pointerEvents = 'none';
+                    
+                    const label = document.createElement('label');
+                    label.textContent = colConfig.col_label || formatColumnName(colName);
+                    
+                    const valueDiv = document.createElement('div');
+                    valueDiv.style.padding = '0';
+                    valueDiv.style.opacity = '0.8';
+                    const fieldType = fieldTypes[colName];
+                    let displayValue = value;
+                    if (fieldType === 'datetime') {
+                        displayValue = RewstLib.utils.formatDateTimeDisplay(value);
+                    } else if (fieldType === 'date') {
+                        displayValue = RewstLib.utils.formatDateDisplay(value);
+                    } else {
+                        displayValue = RewstLib.forms.escapeHtml(String(value));
+                    }
+                    valueDiv.innerHTML = displayValue;
+                    
+                    nonEditableDiv.appendChild(label);
+                    nonEditableDiv.appendChild(valueDiv);
+                    nonEditableGrid.appendChild(nonEditableDiv);
+                });
+            }
+
+            // Display editable fields in their own grid
+            if (editableFields.length > 0) {
+                const editableGrid = document.getElementById('editableGrid');
+                editableGrid.innerHTML = '';
+                
+                editableFields.forEach((colConfig) => {
+                    const colName = colConfig.col_name;
+                    const group = document.createElement('div');
+                    group.className = 'form-group';
+
+                    const label = document.createElement('label');
+                    label.htmlFor = `edit_${colName}`;
+                    label.textContent = colConfig.col_label || formatColumnName(colName);
+
+                    const fieldType = fieldTypes[colName] || colConfig.type;
+                    let input;
+                    
+                    // Create appropriate input based on field type
+                    if (fieldType === 'boolean') {
+                        input = document.createElement('input');
+                        input.type = 'checkbox';
+                        input.checked = RewstLib.utils.parseBooleanValue(item[colName]);
+                        
+                        // For checkboxes, display horizontally with label to the right
+                        group.style.flexDirection = 'row';
+                        group.style.alignItems = 'center';
+                        group.style.gap = '0.5rem';
+                    } else if (fieldType === 'datetime' || fieldType === 'timestamp') {
+                        input = document.createElement('input');
+                        input.type = 'datetime-local';
+                        let value = item[colName] || '';
+                        if (value) {
+                            value = value.replace(/[+-]\d{2}:\d{2}$/, '').replace('T', ' ').substring(0, 16);
+                        }
+                        input.value = value;
+                    } else if (fieldType === 'date') {
+                        input = document.createElement('input');
+                        input.type = 'date';
+                        input.value = item[colName] || '';
+                    } else if (fieldType === 'text' || fieldType === 'longtext' || fieldType === 'mediumtext') {
+                        input = document.createElement('textarea');
+                        input.value = item[colName] || '';
+                        input.rows = 4;
+                    } else if (fieldType === 'int' || fieldType === 'integer' || fieldType === 'bigint' || fieldType === 'smallint' || fieldType === 'decimal' || fieldType === 'float' || fieldType === 'numeric') {
+                        input = document.createElement('input');
+                        input.type = 'number';
+                        input.value = item[colName] || '';
+                    } else {
+                        input = document.createElement('input');
+                        input.type = 'text';
+                        input.value = item[colName] || '';
+                    }
+                    
+                    input.id = `edit_${colName}`;
+                    input.className = 'edit-field';
+                    input.setAttribute('data-column', colName);
+
+                    // For checkboxes, add input first (left side), then label (right side)
+                    if (fieldType === 'boolean') {
+                        group.appendChild(input);
+                        group.appendChild(label);
+                    } else {
+                        // For other fields, add label first (top), then input (bottom)
+                        group.appendChild(label);
+                        group.appendChild(input);
+                    }
+                    
+                    editableGrid.appendChild(group);
+                });
+            }
+
+            if (selectedRow) selectedRow.classList.remove('selected');
+            selectedRow = tableBody.querySelector(`tr[data-index="${index}"]`);
+            if (selectedRow) selectedRow.classList.add('selected');
+
+            // Show/hide delete button based on allow_delete permission
+            const deleteBtn = document.getElementById('deleteBtn');
+            if (allow_delete && deleteBtn) {
+                deleteBtn.style.display = 'flex';
+            } else if (deleteBtn) {
+                deleteBtn.style.display = 'none';
+            }
         }
+
 
         function closeEditForm() {
             editBackdrop.classList.remove('active');
             editSection.classList.remove('active');
+            if (selectedRow) {
+                selectedRow.classList.remove('selected');
+                selectedRow = null;
+            }
+            currentEditingRow = null;
         }
 
-        if (cancelBtn) cancelBtn.addEventListener('click', closeEditForm);
+        if (cancelBtn) {
+            cancelBtn.addEventListener('click', closeEditForm);
+        }
+
+        // Delete button handler
+        const deleteBtn = document.getElementById('deleteBtn');
+        if (deleteBtn) {
+            deleteBtn.addEventListener('click', () => {
+                // Show delete confirmation modal
+                deleteConfirmBackdrop.classList.add('active');
+            });
+        }
+
+        deleteConfirmNo.addEventListener('click', () => {
+            deleteConfirmBackdrop.classList.remove('active');
+        });
+
+        deleteConfirmBackdrop.addEventListener('click', (e) => {
+            if (e.target === deleteConfirmBackdrop) {
+                deleteConfirmBackdrop.classList.remove('active');
+            }
+        });
+
+        deleteConfirmYes.addEventListener('click', async () => {
+            deleteConfirmBackdrop.classList.remove('active');
+            
+            // Show saving modal while deleting
+            savingModalBackdrop.classList.add('active');
+            
+            const pkField = getPrimaryKeyField();
+            
+            // Get the record being deleted from currentEditingRow
+            if (currentEditingRow === null || currentEditingRow === undefined) {
+                console.error('[DELETE] No record selected');
+                savingModalBackdrop.classList.remove('active');
+                return;
+            }
+            
+            const record = filteredData[currentEditingRow];
+            const id = record[pkField];
+            const index = tableData.findIndex(item => item[pkField] == id);
+            
+            if (index !== -1) {
+                const recordToDelete = tableData[index];
+                
+                // If update_workflow is configured, execute DELETE
+                if (update_workflow) {
+                    try {
+                        let payload = { ...update_vars };
+                        
+                        // If sql_query is "Dynamic", generate DELETE query
+                        if (payload.sql_query === 'Dynamic') {
+                            payload.sql_query = generateDynamicSQL('DELETE', recordToDelete, col_display_edit);
+                            console.log('[DELETE] Generated DELETE query:', payload.sql_query);
+                        }
+                        
+                        console.log('[DELETE] Executing update_workflow with payload:', payload);
+                        await rewst.runWorkflowSmart(update_workflow, payload);
+                        console.log('[DELETE] Delete workflow completed successfully');
+                    } catch (deleteError) {
+                        console.error('[DELETE] Workflow error:', deleteError);
+                        savingModalBackdrop.classList.remove('active');
+                        statusMessage.textContent = 'Error deleting record: ' + deleteError.message;
+                        statusMessage.className = 'status-message error active';
+                        return;
+                    }
+                }
+                
+                savingModalBackdrop.classList.remove('active');
+                tableData.splice(index, 1);
+                filterData(searchInput.value);
+                renderTable();
+                
+                statusMessage.textContent = 'Record deleted successfully!';
+                statusMessage.className = 'status-message success active';
+                
+                setTimeout(() => {
+                    closeEditForm();
+                }, 1500);
+            }
+        });
+
+
         editBackdrop.addEventListener('click', closeEditForm);
 
-        async function initializeDataTable() {
-            try {
-                let datatableId = RewstLib.forms.getUrlParameter('datatable');
-                if (!datatableId) throw new Error('No datatable ID provided in URL');
+        // Save button handler for Edit Record modal
+        const editSaveBtn = editSection.querySelector('.btn-group button[type="submit"]');
+        if (editSaveBtn) {
+            editSaveBtn.addEventListener('click', async (e) => {
+                e.preventDefault();
+                console.log('[EDIT] Form submitted');
+                const pkField = getPrimaryKeyField();
+                
+                // Get the record being edited from currentEditingRow
+                if (currentEditingRow === null || currentEditingRow === undefined) {
+                    console.error('[EDIT] No record selected');
+                    return;
+                }
+                
+                const record = filteredData[currentEditingRow];
+                const id = record[pkField];
+                console.log('[EDIT] Primary key field:', pkField);
+                console.log('[EDIT] Editing record with ID:', id);
+            
+            
+            // STEP 1: Validate required fields
+            const validationErrors = [];
+            document.querySelectorAll('.edit-field').forEach(field => {
+                const colName = field.getAttribute('data-column');
+                const colSetting = col_display_edit.find(c => c.col_name === colName);
+                
+                if (colSetting && colSetting.required === true) {
+                    const value = field.value;
+                    if (value === null || value === undefined || value === '' || (typeof value === 'string' && value.trim() === '')) {
+                        const displayName = colSetting.col_label || colName;
+                        validationErrors.push(`${displayName} is required`);
+                    }
+                }
+            });
+            
+            if (validationErrors.length > 0) {
+                showErrorMessage('Validation errors:\n\n' + validationErrors.join('\n'));
+                return;
+            }
+            const index = tableData.findIndex(item => item[pkField] == id);
+            console.log('[EDIT] Found record at index:', index);
 
-                const variableName = 'datatable_' + datatableId;
-                const orgVar = await retrieveOrgVariable(variableName);
-                if (!orgVar) throw new Error(`Datatable configuration not found: ${variableName}`);
+            if (index !== -1) {
+                // Show saving modal
+                savingModalBackdrop.classList.add('active');
 
-                datatableConfig = JSON.parse(orgVar.value);
-                data_workflow = datatableConfig.data_workflow || null;
-                input_vars = datatableConfig.input_vars || {};
-                output_var = datatableConfig.output_var || null;
-                update_workflow = datatableConfig.update_workflow || null;
-                update_vars = datatableConfig.update_vars || {};
-                allow_create = datatableConfig.allow_create === true;
-                allow_delete = datatableConfig.allow_delete === true;
-                edit_type = datatableConfig.edit_type || 'window';
+                // Update local tableData first
+                document.querySelectorAll('.edit-field').forEach(field => {
+                    const colName = field.getAttribute('data-column');
+                    const colSetting = col_display_edit.find(c => c.col_name === colName);
+                    const colType = colSetting?.type;
+                    
+                    if (field.type === 'checkbox') {
+                        // For checkboxes, use the checked property
+                        tableData[index][colName] = field.checked;
+                    } else if (colType === 'int' || colType === 'integer' || colType === 'bigint' || 
+                               colType === 'smallint' || colType === 'decimal' || colType === 'float' || colType === 'numeric') {
+                        // For numeric types, parse as number
+                        tableData[index][colName] = field.value ? parseInt(field.value) : null;
+                    } else {
+                        // For other types, use the value as-is
+                        tableData[index][colName] = field.value;
+                    }
+                });
 
-                const columnSettings = datatableConfig.col_settings || [];
-                col_display_table = columnSettings.filter(col => col.hide_table !== true).map(col => col.col_name);
-                col_display_edit = columnSettings.filter(col => col.hide_edit !== true);
-
-                buildTableStructure();
-
-                if (!allow_create) addBtn.style.display = 'none';
-                if (datatableConfig.name) datatableName.textContent = datatableConfig.name;
-
-                loadingSpinner.classList.add('active');
-                tableContainer.classList.remove('active');
-
-                if (data_workflow) {
-                    const result = await rewst.runWorkflowSmart(data_workflow, input_vars);
-                    if (output_var && result.conductor && result.conductor.output) {
-                        const outputData = result.conductor.output[output_var];
-                        if (outputData && Array.isArray(outputData)) {
-                            tableData = outputData;
-                            filteredData = [...tableData];
-                            fieldTypes = detectFieldTypes(tableData);
-                            renderTable();
+                // If update_workflow is configured, execute it
+                if (update_workflow) {
+                    try {
+                        let payload = { ...update_vars };
+                        
+                        // Helper function to substitute [[variable]] with actual values
+                        function substituteVariables(str) {
+                            if (typeof str !== 'string') return str;
+                            
+                            let result = str;
+                            const varPattern = /\[\[(\w+)\]\]/g;
+                            let match;
+                            
+                            while ((match = varPattern.exec(str)) !== null) {
+                                const varName = match[1];
+                                const varValue = getInputVarValue(varName);
+                                if (varValue) {
+                                    result = result.replace(match[0], varValue);
+                                }
+                            }
+                            
+                            return result;
                         }
+                        
+                        // Process update_vars - substitute any [[variable]] patterns
+                        Object.keys(payload).forEach(key => {
+                            const value = payload[key];
+                            payload[key] = substituteVariables(value);
+                        });
+                        
+                        // If use_sql is true, always generate UPDATE query dynamically
+                        if (datatableConfig.use_sql === true) {
+                            payload.sql_query = generateDynamicSQL('UPDATE', tableData[index], col_display_edit);
+                            console.log('[UPDATE] Generated UPDATE query:', payload.sql_query);
+                        } else if (payload.sql_query === 'Dynamic') {
+                            // Fallback for backward compatibility
+                            payload.sql_query = generateDynamicSQL('UPDATE', tableData[index], col_display_edit);
+                            console.log('[UPDATE] Generated UPDATE query:', payload.sql_query);
+                        }
+                        
+                        console.log('[UPDATE] Executing update_workflow with payload:', payload);
+                        await rewst.runWorkflowSmart(update_workflow, payload);
+                        console.log('[UPDATE] Update workflow completed successfully');
+                    } catch (updateError) {
+                        console.error('[UPDATE] Workflow error:', updateError);
+                        savingModalBackdrop.classList.remove('active');
+                        showErrorMessage(`Error updating record: ${updateError.message}`);
+                        return;
                     }
                 }
 
+                // Hide saving modal
+                savingModalBackdrop.classList.remove('active');
+
+                filterData(searchInput.value);
+                renderTable();
+
+                // Show success message and close form
+                showSuccessModal('Record updated successfully!');
+
+                setTimeout(() => {
+                    closeEditForm();
+                }, 1500);
+            }
+        });
+        }
+
+        // ============================================
+        // ADD FORM
+        // ============================================
+        function openAddForm() {
+            addFormGrid.innerHTML = '';
+
+            col_display_edit.forEach((colConfig) => {
+                // Skip primary key fields and generated fields
+                if (colConfig.p_key || colConfig.gen) {
+                    return;
+                }
+
+                const colName = colConfig.col_name;
+                const group = document.createElement('div');
+                group.className = 'form-group';
+
+                const label = document.createElement('label');
+                label.htmlFor = `add_${colName}`;
+                label.textContent = formatColumnName(colName);
+
+                const input = document.createElement('input');
+                const fieldType = fieldTypes[colName];
+                
+                // Determine input type based on detected field type
+                if (fieldType === 'datetime') {
+                    input.type = 'datetime-local';
+                } else if (fieldType === 'date') {
+                    input.type = 'date';
+                } else {
+                    input.type = 'text';
+                }
+                
+                input.id = `add_${colName}`;
+                input.className = 'add-field';
+                input.setAttribute('data-column', colName);
+
+                group.appendChild(label);
+                group.appendChild(input);
+                addFormGrid.appendChild(group);
+            });
+
+            addBackdrop.classList.add('active');
+            addSection.classList.add('active');
+            addStatusMessage.classList.remove('active');
+        }
+
+        function closeAddForm() {
+            addBackdrop.classList.remove('active');
+            addSection.classList.remove('active');
+            addForm.reset();
+            addStatusMessage.classList.remove('active');
+        }
+
+        addBtn.addEventListener('click', openAddForm);
+
+        const saveAllBtn = document.getElementById('saveAllBtn');
+        const resetAllBtn = document.getElementById('resetAllBtn');
+
+        if (saveAllBtn) {
+            saveAllBtn.addEventListener('click', saveAllChanges);
+        }
+
+        if (resetAllBtn) {
+            resetAllBtn.addEventListener('click', resetAllChanges);
+        }
+        addCancelBtn.addEventListener('click', closeAddForm);
+        addBackdrop.addEventListener('click', closeAddForm);
+
+        addForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            // Show saving modal
+            savingModalBackdrop.classList.add('active');
+            
+            // Don't include the primary key - it's generated by the database
+            const newRecord = {};
+
+            document.querySelectorAll('.add-field').forEach(field => {
+                const colName = field.getAttribute('data-column');
+                newRecord[colName] = field.value;
+            });
+
+            // If update_workflow is configured, execute INSERT
+            if (update_workflow) {
+                try {
+                    let payload = { ...update_vars };
+                    
+                    // If sql_query is "Dynamic", generate INSERT query
+                    if (payload.sql_query === 'Dynamic') {
+                        payload.sql_query = generateDynamicSQL('INSERT', newRecord, col_display_edit);
+                        console.log('[INSERT] Generated INSERT query:', payload.sql_query);
+                    }
+                    
+                    console.log('[INSERT] Executing update_workflow with payload:', payload);
+                    await rewst.runWorkflowSmart(update_workflow, payload);
+                    console.log('[INSERT] Insert workflow completed successfully');
+                } catch (insertError) {
+                    console.error('[INSERT] Workflow error:', insertError);
+                    savingModalBackdrop.classList.remove('active');
+                    addStatusMessage.textContent = 'Error adding record: ' + insertError.message;
+                    addStatusMessage.className = 'status-message error active';
+                    return;
+                }
+            }
+
+            // Hide saving modal
+            savingModalBackdrop.classList.remove('active');
+
+            tableData.push(newRecord);
+            filterData(searchInput.value);
+            renderTable();
+
+            addStatusMessage.textContent = 'Record added successfully!';
+            addStatusMessage.className = 'status-message success active';
+
+            setTimeout(() => {
+                closeAddForm();
+            }, 1500);
+        });
+
+
+        // ============================================
+        // UTILITY - URL Parameter Handling
+        // ============================================
+        function validateUrlParameters(config) {
+            const errors = [];
+            
+            if (!config.input_var_config || config.input_var_config.length === 0) {
+                return errors; // No URL vars required
+            }
+            
+            config.input_var_config.forEach(varConfig => {
+                if (varConfig.from_url) {
+                    const value = RewstLib.forms.getUrlParameter(varConfig.name);
+                    if (!value && varConfig.required) {
+                        errors.push(`Required URL parameter missing: ?${varConfig.name}=...`);
+                    }
+                }
+            });
+            
+            return errors;
+        }
+
+        function extractUrlVariables(config) {
+            const urlVars = {};
+            
+            if (!config.input_var_config || config.input_var_config.length === 0) {
+                return urlVars;
+            }
+            
+            config.input_var_config.forEach(varConfig => {
+                if (varConfig.from_url) {
+                    const value = RewstLib.forms.getUrlParameter(varConfig.name);
+                    if (value) {
+                        urlVars[varConfig.name] = value;
+                        console.log(`[URL_VAR] ${varConfig.name} = ${value}`);
+                    }
+                }
+            });
+            
+            return urlVars;
+        }
+
+        function substituteVariables(text, variables) {
+            if (!text || typeof text !== 'string') {
+                return text;
+            }
+            
+            let result = text;
+            Object.keys(variables).forEach(varName => {
+                const pattern = new RegExp(`\\[\\[${varName}\\]\\]`, 'g');
+                result = result.replace(pattern, variables[varName]);
+            });
+            
+            return result;
+        }
+
+        function substituteConfigVariables(config, urlVars) {
+            // Substitute in input_vars
+            if (config.input_vars) {
+                Object.keys(config.input_vars).forEach(key => {
+                    config.input_vars[key] = substituteVariables(config.input_vars[key], urlVars);
+                });
+            }
+            
+            // Substitute in update_vars if present
+            if (config.update_vars) {
+                Object.keys(config.update_vars).forEach(key => {
+                    config.update_vars[key] = substituteVariables(config.update_vars[key], urlVars);
+                });
+            }
+            
+            return config;
+        }
+
+        // ============================================
+        // PAGE LOAD - INITIALIZE DATATABLE
+        // ============================================
+        
+        // ===== SIMPLIFIED INLINE EDITING FUNCTIONS =====
+        
+        // Reset a single row to original values
+        function resetRow(index) {
+            const tr = tableBody.querySelector(`tr[data-row-index="${index}"]`);
+            if (!tr) return;
+            
+            const originalData = JSON.parse(tr.dataset.originalData);
+            
+            // Restore tableData to original values
+            Object.keys(originalData).forEach(colName => {
+                tableData[index][colName] = originalData[colName];
+            });
+            
+            // Reset all input values
+            tr.querySelectorAll('.inline-input').forEach(input => {
+                const colName = input.dataset.column;
+                const value = originalData[colName];
+                const colSetting = col_display_edit.find(c => c.col_name === colName) || {};
+                const colType = colSetting.type || 'varchar';
+                
+                if (input.type === 'checkbox') {
+                    input.checked = value === true || value === 'true' || value === '1';
+                } else if (colType === 'datetime' || colType === 'timestamp') {
+                    if (value) {
+                        const date = new Date(value);
+                        input.value = date.toISOString().slice(0, 16);
+                    } else {
+                        input.value = '';
+                    }
+                } else if (colType === 'date') {
+                    if (value) {
+                        const date = new Date(value);
+                        input.value = date.toISOString().slice(0, 10);
+                    } else {
+                        input.value = '';
+                    }
+                } else {
+                    input.value = value || '';
+                }
+            });
+            
+            tr.dataset.modified = 'false';
+        }
+        
+        // Save all changes across all rows
+        async function saveAllChanges() {
+            try {
+                loadingSpinner.classList.add('active');
+                
+                // STEP 1: Validate required fields
+                const validationErrors = [];
+                tableBody.querySelectorAll('tr[data-row-index]').forEach((tr, displayIndex) => {
+                    const rowIndex = parseInt(tr.dataset.rowIndex);
+                    const originalData = JSON.parse(tr.dataset.originalData);
+                    
+                    // Collect current values
+                    const currentData = {...filteredData[rowIndex]};
+                    tr.querySelectorAll('.inline-input').forEach(input => {
+                        const colName = input.dataset.column;
+                        const fieldType = input.type;
+                        
+                        if (fieldType === 'checkbox') {
+                            currentData[colName] = input.checked;
+                        } else if (fieldType === 'number') {
+                            currentData[colName] = input.value ? parseFloat(input.value) : null;
+                        } else {
+                            currentData[colName] = input.value || null;
+                        }
+                    });
+                    
+                    // Check required fields
+                    col_display_edit.forEach(colSetting => {
+                        if (colSetting.required === true) {
+                            const value = currentData[colSetting.col_name];
+                            if (value === null || value === undefined || value === '' || (typeof value === 'string' && value.trim() === '')) {
+                                validationErrors.push(`Row ${displayIndex + 1}: ${colSetting.col_label || colSetting.col_name} is required`);
+                            }
+                        }
+                    });
+                });
+                
+                if (validationErrors.length > 0) {
+                    loadingSpinner.classList.remove('active');
+                    alert('Validation errors:\n\n' + validationErrors.join('\n'));
+                    return;
+                }
+                
+                // Collect all modified data
+                const modifiedRows = [];
+                tableBody.querySelectorAll('tr[data-row-index]').forEach((tr, displayIndex) => {
+                    const rowIndex = parseInt(tr.dataset.rowIndex);
+                    const originalData = JSON.parse(tr.dataset.originalData);
+                    
+                    // Collect current values from inputs
+                    const currentData = {...filteredData[rowIndex]};
+                    tr.querySelectorAll('.inline-input').forEach(input => {
+                        const colName = input.dataset.column;
+                        const colSetting = col_display_edit.find(c => c.col_name === colName) || {};
+                        const colType = colSetting.type || 'varchar';
+                        
+                        if (input.type === 'checkbox') {
+                            currentData[colName] = input.checked;
+                        } else if (colType === 'int' || colType === 'integer' || colType === 'bigint' || colType === 'smallint' || colType === 'decimal' || colType === 'float' || colType === 'numeric') {
+                            currentData[colName] = input.value ? parseFloat(input.value) : null;
+                        } else if (colType === 'datetime' || colType === 'timestamp' || colType === 'date' || colType === 'time') {
+                            currentData[colName] = input.value || null;
+                        } else {
+                            currentData[colName] = input.value || null;
+                        }
+                    });
+                    
+                    // Update filteredData
+                    filteredData[rowIndex] = currentData;
+                    
+                    // Check if modified
+                    const isModified = JSON.stringify(originalData) !== JSON.stringify(currentData);
+                    if (isModified) {
+                        modifiedRows.push({index: rowIndex, data: currentData});
+                    }
+                });
+                
+                // Execute workflow for each modified row if configured
+                if (update_workflow && allow_update && modifiedRows.length > 0) {
+                    for (const row of modifiedRows) {
+                        const updatePayload = {
+                            ...update_vars,
+                            record_data: row.data,
+                            record_id: row.data.id || Object.values(row.data)[0]
+                        };
+                        
+                        await rewst.runWorkflowSmart(update_workflow, updatePayload);
+                    }
+                    
+                    // Refresh data if data_workflow exists
+                    if (data_workflow) {
+                        const dataResult = await rewst.runWorkflowSmart(data_workflow, input_vars);
+                        if (output_var && dataResult.conductor && dataResult.conductor.output) {
+                            const outputData = dataResult.conductor.output[output_var];
+                            if (outputData && Array.isArray(outputData)) {
+                                tableData.length = 0;
+                                tableData.push(...outputData);
+                                filterData(searchInput.value);
+                                renderTable();
+                            }
+                        }
+                    }
+                }
+                
                 loadingSpinner.classList.remove('active');
-                tableContainer.classList.add('active');
+                showSuccessModal(modifiedRows.length > 0 ? 'All changes saved successfully!' : 'No changes to save');
             } catch (error) {
-                console.error('Error:', error);
+                loadingSpinner.classList.remove('active');
+                alert('Error saving changes: ' + error.message);
+            }
+        }
+        
+        // Reset all rows to original values
+        function resetAllChanges() {
+            if (!confirm('Reset all rows to original values?')) {
+                return;
+            }
+            
+            tableBody.querySelectorAll('tr[data-row-index]').forEach((tr) => {
+                const rowIndex = parseInt(tr.dataset.rowIndex);
+                resetRow(rowIndex);
+            });
+        }
+
+        // ===== INPUT VAR DROPDOWN RENDERING =====
+        
+async function renderInputVarDropdowns() {
+            const container = document.getElementById('inputVarContainer');
+            const dropdownsDiv = document.getElementById('inputVarDropdowns');
+            const messageDiv = document.getElementById('inputVarMessage');
+            
+            console.log('[INPUT_VAR] messageDiv found:', !!messageDiv);
+            
+            // Clear previous
+            dropdownsDiv.innerHTML = '';
+            if (messageDiv) {
+                messageDiv.textContent = '';
+                messageDiv.style.display = 'none';
+            }
+
+            if (!inputVarConfig || inputVarConfig.length === 0) {
+                console.log('[INPUT_VAR] No input_var_config, proceeding to load data');
+                container.style.display = 'none';
+                await loadDataTable();
+                return;
+            }
+
+            // Get ordered vars
+            const orderedVars = getInputVarsInDependencyOrder();
+            console.log('[INPUT_VAR] Vars in order:', orderedVars.map(v => v.name));
+
+            // First pass: Set static vars and URL params
+            const staticAndUrlVars = orderedVars.filter(v => !v.from_dataset);
+            for (const varConfig of staticAndUrlVars) {
+                const urlValue = RewstLib.forms.getUrlParameter(varConfig.name);
+                if (urlValue) {
+                    setInputVarValue(varConfig.name, urlValue);
+                    console.log('[INPUT_VAR] Populated from URL:', varConfig.name, '=', urlValue);
+                } else if (input_vars[varConfig.name] !== undefined && input_vars[varConfig.name] !== '') {
+                    setInputVarValue(varConfig.name, input_vars[varConfig.name]);
+                    console.log('[INPUT_VAR] Set static var:', varConfig.name, '=', input_vars[varConfig.name]);
+                }
+            }
+
+            // Check which input_var_config entries have datatable_var: true
+            const datatable_vars = orderedVars.filter(v => v.datatable_var === true);
+            console.log('[INPUT_VAR] datatable_var configs:', datatable_vars.map(v => v.name));
+
+            // Find all unexpanded variables in datatable_var inputs (transitive)
+            const neededDropdowns = [];
+            const checked = new Set();
+            
+            function findNeededDropdowns(varName) {
+                if (checked.has(varName)) return;
+                checked.add(varName);
+                
+                const varConfig = inputVarConfig.find(v => v.name === varName);
+                if (!varConfig) return;
+                
+                // Get the actual value from input_vars or input_var property
+                let checkValue = varConfig.input_var || input_vars[varConfig.name];
+                console.log('[INPUT_VAR] Checking', varName, '- value:', checkValue);
+                
+                if (checkValue) {
+                    const { dependencies } = parseInputVar(checkValue);
+                    console.log('[INPUT_VAR]   - dependencies:', dependencies);
+                    
+                    for (const dep of dependencies) {
+                        const depValue = getInputVarValue(dep);
+                        console.log('[INPUT_VAR]     -', dep, '=', depValue);
+                        if (!depValue) {
+                            // This dependency is unexpanded, need to render it
+                            const depConfig = inputVarConfig.find(v => v.name === dep);
+                            if (depConfig && depConfig.from_dataset === true && !neededDropdowns.includes(dep)) {
+                                neededDropdowns.push(dep);
+                                console.log('[INPUT_VAR] Need dropdown for dependency:', dep);
+                                
+                                // Recursively check this dependency's dependencies
+                                findNeededDropdowns(dep);
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // Start from all datatable_vars
+            for (const varConfig of datatable_vars) {
+                findNeededDropdowns(varConfig.name);
+            }
+
+            // If no dropdowns needed, skip to loading data
+            if (neededDropdowns.length === 0) {
+                console.log('[INPUT_VAR] No dropdowns needed, loading data directly');
+                container.style.display = 'none';
+                await loadDataTable();
+                return;
+            }
+
+            // Show container and render needed dropdowns
+            container.style.display = 'block';
+            const dropdownVars = orderedVars.filter(v => {
+                if (v.from_dataset !== true) return false;
+                if (!neededDropdowns.includes(v.name)) {
+                    console.log('[INPUT_VAR] Skipping', v.name, '- not in neededDropdowns');
+                    return false;
+                }
+                return true;
+            });
+            console.log('[INPUT_VAR] Filtered dropdownVars:', dropdownVars.map(v => v.name));
+            
+            console.log('[INPUT_VAR] Rendering', dropdownVars.length, 'dropdown vars');
+
+            // Render dropdowns for needed variables only
+            for (const varConfig of dropdownVars) {
+                renderInputVarDropdown(varConfig, dropdownsDiv);
+            }
+
+            // Show waiting message if dropdowns are needed
+            if (dropdownVars.length > 0) {
+                const dropdownNames = dropdownVars.map(v => v.dspl_name || v.name).join(' and ');
+                if (messageDiv) {
+                    messageDiv.textContent = `Select ${dropdownNames} to retrieve data`;
+                    messageDiv.style.display = 'block';
+                }
                 tableContainer.classList.add('active');
-                tableBody.innerHTML = `<tr><td colspan="100" style="color: #dc3545; padding: 2rem; text-align: center;">Error: ${error.message}</td></tr>`;
+                console.log('[INPUT_VAR] Waiting for:', dropdownNames);
+            }
+        }
+        
+        async function renderInputVarDropdown(varConfig) {
+            const dropdownsDiv = document.getElementById('inputVarDropdowns');
+            
+            // Create the group and label immediately
+            const group = document.createElement('div');
+            group.className = 'input-var-group';
+            group.id = `var_group_${varConfig.name}`;
+            
+            const label = document.createElement('label');
+            label.className = 'input-var-label';
+            label.textContent = varConfig.dspl_name || varConfig.name;
+            
+            group.appendChild(label);
+            
+            // Check if dependencies are satisfied
+            if (!areDependenciesSatisfied(varConfig.name)) {
+                console.log('[INPUT_VAR] Dependencies not satisfied for:', varConfig.name);
+                
+                // Get parent dependency names for message
+                const { dependencies } = parseInputVar(varConfig.input_var || '');
+                const dependencyLabels = dependencies.map(depName => {
+                    const depConfig = inputVarConfig.find(v => v.name === depName);
+                    return depConfig ? (depConfig.dspl_name || depName) : depName;
+                }).join(' and ');
+                
+                // Show waiting state
+                const waiting = document.createElement('div');
+                waiting.className = 'input-var-waiting';
+                waiting.textContent = `Waiting on ${dependencyLabels} selection`;
+                
+                group.appendChild(waiting);
+                dropdownsDiv.appendChild(group);
+                return;
+            }
+
+            // Check if value already set from URL
+            const urlValue = RewstLib.forms.getUrlParameter(varConfig.name);
+            if (urlValue) {
+                setInputVarValue(varConfig.name, urlValue);
+                // Don't render dropdown if already have URL value
+                dropdownsDiv.appendChild(group);
+                return;
+            }
+
+            // Create the select dropdown
+            const select = document.createElement('select');
+            select.className = 'input-var-select';
+            select.id = `var_${varConfig.name}`;
+            select.setAttribute('data-var-name', varConfig.name);
+            select.innerHTML = '<option value="">Loading...</option>';
+            select.disabled = true;
+            
+            group.appendChild(select);
+            dropdownsDiv.appendChild(group);
+            
+            // Execute workflow asynchronously (don't await or throw)
+            populateInputVarDropdown(varConfig, select);
+        }
+        
+        async function populateInputVarDropdown(varConfig, selectElement) {
+            // Check if dependencies are still satisfied (they might have changed)
+            const depsSatisfied = areDependenciesSatisfied(varConfig.name);
+            
+            if (!depsSatisfied) {
+                console.log('[INPUT_VAR] Skipping', varConfig.name, '- dependencies not satisfied');
+                return;
+            }
+            
+            try {
+                const workflowPayload = {};
+                
+                // Build payload from input_var config
+                if (varConfig.input_var) {
+                    const { dependencies, staticVars } = parseInputVar(varConfig.input_var);
+                    
+                    // Add dependency values
+                    dependencies.forEach(dep => {
+                        const depValue = getInputVarValue(dep);
+                        if (depValue) {
+                            workflowPayload[dep] = depValue;
+                        }
+                    });
+                    
+                    // Add static values
+                    Object.assign(workflowPayload, staticVars);
+                }
+                
+                console.log('[INPUT_VAR] Executing workflow for:', varConfig.name, 'Payload:', workflowPayload);
+                
+                const result = await rewst.runWorkflowSmart(varConfig.workflow, workflowPayload);
+                
+                console.log('[INPUT_VAR] Workflow result:', result);
+                
+                // Extract dropdown options
+                if (!result.conductor || !result.conductor.output || !result.conductor.output[varConfig.output_var]) {
+                    throw new Error(`Output variable '${varConfig.output_var}' not found in workflow result`);
+                }
+                
+                const options = result.conductor.output[varConfig.output_var];
+                if (!Array.isArray(options)) {
+                    throw new Error(`Output variable '${varConfig.output_var}' is not an array`);
+                }
+                
+                // Populate dropdown
+                selectElement.innerHTML = '<option value="">Select...</option>';
+                options.forEach(option => {
+                    const optionEl = document.createElement('option');
+                    optionEl.value = option[varConfig.output_id];
+                    optionEl.textContent = option[varConfig.output_label];
+                    selectElement.appendChild(optionEl);
+                });
+                
+                selectElement.disabled = false;
+                
+                // Add change listener
+                selectElement.addEventListener('change', () => {
+                    onInputVarSelected(varConfig.name, selectElement.value);
+                });
+                
+            } catch (error) {
+                console.error('[INPUT_VAR] Workflow error:', error);
+                selectElement.innerHTML = '<option>Error loading options</option>';
+                selectElement.disabled = true;
+            }
+        }
+        
+async function onInputVarSelected(varName, value) {
+            console.log('[INPUT_VAR] Selected:', varName, '=', value);
+            
+            setInputVarValue(varName, value);
+            
+            // Find dependent vars and re-render them
+            const dependentVars = inputVarConfig.filter(v => {
+                if (!v.input_var) return false;
+                const { dependencies } = parseInputVar(v.input_var);
+                return dependencies.includes(varName);
+            });
+            
+            console.log('[INPUT_VAR] Dependent vars:', dependentVars.map(v => v.name));
+            
+            // Clear and re-render dependent dropdowns
+            const dropdownsDiv = document.getElementById('inputVarDropdowns');
+            for (const depVar of dependentVars) {
+                // Clear the value
+                setInputVarValue(depVar.name, '');
+                
+                // Remove existing dropdown/waiting state from UI
+                const existingGroup = dropdownsDiv.querySelector(`#var_group_${depVar.name}`);
+                if (existingGroup) {
+                    existingGroup.remove();
+                }
+                
+                // Re-render the dependent dropdown
+                console.log('[INPUT_VAR] Re-rendering dependent var:', depVar.name);
+                try {
+                    await renderInputVarDropdown(depVar);
+                } catch (error) {
+                    console.error('[INPUT_VAR] Error re-rendering:', depVar.name, error);
+                }
+            }
+            
+            // Check if all required vars are satisfied, then load data
+            await checkAndLoadDataIfReady();
+        }
+        
+        async function checkAndLoadDataIfReady() {
+            // Check if all required input vars have values
+            const allRequiredSatisfied = inputVarConfig.every(varConfig => {
+                if (varConfig.required !== true) return true;
+                const value = getInputVarValue(varConfig.name);
+                return value !== '' && value !== undefined;
+            });
+            
+            if (!allRequiredSatisfied) {
+                console.log('[INPUT_VAR] Waiting for required vars');
+                return;
+            }
+            
+            // Also check if all datatable_var dependencies are satisfied (no unexpanded [[]])
+            const datatable_vars = inputVarConfig.filter(v => v.datatable_var === true);
+            const allDependenciesSatisfied = datatable_vars.every(varConfig => {
+                let checkValue = varConfig.input_var || input_vars[varConfig.name];
+                if (!checkValue) return true;
+                
+                const { dependencies } = parseInputVar(checkValue);
+                return dependencies.every(dep => {
+                    const value = getInputVarValue(dep);
+                    return value !== '' && value !== undefined;
+                });
+            });
+            
+            if (allDependenciesSatisfied) {
+                console.log('[INPUT_VAR] All required vars and dependencies satisfied, loading data');
+                await loadDataTable();
+            } else {
+                console.log('[INPUT_VAR] Waiting for datatable var dependencies');
             }
         }
 
+                        // ===== LOAD DATA TABLE =====
+async function loadDataTable() {
+            try {
+                console.log('[LOAD_TABLE] Starting table load with input vars:', inputVarValues);
+                
+                const messageDiv = document.getElementById('inputVarMessage');
+                // Clear the input var message when loading starts
+                messageDiv.textContent = '';
+                messageDiv.style.display = 'none';
+                
+                loadingSpinner.classList.add('active');
+                tableContainer.classList.remove('active');
+                
+                if (!data_workflow) {
+                    console.warn('[LOAD_TABLE] No data_workflow configured');
+                    loadingSpinner.classList.remove('active');
+                    return;
+                }
+                
+                // Build the complete input vars payload
+                const payload = {};
+                
+                // Helper function to substitute [[variable]] with actual values
+                function substituteVariables(str) {
+                    if (typeof str !== 'string') return str;
+                    
+                    let result = str;
+                    const varPattern = /\[\[(\w+)\]\]/g;
+                    let match;
+                    
+                    while ((match = varPattern.exec(str)) !== null) {
+                        const varName = match[1];
+                        const varValue = getInputVarValue(varName);
+                        console.log('[LOAD_TABLE] Substituting [[' + varName + ']] with ' + varValue);
+                        if (varValue) {
+                            result = result.replace(match[0], varValue);
+                        }
+                    }
+                    
+                    console.log('[LOAD_TABLE] After substitution: ' + result);
+                    return result;
+                }
+                
+                // Add ALL input_var_config variables to payload FIRST (they're needed for substitution)
+                inputVarConfig.forEach(varConfig => {
+                    const value = getInputVarValue(varConfig.name);
+                    if (value !== '' && value !== undefined && value !== null) {
+                        payload[varConfig.name] = value;
+                    }
+                });
+                
+                // Process input_vars from config - this may use values from input_var_config above
+                Object.keys(input_vars).forEach(key => {
+                    const value = input_vars[key];
+                    // Substitute any [[variable]] patterns using values now in payload
+                    payload[key] = substituteVariables(value);
+                });
+                
+                console.log('[LOAD_TABLE] Executing data_workflow with payload:', payload);
+                
+                // Check if payload still has unexpanded [[variable]] placeholders
+                const payloadStr = JSON.stringify(payload);
+                const unexpandedPattern = /\[\[\w+\]\]/;
+                if (unexpandedPattern.test(payloadStr)) {
+                    console.warn('[LOAD_TABLE] Payload still has unexpanded placeholders, waiting...');
+                    
+                    // Find which parameters are still unexpanded
+                    const unexpandedVars = [];
+                    const varPattern = /\[\[(\w+)\]\]/g;
+                    let match;
+                    const tempPayloadStr = JSON.stringify(payload);
+                    
+                    while ((match = varPattern.exec(tempPayloadStr)) !== null) {
+                        const varName = match[1];
+                        const varConfig = inputVarConfig.find(v => v.name === varName);
+                        if (varConfig) {
+                            unexpandedVars.push(varConfig.dspl_name || varName);
+                        }
+                    }
+                    
+                    const uniqueUnexpanded = [...new Set(unexpandedVars)];
+                    const waitingFor = uniqueUnexpanded.join(' and ');
+                    
+                    loadingSpinner.classList.remove('active');
+                    messageDiv.textContent = `Waiting on ${waitingFor} selection`;
+                    messageDiv.style.display = 'block';
+                    tableContainer.classList.add('active');
+                    return;
+                }
+                
+                const result = await rewst.runWorkflowSmart(data_workflow, payload, {
+                    onProgress: (status, numSuccessfulTasks) => {
+                        console.log('[WORKFLOW] Status:', status, 'Tasks completed:', numSuccessfulTasks);
+                    }
+                });
+                
+                console.log('[LOAD_TABLE] Workflow completed, result:', result);
+                
+                // Extract data from output var
+                if (output_var && result.conductor && result.conductor.output) {
+                    const outputData = result.conductor.output[output_var];
+                    console.log('[LOAD_TABLE] Output data from', output_var + ':', outputData);
+                    
+                    if (outputData && Array.isArray(outputData) && outputData.length > 0) {
+                        tableData.length = 0;
+                        tableData.push(...outputData);
+                        
+                        console.log('[LOAD_TABLE] Populated tableData with', tableData.length, 'records');
+                        
+                        fieldTypes = detectFieldTypes(tableData, col_display_edit);
+                        
+                        filterData(searchInput.value);
+                        renderTable();
+                        
+                        loadingSpinner.classList.remove('active');
+                        tableContainer.classList.add('active');
+                    } else {
+                        console.warn('[LOAD_TABLE] Output data is empty or not an array');
+                        loadingSpinner.classList.remove('active');
+                        showErrorMessage('No data returned from workflow');
+                    }
+                } else {
+                    console.warn('[LOAD_TABLE] No output_var specified or conductor.output not available');
+                    loadingSpinner.classList.remove('active');
+                    showErrorMessage('Invalid workflow response');
+                }
+            } catch (error) {
+                console.error('[LOAD_TABLE] Error:', error);
+                loadingSpinner.classList.remove('active');
+                showErrorMessage(`Failed to load data: ${error.message}`);
+            }
+        }
+        
+        function showErrorMessage(message) {
+            tableContainer.classList.add('active');
+            tableBody.innerHTML = `
+                <tr>
+                    <td colspan="100" style="text-align: center; padding: 3rem; color: #dc3545;">
+                        <div style="font-size: 1.3rem; font-weight: 600; margin-bottom: 1rem;">⚠ Error Loading Datatable</div>
+                        <div style="font-size: 1rem; color: #e0e0e0;">${RewstLib.forms.escapeHtml(message)}</div>
+                    </td>
+                </tr>
+            `;
+        }
+
+                async function initializeDataTable() {
+            try {
+                console.log('[INIT] Starting datatable initialization...');
+                
+                tableContainer.classList.remove('active');
+
+                // STEP 1: Validate datatable ID (required immediately)
+                // First try direct URL parameter, then fall back to parent window (for iframe context)
+                let datatableId = RewstLib.forms.getUrlParameter('datatable');
+                
+                if (!datatableId && window.parent !== window) {
+                    try {
+                        const parentUrl = new URL(window.parent.location.href);
+                        datatableId = parentUrl.searchParams.get('datatable');
+                        if (datatableId) {
+                            console.log('[INIT] Got datatable ID from parent window:', datatableId);
+                        }
+                    } catch (e) {
+                        console.log('[INIT] Cannot access parent window:', e.message);
+                    }
+                }
+                
+                if (!datatableId) {
+                    throw new Error('No datatable ID provided in URL (?datatable=id&audit_id=id)');
+                }
+
+                console.log('[INIT] Loading datatable config for ID:', datatableId);
+
+                // STEP 2: Retrieve and parse datatable config
+                const variableName = 'datatable_' + datatableId;
+                const orgVar = await retrieveOrgVariable(variableName);
+
+                if (!orgVar) {
+                    throw new Error(`Datatable configuration not found: ${variableName}`);
+                }
+
+                try {
+                    datatableConfig = JSON.parse(orgVar.value);
+                    console.log('[INIT] Datatable config loaded:', datatableConfig);
+
+                    // STEP 3: Extract configuration
+                    data_workflow = datatableConfig.data_workflow || null;
+                    input_vars = datatableConfig.input_vars || {};
+                    output_var = datatableConfig.output_var || null;
+                    update_workflow = datatableConfig.update_workflow || null;
+                    update_vars = datatableConfig.update_vars || {};
+                    allow_create = datatableConfig.allow_create === true;
+                    allow_update = datatableConfig.allow_update === true;
+                    allow_delete = datatableConfig.allow_delete === true;
+                    edit_type = datatableConfig.edit_type || 'window';
+
+                    console.log('[INIT] Configuration extracted:');
+                    console.log('[INIT]   data_workflow:', data_workflow);
+                    console.log('[INIT]   output_var:', output_var);
+                    console.log('[INIT]   update_workflow:', update_workflow);
+                    console.log('[INIT]   Permissions - Create:', allow_create, 'Update:', allow_update, 'Delete:', allow_delete);
+                    console.log('[INIT]   Edit type:', edit_type);
+
+                    // STEP 4: Extract and store input_var_config
+                    inputVarConfig = datatableConfig.input_var_config || [];
+                    console.log('[INIT] Input var config:', inputVarConfig);
+
+                    // STEP 5: Extract column settings
+                    const columnSettings = datatableConfig.col_settings || datatableConfig.column_settings || [];
+                    console.log('[INIT] Column settings:', columnSettings);
+
+                    col_display_table = columnSettings.filter(col => col.hide_table !== true).map(col => col.col_name);
+                    col_display_edit = columnSettings.filter(col => col.hide_edit !== true);
+
+                    console.log('[INIT] Columns for table:', col_display_table);
+                    console.log('[INIT] Columns for edit:', col_display_edit);
+
+                    // STEP 6: Create message div for status/error messages
+                    let messageDiv = document.getElementById('inputVarMessage');
+                    if (!messageDiv) {
+                        messageDiv = document.createElement('div');
+                        messageDiv.id = 'inputVarMessage';
+                        messageDiv.style.display = 'none';
+                        messageDiv.style.padding = '2rem';
+                        messageDiv.style.textAlign = 'center';
+                        messageDiv.style.color = '#e0e0e0';
+                        messageDiv.style.fontSize = '1rem';
+                        const dataTable = document.getElementById('dataTable');
+                        dataTable.insertAdjacentElement('afterend', messageDiv);
+                        console.log('[INIT] Created messageDiv');
+                    }
+
+                    // STEP 7: Build table structure and filters
+                    buildTableStructure();
+                    renderFilters();
+                    console.log('[INIT] Table structure and filters built');
+
+                    // STEP 8: Handle input var dropdowns and data loading
+                    console.log('[INIT] Processing input variables...');
+                    
+                    try {
+                        await renderInputVarDropdowns();
+                        // renderInputVarDropdowns will call loadDataTable when ready
+                        console.log('[INIT] Input var dropdowns rendered');
+                    } catch (inputVarError) {
+                        console.error('[INIT] Input var error:', inputVarError);
+                        const messageDiv = document.getElementById('inputVarMessage');
+                        if (messageDiv) {
+                            messageDiv.textContent = inputVarError.message;
+                            messageDiv.style.display = 'block';
+                        }
+                        tableContainer.classList.add('active');
+                        return;
+                    }
+
+                    // STEP 9: Apply permission-based UI visibility
+                    const addBtn = document.getElementById('addBtn');
+                    if (!allow_create) {
+                        addBtn.style.display = 'none';
+                    }
+                    
+                    // Show Save button only in column edit mode
+                    if (edit_type === 'column') {
+                        saveBtn.style.display = 'flex';
+                    } else {
+                        saveBtn.style.display = 'none';
+                    }
+                    
+                    // Show instruction message only in window edit mode
+                    if (edit_type === 'window') {
+                        windowModeInstruction.style.display = 'block';
+                    } else {
+                        windowModeInstruction.style.display = 'none';
+                    }
+                    
+                    // Set the datatable name
+                    if (datatableConfig.name) {
+                        datatableName.textContent = datatableConfig.name;
+                    }
+
+                } catch (parseError) {
+                    throw new Error(`Invalid JSON in datatable configuration: ${parseError.message}`);
+                }
+
+            } catch (error) {
+                console.error('[INIT] Error:', error);
+                tableContainer.classList.add('active');
+                const messageDiv = document.getElementById('inputVarMessage');
+                if (messageDiv) {
+                    messageDiv.textContent = error.message;
+                    messageDiv.style.display = 'block';
+                } else {
+                    tableBody.innerHTML = `
+                        <tr>
+                            <td colspan="100" style="text-align: center; padding: 3rem; color: #dc3545;">
+                                <div style="font-size: 1.3rem; font-weight: 600; margin-bottom: 1rem;">⚠ Error Loading Datatable</div>
+                                <div style="font-size: 1rem; color: #e0e0e0;">${RewstLib.forms.escapeHtml(error.message)}</div>
+                            </td>
+                        </tr>
+                    `;
+                }
+            }
+        }
+
+        // Run initialization when page loads
         if (document.readyState === 'loading') {
             document.addEventListener('DOMContentLoaded', initializeDataTable);
         } else {
