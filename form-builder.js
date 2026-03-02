@@ -1,5 +1,6 @@
-// Username will be set after the raw block via Jinja injection
-let userName = "unknown_user";
+// Username from rewstUser (initialized by security.js)
+// No need to set userName separately - we use rewstUser.username directly in formConfig
+
 // ============================================
 // REWST APP LIBRARY (Simplified)
 // ============================================
@@ -1714,7 +1715,7 @@ function updateFieldConfigsDisplay() {
             show_title: showTitle,
             column_count: columnCount,
             show_vert_sep: showVertSep,
-            user: userName,
+            user: (typeof rewstUser !== 'undefined' && rewstUser ? rewstUser.username : 'unknown_user'),
             field_configs: fieldConfigs
         };
     } else {
@@ -1747,7 +1748,7 @@ function updateFieldConfigsDisplay() {
                 operation: document.getElementById('hidden_graphql_submit_op') ? document.getElementById('hidden_graphql_submit_op').value : '',
                 variables: {}
             },
-            user: userName,
+            user: (typeof rewstUser !== 'undefined' && rewstUser ? rewstUser.username : 'unknown_user'),
             field_configs: fieldConfigs
         };
         
@@ -4480,7 +4481,7 @@ if (saveConfirmYes) {
                     show_title: showTitle,
                     column_count: columnCount,
                     show_vert_sep: showVertSep,
-                    user: userName,
+                    user: (typeof rewstUser !== 'undefined' && rewstUser ? rewstUser.username : 'unknown_user'),
                     field_configs: fieldConfigs
                 };
             } else {
@@ -4502,7 +4503,7 @@ if (saveConfirmYes) {
                         operation: document.getElementById('hidden_graphql_submit_op') ? document.getElementById('hidden_graphql_submit_op').value : '',
                         variables: {}
                     },
-                    user: userName,
+                    user: (typeof rewstUser !== 'undefined' && rewstUser ? rewstUser.username : 'unknown_user'),
                     field_configs: fieldConfigs
                 };
             }
