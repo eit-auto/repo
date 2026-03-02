@@ -13,12 +13,26 @@
  *   3. Load this file: <script src="security.js"></script>
  *   4. Call permission check: checkPagePermission(pagePermissions);
  *   5. rewstUser is now available globally for use in other scripts
+ *   6. Wrap all page content in <div id="page-content"> for permission-based hiding
  */
 
-// Hide body content until permission check completes
-if (document.body) {
-    document.body.style.display = 'none';
-}
+// Hide page content until permission check completes
+// (Modals and error messages remain in body)
+const hidePageContent = () => {
+    const pageContent = document.getElementById('page-content');
+    if (pageContent) {
+        pageContent.style.display = 'none';
+    }
+};
+
+const showPageContent = () => {
+    const pageContent = document.getElementById('page-content');
+    if (pageContent) {
+        pageContent.style.display = '';
+    }
+};
+
+hidePageContent();
 
 let rewstUser = null;
 
@@ -128,11 +142,11 @@ if (rewstUser && window.ORG_ID) {
     });
 }
 
-// For config-based pages with no hardcoded permissions, show body content
+// For config-based pages with no hardcoded permissions, show page content
 // (Permission check will be done against config's permissions later)
-if (typeof pagePermissions !== 'undefined' && pagePermissions.length === 0 && document.body) {
-    document.body.style.display = '';
-    console.log('[Security] No hardcoded permissions - showing body content (config-based page)');
+if (typeof pagePermissions !== 'undefined' && pagePermissions.length === 0) {
+    showPageContent();
+    console.log('[Security] No hardcoded permissions - showing page content (config-based page)');
 }
 
 // ============================================
@@ -185,10 +199,8 @@ function checkPagePermission(requiredRoleIds) {
     }
     
     console.log('[Security] User has permission to view page');
-    // Show body content since permission is granted
-    if (document.body) {
-        document.body.style.display = '';
-    }
+    // Show page content since permission is granted
+    showPageContent();
     return true;
 }
 
@@ -215,10 +227,10 @@ function showPermissionDenied(message) {
         </div>
     `;
     
-    document.body.innerHTML = errorHtml;
-    document.body.style.display = ''; // Show body to display error message
-    document.body.style.margin = '0';
-    document.body.style.padding = '0';
+    // Create container in body for error message
+    const container = document.createElement('div');
+    container.innerHTML = errorHtml;
+    document.body.insertBefore(container.firstElementChild, document.body.firstChild);
     
     throw new Error('User does not have permission to view this page');
 }
