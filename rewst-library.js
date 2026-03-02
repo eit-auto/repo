@@ -1111,13 +1111,14 @@ const GRAPHQL_OPERATIONS = {
    * Initialize dropdown multi-select component
    * @param {string} fieldName - Field name
    * @param {Array} optionsArray - Array of {value, label} objects
+   * @param {Array} selectedValues - Optional array of pre-selected values
    */
-  function initializeDropdownMultiSelect(fieldName, optionsArray) {
+  function initializeDropdownMultiSelect(fieldName, optionsArray, selectedValues = []) {
     const multiSelectId = `ms_${fieldName}`;
     const container = document.getElementById(multiSelectId);
     if (container && optionsArray && optionsArray.length > 0) {
-      initializeMultiSelect(container, optionsArray, []);
-      console.log(`[MULTI-SELECT] Initialized for: ${fieldName} with ${optionsArray.length} options`);
+      initializeMultiSelect(container, optionsArray, selectedValues);
+      console.log(`[MULTI-SELECT] Initialized for: ${fieldName} with ${optionsArray.length} options and ${selectedValues.length} pre-selected values`);
     }
   }
 
@@ -1837,7 +1838,9 @@ const GRAPHQL_OPERATIONS = {
       getFormIdFromParent,
       detectUrlFormId,
       escapeHtml,
-      formatTaskName
+      formatTaskName,
+      renderMultiSelectContainer,
+      initializeDropdownMultiSelect
     },
     // Utilities
     utils: {
