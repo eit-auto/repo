@@ -1565,16 +1565,34 @@ if (formColumnsSelect) {
                 hiddenFormPermissions.type = 'hidden';
                 hiddenFormPermissions.id = 'hidden_form_permissions';
                 
+                console.log('[INIT] allUserRoles defined?', typeof allUserRoles !== 'undefined');
+                console.log('[INIT] allUserRoles value:', allUserRoles);
+                
                 // Auto-select Admin role since allUserRoles is available from HTML
+                let adminValue = '[]';
                 if (typeof allUserRoles !== 'undefined' && allUserRoles.length > 0) {
-                    const adminRole = allUserRoles.find(role => role.label && role.label.toLowerCase() === 'admin');
-                    hiddenFormPermissions.value = adminRole ? JSON.stringify([adminRole.value]) : '[]';
-                    console.log('[INIT] Auto-selected Admin role:', hiddenFormPermissions.value);
+                    // Try multiple variations to find admin role
+                    let adminRole = allUserRoles.find(role => role.label && role.label.toLowerCase() === 'admin');
+                    if (!adminRole) {
+                        adminRole = allUserRoles.find(role => role.name && role.name.toLowerCase() === 'admin');
+                    }
+                    if (adminRole) {
+                        adminValue = JSON.stringify([adminRole.value || adminRole.id]);
+                        console.log('[INIT] Found Admin role:', adminRole, 'storing:', adminValue);
+                    } else {
+                        console.log('[INIT] Admin role not found in allUserRoles. Available roles:', allUserRoles.map(r => r.label || r.name));
+                        // Fallback: use first role if no admin found
+                        if (allUserRoles[0]) {
+                            adminValue = JSON.stringify([allUserRoles[0].value || allUserRoles[0].id]);
+                            console.log('[INIT] Using first role as fallback:', adminValue);
+                        }
+                    }
                 } else {
-                    hiddenFormPermissions.value = '[]';
-                    console.log('[INIT] allUserRoles not available, using empty array');
+                    console.log('[INIT] allUserRoles not available or empty');
                 }
                 
+                hiddenFormPermissions.value = adminValue;
+                console.log('[INIT] Set hidden_form_permissions.value to:', hiddenFormPermissions.value);
                 document.body.appendChild(hiddenFormPermissions);
                 console.log('[INIT] Created hidden_form_permissions field');
             }
@@ -1597,16 +1615,34 @@ if (formColumnsSelect) {
             hiddenFormPermissions.type = 'hidden';
             hiddenFormPermissions.id = 'hidden_form_permissions';
             
+            console.log('[INIT] allUserRoles defined?', typeof allUserRoles !== 'undefined');
+            console.log('[INIT] allUserRoles value:', allUserRoles);
+            
             // Auto-select Admin role since allUserRoles is available from HTML
+            let adminValue = '[]';
             if (typeof allUserRoles !== 'undefined' && allUserRoles.length > 0) {
-                const adminRole = allUserRoles.find(role => role.label && role.label.toLowerCase() === 'admin');
-                hiddenFormPermissions.value = adminRole ? JSON.stringify([adminRole.value]) : '[]';
-                console.log('[INIT] Auto-selected Admin role:', hiddenFormPermissions.value);
+                // Try multiple variations to find admin role
+                let adminRole = allUserRoles.find(role => role.label && role.label.toLowerCase() === 'admin');
+                if (!adminRole) {
+                    adminRole = allUserRoles.find(role => role.name && role.name.toLowerCase() === 'admin');
+                }
+                if (adminRole) {
+                    adminValue = JSON.stringify([adminRole.value || adminRole.id]);
+                    console.log('[INIT] Found Admin role:', adminRole, 'storing:', adminValue);
+                } else {
+                    console.log('[INIT] Admin role not found in allUserRoles. Available roles:', allUserRoles.map(r => r.label || r.name));
+                    // Fallback: use first role if no admin found
+                    if (allUserRoles[0]) {
+                        adminValue = JSON.stringify([allUserRoles[0].value || allUserRoles[0].id]);
+                        console.log('[INIT] Using first role as fallback:', adminValue);
+                    }
+                }
             } else {
-                hiddenFormPermissions.value = '[]';
-                console.log('[INIT] allUserRoles not available, using empty array');
+                console.log('[INIT] allUserRoles not available or empty');
             }
             
+            hiddenFormPermissions.value = adminValue;
+            console.log('[INIT] Set hidden_form_permissions.value to:', hiddenFormPermissions.value);
             document.body.appendChild(hiddenFormPermissions);
             console.log('[INIT] Created hidden_form_permissions field');
         }
