@@ -27,8 +27,13 @@ const hidePageContent = () => {
 
 const showPageContent = () => {
     const pageContent = document.getElementById('page-content');
+    console.log('[Security] showPageContent() called');
+    console.log('[Security] pageContent element found:', !!pageContent);
     if (pageContent) {
+        console.log('[Security] Setting display to block with !important');
         pageContent.style.setProperty('display', 'block', 'important');
+        console.log('[Security] After setProperty, display is now:', pageContent.style.display);
+        console.log('[Security] Computed style display:', window.getComputedStyle(pageContent).display);
     }
 };
 
@@ -170,6 +175,7 @@ if (typeof pagePermissions !== 'undefined' && pagePermissions.length === 0) {
  *   checkPagePermission(pageConfig.permissions.roleIds);
  */
 function checkPagePermission(requiredRoleIds) {
+    console.log('[Security] checkPagePermission() called with:', requiredRoleIds);
     console.log('[Security] Checking page permissions...');
     console.log('[Security] Required roles:', requiredRoleIds);
     
@@ -182,13 +188,18 @@ function checkPagePermission(requiredRoleIds) {
 
     if (!Array.isArray(requiredRoleIds) || requiredRoleIds.length === 0) {
         console.warn('[Security] No required roles specified - access granted');
+        console.log('[Security] Calling showPageContent() for empty permissions');
+        showPageContent();
         return true;
     }
 
     // Check if user has any of the required roles
+    console.log('[Security] User roleIds:', rewstUser.roleIds);
     const hasPermission = requiredRoleIds.some(roleId => 
         rewstUser.roleIds.includes(roleId)
     );
+    
+    console.log('[Security] Has permission:', hasPermission);
     
     if (!hasPermission) {
         console.warn('[Security] User lacks required permissions');
@@ -199,6 +210,7 @@ function checkPagePermission(requiredRoleIds) {
     }
     
     console.log('[Security] User has permission to view page');
+    console.log('[Security] Calling showPageContent()');
     // Show page content since permission is granted
     showPageContent();
     return true;
