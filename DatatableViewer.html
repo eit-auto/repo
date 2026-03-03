@@ -4,6 +4,31 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Datatable Viewer</title>
+
+    <!-- ============================================
+         USER CONTEXT & SECURITY INITIALIZATION
+         Populates variables for later use:
+         - rewstUser (Elements: username, id, roleIds, orgId)
+         - allUserRoles (List Item elements: label, value)
+         For config-based pages, leave pagePermissions empty.
+         For hardcoded permission pages, set pagePermissions array.
+         ============================================ -->
+    <style>
+        #page-content { display: none !important; }
+    </style>
+    <script>
+        const rawUserData = `{{ CTX.user }}`;
+        let pagePermissions = []; // Blank for config-based pages.
+        window.ORG_ID = '019176c2-059f-7391-afbc-97b201efbd93';
+    </script>
+    <script src="https://eit-auto.github.io/repo/security.js?v=1.0"></script>
+    <script>
+        // Check hardcoded permissions if pagePermissions is set
+        if (pagePermissions.length > 0) {
+            checkPagePermission(pagePermissions);
+        }
+    </script>
+
     <link rel="stylesheet" href="https://eit-auto.github.io/repo/rewst-library.css?v=3.3.6">
     <style>
         :root {
@@ -441,8 +466,119 @@
         #nonEditableGrid label,
         #editableGrid label
     </style>
+    <script src="https://eit-auto.github.io/repo/rewst-library.js"></script>
+    <script>
+        // ============================================
+        // DATATABLE CONFIG VARIABLES - Must be declared before config load
+        // ============================================
+        let datatableConfig = null;
+        let data_workflow = null;
+        let input_vars = null;
+        let output_var = null;
+        let allow_create = true;
+        let allow_delete = true;
+        let allow_update = true;
+        let edit_type = 'window'; // 'window' or 'column'
+        let update_workflow = null;
+        let update_vars = null;
+        let col_display_table = [];
+        let col_display_edit = [];
+    </script>
+    <script>
+        // ============================================
+        // Initialize Datatable Configuration
+        // ============================================
+        async function initializeDatatableConfig() {
+            try {
+                console.log('[INIT] Starting datatable config load...');
+
+                let datatableId = RewstLib.forms.getUrlParameter('datatable');
+                
+                if (!datatableId && window.parent !== window) {
+                    try {
+                        const parentUrl = new URL(window.parent.location.href);
+                        datatableId = parentUrl.searchParams.get('datatable');
+                        if (datatableId) {
+                            console.log('[INIT] Got datatable ID from parent window:', datatableId);
+                        }
+                    } catch (e) {
+                        console.log('[INIT] Cannot access parent window:', e.message);
+                    }
+                }
+                
+                if (!datatableId) {
+                    throw new Error('No datatable ID provided in URL (?datatable=id&audit_id=id)');
+                }
+
+                console.log('[INIT] Loading datatable config for ID:', datatableId);
+
+                const variableName = 'datatable_' + datatableId;
+                const orgVar = await RewstLib.orgVariables.get(variableName, window.ORG_ID);
+
+                if (!orgVar) {
+                    throw new Error(`Datatable configuration not found: ${variableName}`);
+                }
+
+                try {
+                    datatableConfig = JSON.parse(orgVar.value);
+                    console.log('[INIT] Datatable config loaded:', datatableConfig);
+
+                    data_workflow = datatableConfig.data_workflow || null;
+                    input_vars = datatableConfig.input_vars || {};
+                    output_var = datatableConfig.output_var || null;
+                    update_workflow = datatableConfig.update_workflow || null;
+                    update_vars = datatableConfig.update_vars || {};
+                    allow_create = datatableConfig.allow_create === true;
+                    allow_update = datatableConfig.allow_update === true;
+                    allow_delete = datatableConfig.allow_delete === true;
+                    edit_type = datatableConfig.edit_type || 'window';
+
+                    const columnSettings = datatableConfig.columns || [];
+                    col_display_table = columnSettings.filter(col => col.hide_table !== true).map(col => col.col_name);
+                    col_display_edit = columnSettings.filter(col => col.hide_edit !== true);
+
+                    // ============================================
+                    // Permission Check
+                    // ============================================
+                    if (datatableConfig.permissions && Array.isArray(datatableConfig.permissions) && datatableConfig.permissions.length > 0) {
+                        console.log('[INIT] Datatable has permission requirements:', datatableConfig.permissions);
+                        pagePermissions = datatableConfig.permissions;
+                        checkPagePermission(pagePermissions);
+                    } else {
+                        console.log('[INIT] No permission requirements for this datatable - allowing access');
+                        showPageContent();
+                    }
+
+                    console.log('[INIT] Datatable config successfully loaded');
+                    return true;
+                } catch (error) {
+                    console.error('[INIT] Error parsing config:', error);
+                    throw new Error(`Invalid datatable configuration: ${error.message}`);
+                }
+            } catch (error) {
+                console.error('[INIT] Config load failed:', error.message);
+                throw error;
+            }
+        }
+
+        // Load config when ready
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', async () => {
+                try {
+                    await initializeDatatableConfig();
+                } catch (error) {
+                    console.error('[INIT] Fatal error during config load:', error.message);
+                }
+            });
+        } else {
+            initializeDatatableConfig().catch(error => {
+                console.error('[INIT] Fatal error during config load:', error.message);
+            });
+        }
+    </script>
 </head>
 <body>
+    <div class="page-content">
 
     <!-- Input Variable Selection Dropdowns -->
     <div id="inputVarContainer" style="display: none; padding: 1rem; background: #1f4051; border-radius: 8px; margin-bottom: 1rem; margin-left: 1rem; margin-right: 1rem; margin-top: 1rem;">
@@ -589,33 +725,15 @@
 
 
     <script>
-        window.ORG_ID = '019176c2-059f-7391-afbc-97b201efbd93';
-    </script>
-    <script src="https://eit-auto.github.io/repo/rewst-library.js"></script>
-    <script>
         // ============================================
         // PAGE CONFIGURATION
         // ============================================
-        const ORG_ID = window.ORG_ID;
         // data_workflow: required - workflow ID for retrieving/updating data
         // input_vars: optional - contains configuration variables like sql_query
-        let data_workflow = null;
-        let input_vars = null;
         let sql_query = null;
-        let datatableConfig = null;
-        let output_var = null;
-        let allow_create = true;
-        let allow_delete = true;
-        let allow_update = true;
-        let edit_type = 'window'; // 'window' or 'column'
-
-        let update_workflow = null;
-        let update_vars = null;
         let fieldTypes = {}; // Store detected field types (date, datetime, text, etc.)
         let tableData = [];
         let filteredData = [];
-        let col_display_table = [];
-        let col_display_edit = [];
         let currentSort = { column: null, direction: 'asc' };
         let selectedRow = null;
         let filterStates = {}; // Track filter checkbox states
@@ -949,64 +1067,9 @@
         // ============================================
         const rewst = new RewstApp({ 
             graphqlPath: '/graphql',
-            orgId: ORG_ID,
+            orgId: window.ORG_ID,
             debug: true
         });
-
-        // ============================================
-
-        async function retrieveOrgVariable(variableName) {
-            try {
-                console.log('[ORG VAR] Retrieving variable:', variableName);
-                
-                const response = await fetch('/graphql', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        query: `{
-                            visibleOrgVariables(
-                                visibleForOrgId: "${ORG_ID}"
-                                search: { 
-                                    organization: { id: { _eq: "${ORG_ID}" } }
-                                    name: { _eq: "${variableName}" }
-                                }
-                            ) {
-                                id
-                                name
-                                value
-                                category
-                                cascade
-                                createdAt
-                                updatedAt
-                            }
-                        }`
-                    })
-                });
-                
-                const data = await response.json();
-                console.log('[ORG VAR] Response:', data);
-                
-                if (data.errors) {
-                    const errorMessages = data.errors.map(err => err.message).join('\n');
-                    throw new Error(`Failed to retrieve org variable:\n${errorMessages}`);
-                }
-                
-                const orgVariables = data.data?.visibleOrgVariables || [];
-                
-                if (orgVariables.length > 0) {
-                    console.log('[ORG VAR] Found variable:', variableName);
-                    return orgVariables[0];
-                } else {
-                    console.log('[ORG VAR] Variable not found:', variableName);
-                    return null;
-                }
-            } catch (error) {
-                console.error('[ORG VAR] Exception:', error.message);
-                throw error;
-            }
-        }
-
-        // ============================================
 
         // ============================================
         // UTILITY - Extract SQL Error from Workflow Result
@@ -2936,7 +2999,7 @@ async function loadDataTable() {
 
                 // STEP 2: Retrieve and parse datatable config
                 const variableName = 'datatable_' + datatableId;
-                const orgVar = await retrieveOrgVariable(variableName);
+                const orgVar = await RewstLib.orgVariables.get(variableName, window.ORG_ID);
 
                 if (!orgVar) {
                     throw new Error(`Datatable configuration not found: ${variableName}`);
@@ -3072,5 +3135,6 @@ async function loadDataTable() {
             initializeDataTable();
         }
     </script>
+    </div>
 </body>
 </html>
