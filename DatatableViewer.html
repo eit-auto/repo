@@ -68,28 +68,33 @@
             padding: 0;
             margin: 0;
             background: #1a1a1a;
-        }.search-input:focus {
+        }
+        .search-input:focus {
             outline: none;
             border-color: #5a9fb8;
             box-shadow: 0 0 0 3px rgba(90, 159, 184, 0.1);
         }
-
         .search-input::placeholder {
             color: #888;
-        }.btn-primary:hover {
+        }
+        .btn-primary:hover {
             background: #1f4051;
             transform: translateY(-1px);
             box-shadow: 0 4px 12px rgba(46, 95, 117, 0.4);
-        }.loading-spinner@keyframes spin {
+        }
+        .loading-spinner@keyframes spin {
             0% { transform: rotate(0deg); }
             100% { transform: rotate(360deg); }
-        }.success-modal-backdrop.success-modal h3 {
+        }
+        .success-modal-backdrop.success-modal h3 {
             color: #4caf50;
             margin-bottom: 1rem;
             font-size: 1.1rem;
-        }.success-modal-button:hover {
+        }
+        .success-modal-button:hover {
             background: #45a049;
-        }.table-container.table-container::-webkit-scrollbar {
+        }
+        .table-container::-webkit-scrollbar {
             width: 12px;
             height: 12px;
         }
@@ -183,7 +188,8 @@
             padding: 3rem;
             color: #e0e0e0;
             font-size: 1.1rem;
-        }.edit-backdrop.edit-section@keyframes slideIn {
+        }
+        .edit-backdrop.edit-section@keyframes slideIn {
             from {
                 opacity: 0;
                 transform: translate(-50%, -52%);
@@ -196,29 +202,35 @@
 
         .edit-section h2 {
             color: #5a9fb8;
-            margin-bottom: 1.5rem;
+            margin-bottom: 1rem;
             font-size: 1.25rem;
-        }.form-group label {
-            font-weight: 600;
+        }
+        .form-group label {
+            font-weight: bold !important;
             margin-bottom: 0.25rem;
             color: #e0e0e0;
             font-size: 0.8rem;
             text-transform: uppercase;
             letter-spacing: 0.5px;
+            font-weight: bold !important;
         }
 
 
         .form-group.full-width {
             grid-column: 1 / -1;
-        }.btn-save:hover {
+        }
+        .btn-save:hover {
             background: #1f4051;
-        }.btn-cancel:hover {
+        }
+        .btn-cancel:hover {
             background: #5a6268;
-        }.btn-delete:hover {
+        }
+        .btn-delete:hover {
             background: #c82333;
             transform: translateY(-1px);
             box-shadow: 0 4px 12px rgba(220, 53, 69, 0.3);
-        }.status-message.status-message.status-message/* ===== INLINE EDITING MODE STYLES ===== */
+        }
+        .status-message.status-message.status-message/* ===== INLINE EDITING MODE STYLES ===== */
         .inline-edit-cell {
             position: relative;
             padding: 0.5rem !important;
@@ -256,7 +268,8 @@
 
         .inline-cancel:hover {
             background: #5a6268;
-        }.row-edit-controls button {
+        }
+        .row-edit-controls button {
             padding: 0.4rem 0.8rem;
             border: none;
             border-radius: 3px;
@@ -265,13 +278,17 @@
             cursor: pointer;
             transition: all 0.2s ease;
             white-space: nowrap;
-        }.row-edit-btn:hover {
+        }
+        .row-edit-btn:hover {
             background: #1f4051;
-        }.row-delete-btn:hover {
+        }
+        .row-delete-btn:hover {
             background: #c82333;
-        }.row-save-btn:hover {
+        }
+        .row-save-btn:hover {
             background: #45a049;
-        }.row-cancel-btn:hover {
+        }
+        .row-cancel-btn:hover {
             background: #5a6268;
         }
 
@@ -291,10 +308,10 @@
             cursor: not-allowed;
             opacity: 0.6;
         }
-        .edit-section.active {
+        .edit-section.active2 {
             position: fixed !important;
             width: 600px !important;
-            height: auto !important;
+            height: fit-content !important;
             max-height: none !important;
             left: 50% !important;
             top: 50% !important;
@@ -302,8 +319,9 @@
             margin: 0 !important;
             overflow-y: visible !important;
             box-sizing: border-box !important;
+            padding: 1.5rem !important;
+            flex-direction: column !important;
         }
-    
     
         #editFormGrid > div:nth-child(2)[style*="grid"] {
             grid-template-columns: 1fr !important;
@@ -326,18 +344,7 @@
         }
     
         .edit-backdrop.active {
-            display: flex !important;
-            align-items: center;
-            justify-content: center;
-        }
-    
-        .edit-section.active {
-            padding: 1.5rem !important;
-            display: flex !important;
-            flex-direction: column !important;
-            max-height: none !important;
-            overflow-y: visible !important;
-            height: fit-content !important;
+            display: block
         }
     
         #nonEditableGrid {
@@ -441,10 +448,7 @@
         
         /* Make all field labels bold */
         #nonEditableGrid label,
-        #editableGrid label,
-        .form-group label {
-            font-weight: bold !important;
-        }
+        #editableGrid label
     </style>
 </head>
 <body>
