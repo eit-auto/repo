@@ -1101,17 +1101,13 @@ function loadFormConfiguration(config) {
         hiddenGraphQLSubmitOp.value = graphqlOperationValue;
     }
     
-    // Load form permissions into hidden field FIRST - before updating display
-    let hiddenFormPermissions = document.getElementById('hidden_form_permissions');
-    if (!hiddenFormPermissions) {
-        hiddenFormPermissions = document.createElement('input');
-        hiddenFormPermissions.type = 'hidden';
-        hiddenFormPermissions.id = 'hidden_form_permissions';
-        document.body.appendChild(hiddenFormPermissions);
+    // Load form permissions from config into permissionsSelect
+    const permissionsSelect = document.getElementById('permissionsSelect');
+    if (permissionsSelect) {
+        const permissionsValue = config.permissions || [];
+        permissionsSelect.setAttribute('data-selected-values', JSON.stringify(permissionsValue));
+        console.log('[LOAD] Loaded form permissions:', permissionsSelect.getAttribute('data-selected-values'));
     }
-    const permissionsValue = config.permissions || [];
-    hiddenFormPermissions.value = JSON.stringify(permissionsValue);
-    console.log('[LOAD] Loaded form permissions:', hiddenFormPermissions.value);
     
     // Load graphql_submit variables into dynamically generated inputs
     if (graphqlOperationValue) {
@@ -1558,43 +1554,11 @@ if (formColumnsSelect) {
         document.addEventListener('DOMContentLoaded', () => {
             console.log('DOM loaded, calling updateColumnDisplay');
             
-            // Initialize hidden_form_permissions field with Admin auto-selected (allUserRoles available from start)
-            let hiddenFormPermissions = document.getElementById('hidden_form_permissions');
-            if (!hiddenFormPermissions) {
-                hiddenFormPermissions = document.createElement('input');
-                hiddenFormPermissions.type = 'hidden';
-                hiddenFormPermissions.id = 'hidden_form_permissions';
-                
-                console.log('[INIT] allUserRoles defined?', typeof allUserRoles !== 'undefined');
-                console.log('[INIT] allUserRoles value:', allUserRoles);
-                
-                // Auto-select Admin role since allUserRoles is available from HTML
-                let adminValue = '[]';
-                if (typeof allUserRoles !== 'undefined' && allUserRoles.length > 0) {
-                    // Try multiple variations to find admin role
-                    let adminRole = allUserRoles.find(role => role.label && role.label.toLowerCase() === 'admin');
-                    if (!adminRole) {
-                        adminRole = allUserRoles.find(role => role.name && role.name.toLowerCase() === 'admin');
-                    }
-                    if (adminRole) {
-                        adminValue = JSON.stringify([adminRole.value || adminRole.id]);
-                        console.log('[INIT] Found Admin role:', adminRole, 'storing:', adminValue);
-                    } else {
-                        console.log('[INIT] Admin role not found in allUserRoles. Available roles:', allUserRoles.map(r => r.label || r.name));
-                        // Fallback: use first role if no admin found
-                        if (allUserRoles[0]) {
-                            adminValue = JSON.stringify([allUserRoles[0].value || allUserRoles[0].id]);
-                            console.log('[INIT] Using first role as fallback:', adminValue);
-                        }
-                    }
-                } else {
-                    console.log('[INIT] allUserRoles not available or empty');
-                }
-                
-                hiddenFormPermissions.value = adminValue;
-                console.log('[INIT] Set hidden_form_permissions.value to:', hiddenFormPermissions.value);
-                document.body.appendChild(hiddenFormPermissions);
-                console.log('[INIT] Created hidden_form_permissions field');
+            // Initialize permissionsSelect with admin-role default (created by security.js)
+            const permissionsSelect = document.getElementById('permissionsSelect');
+            if (permissionsSelect) {
+                permissionsSelect.setAttribute('data-selected-values', JSON.stringify(['admin-role']));
+                console.log('[INIT] Set permissionsSelect.dataset.selectedValues to admin-role');
             }
             
             updateColumnDisplay();
@@ -1608,43 +1572,11 @@ if (formColumnsSelect) {
     } else {
         console.log('DOM already loaded, calling updateColumnDisplay');
         
-        // Initialize hidden_form_permissions field with Admin auto-selected (allUserRoles available from start)
-        let hiddenFormPermissions = document.getElementById('hidden_form_permissions');
-        if (!hiddenFormPermissions) {
-            hiddenFormPermissions = document.createElement('input');
-            hiddenFormPermissions.type = 'hidden';
-            hiddenFormPermissions.id = 'hidden_form_permissions';
-            
-            console.log('[INIT] allUserRoles defined?', typeof allUserRoles !== 'undefined');
-            console.log('[INIT] allUserRoles value:', allUserRoles);
-            
-            // Auto-select Admin role since allUserRoles is available from HTML
-            let adminValue = '[]';
-            if (typeof allUserRoles !== 'undefined' && allUserRoles.length > 0) {
-                // Try multiple variations to find admin role
-                let adminRole = allUserRoles.find(role => role.label && role.label.toLowerCase() === 'admin');
-                if (!adminRole) {
-                    adminRole = allUserRoles.find(role => role.name && role.name.toLowerCase() === 'admin');
-                }
-                if (adminRole) {
-                    adminValue = JSON.stringify([adminRole.value || adminRole.id]);
-                    console.log('[INIT] Found Admin role:', adminRole, 'storing:', adminValue);
-                } else {
-                    console.log('[INIT] Admin role not found in allUserRoles. Available roles:', allUserRoles.map(r => r.label || r.name));
-                    // Fallback: use first role if no admin found
-                    if (allUserRoles[0]) {
-                        adminValue = JSON.stringify([allUserRoles[0].value || allUserRoles[0].id]);
-                        console.log('[INIT] Using first role as fallback:', adminValue);
-                    }
-                }
-            } else {
-                console.log('[INIT] allUserRoles not available or empty');
-            }
-            
-            hiddenFormPermissions.value = adminValue;
-            console.log('[INIT] Set hidden_form_permissions.value to:', hiddenFormPermissions.value);
-            document.body.appendChild(hiddenFormPermissions);
-            console.log('[INIT] Created hidden_form_permissions field');
+        // Initialize permissionsSelect with admin-role default (created by security.js)
+        const permissionsSelect = document.getElementById('permissionsSelect');
+        if (permissionsSelect) {
+            permissionsSelect.setAttribute('data-selected-values', JSON.stringify(['admin-role']));
+            console.log('[INIT] Set permissionsSelect.dataset.selectedValues to admin-role');
         }
         
         updateColumnDisplay();
@@ -1789,19 +1721,6 @@ if (document.readyState === 'loading') {
 }
 
 function updateFieldConfigsDisplay() {
-    // CRITICAL: Ensure hidden_form_permissions field exists with default value
-    let hiddenFormPermissions = document.getElementById('hidden_form_permissions');
-    if (!hiddenFormPermissions) {
-        hiddenFormPermissions = document.createElement('input');
-        hiddenFormPermissions.type = 'hidden';
-        hiddenFormPermissions.id = 'hidden_form_permissions';
-        hiddenFormPermissions.value = '[]';
-        document.body.appendChild(hiddenFormPermissions);
-        console.log('[UPDATE-DISPLAY] Created missing hidden_form_permissions field, value:', hiddenFormPermissions.value);
-    } else {
-        console.log('[UPDATE-DISPLAY] Found existing hidden_form_permissions field, value:', hiddenFormPermissions.value);
-    }
-    
     const display = document.getElementById('fieldConfigsDisplay');
     
     // Detect if this is FormExtendBuilder (has extend_title) or FormBuilder (has form_name)
@@ -1827,19 +1746,19 @@ function updateFieldConfigsDisplay() {
             field_configs: fieldConfigs
         };
         
-        // Populate form permissions from hidden field
-        const hiddenFormPermissionsExt = document.getElementById('hidden_form_permissions');
-        if (hiddenFormPermissionsExt && hiddenFormPermissionsExt.value) {
+        // Load permissions from permissionsSelect
+        const permissionsSelect = document.getElementById('permissionsSelect');
+        if (permissionsSelect && permissionsSelect.getAttribute('data-selected-values')) {
             try {
-                const parsedPerms = JSON.parse(hiddenFormPermissionsExt.value);
+                const parsedPerms = JSON.parse(permissionsSelect.getAttribute('data-selected-values'));
                 formConfig.permissions = Array.isArray(parsedPerms) ? parsedPerms : [];
-                console.log('[UPDATE-DISPLAY] Loaded permissions from field:', formConfig.permissions);
+                console.log('[UPDATE-DISPLAY] Loaded permissions from permissionsSelect:', formConfig.permissions);
             } catch (e) {
                 console.warn('Failed to parse form permissions:', e);
                 formConfig.permissions = [];
             }
         } else {
-            console.log('[UPDATE-DISPLAY] No permissions in hidden field, using default []');
+            console.log('[UPDATE-DISPLAY] No permissions in permissionsSelect, using default []');
             formConfig.permissions = [];
         }
     } else {
@@ -1888,19 +1807,19 @@ function updateFieldConfigsDisplay() {
             }
         }
         
-        // Populate form permissions from hidden field
-        const hiddenFormPermissions = document.getElementById('hidden_form_permissions');
-        if (hiddenFormPermissions && hiddenFormPermissions.value) {
+        // Load permissions from permissionsSelect
+        const permissionsSelect = document.getElementById('permissionsSelect');
+        if (permissionsSelect && permissionsSelect.getAttribute('data-selected-values')) {
             try {
-                const parsedPerms = JSON.parse(hiddenFormPermissions.value);
+                const parsedPerms = JSON.parse(permissionsSelect.getAttribute('data-selected-values'));
                 formConfig.permissions = Array.isArray(parsedPerms) ? parsedPerms : [];
-                console.log('[UPDATE-DISPLAY] Loaded permissions from field:', formConfig.permissions);
+                console.log('[UPDATE-DISPLAY] Loaded permissions from permissionsSelect:', formConfig.permissions);
             } catch (e) {
                 console.warn('Failed to parse form permissions:', e);
                 formConfig.permissions = [];
             }
         } else {
-            console.log('[UPDATE-DISPLAY] No permissions in hidden field, using default []');
+            console.log('[UPDATE-DISPLAY] No permissions in permissionsSelect, using default []');
             formConfig.permissions = [];
         }
     }
@@ -4295,48 +4214,20 @@ generalSettingsBtn.addEventListener('click', async () => {
         }, 200);
     }
     
-    // Initialize form permissions multi-select
-    const permissionsContainer = document.getElementById('form_permissions_container');
-    if (permissionsContainer && typeof allUserRoles !== 'undefined' && allUserRoles.length > 0) {
-        console.log('[GENERAL-SETTINGS] Initializing form permissions multi-select with', allUserRoles.length, 'roles');
-        
-        // Get current permissions from hidden field (already initialized with Admin or loaded config)
-        const hiddenFormPermissions = document.getElementById('hidden_form_permissions');
-        const currentPermissions = hiddenFormPermissions && hiddenFormPermissions.value ? JSON.parse(hiddenFormPermissions.value) : [];
-        console.log('[GENERAL-SETTINGS] Current permissions from hidden field:', currentPermissions);
-        
-        // Render multi-select container with the appropriate function from RewstLib
-        const multiSelectHtml = RewstLib.forms.renderMultiSelectContainer('form_permissions', '', '');
-        permissionsContainer.innerHTML = multiSelectHtml;
-        
-        // Initialize the multi-select with allUserRoles
-        // Convert allUserRoles format {label, value} to {value, label} if needed
-        const rolesOptions = allUserRoles.map(role => ({
-            value: role.value,
-            label: role.label
-        }));
-        
-        // Auto-select Admin role if no permissions are currently set
-        let selectedRoles = currentPermissions;
-        if (!selectedRoles || selectedRoles.length === 0) {
-            const adminRole = allUserRoles.find(role => role.label.toLowerCase() === 'admin');
-            if (adminRole) {
-                selectedRoles = [adminRole.value];
-                console.log('[GENERAL-SETTINGS] Auto-selecting Admin role, value:', adminRole.value, 'full admin object:', adminRole);
-            } else {
-                console.log('[GENERAL-SETTINGS] Admin role not found in allUserRoles:', allUserRoles);
-            }
-        } else {
-            console.log('[GENERAL-SETTINGS] Using currentPermissions:', currentPermissions);
-        }
-        
-        RewstLib.forms.initializeDropdownMultiSelect('form_permissions', rolesOptions, selectedRoles);
-        console.log('[GENERAL-SETTINGS] Form permissions multi-select initialized with', rolesOptions.length, 'available roles');
-    } else {
-        console.warn('[GENERAL-SETTINGS] Cannot initialize permissions multi-select - allUserRoles not available or empty');
-    }
+    // Listener for permissions being saved from modal
+    // This will be attached to the document and fire when user saves permissions in the security modal
+    const handlePermissionsSaved = () => {
+        console.log('[GENERAL-SETTINGS] Permissions modal saved');
+        updateFieldConfigsDisplay();
+    };
+    
+    // Remove previous listener to avoid duplicates
+    document.removeEventListener('permissionsSaved', handlePermissionsSaved);
+    // Add listener for when permissions are saved in modal
+    document.addEventListener('permissionsSaved', handlePermissionsSaved);
     
     generalSettingsModal.classList.add('active');
+});
 });
 
 // Close modal handlers
@@ -4419,26 +4310,9 @@ generalSettingsSave.addEventListener('click', () => {
     }
     
     // Sync form permissions
-    const multiSelectHiddenSelect = document.querySelector('select.multi-select-hidden-select[name="form_permissions"]');
-    const hiddenFormPermissions = document.getElementById('hidden_form_permissions') || (() => {
-        const field = document.createElement('input');
-        field.type = 'hidden';
-        field.id = 'hidden_form_permissions';
-        document.body.appendChild(field);
-        return field;
-    })();
-    
-    if (multiSelectHiddenSelect) {
-        // Get selected values from the multi-select's data attribute
-        const selectedValuesStr = multiSelectHiddenSelect.getAttribute('data-selected-values');
-        console.log('[GENERAL-SETTINGS] Form permissions selected values from DOM:', selectedValuesStr);
-        hiddenFormPermissions.value = selectedValuesStr || '[]';
-        console.log('[GENERAL-SETTINGS] Stored in hidden field:', hiddenFormPermissions.value);
-    } else {
-        console.warn('[GENERAL-SETTINGS] Multi-select hidden field not found for form permissions');
-        hiddenFormPermissions.value = '[]';
-        console.log('[GENERAL-SETTINGS] Set to default []');
-    }
+    // permissionsSelect.dataset.selectedValues is the source of truth
+    // It's already updated when user saves from the permissions modal
+    // No sync needed - just ensure preview is updated
     
     // Update the JSON preview display
     updateFieldConfigsDisplay();
@@ -5076,10 +4950,10 @@ if (resetFormBtn) {
             hiddenOutputVar.value = '';
         }
         
-        // Reset form permissions to default (empty array)
-        const hiddenFormPermissions = document.getElementById('hidden_form_permissions');
-        if (hiddenFormPermissions) {
-            hiddenFormPermissions.value = '[]';
+        // Reset form permissions to default (admin-role)
+        const permissionsSelect = document.getElementById('permissionsSelect');
+        if (permissionsSelect) {
+            permissionsSelect.setAttribute('data-selected-values', JSON.stringify(['admin-role']));
         }
         
         // Reset GraphQL submit operation
