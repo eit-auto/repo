@@ -986,7 +986,19 @@
     display: block;
   }
   .edit-section.active {
-    display: block;
+    position: fixed !important;
+    width: 600px !important;
+    height: fit-content !important;
+    max-height: none !important;
+    left: 50% !important;
+    top: 50% !important;
+    transform: translate(-50%, -50%) !important;
+    margin: 0 !important;
+    overflow-y: visible !important;
+    box-sizing: border-box !important;
+    padding: 1.5rem !important;
+    display: flex !important;
+    flex-direction: column !important;
     animation: slideIn 0.3s ease;
   }
   @keyframes slideIn {
