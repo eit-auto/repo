@@ -237,30 +237,32 @@ function checkPagePermission(requiredRoleIds) {
 function showPermissionDenied(message) {
     console.error('[Security] Displaying permission denied message');
     
-    // Remove page-content from DOM to prevent any scripts from rendering
-    const pageContent = document.getElementById('page-content');
-    if (pageContent) {
-        pageContent.remove();
-    }
-    
+    // Replace entire page with error message to prevent any body scripts from executing
     const errorHtml = `
-        <div id="permission-denied-container" style="display: flex; align-items: center; justify-content: center; min-height: 100vh; background: #1a1a1a; margin: 0; padding: 0;">
-            <div style="text-align: center; padding: 40px; background: #2E5F75; border-radius: 8px; max-width: 500px; box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);">
-                <h1 style="color: #dc3545; margin-top: 0; font-size: 28px;">Access Denied</h1>
-                <p style="color: #ffffff; font-size: 16px; line-height: 1.6; margin: 20px 0;">
-                    ${escapeHtml(message)}
-                </p>
-                <p style="color: #888; font-size: 14px; margin-bottom: 0;">
-                    If you believe this is an error, please contact your administrator.
-                </p>
-            </div>
-        </div>
+        <html>
+            <head>
+                <meta charset="UTF-8">
+                <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                <title>Access Denied</title>
+            </head>
+            <body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+                <div style="display: flex; align-items: center; justify-content: center; min-height: 100vh; background: #1a1a1a; margin: 0; padding: 0;">
+                    <div style="text-align: center; padding: 40px; background: #2E5F75; border-radius: 8px; max-width: 500px; box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);">
+                        <h1 style="color: #dc3545; margin-top: 0; font-size: 28px; margin-bottom: 20px;">Access Denied</h1>
+                        <p style="color: #ffffff; font-size: 16px; line-height: 1.6; margin: 20px 0;">
+                            ${escapeHtml(message)}
+                        </p>
+                        <p style="color: #888; font-size: 14px; margin-bottom: 0;">
+                            If you believe this is an error, please contact your administrator.
+                        </p>
+                    </div>
+                </div>
+            </body>
+        </html>
     `;
     
-    // Create container in body for error message
-    const container = document.createElement('div');
-    container.innerHTML = errorHtml;
-    document.body.insertBefore(container.firstElementChild, document.body.firstChild);
+    // Replace entire page content - this prevents any body scripts from executing
+    document.documentElement.innerHTML = errorHtml;
     
     throw new Error('User does not have permission to view this page');
 }
