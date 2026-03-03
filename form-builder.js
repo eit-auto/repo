@@ -4228,7 +4228,6 @@ generalSettingsBtn.addEventListener('click', async () => {
     
     generalSettingsModal.classList.add('active');
 });
-});
 
 // Close modal handlers
 const closeGeneralSettings = () => {
