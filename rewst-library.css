@@ -229,6 +229,33 @@
     accent-color: #5a9fb8;
   }
 
+  .checkbox-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .checkbox-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.1rem 0;
+    cursor: pointer;
+    user-select: none;
+    white-space: nowrap;
+    position: relative;
+  }
+
+  .checkbox-item label {
+    color: #e0e0e0;
+    font-size: 0.9rem;
+    cursor: pointer;
+    white-space: nowrap;
+    margin: 0;
+    pointer-events: auto;
+    display: inline;
+  }
+
   .confirm-modal-backdrop {
     position: fixed;
     top: 0;
