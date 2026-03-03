@@ -4,6 +4,29 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Datatable Config Builder</title>
+    <!-- ============================================
+         USER CONTEXT & SECURITY INITIALIZATION
+         Populates variables for later use:
+         - rewstUser (Elements: username, id, roleIds, orgId)
+         - allUserRoles (List Item elements: label, value)
+         For config-based pages, leave pagePermissions empty.
+         For hardcoded permission pages, set pagePermissions array.
+         ============================================ -->
+    <style>
+        #page-content { display: none !important; }
+    </style>
+    <script>
+        const rawUserData = `{{ CTX.user }}`;
+        let pagePermissions = ['role-admin', 'c401ac8f-d0e3-4baf-b349-ebd65fef66b3']; // Blank for config-based pages
+        window.ORG_ID = '019176c2-059f-7391-afbc-97b201efbd93';
+    </script>
+    <script src="https://eit-auto.github.io/repo/security.js"></script>
+    <script>
+        // Check hardcoded permissions if pagePermissions is set
+        if (pagePermissions.length > 0) {
+            checkPagePermission(pagePermissions);
+        }
+    </script>
     <link rel="stylesheet" href="https://eit-auto.github.io/repo/rewst-library.css?v=3.2.2">
     <style>
 
@@ -628,30 +651,24 @@
             display: block;
         }
 
-        .checkbox-group {
+        .column-type-section {
             display: flex;
-            flex-direction: column;
-            gap: 0.5rem;
-        }
-
-        .checkbox-item {
-            display: flex;
+            flex-direction: row;
             align-items: center;
-            gap: 0.5rem;
-            padding: 0.1rem 0;
-            cursor: pointer;
-            user-select: none;
-            white-space: nowrap;
-            position: relative;
-        }
-
-        .checkbox-item label {
-            cursor: pointer;
-            margin: 0;
-            pointer-events: auto;
-            display: inline;
+            gap: 0.2rem;
+            margin-bottom: 0.5rem;
+            padding-bottom: 0;
         }
         
+        .column-type-section label {
+            color: #e0e0e0;
+            font-size: 0.9rem;
+            cursor: pointer;
+            white-space: nowrap;
+            margin: 0;
+            font-weight: normal;
+        }
+
         .searchable-select-wrapper {
             position: relative;
             width: 100%;
@@ -716,6 +733,14 @@
         }
 
 
+
+        .column-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 0.5rem;
+            gap: 0.75rem;
+        }
 
         .column-name {
             color: #5a9fb8;
@@ -910,6 +935,7 @@
     </style>
 </head>
 <body>
+    <div id="page-content">
     <div class="main-panel">
         <div style="padding: 0.5rem 1rem; display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem;">
             <h1 style="color: #ffffff; margin: 0; font-size: 1.5rem; padding: 0;">DataTable Configuration Builder</h1>
@@ -943,20 +969,20 @@
                 <h2>Basic Configuration</h2>
 
                 <div class="form-container"><div class="form-group" style="grid-column: 1 / -1;">
-                    <label>Datatable Name</label>
+                    <label class="">Datatable Name</label>
                     <input type="text" id="datatableName" placeholder="e.g., automation_requests">
                 </div>
 </div>
 
                 <div class="form-container"><div class="form-group" style="grid-column: 1 / -1;">
-                    <label>Description</label>
+                    <label class="">Description</label>
                     <textarea id="datatableDesc" placeholder="Describe this data table..."></textarea>
                 </div>
 </div>
 
                 <div style="display: flex; gap: 1rem;">
                     <div class="form-container"><div class="form-group" style="display: flex; flex-direction: column;">
-                        <label>Edit Type</label>
+                        <label class="">Edit Type</label>
                         <div style="display: flex; flex-direction: column; gap: 0.75rem;">
                             <div>
                                 <input type="radio" id="editTypeWindow" name="editType" value="window" checked onchange="updateOutput()" class="input-accent-blue">
@@ -971,7 +997,7 @@
 </div>
 
                     <div class="form-container"><div class="form-group" style="display: flex; flex-direction: column;">
-                        <label>Permissions</label>
+                        <label class="">Allowed Actions</label>
                         <div class="checkbox-group">
                             <div>
                                 <input type="checkbox" id="allowCreate" checked class="input-accent-blue">
@@ -990,16 +1016,11 @@
 </div>
                 </div>
 
-                <div style="margin-top: 2rem; border-top: 1px solid rgba(255, 255, 255, 0.1); padding-top: 1rem;">
-                    <h3 style="color: #ffffff; margin: 0 0 1rem 0; font-size: 1rem;">Filters</h3>
-                    <div class="form-container"><div class="form-group">
-                        <div style="display: flex; flex-direction: column; margin-bottom: 1rem;">
-                            <button class="btn btn-blue btn-small" onclick="addFilter()">Add Filter</button>
-                        </div>
-                        <div id="filtersList"></div>
-                    </div>
-</div>
+                <div class="form-container"><div class="form-group" style="grid-column: 1 / -1;">
+                    <button class="btn btn-blue btn-small" onclick="openPermissionsModal()">Permissions</button>
+                    <select id="permissionsSelect" class="multi-select-hidden-select" data-selected-values="[]" style="display: none;"></select>
                 </div>
+</div>
             </div>
 
             <!-- Workflows & Data Configuration Panel -->
@@ -1013,7 +1034,7 @@
                     </div>
 
                     <div id="tableNameGroup" class="form-group-vert" style="display:none;">
-                        <label>SQL Table Name</label>
+                        <label class="">SQL Table Name</label>
                         <div class="searchable-select-wrapper">
                             <input type="text" id="tableName" class="searchable-select-input" placeholder="Select or search..." autocomplete="off">
                             <div id="tableNameDropdown" class="searchable-select-dropdown"></div>
@@ -1021,7 +1042,7 @@
                     </div>
 
                     <div class="form-group-vert" style="margin-top: 1rem;">
-                        <label>Data Workflow</label>
+                        <label class="">Data Workflow</label>
                         <div class="searchable-select-wrapper">
                             <input type="text" id="dataWorkflow" class="searchable-select-input" placeholder="Select workflow..." autocomplete="off">
                             <div id="dataWorkflowDropdown" class="searchable-select-dropdown"></div>
@@ -1033,12 +1054,12 @@
                     </div>
 
                     <div class="form-group-vert" style="margin-top: 1rem;">
-                        <label>Output Variable Name</label>
+                        <label class="">Output Variable Name</label>
                         <input type="text" id="outputVar" placeholder="e.g., sql_result">
                     </div>
 
                     <div class="form-group-vert" style="margin-top: 1rem;">
-                        <label>Add/Update/Delete Workflow</label>
+                        <label class="">Add/Update/Delete Workflow</label>
                         <div class="searchable-select-wrapper">
                             <input type="text" id="updateWorkflow" class="searchable-select-input" placeholder="Select workflow..." autocomplete="off">
                             <div id="updateWorkflowDropdown" class="searchable-select-dropdown"></div>
@@ -1050,18 +1071,18 @@
                     </div>
 
                     <div id="sqlQueryGroup" class="form-group-vert" style="display: none; margin-top: 1rem;">
-                        <label>SQL Query for Initial Data Retrieval</label>
+                        <label class="">SQL Query for Initial Data Retrieval</label>
                         <textarea id="sqlQuery" placeholder="SELECT * FROM table_name" style="width: 100%;"></textarea>
                     </div>
                 </div>
 </div>
 
                 <div class="form-container"><div class="form-group">
-                    <label>Input Variables</label>
+                    <label class="">Input Variables</label>
                     <div id="templateVarsNote" style="background: #1f4051; border: 1px solid #404040; padding: 0.75rem; border-radius: 4px; margin-bottom: 0.75rem; font-size: 0.85rem; color: #b0b0b0; display: none;">
                         <strong style="color: #5a9fb8;">Template Variables:</strong> Use <code style="background: #2a2a2a; padding: 0.25rem 0.5rem; border-radius: 2px; color: #7cc4e0;">[[variableName]]</code> syntax in values to reference other input variables or URL parameters.
                     </div>
-                    <button class="btn btn-blue btn-small" onclick="addInputVariable()" style="margin-bottom: 1rem;">Add Input Variable</button>
+                    <button class="btn btn-blue btn-small" onclick="addInputVariable()">Add Input Variable</button>
                     <div id="inputVariablesList" style="display: flex; flex-direction: column; gap: 0.75rem;"></div>
                 </div>
 </div>
@@ -1078,14 +1099,10 @@
 
                 <div class="form-container"><div class="form-group" id="columnsList"></div>
             </div>
-        </div>
+</div>
 
-        <div style="padding: 0.5rem 1rem; display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem;">
-        </div>
-
-        <div style="padding: 0.5rem 1rem; display: flex; justify-content: center;">
             <!-- Configuration Output Section -->
-            <div class="inner-panel" style="width: 100%;">
+            <div class="inner-panel">
                 <div class="tabs">
                     <button class="tab-btn active" onclick="switchTab('validation')">Validation</button>
                     <button class="tab-btn" onclick="switchTab('json')">JSON Output</button>
@@ -1102,7 +1119,6 @@
 
             </div>
         </div>
-    </div>
     </div>
     <script>
         window.ORG_ID = '019176c2-059f-7391-afbc-97b201efbd93';
@@ -1254,7 +1270,6 @@
         // ============================================
         let columns = [];
         let inputVariables = [];  // Array to store input variable objects {name, value, fromUrl, required}
-        let filters = [];  // Array to store filter objects
         let allWorkflows = [];  // Array to store all available workflows for lookup
         let tableColumnInfo = {};
         let isLoadingTableInfo = false;
@@ -1263,7 +1278,7 @@
         let datatableName, datatableDesc, sqlData, tableName, tableNameGroup, sqlQueryGroup;
         let dataWorkflow, updateWorkflow, sqlQuery, outputVar, primaryKey;
         let allowCreate, allowUpdate, allowDelete;
-        let newColName, columnsList, filtersList, jsonOutput, validationOutput;
+        let newColName, columnsList, jsonOutput, validationOutput;
 
         // ============================================
         // REWST APP LIBRARY
@@ -1761,6 +1776,12 @@
             allowDelete.checked = true;
             sqlData.checked = false;
             
+            // Reset permissions
+            const permissionsSelect = document.getElementById('permissionsSelect');
+            if (permissionsSelect) {
+                permissionsSelect.setAttribute('data-selected-values', '[]');
+            }
+            
             // Reset edit_type to default (window)
             const editTypeWindow = document.getElementById('editTypeWindow');
             if (editTypeWindow) {
@@ -1770,7 +1791,6 @@
             // Clear data arrays
             columns = [];
             inputVariables = [];
-            filters = [];
             
             // Clear editing tracking
             window.currentEditingConfigId = null;
@@ -2113,6 +2133,14 @@
                 allowUpdate.checked = config.allow_update !== false;
                 allowDelete.checked = config.allow_delete !== false;
                 
+                // Load permissions
+                if (config.permissions && Array.isArray(config.permissions)) {
+                    const permissionsSelect = document.getElementById('permissionsSelect');
+                    if (permissionsSelect) {
+                        permissionsSelect.setAttribute('data-selected-values', JSON.stringify(config.permissions));
+                    }
+                }
+                
                 // Handle edit_type radio buttons
                 const editType = config.edit_type || 'window';
                 const editTypeRadio = document.querySelector(`input[name="editType"][value="${editType}"]`);
@@ -2192,18 +2220,6 @@
                             });
                         }
                     });
-                }
-                
-                // Populate filters
-                filters = [];
-                const filterSettings = config.filters || [];
-                if (Array.isArray(filterSettings)) {
-                    filters = filterSettings.map(f => ({
-                        col_name: f.col_name || '',
-                        display_label: f.display_label || '',
-                        filter_value: f.filter_value || '',
-                        default_checked: f.default_checked || false
-                    }));
                 }
                 
                 // Trigger the sqlData checkbox change event to show/hide relevant fields
@@ -2329,12 +2345,24 @@
             allowDelete = document.getElementById('allowDelete');
             newColName = document.getElementById('newColName');
             columnsList = document.getElementById('columnsList');
-            filtersList = document.getElementById('filtersList');
             jsonOutput = document.getElementById('jsonOutput');
 
             validationOutput = document.getElementById('validationOutput');
             
             console.log('initializeApp: DOM elements loaded');
+            
+            // Set default permissions to "role-admin" on page load
+            const permissionsSelect = document.getElementById('permissionsSelect');
+            if (permissionsSelect) {
+                permissionsSelect.setAttribute('data-selected-values', JSON.stringify(['role-admin']));
+                console.log('initializeApp: Set default permissions to role-admin');
+            }
+            
+            // Listen for permissions being saved in modal
+            document.addEventListener('permissionsSaved', () => {
+                console.log('initializeApp: Permissions saved, updating output');
+                updateOutput();
+            });
             
             // Event listeners for real-time updates
             [datatableName, datatableDesc, sqlQuery, outputVar, allowCreate, allowUpdate, allowDelete, tableName].forEach(el => {
@@ -3000,20 +3028,20 @@
                 const workflowOptions = iv.fromDataset ? getWorkflowOptions().map(wf => `<option value="${wf}" ${iv.workflow === wf ? 'selected' : ''}>${wf}</option>`).join('') : '';
                 const datasetSection = iv.fromDataset ? `
                     <div style="display: flex; flex-direction: column; gap: 0.3rem; padding-top: 0.5rem; border-top: 1px solid #404040;">
-                        <label>Dataset Selector Workflow</label>
+                        <label style="color: #888; font-size: 0.75rem; text-transform: uppercase;">Dataset Selector Workflow</label>
                         <select onchange="updateInputVariable(${idx}, 'workflow', this.value)" class="form-input">
                             <option value="">-- Select Workflow --</option>
                             ${workflowOptions}
                         </select>
                         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; margin-top: 0.5rem;">
                             <div style="display: flex; flex-direction: column;">
-                                <label>Workflow Input Variable</label>
+                                <label style="color: #888; font-size: 0.75rem; text-transform: uppercase; margin-bottom: 0.25rem;">Workflow Input Variable</label>
                                 <input type="text" value="${iv.input_var || ''}" 
                                        onchange="updateInputVariable(${idx}, 'input_var', this.value)"
                                        placeholder="e.g., selected_dataset" class="form-input">
                             </div>
                             <div style="display: flex; flex-direction: column;">
-                                <label>Workflow Output Variable</label>
+                                <label style="color: #888; font-size: 0.75rem; text-transform: uppercase; margin-bottom: 0.25rem;">Workflow Output Variable</label>
                                 <input type="text" value="${iv.output_var || ''}" 
                                        onchange="updateInputVariable(${idx}, 'output_var', this.value)"
                                        placeholder="e.g., dataset_result" class="form-input">
@@ -3021,13 +3049,13 @@
                         </div>
                         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; margin-top: 0.5rem;">
                             <div style="display: flex; flex-direction: column;">
-                                <label>Output ID Variable</label>
+                                <label style="color: #888; font-size: 0.75rem; text-transform: uppercase; margin-bottom: 0.25rem;">Output ID Variable</label>
                                 <input type="text" value="${iv.output_id}" 
                                        onchange="updateInputVariable(${idx}, 'output_id', this.value)"
                                        placeholder="e.g., id" class="form-input">
                             </div>
                             <div style="display: flex; flex-direction: column;">
-                                <label>Output Label Variable</label>
+                                <label style="color: #888; font-size: 0.75rem; text-transform: uppercase; margin-bottom: 0.25rem;">Output Label Variable</label>
                                 <input type="text" value="${iv.output_label}" 
                                        onchange="updateInputVariable(${idx}, 'output_label', this.value)"
                                        placeholder="e.g., name" class="form-input">
@@ -3039,16 +3067,16 @@
                 return `
                 <div class="grey-panel gp-two-column">
                     <div class="gp-panel-left">
-                        <div class="gp-row">
+                        <div class="gp-row gp-row-end">
                             <div class="gp-field">
-                                <label>Name</label>
+                                <label class="gp-label">Name</label>
                                 <input type="text" value="${iv.name}" 
                                        onchange="updateInputVariable(${idx}, 'name', this.value)"
                                        placeholder="Variable name"
                                        class="gp-input">
                             </div>
                             <div class="gp-field">
-                                <label>Value</label>
+                                <label class="gp-label">Value</label>
                                 <input type="text" value="${iv.value}" 
                                        onchange="updateInputVariable(${idx}, 'value', this.value)"
                                        placeholder="Value or [[variableName]]"
@@ -3057,7 +3085,7 @@
                         </div>
                         <div class="gp-row">
                             <div class="gp-field">
-                                <label>Display Name</label>
+                                <label class="gp-label">Display Name</label>
                                 <input type="text" value="${iv.dspl_name || ''}" 
                                        onchange="updateInputVariable(${idx}, 'dspl_name', this.value)"
                                        placeholder="Display name for UI"
@@ -3094,8 +3122,8 @@
                     </div>
                     <div class="gp-panel-right">
                         <div class="gp-button-row">
-                            <button onclick="moveInputVariable(${idx}, 'up')" ${idx === 0 ? 'disabled' : ''} class="btn btn-bluegrey btn-small gp-move-btn">▲</button>
-                            <button onclick="moveInputVariable(${idx}, 'down')" ${idx === inputVariables.length - 1 ? 'disabled' : ''} class="btn btn-bluegrey btn-small gp-move-btn">▼</button>
+                            <button onclick="moveInputVariable(${idx}, 'up')" ${idx === 0 ? 'disabled' : ''} class="gp-move-btn">â–²</button>
+                            <button onclick="moveInputVariable(${idx}, 'down')" ${idx === inputVariables.length - 1 ? 'disabled' : ''} class="gp-move-btn">â–¼</button>
                         </div>
                         <button class="btn btn-red btn-small" onclick="removeInputVariable(${idx})">Remove</button>
                     </div>
@@ -3113,23 +3141,21 @@
             columnsList.innerHTML = columns.map((col, idx) => `
                 <div class="grey-panel gp-two-column">
                     <div class="gp-panel-left">
-                        <div class="gp-row">
-                            <label>Column Name</label>
-                            <input type="text" value="${col.col_name}" 
+                        <div class="column-header">
+                            <input type="text" class="column-name-input" value="${col.col_name}" 
                                    placeholder="Column name" 
                                    onchange="updateColumnByIndex(${idx}, 'col_name', this.value)"
                                    ${sqlData.checked ? 'disabled' : ''}>
                         </div>
                         
                         <div class="gp-row">
-                            <label>Display Name</label>
-                            <input type="text" value="${col.col_label || ''}" 
+                            <input type="text" class="column-label-input" value="${col.col_label || ''}" 
                                    placeholder="Display name" 
                                    onchange="updateColumnByIndex(${idx}, 'col_label', this.value)">
                         </div>
                         
-                        <div class="gp-row">
-                            <label for="type_${idx}">DataType</label>
+                        <div class="column-type-section">
+                            <label for="type_${idx}">DataType:</label>
                             <select class="column-type" id="type_${idx}" 
                                     onchange="updateColumnByIndex(${idx}, 'data_type', this.value)"
                                     ${col.from_sql || sqlData.checked ? 'disabled' : ''}>
@@ -3187,101 +3213,13 @@
                     </div>
                     <div class="gp-panel-right">
                         <div class="gp-button-row">
-                            <button onclick="moveColumn(${idx}, 'up')" ${idx === 0 ? 'disabled' : ''} class="btn btn-bluegrey btn-small gp-move-btn">▲</button>
-                            <button onclick="moveColumn(${idx}, 'down')" ${idx === columns.length - 1 ? 'disabled' : ''} class="btn btn-bluegrey btn-small gp-move-btn">▼</button>
+                            <button onclick="moveColumn(${idx}, 'up')" ${idx === 0 ? 'disabled' : ''} class="gp-move-btn">â–²</button>
+                            <button onclick="moveColumn(${idx}, 'down')" ${idx === columns.length - 1 ? 'disabled' : ''} class="gp-move-btn">â–¼</button>
                         </div>
                         ${!col.from_sql && !sqlData.checked ? `<button class="btn btn-red btn-small" onclick="removeColumn(${idx})">Remove</button>` : (sqlData.checked ? `<button class="btn btn-red btn-small" onclick="removeColumn(${idx})" disabled>Remove</button>` : '')}
                     </div>
                 </div>
             `).join('');
-        }
-
-        function addFilter() {
-            const newFilter = {
-                col_name: '',
-                display_label: '',
-                filter_value: '',
-                default_checked: false
-            };
-            filters.push(newFilter);
-            renderFilters();
-            updateOutput();
-        }
-
-        function removeFilter(idx) {
-            filters.splice(idx, 1);
-            renderFilters();
-            updateOutput();
-        }
-
-        function moveFilter(idx, direction) {
-            if (direction === 'up' && idx > 0) {
-                [filters[idx - 1], filters[idx]] = [filters[idx], filters[idx - 1]];
-            } else if (direction === 'down' && idx < filters.length - 1) {
-                [filters[idx], filters[idx + 1]] = [filters[idx + 1], filters[idx]];
-            }
-            renderFilters();
-            updateOutput();
-        }
-
-        function updateFilterByIndex(idx, field, value) {
-            if (filters[idx]) {
-                filters[idx][field] = value;
-                markAsChanged();
-                updateOutput();
-            }
-        }
-
-        function renderFilters() {
-            if (filters.length === 0) {
-                filtersList.innerHTML = '';
-                return;
-            }
-
-            filtersList.innerHTML = filters.map((filter, idx) => {
-                const allColumns = columns.filter(col => col.col_name && col.col_name.trim()).map(col => col.col_name);
-                const columnOptions = allColumns.map(colName => `<option value="${colName}" ${filter.col_name === colName ? 'selected' : ''}>${colName}</option>`).join('');
-                
-                return `
-                <div class="grey-panel gp-two-column">
-                    <div class="gp-panel-left">
-                        <div class="gp-row">
-                            <label>Column</label>
-                            <select onchange="updateFilterByIndex(${idx}, 'col_name', this.value)">
-                                <option value="">-- Select Column --</option>
-                                ${columnOptions}
-                            </select>
-                        </div>
-                        <div class="gp-row">
-                            <label>Display Label</label>
-                            <input type="text" value="${filter.display_label || ''}" 
-                                   placeholder="e.g., Show Closed?" 
-                                   onchange="updateFilterByIndex(${idx}, 'display_label', this.value)">
-                        </div>
-                        <div class="gp-row">
-                            <label>Filter Value</label>
-                            <input type="text" value="${filter.filter_value || ''}" 
-                                   placeholder="e.g., 1 (for boolean)" 
-                                   onchange="updateFilterByIndex(${idx}, 'filter_value', this.value)">
-                        </div>
-                        <div class="gp-row">
-                            <div class="gp-checkbox-item">
-                                <input type="checkbox" id="defaultChecked_${idx}" ${filter.default_checked ? 'checked' : ''} 
-                                       onchange="updateFilterByIndex(${idx}, 'default_checked', this.checked)">
-                                <label for="defaultChecked_${idx}">Default Checked</label>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="gp-panel-right">
-                        <div class="gp-button-row">
-                            <button onclick="moveFilter(${idx}, 'up')" ${idx === 0 ? 'disabled' : ''} class="btn btn-bluegrey btn-small gp-move-btn">▲</button>
-                            <button onclick="moveFilter(${idx}, 'down')" ${idx === filters.length - 1 ? 'disabled' : ''} class="btn btn-bluegrey btn-small gp-move-btn">▼</button>
-                        </div>
-                        <button class="btn btn-red btn-small" onclick="removeFilter(${idx})">Remove</button>
-                    </div>
-                </div>
-            `;
-            }).join('');
         }
 
         function buildConfigObject() {
@@ -3321,6 +3259,17 @@
                 allow_create: allowCreate.checked,
                 allow_update: allowUpdate.checked,
                 allow_delete: allowDelete.checked,
+                permissions: (() => {
+                    const permissionsSelect = document.getElementById('permissionsSelect');
+                    if (permissionsSelect && permissionsSelect.dataset.selectedValues) {
+                        try {
+                            return JSON.parse(permissionsSelect.dataset.selectedValues);
+                        } catch (e) {
+                            return [];
+                        }
+                    }
+                    return [];
+                })(),
                 use_sql: sqlData.checked,
                 col_settings: columns.map(({from_sql, data_type, ...col}) => {
                     const colConfig = { col_name: col.col_name };
@@ -3333,13 +3282,6 @@
                     colConfig.editable = col.editable;
                     colConfig.type = data_type;
                     return colConfig;
-                }),
-                filters: filters.map(f => {
-                    const filterConfig = { col_name: f.col_name };
-                    if (f.display_label) filterConfig.display_label = f.display_label;
-                    if (f.filter_value) filterConfig.filter_value = f.filter_value;
-                    if (f.default_checked !== undefined) filterConfig.default_checked = f.default_checked;
-                    return filterConfig;
                 }),
                 locked: false
             };
@@ -3476,7 +3418,6 @@
             const orgVarName = datatableName.value || 'config';
             
             updateValidation(config);
-            renderFilters();
         }
 
         function updateValidation(config) {
@@ -3592,5 +3533,7 @@
             initializeApp();
         }
     </script>
+
+    </div>
 </body>
 </html>
