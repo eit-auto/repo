@@ -60,110 +60,687 @@
             color: #888;
         }
 
-        .grey-panel {
-            margin-bottom: 1.5rem;
+        .checkbox-container {
             display: flex;
-            flex-direction: column;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.5rem 1rem;
             background: #2a2a2a;
             border-radius: 4px;
-            padding: 0.75rem;
-            border: 1px solid #404040;
+            cursor: pointer;
+            user-select: none;
+            transition: all 0.2s ease;
+            white-space: nowrap;
         }
 
-        .grey-panel:last-child {
+        .checkbox-container:hover {
+            background: #353535;
+        }
+
+        .checkbox-container label {
+            color: #e0e0e0;
+            font-size: 0.9rem;
+            cursor: pointer;
+            white-space: nowrap;
+        }
+
+        .delete-audit-btn {
+            padding: 0.5rem 1rem;
+            background: #c62828;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            font-weight: 600;
+            transition: all 0.2s ease;
+            white-space: nowrap;
+        }
+
+        .delete-audit-btn:hover {
+            background: #d32f2f;
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(198, 40, 40, 0.4);
+        }
+
+        .delete-audit-btn:active {
+            transform: translateY(0);
+        }
+
+        .confirm-modal-backdrop {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.7);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 2000;
+        }
+
+        .confirm-modal-backdrop.active {
+            display: flex;
+        }
+
+        .confirm-modal {
+            background: #191A24;
+            border: 2px solid #c62828;
+            border-radius: 8px;
+            padding: 2rem;
+            max-width: 400px;
+            text-align: center;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+        }
+
+        .confirm-modal h3 {
+            color: #e0e0e0;
+            margin-bottom: 1rem;
+            font-size: 1.1rem;
+        }
+
+        .confirm-modal-message {
+            color: #b0b0b0;
+            margin-bottom: 1.5rem;
+            font-size: 0.95rem;
+        }
+
+        .confirm-modal-buttons {
+            display: flex;
+            gap: 1rem;
+            justify-content: center;
+        }
+
+        .confirm-modal-btn {
+            padding: 0.5rem 1.5rem;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            font-weight: 600;
+            transition: all 0.2s ease;
+        }
+
+        .confirm-modal-btn-yes {
+            background: #c62828;
+            color: white;
+        }
+
+        .confirm-modal-btn-yes:hover {
+            background: #d32f2f;
+        }
+
+        .confirm-modal-btn-no {
+            background: #6c757d;
+            color: white;
+        }
+
+        .confirm-modal-btn-no:hover {
+            background: #5a6268;
+        }
+
+        .success-modal-backdrop {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.7);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 2000;
+        }
+
+        .success-modal-backdrop.active {
+            display: flex;
+        }
+
+        .success-modal {
+            background: #191A24;
+            border: 2px solid #4caf50;
+            border-radius: 8px;
+            padding: 2rem;
+            max-width: 400px;
+            text-align: center;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+        }
+
+        .success-modal h3 {
+            color: #4caf50;
+            margin-bottom: 1rem;
+            font-size: 1.1rem;
+        }
+
+        .success-modal-message {
+            color: #e0e0e0;
+            margin-bottom: 1.5rem;
+            font-size: 0.95rem;
+        }
+
+        .success-modal-button {
+            padding: 0.5rem 1.5rem;
+            background: #4caf50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            font-weight: 600;
+            transition: all 0.2s ease;
+        }
+
+        .success-modal-button:hover {
+            background: #45a049;
+        }
+
+        .filter-info {
+            font-size: 0.85rem;
+            color: #b0b0b0;
+        }
+
+        .table-container {
+            padding: 0.5rem;
+            flex: 1;
+            overflow: auto;
+            position: relative;
+            border-radius: 8px;
+        }
+
+        .table-container::-webkit-scrollbar {
+            width: 12px;
+            height: 12px;
+        }
+
+        .table-container::-webkit-scrollbar-track {
+            background: #1f4051;
+            border-radius: 6px;
+        }
+
+        .table-container::-webkit-scrollbar-thumb {
+            background: #5a9fb8;
+            border-radius: 6px;
+            border: 2px solid #1f4051;
+        }
+
+        .table-container::-webkit-scrollbar-thumb:hover {
+            background: #6db5ce;
+        }
+
+        .table-container::-webkit-scrollbar-corner {
+            background: #1f4051;
+        }
+
+        .table-container {
+            scrollbar-width: thin;
+            scrollbar-color: #5a9fb8 #1f4051;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
             margin-bottom: 0;
         }
 
-        .gp-two-column {
-            display: grid;
-            grid-template-columns: 1fr auto;
-            gap: 1rem;
+        thead {
+            background: #32373e;
+            position: sticky;
+            top: 0;
+            z-index: 10;
         }
 
-        .gp-panel-left {
-            display: flex;
-            flex-direction: column;
-            gap: 0.75rem;
-        }
-
-        .gp-panel-right {
-            display: flex;
-            flex-direction: column;
-            justify-content: flex-start;
-            gap: 0.5rem;
-        }
-
-        .gp-row {
-            display: flex;
-            flex-direction: column;
-            gap: 0.35rem;
-        }
-
-        .gp-row label {
-            color: #e0e0e0;
-            font-size: 0.8rem;
+        th {
+            padding: 0.75rem;
+            text-align: left;
+            font-weight: 700;
+            color: #ffffff;
+            border-bottom: 2px solid #556870;
+            font-size: 0.85rem;
             text-transform: uppercase;
             letter-spacing: 0.5px;
+            cursor: pointer;
+            user-select: none;
+            position: relative;
+            white-space: nowrap;
         }
 
-        .gp-row input[type="text"],
-        .gp-row select {
-            background: #1a1a1a;
-            border: 1px solid #404040;
-            color: #e0e0e0;
+        th:hover {
+            background: #404850;
+        }
+
+        th.sortable::after {
+            content: ' Ã¢â€¡â€¦';
+            opacity: 0.3;
+            font-size: 0.7rem;
+        }
+
+        th.sort-asc::after {
+            content: ' Ã¢â€“Â²';
+            opacity: 1;
+        }
+
+        th.sort-desc::after {
+            content: ' Ã¢â€“Â¼';
+            opacity: 1;
+        }
+
+        tbody tr {
+            cursor: pointer;
+            transition: all 0.2s ease;
+            border-bottom: 1px solid #556870;
+            background: #1a3f4d;
+        }
+
+        tbody tr:hover {
+            background: #255566;
+            transform: translateX(4px);
+        }
+
+        tbody tr.selected {
+            background: transparent;
+            border-left: 4px solid #5a9fb8;
+        }
+
+        td {
             padding: 0.5rem;
+            color: #ffffff;
+        }
+
+        /* Hide ID column */
+        th[data-column="id"],
+        td:first-child {
+            display: none;
+        }
+
+        .no-results {
+            text-align: center;
+            padding: 3rem;
+            color: #e0e0e0;
+            font-size: 1.1rem;
+        }
+
+        /* Add button */
+        .action-btn {
+            padding: 0.6rem 1.2rem;
+            border: none;
             border-radius: 4px;
+            font-size: 0.9rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            color: white;
+        }
+
+        .add-btn {
+            background: #1f4051;
+            color: white;
+            font-size: 1.5rem;
+            font-weight: bold;
+            line-height: 1;
+            white-space: nowrap;
+            display: none;  /* Hide the add button */
+            align-items: center;
+            justify-content: center;
+            width: 35px;
+            height: 35px;
+            padding: 0;
+            flex-shrink: 0;
+            border: 2px solid transparent;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .add-btn:hover {
+            background: #2a5a72;
+            border-color: #0d2638;
+        }
+
+        .add-btn:active {
+            transform: translateY(0);
+        }
+
+        /* Edit backdrop and section */
+        .edit-backdrop {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.5);
+            z-index: 999;
+            display: none;
+        }
+
+        .edit-backdrop.active {
+            display: block;
+        }
+
+        .edit-section {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: #191A24;
+            padding: 1.5rem;
+            border-radius: 8px;
+            border: 2px solid #2E5F75;
+            display: none;
+            z-index: 1000;
+            width: 500px;
+            height: auto;
+            max-height: 90vh;
+            overflow-y: auto;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+        }
+
+        .edit-section.active {
+            display: flex;
+            flex-direction: column;
+            animation: slideIn 0.3s ease;
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translate(-50%, -52%);
+            }
+            to {
+                opacity: 1;
+                transform: translate(-50%, -50%);
+            }
+        }
+
+        .edit-section h2 {
+            color: #5a9fb8;
+            margin-bottom: 1rem;
+            font-size: 1.25rem;
+        }
+
+        .form-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .form-grid.two-columns {
+            grid-template-columns: repeat(2, 1fr);
+        }
+
+        .button-group {
+            display: flex;
+            gap: 1rem;
+            justify-content: flex-end;
+        }
+
+        .save-btn {
+            background: transparent;
+            color: white;
+        }
+
+        .save-btn:hover {
+            background: #1f4051;
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(46, 95, 117, 0.4);
+        }
+
+        .save-btn:active {
+            transform: translateY(0);
+        }
+
+        .cancel-btn {
+            background: #6c757d;
+            color: white;
+        }
+
+        .cancel-btn:hover {
+            background: #5a6268;
+        }
+
+        .delete-btn {
+            background: #dc3545;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            padding: 0.5rem;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 40px;
+            height: 40px;
+        }
+
+        .delete-btn:hover {
+            background: #c82333;
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(220, 53, 69, 0.3);
+        }
+
+        .delete-btn svg {
+            pointer-events: none;
+        }
+
+        .status-message {
+            padding: 0.75rem;
+            border-radius: 4px;
+            margin-bottom: 0.75rem;
+            display: none;
+            animation: slideIn 0.3s ease;
             font-size: 0.9rem;
         }
 
-        .gp-button-row {
+        .status-message.success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+
+        .status-message.error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+
+        .status-message.active {
+            display: block;
+        }
+
+        @media (max-width: 768px) {
+            .edit-section {
+                left: 1rem;
+                right: 1rem;
+                top: 1rem;
+                bottom: 1rem;
+            }
+
+            .form-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    
+
+        /* ============================================
+           CONFIG BUILDER SPECIFIC STYLES
+           ============================================ */
+
+
+
+        .main-content {
+            display: grid;
+            grid-template-columns: 0.7fr 1fr 0.7fr;
+            gap: 1.5rem;
+            padding: 1rem;
+            background: transparent;
+            width: 100%;
+            align-items: stretch;
+        }
+
+        .panel {
+            background: #1f4051;
+            border-radius: 8px;
+            padding: 1.5rem;
             display: flex;
-            gap: 0.25rem;
+            flex-direction: column;
+            min-height: min-content;
+            height: 100%;
         }
-
-        .gp-move-btn {
-            background: #2E5F75;
-            color: #e0e0e0;
-            border: none;
-            border-radius: 4px;
-            padding: 0.4rem 0.6rem;
-            cursor: pointer;
-            font-size: 0.8rem;
-            flex: 1;
-        }
-
-        .gp-move-btn:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-        }
-
-        .gp-move-btn:hover:not(:disabled) {
-            background: #3a7a99;
-        }
-
-        .gp-row-grid2 {
+        
+        .panel:first-of-type {
             display: grid;
             grid-template-columns: 1fr 1fr;
+            gap: 1rem;
+            align-content: start;
+        }
+        
+        .panel:first-of-type > h2 {
+            grid-column: 1 / -1;
+        }
+
+        .panel h2 {
+            color: #ffffff;
+            margin-bottom: 1rem;
+            font-size: 1.1rem;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+            padding-bottom: 0.5rem;
+        }
+
+        .panel-section {
+            margin-bottom: 1.5rem;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .panel-section:last-child {
+            margin-bottom: 0;
+        }
+
+        .panel-label {
+            color: #e0e0e0;
+            font-weight: 600;
+            font-size: 0.8rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 0.5rem;
+            display: block;
+        }
+
+        .checkbox-group {
+            display: flex;
+            flex-direction: column;
             gap: 0.5rem;
         }
 
         .checkbox-item {
             display: flex;
             align-items: center;
-            gap: 0.4rem;
-            font-size: 0.85rem;
-        }
-
-        .checkbox-item input[type="checkbox"] {
+            gap: 0.5rem;
+            padding: 0.1rem 0;
             cursor: pointer;
+            user-select: none;
+            white-space: nowrap;
+            position: relative;
         }
 
         .checkbox-item label {
-            color: #e0e0e0;
             cursor: pointer;
+            margin: 0;
+            pointer-events: auto;
+            display: inline;
+        }
+        
+        .searchable-select-wrapper {
+            position: relative;
+            width: 100%;
         }
 
-        .tabs {
+        .searchable-select-dropdown {
+            position: absolute;
+            top: 100%;
+            left: 0;
+            right: 0;
+            background: #2a2a2a;
+            border: 2px solid #2E5F75;
+            border-top: none;
+            border-radius: 0 0 4px 4px;
+            max-height: 200px;
+            overflow-y: auto;
+            display: none;
+            z-index: 100;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+        }
+
+        .searchable-select-dropdown.active {
+            display: block;
+        }
+
+        .searchable-select-option {
+            padding: 0.5rem 0.75rem;
+            color: #e0e0e0;
+            cursor: pointer;
+            transition: background 0.15s ease;
+            font-size: 0.9rem;
+        }
+
+        .searchable-select-option:hover {
+            background: #404040;
+        }
+
+        .searchable-select-option.selected {
+            background: transparent;
+            color: #5a9fb8;
+            font-weight: 600;
+        }
+
+        .searchable-select-option.no-results {
+            color: #888;
+            font-style: italic;
+            text-align: center;
+            padding: 1rem 0.75rem;
+        }
+
+        .loading-text {
+            color: #5a9fb8;
+            font-size: 0.9rem;
+            padding: 0.5rem 0;
+            text-align: center;
+            animation: pulse 1.5s ease-in-out infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.6; }
+        }
+
+
+
+        .column-name {
+            color: #5a9fb8;
+            font-weight: 600;
+            font-size: 0.95rem;
+        }
+
+        .column-type {
+            color: #888;
+            font-size: 0.8rem;
+            margin-left: 0.5rem;
+        }
+
+        .column-controls {
+            display: flex;
+            gap: 0.5rem;
+        }
+
+        .column-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 0.35rem;
+        }
+
+.tabs {
             display: flex;
             gap: 0.5rem;
             margin-bottom: 1rem;
@@ -199,8 +776,27 @@
             display: block;
         }
 
+        .output-section {
+            padding: 1.5rem;
+            grid-column: 1 / -1;
+            background: #1f4051;
+            border-radius: 8px;
+            display: flex;
+            flex-direction: column;
+            min-height: auto;
+        }
+
+        .output-section h2 {
+            color: #ffffff;
+            margin-bottom: 1rem;
+            font-size: 1.1rem;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+            padding-bottom: 0.5rem;
+        }
+
         .output-content {
             background: #2a2a2a;
+            
             border-radius: 4px;
             padding: 1rem;
             font-family: 'Monaco', 'Menlo', 'Courier New', monospace;
@@ -212,27 +808,104 @@
             overflow-x: auto;
         }
 
-        .inner-panel {
+        .validation-item {
+            padding: 0.5rem 0;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.9rem;
+        }
+
+        .validation-item.valid {
+            color: #4caf50;
+        }
+
+        .validation-item.invalid {
+            color: #dc3545;
+        }
+
+        .validation-item.warning {
+            color: #ff9800;
+        }
+
+        .info-box {
             background: #1f4051;
-            border-radius: 8px;
-            padding: 1.5rem;
+            border-left: 4px solid #5a9fb8;
+            padding: 1rem;
+            margin-bottom: 1rem;
+            border-radius: 4px;
+            color: #e0e0e0;
+            font-size: 0.9rem;
+        }
+
+        .error-message {
+            color: #ff6b6b;
+            font-size: 0.85rem;
+            margin-top: 0.25rem;
+        }
+
+        .success-message {
+            color: #4caf50;
+            font-size: 0.85rem;
+            margin-top: 0.25rem;
+        }
+
+        .spinner {
+            border: 4px solid rgba(90, 159, 184, 0.3);
+            border-top: 4px solid #5a9fb8;
+            border-radius: 50%;
+            width: 20px;
+            height: 20px;
+            animation: spin 1s linear infinite;
+            display: inline-block;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        @media (max-width: 1400px) {
+            .main-content {
+                grid-template-columns: 1fr 1fr;
+            }
+
+            .output-section {
+                grid-column: 1 / -1;
+            }
+        }
+
+        .loading-state {
+            background: #b8860b !important;
+            color: #ffffff !important;
+        }
+
+        .searchable-select-input:read-only {
+            pointer-events: none;
+        }
+
+        @media (max-width: 900px) {
+            .main-content {
+                grid-template-columns: 1fr;
+            }
+
+            .column-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .grey-panel {
+            margin-bottom: 1.5rem;
             display: flex;
             flex-direction: column;
+            background: #2a2a2a;
+            border-radius: 4px;
+            padding: 0.75rem;
+            border: 1px solid #404040;
         }
 
-        .inner-panel h2 {
-            color: #ffffff;
-            margin-bottom: 1rem;
-            font-size: 1.1rem;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.2);
-            padding-bottom: 0.5rem;
-        }
-
-        .main-content {
-            display: grid;
-            grid-template-columns: 0.7fr 1fr 0.7fr;
-            gap: 1.5rem;
-            padding: 1rem;
+        .grey-panel:last-child {
+            margin-bottom: 0;
         }
     </style>
 </head>
@@ -246,7 +919,8 @@
                         <select id="existingConfigDropdown" onchange="updateLoadButtonState()">
                             <option value="">-- Existing DataTable Configuration --</option>
                         </select>
-                    </div></div>
+                    </div>
+</div>
                 </div>
                 <button id="loadConfigBtn" class="btn btn-green" onclick="loadSelectedConfig()" disabled>Load</button>
             </div>
@@ -256,39 +930,161 @@
                 <button id="resetBtn" class="btn btn-bluegrey" onclick="resetConfiguration()">Reset</button>
             </div>
         </div>
-
-        <div class="main-content" id="mainContent">
-            <div class="inner-panel">
-                <h2>Basic Configuration</h2>
-
-                <div style="margin-bottom: 1.5rem;">
-                    <label style="color: #e0e0e0; font-weight: 600; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 0.5rem; display: block;">Datatable Name</label>
-                    <input type="text" id="datatableName" placeholder="e.g., automation_requests" style="width: 100%; padding: 0.5rem; background: #2a2a2a; border: 1px solid #404040; border-radius: 4px; color: #e0e0e0;">
-                </div>
-
-                <div style="margin-bottom: 1.5rem;">
-                    <label style="color: #e0e0e0; font-weight: 600; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 0.5rem; display: block;">Description</label>
-                    <textarea id="datatableDesc" placeholder="Describe this data table..." style="width: 100%; padding: 0.5rem; background: #2a2a2a; border: 1px solid #404040; border-radius: 4px; color: #e0e0e0; min-height: 80px;"></textarea>
-                </div>
-
-                <div style="margin-bottom: 1.5rem; border-top: 1px solid rgba(255, 255, 255, 0.1); padding-top: 1rem;">
-                    <h3 style="color: #ffffff; margin: 0 0 1rem 0; font-size: 1rem;">Filters</h3>
-                    <div id="filtersList"></div>
-                    <button class="btn btn-blue" onclick="addFilter()">+ Add Filter</button>
-                </div>
-            </div>
-
-            <div class="inner-panel">
-                <h2>Workflows & Data</h2>
-            </div>
-
-            <div class="inner-panel">
-                <h2>Column Settings</h2>
-                <div id="columnsList"></div>
+        
+        <div style="padding: 0.5rem 1rem; display: flex; justify-content: center;">
+            <div id="lockWarningRow" style="display: none; padding: 0.5rem 1rem; background: #fff3cd; border: 1px solid #ffc107; border-radius: 4px; text-align: center; width: fit-content;">
+                <div id="lockWarning" style="background: transparent; border: none; padding: 0; margin: 0; color: #856404; font-size: 0.9rem;"></div>
             </div>
         </div>
 
+        <div class="main-content" id="mainContent">
+            <!-- Basic Configuration Panel -->
+            <div class="inner-panel">
+                <h2>Basic Configuration</h2>
+
+                <div class="form-container"><div class="form-group" style="grid-column: 1 / -1;">
+                    <label>Datatable Name</label>
+                    <input type="text" id="datatableName" placeholder="e.g., automation_requests">
+                </div>
+</div>
+
+                <div class="form-container"><div class="form-group" style="grid-column: 1 / -1;">
+                    <label>Description</label>
+                    <textarea id="datatableDesc" placeholder="Describe this data table..."></textarea>
+                </div>
+</div>
+
+                <div style="display: flex; gap: 1rem;">
+                    <div class="form-container"><div class="form-group" style="display: flex; flex-direction: column;">
+                        <label>Edit Type</label>
+                        <div style="display: flex; flex-direction: column; gap: 0.75rem;">
+                            <div>
+                                <input type="radio" id="editTypeWindow" name="editType" value="window" checked onchange="updateOutput()" class="input-accent-blue">
+                                <label for="editTypeWindow">Edit Window</label>
+                            </div>
+                            <div>
+                                <input type="radio" id="editTypeColumn" name="editType" value="column" onchange="updateOutput()" class="input-accent-blue">
+                                <label for="editTypeColumn">Table Column Edit</label>
+                            </div>
+                        </div>
+                    </div>
+</div>
+
+                    <div class="form-container"><div class="form-group" style="display: flex; flex-direction: column;">
+                        <label>Permissions</label>
+                        <div class="checkbox-group">
+                            <div>
+                                <input type="checkbox" id="allowCreate" checked class="input-accent-blue">
+                                <label for="allowCreate">Allow Create</label>
+                            </div>
+                            <div>
+                                <input type="checkbox" id="allowUpdate" checked class="input-accent-blue">
+                                <label for="allowUpdate">Allow Update</label>
+                            </div>
+                            <div>
+                                <input type="checkbox" id="allowDelete" checked class="input-accent-blue">
+                                <label for="allowDelete">Allow Delete</label>
+                            </div>
+                        </div>
+                    </div>
+</div>
+                </div>
+
+                <div style="margin-top: 2rem; border-top: 1px solid rgba(255, 255, 255, 0.1); padding-top: 1rem;">
+                    <h3 style="color: #ffffff; margin: 0 0 1rem 0; font-size: 1rem;">Filters</h3>
+                    <div class="form-container"><div class="form-group">
+                        <div style="display: flex; flex-direction: column; margin-bottom: 1rem;">
+                            <button class="btn btn-blue btn-small" onclick="addFilter()">Add Filter</button>
+                        </div>
+                        <div id="filtersList"></div>
+                    </div>
+</div>
+                </div>
+            </div>
+
+            <!-- Workflows & Data Configuration Panel -->
+            <div class="inner-panel">
+                <h2>Workflows & Data</h2>
+
+                <div class="form-container"><div class="form-group">
+                    <div class="checkbox-item">
+                        <input type="checkbox" id="sqlData">
+                        <label for="sqlData">Use MySQL Data</label>
+                    </div>
+
+                    <div id="tableNameGroup" class="form-group-vert" style="display:none;">
+                        <label>SQL Table Name</label>
+                        <div class="searchable-select-wrapper">
+                            <input type="text" id="tableName" class="searchable-select-input" placeholder="Select or search..." autocomplete="off">
+                            <div id="tableNameDropdown" class="searchable-select-dropdown"></div>
+                        </div>
+                    </div>
+
+                    <div class="form-group-vert" style="margin-top: 1rem;">
+                        <label>Data Workflow</label>
+                        <div class="searchable-select-wrapper">
+                            <input type="text" id="dataWorkflow" class="searchable-select-input" placeholder="Select workflow..." autocomplete="off">
+                            <div id="dataWorkflowDropdown" class="searchable-select-dropdown"></div>
+                        </div>
+                        <div class="checkbox-item" id="dataWorkflowOverrideContainer" style="display: none; margin-top: 0.5rem;">
+                            <input type="checkbox" id="dataWorkflowOverride">
+                            <label for="dataWorkflowOverride">Override Workflow</label>
+                        </div>
+                    </div>
+
+                    <div class="form-group-vert" style="margin-top: 1rem;">
+                        <label>Output Variable Name</label>
+                        <input type="text" id="outputVar" placeholder="e.g., sql_result">
+                    </div>
+
+                    <div class="form-group-vert" style="margin-top: 1rem;">
+                        <label>Add/Update/Delete Workflow</label>
+                        <div class="searchable-select-wrapper">
+                            <input type="text" id="updateWorkflow" class="searchable-select-input" placeholder="Select workflow..." autocomplete="off">
+                            <div id="updateWorkflowDropdown" class="searchable-select-dropdown"></div>
+                        </div>
+                        <div class="checkbox-item" id="updateWorkflowOverrideContainer" style="display: none; margin-top: 0.5rem;">
+                            <input type="checkbox" id="updateWorkflowOverride">
+                            <label for="updateWorkflowOverride">Override Workflow</label>
+                        </div>
+                    </div>
+
+                    <div id="sqlQueryGroup" class="form-group-vert" style="display: none; margin-top: 1rem;">
+                        <label>SQL Query for Initial Data Retrieval</label>
+                        <textarea id="sqlQuery" placeholder="SELECT * FROM table_name" style="width: 100%;"></textarea>
+                    </div>
+                </div>
+</div>
+
+                <div class="form-container"><div class="form-group">
+                    <label>Input Variables</label>
+                    <div id="templateVarsNote" style="background: #1f4051; border: 1px solid #404040; padding: 0.75rem; border-radius: 4px; margin-bottom: 0.75rem; font-size: 0.85rem; color: #b0b0b0; display: none;">
+                        <strong style="color: #5a9fb8;">Template Variables:</strong> Use <code style="background: #2a2a2a; padding: 0.25rem 0.5rem; border-radius: 2px; color: #7cc4e0;">[[variableName]]</code> syntax in values to reference other input variables or URL parameters.
+                    </div>
+                    <button class="btn btn-blue btn-small" onclick="addInputVariable()" style="margin-bottom: 1rem;">Add Input Variable</button>
+                    <div id="inputVariablesList" style="display: flex; flex-direction: column; gap: 0.75rem;"></div>
+                </div>
+</div>
+            </div>
+
+            <!-- Column Settings Panel -->
+            <div class="inner-panel">
+                <h2>Column Settings</h2>
+
+                <div class="form-container"><div class="form-group" id="addColumnSection">
+                    <button class="btn btn-blue btn-small" onclick="addColumn()">Add New Column</button>
+                </div>
+</div>
+
+                <div class="form-container"><div class="form-group" id="columnsList"></div>
+            </div>
+        </div>
+
+        <div style="padding: 0.5rem 1rem; display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem;">
+        </div>
+
         <div style="padding: 0.5rem 1rem; display: flex; justify-content: center;">
+            <!-- Configuration Output Section -->
             <div class="inner-panel" style="width: 100%;">
                 <div class="tabs">
                     <button class="tab-btn active" onclick="switchTab('validation')">Validation</button>
@@ -303,31 +1099,2111 @@
                     <div class="output-content" id="jsonOutput"></div>
                     <button class="btn btn-blue btn-small" onclick="copyToClipboard('jsonOutput')">Copy JSON</button>
                 </div>
+
             </div>
         </div>
     </div>
-
+    </div>
     <script>
         window.ORG_ID = '019176c2-059f-7391-afbc-97b201efbd93';
     </script>
     <script src="https://eit-auto.github.io/repo/rewst-library.js"></script>
     <script>
-        let filters = [];
-        let columns = [];
-        let jsonOutput = null;
-        let validationOutput = null;
-        let filtersList = null;
-        let columnsList = null;
+        // ============================================
+        // CONFIGURATION
+        // ============================================
+        const ORG_ID = window.ORG_ID;
+        const DISCOVERY_WORKFLOW_ID = '0198d3fa-fa9b-75ac-9866-341fda8e72a3';
+        const userName = "{{ CTX.user.username }}" || "Unknown User";
+        const getCurrentTimeStamp = () => new Date().toISOString();
+        let nextDatatableNumber = 1;  // Will be calculated after loading org vars
+        
+        // ============================================
+        // FETCH EXISTING DATATABLE CONFIGURATIONS
+        // ============================================
+        let datatableConfigsAlreadyFetched = false;
+        let datatableConfigsCurrentlyFetching = false;
+        let datatableConfigsFetchPromise = null;
 
+        async function loadOrgVariables() {
+            // If already fetched, return immediately
+            if (datatableConfigsAlreadyFetched) {
+                console.log('Datatable configs already fetched, skipping...');
+                return window.savedOrgVariables || [];
+            }
+            
+            // If currently fetching, wait for that to complete
+            if (datatableConfigsCurrentlyFetching && datatableConfigsFetchPromise) {
+                console.log('Datatable configs currently being fetched, waiting for completion...');
+                return await datatableConfigsFetchPromise;
+            }
+            
+            // Set flag and create promise
+            datatableConfigsCurrentlyFetching = true;
+            
+            datatableConfigsFetchPromise = (async () => {
+                try {
+                    console.log('Fetching datatable configurations from org variables...');
+                    
+                    const response = await fetch('/graphql', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            query: `{
+                                visibleOrgVariables(
+                                    visibleForOrgId: "${ORG_ID}"
+                                    search: { 
+                                        organization: { id: { _eq: "${ORG_ID}" } }
+                                        name: { _ilike: "datatable_%" }
+                                    }
+                                ) {
+                                    id
+                                    name
+                                    value
+                                    category
+                                    cascade
+                                    createdAt
+                                    updatedAt
+                                    organization {
+                                        id
+                                        name
+                                    }
+                                }
+                            }`
+                        })
+                    });
+
+                    const data = await response.json();
+                    console.log('GraphQL Response:', data);
+
+                    if (data.errors) {
+                        throw new Error(`GraphQL Error: ${data.errors[0]?.message || 'Unknown error'}`);
+                    }
+
+                    // Extract org variables
+                    const variables = data.data?.visibleOrgVariables || [];
+                    
+                    if (!variables || variables.length === 0) {
+                        console.warn('No datatable configurations found');
+                        datatableConfigsCurrentlyFetching = false;
+                        datatableConfigsAlreadyFetched = true;
+                        window.savedOrgVariables = [];
+                        return [];
+                    }
+
+                    // Build datatable config objects from variables
+                    const configs = variables.map(v => {
+                        let configName = v.name;
+                        let configData = null;
+                        
+                        try {
+                            configData = JSON.parse(v.value);
+                            // Try both 'name' and 'datatable_name' fields
+                            if (configData.name) {
+                                configName = configData.name;
+                            } else if (configData.datatable_name) {
+                                configName = configData.datatable_name;
+                            }
+                        } catch (e) {
+                            // If not valid JSON, use the variable name
+                        }
+                        
+                        return {
+                            config_id: v.name.replace('datatable_', ''),
+                            config_name: configName,
+                            config_raw: v.value,
+                            config_parsed: configData,
+                            orgVarId: v.id,
+                            orgVarName: v.name
+                        };
+                    });
+
+                    console.log('Successfully extracted datatable configs:', configs);
+                    console.log('Number of configs:', configs.length);
+                    
+                    // Calculate next datatable number
+                    const existingNumbers = configs.map(c => {
+                        const match = c.orgVarName.match(/datatable_(\d+)/);
+                        return match ? parseInt(match[1]) : 0;
+                    });
+                    nextDatatableNumber = Math.max(0, ...existingNumbers) + 1;
+                    console.log('Next datatable number will be:', nextDatatableNumber);
+                    
+                    // Store org variables globally for use in the builder
+                    window.savedOrgVariables = configs;
+                    
+                    datatableConfigsAlreadyFetched = true;
+                    datatableConfigsCurrentlyFetching = false;
+                    
+                    return configs;
+                    
+                } catch (error) {
+                    console.error('Error fetching datatable configurations:', error);
+                    console.error('Error stack:', error.stack);
+                    
+                    datatableConfigsCurrentlyFetching = false;
+                    return [];
+                }
+            })();
+            
+            return await datatableConfigsFetchPromise;
+        }
+
+        // ============================================
+        // STATE
+        // ============================================
+        let columns = [];
+        let inputVariables = [];  // Array to store input variable objects {name, value, fromUrl, required}
+        let filters = [];  // Array to store filter objects
+        let allWorkflows = [];  // Array to store all available workflows for lookup
+        let tableColumnInfo = {};
+        let isLoadingTableInfo = false;
+        
+        // DOM Elements - will be initialized in initializeApp
+        let datatableName, datatableDesc, sqlData, tableName, tableNameGroup, sqlQueryGroup;
+        let dataWorkflow, updateWorkflow, sqlQuery, outputVar, primaryKey;
+        let allowCreate, allowUpdate, allowDelete;
+        let newColName, columnsList, filtersList, jsonOutput, validationOutput;
+
+        // ============================================
+        // REWST APP LIBRARY
+        // ============================================
+        class RewstApp {
+            constructor(config = {}) {
+                this.graphqlUrl = config.graphqlPath || '/graphql';
+                this.orgId = config.orgId || null;
+                this.isInitialized = config.orgId ? true : false;
+                this.debugMode = config.debug || false;
+            }
+
+            _log(...args) {
+                if (this.debugMode) console.log('[Rewst]', ...args);
+            }
+
+            _error(message, error) {
+                console.error(`[Rewst Error] ${message}`);
+                if (error) console.error('Details:', error);
+            }
+
+            async getWorkflowTriggers(workflowId) {
+                const query = `
+                    query getTriggers($id: ID!) {
+                        workflowTriggers: workflow(where: {id: $id}) {
+                            triggers {
+                                id
+                                enabled
+                                orgInstances {
+                                    id
+                                    orgId
+                                }
+                            }
+                        }
+                    }
+                `;
+
+                const result = await this._graphql('getTriggers', query, { id: workflowId });
+                return result.workflowTriggers?.triggers || [];
+            }
+
+            async runWorkflowSmart(workflowId, inputData = {}, options = {}) {
+                if (!this.isInitialized) {
+                    throw new Error('Rewst not initialized. Missing orgId.');
+                }
+
+                this._log('Running workflow:', workflowId);
+                return await this.runWorkflowWithWait(workflowId, inputData, options);
+            }
+
+            async runWorkflowWithWait(workflowId, inputData = {}, options = {}) {
+                const query = `
+                    mutation testWorkflow($id: ID!, $orgId: ID!, $input: JSON) {
+                        testResult: testWorkflow(id: $id, orgId: $orgId, input: $input) {
+                            executionId
+                        }
+                    }
+                `;
+
+                const testResult = await this._graphql('testWorkflow', query, { 
+                    id: workflowId, 
+                    orgId: this.orgId,
+                    input: inputData 
+                });
+                this._log('Workflow execution started:', testResult.testResult.executionId);
+                
+                return await this._waitForCompletion(testResult.testResult.executionId, options.onProgress);
+            }
+
+            async getExecutionStatus(executionId) {
+                const query = `
+                    query getExecution($id: ID!) {
+                        workflowExecution(where: {id: $id}) {
+                            id
+                            status
+                            conductor {
+                                errors
+                                output
+                            }
+                        }
+                    }
+                `;
+
+                const result = await this._graphql('getExecution', query, { id: executionId });
+                return result.workflowExecution || {};
+            }
+
+            async _waitForCompletion(executionId, onProgress = null) {
+                const pollInterval = 2000;
+                const maxAttempts = 150;
+                let attempts = 0;
+                let emptyOutputRetries = 0;
+                const maxEmptyRetries = 5;
+
+                await new Promise(resolve => setTimeout(resolve, 500));
+
+                while (attempts < maxAttempts) {
+                    try {
+                        const execution = await this.getExecutionStatus(executionId);
+                        
+                        if (onProgress) {
+                            try {
+                                onProgress(execution.status);
+                            } catch (e) {}
+                        }
+
+                        const terminalStates = ['COMPLETED', 'SUCCESS', 'succeeded', 'FAILED', 'failed', 'ERROR'];
+                        const isComplete = terminalStates.some(s => execution.status?.toUpperCase?.() === s.toUpperCase());
+
+                        if (isComplete) {
+                            const isFailed = ['FAILED', 'failed', 'ERROR'].some(s => execution.status?.toUpperCase?.() === s.toUpperCase());
+                            if (isFailed) {
+                                throw new Error(`Workflow failed: ${execution.status}`);
+                            }
+                            
+                            // Check if output is empty and retry if we haven't hit max retries
+                            const hasOutput = execution.conductor?.output && Object.keys(execution.conductor.output).length > 0;
+                            if (!hasOutput && emptyOutputRetries < maxEmptyRetries) {
+                                emptyOutputRetries++;
+                                this._log(`Workflow completed but output empty, retrying (${emptyOutputRetries}/${maxEmptyRetries})`);
+                                await new Promise(resolve => setTimeout(resolve, 2000));
+                                attempts++;
+                                continue;
+                            }
+                            
+                            return { ...execution, success: true };
+                        }
+
+                        await new Promise(resolve => setTimeout(resolve, pollInterval));
+                        attempts++;
+
+                    } catch (err) {
+                        this._error('Error checking execution status', err);
+                        throw err;
+                    }
+                }
+
+                throw new Error('Workflow execution timeout');
+            }
+
+            async _graphql(operationName, query, variables) {
+                const controller = new AbortController();
+                const timeout = setTimeout(() => controller.abort(), 30000);
+
+                try {
+                    const response = await fetch(this.graphqlUrl, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ query, variables, operationName }),
+                        signal: controller.signal
+                    });
+
+                    if (!response.ok) {
+                        throw new Error(`HTTP ${response.status}`);
+                    }
+                    
+                    const data = await response.json();
+                    if (data.errors) {
+                        throw new Error(data.errors[0]?.message || 'GraphQL error');
+                    }
+                    
+                    return data.data;
+                } catch (err) {
+                    throw err;
+                } finally {
+                    clearTimeout(timeout);
+                }
+            }
+        }
+
+        const rewst = new RewstApp({ 
+            graphqlPath: '/graphql',
+            orgId: ORG_ID,
+            debug: true
+        });
+
+        // ============================================
+        // DROPDOWN POPULATION AND LOADING
+        // ============================================
+        function populateExistingConfigDropdown() {
+            console.log('populateExistingConfigDropdown called');
+            
+            // Use setTimeout to ensure DOM is ready
+            setTimeout(() => {
+                console.log('window.savedOrgVariables:', window.savedOrgVariables);
+                
+                const dropdown = document.getElementById('existingConfigDropdown');
+                console.log('dropdown element:', dropdown);
+                
+                if (!dropdown) {
+                    console.error('Dropdown element not found');
+                    return;
+                }
+                
+                if (!window.savedOrgVariables || window.savedOrgVariables.length === 0) {
+                    console.warn('No saved org variables');
+                    return;
+                }
+                
+                // Clear existing options except the placeholder
+                while (dropdown.options.length > 1) {
+                    dropdown.remove(1);
+                }
+                
+                // Add options for each saved configuration
+                window.savedOrgVariables.forEach(config => {
+                    console.log('Processing config:', config);
+                    console.log('  config.config_name:', config.config_name);
+                    console.log('  config.config_parsed:', config.config_parsed);
+                    
+                    // Use config_name which should already have the datatable name
+                    const displayName = config.config_name || config.orgVarName || 'Unknown';
+                    console.log('  displayName:', displayName);
+                    
+                    const option = document.createElement('option');
+                    option.value = config.config_id;
+                    option.textContent = displayName;
+                    dropdown.appendChild(option);
+                });
+                
+                console.log('Dropdown populated with', window.savedOrgVariables.length, 'configurations');
+            }, 100);
+        }
+        
+        function showModalMessage(message, type = 'success') {
+            // Create or get modal elements
+            let modal = document.getElementById('loadConfigModal');
+            if (!modal) {
+                modal = document.createElement('div');
+                modal.id = 'loadConfigModal';
+                modal.style.cssText = `
+                    position: fixed;
+                    top: 50%;
+                    left: 50%;
+                    transform: translate(-50%, -50%);
+                    background: #191A24;
+                    padding: 2rem;
+                    border-radius: 8px;
+                    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+                    z-index: 2000;
+                    text-align: center;
+                    min-width: 300px;
+                    border: 2px solid ${type === 'success' ? '#4caf50' : '#dc3545'};
+                    animation: slideIn 0.3s ease;
+                `;
+                document.body.appendChild(modal);
+            }
+            
+            // Create backdrop if it doesn't exist
+            let backdrop = document.getElementById('loadConfigBackdrop');
+            if (!backdrop) {
+                backdrop = document.createElement('div');
+                backdrop.id = 'loadConfigBackdrop';
+                backdrop.style.cssText = `
+                    position: fixed;
+                    top: 0;
+                    left: 0;
+                    right: 0;
+                    bottom: 0;
+                    background: rgba(0, 0, 0, 0.5);
+                    z-index: 1999;
+                `;
+                document.body.appendChild(backdrop);
+            }
+            
+            // Update modal content
+            const icon = type === 'success' ? '✓' : '✕';
+            const color = type === 'success' ? '#4caf50' : '#dc3545';
+            modal.innerHTML = `
+                <div style="color: ${color}; font-size: 2rem; margin-bottom: 1rem;">${icon}</div>
+                <div style="color: #e0e0e0; font-size: 1rem;">${message}</div>
+            `;
+            
+            // Show modal and backdrop
+            modal.style.display = 'block';
+            backdrop.style.display = 'block';
+            
+            // Hide after 1 second
+            setTimeout(() => {
+                modal.style.display = 'none';
+                backdrop.style.display = 'none';
+            }, 1000);
+        }
+        
+        function deleteConfiguration() {
+            const dropdown = document.getElementById('existingConfigDropdown');
+            const selectedConfigId = dropdown?.value;
+            
+            if (!selectedConfigId || selectedConfigId.trim() === '') {
+                alert('No configuration selected to delete');
+                return;
+            }
+            
+            showDeleteConfirmationModal();
+        }
+        
+        function showDeleteConfirmationModal() {
+            // Get the selected config ID from dropdown
+            const dropdown = document.getElementById('existingConfigDropdown');
+            const selectedConfigId = dropdown?.value;
+            
+            if (!selectedConfigId || selectedConfigId.trim() === '') {
+                alert('No configuration selected');
+                return;
+            }
+            
+            // Find the org var name for this config
+            const selectedConfig = window.savedOrgVariables?.find(v => v.config_id === selectedConfigId);
+            if (!selectedConfig) {
+                alert('Configuration not found');
+                return;
+            }
+            
+            const orgVarName = selectedConfig.orgVarName;
+            
+            // Create or get modal
+            let modal = document.getElementById('deleteConfirmModal');
+            if (!modal) {
+                modal = document.createElement('div');
+                modal.id = 'deleteConfirmModal';
+                modal.style.cssText = `
+                    position: fixed;
+                    top: 50%;
+                    left: 50%;
+                    transform: translate(-50%, -50%);
+                    background: #191A24;
+                    padding: 2rem;
+                    border-radius: 8px;
+                    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+                    z-index: 2001;
+                    max-width: 500px;
+                    border: 2px solid #dc3545;
+                `;
+                document.body.appendChild(modal);
+            }
+            
+            // Create backdrop if it doesn't exist
+            let backdrop = document.getElementById('deleteConfirmBackdrop');
+            if (!backdrop) {
+                backdrop = document.createElement('div');
+                backdrop.id = 'deleteConfirmBackdrop';
+                backdrop.style.cssText = `
+                    position: fixed;
+                    top: 0;
+                    left: 0;
+                    right: 0;
+                    bottom: 0;
+                    background: rgba(0, 0, 0, 0.5);
+                    z-index: 2000;
+                `;
+                document.body.appendChild(backdrop);
+            }
+            
+            // Build modal content
+            const configName = selectedConfig.config_name || orgVarName;
+            modal.innerHTML = `
+                <h2 style="color: #dc3545; margin-top: 0;">Delete Configuration</h2>
+                
+                <div style="margin-bottom: 1.5rem;">
+                    <div style="color: #ff6b6b; font-size: 1rem; margin-bottom: 1rem; font-weight: 600;">
+                        ⚠  Warning: This action cannot be undone!
+                    </div>
+                    <div style="color: #e0e0e0; font-size: 0.95rem; line-height: 1.6;">
+                        You are about to permanently delete the configuration:<br/>
+                        <strong style="color: #5a9fb8;">${configName}</strong><br/><br/>
+                        This will remove the organization variable and cannot be reversed.
+                    </div>
+                </div>
+                
+                <div style="display: flex; gap: 1rem; justify-content: flex-end;">
+                    <button onclick="closeDeleteConfirmationModal()" style="padding: 0.5rem 1.5rem; background: #6c757d; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: 600;">Cancel</button>
+                    <button onclick="confirmDelete('${configName}', '${orgVarName}')" style="padding: 0.5rem 1.5rem; background: #dc3545; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: 600;">Yes, Delete</button>
+                </div>
+            `;
+            
+            modal.style.display = 'block';
+            backdrop.style.display = 'block';
+        }
+        
+        function closeDeleteConfirmationModal() {
+            const modal = document.getElementById('deleteConfirmModal');
+            const backdrop = document.getElementById('deleteConfirmBackdrop');
+            if (modal) modal.style.display = 'none';
+            if (backdrop) backdrop.style.display = 'none';
+        }
+        
+        function confirmDelete(configName, orgVarName) {
+            closeDeleteConfirmationModal();
+            
+            // Show deleting modal
+            const deletingModal = document.createElement('div');
+            deletingModal.id = 'deletingModal';
+            deletingModal.style.cssText = `
+                position: fixed;
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%);
+                background: #191A24;
+                padding: 2rem;
+                border-radius: 8px;
+                box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+                z-index: 2001;
+                text-align: center;
+                border: 2px solid #dc3545;
+            `;
+            deletingModal.innerHTML = '<h2 style="color: #dc3545; margin-top: 0;">Deleting...</h2>';
+            
+            const backdrop = document.createElement('div');
+            backdrop.id = 'deletingBackdrop';
+            backdrop.style.cssText = `
+                position: fixed;
+                top: 0;
+                left: 0;
+                right: 0;
+                bottom: 0;
+                background: rgba(0, 0, 0, 0.5);
+                z-index: 2000;
+            `;
+            
+            document.body.appendChild(backdrop);
+            document.body.appendChild(deletingModal);
+            
+            (async () => {
+                try {
+                    const orgVarId = window.savedOrgVariables.find(v => v.orgVarName === orgVarName)?.orgVarId;
+                    
+                    if (!orgVarId) {
+                        throw new Error('Could not find org variable ID for deletion');
+                    }
+                    
+                    console.log('Deleting org variable:', orgVarName, 'with ID:', orgVarId);
+                    
+                    const deleteResult = await rewst._graphql('deleteOrgVariable', `
+                        mutation deleteOrgVariable($id: ID!) {
+                            deleteOrgVariable(id: $id)
+                        }
+                    `, {
+                        id: orgVarId
+                    });
+                    
+                    console.log('Delete result:', deleteResult);
+                    
+                    document.body.removeChild(deletingModal);
+                    document.body.removeChild(backdrop);
+                    
+                    showModalMessage(`Configuration "${configName}" has been deleted`, 'success');
+                    
+                    // Reset form and reload org variables
+                    setTimeout(() => {
+                        datatableConfigsAlreadyFetched = false;
+                        resetConfiguration();
+                        loadOrgVariables().then(() => {
+                            // Repopulate the dropdown after org variables are loaded
+                            populateExistingConfigDropdown();
+                        });
+                    }, 1500);
+                } catch (error) {
+                    console.error('Error deleting configuration:', error);
+                    if (document.body.contains(deletingModal)) {
+                        document.body.removeChild(deletingModal);
+                    }
+                    if (document.body.contains(backdrop)) {
+                        document.body.removeChild(backdrop);
+                    }
+                    showModalMessage(`Error deleting configuration: ${error.message}`, 'error');
+                }
+            })();
+        }
+        
+        function resetConfiguration() {
+            // Check for unsaved changes
+            if (hasUnsavedChanges) {
+                if (!confirm('You have unsaved changes. Creating a new configuration will discard them. Continue?')) {
+                    return;
+                }
+            }
+            
+            // Set flag to prevent marking as changed during reset
+            isResetting = true;
+            
+            // Clear all form fields
+            datatableName.value = '';
+            datatableDesc.value = '';
+            dataWorkflow.value = '';
+            dataWorkflow.dataset.value = '';
+            updateWorkflow.value = '';
+            updateWorkflow.dataset.value = '';
+            outputVar.value = '';
+            sqlQuery.value = '';
+            tableName.value = '';
+            tableName.dataset.value = '';
+            
+            allowCreate.checked = true;
+            allowUpdate.checked = true;
+            allowDelete.checked = true;
+            sqlData.checked = false;
+            
+            // Reset edit_type to default (window)
+            const editTypeWindow = document.getElementById('editTypeWindow');
+            if (editTypeWindow) {
+                editTypeWindow.checked = true;
+            }
+            
+            // Clear data arrays
+            columns = [];
+            inputVariables = [];
+            filters = [];
+            
+            // Clear editing tracking
+            window.currentEditingConfigId = null;
+            window.currentEditingOrgVarName = null;
+            isLocked = false;
+            
+            // Hide lock warning row if present
+            const lockWarningRow = document.getElementById('lockWarningRow');
+            if (lockWarningRow) lockWarningRow.style.display = 'none';
+            
+            // Reset dropdown to placeholder
+            const configDropdown = document.getElementById('existingConfigDropdown');
+            if (configDropdown) configDropdown.value = '';
+            
+            const loadBtn = document.getElementById('loadConfigBtn');
+            if (loadBtn) loadBtn.disabled = true;
+            
+            const deleteBtn = document.getElementById('deleteBtn');
+            if (deleteBtn) deleteBtn.disabled = true;
+            
+            // Re-enable save button
+            const saveBtn = document.getElementById('saveBtn');
+            if (saveBtn) saveBtn.disabled = false;
+            
+            // Trigger re-render
+            renderColumns();
+            renderInputVariables();
+            sqlData.dispatchEvent(new Event('change', { bubbles: true }));
+            resetChangeTracking();
+            updateOutput();
+            
+            // Clear the flag after reset is complete
+            isResetting = false;
+        }
+        
+        function saveConfiguration() {
+            console.log('Save clicked');
+            
+            // Get the current config from the output
+            const configText = jsonOutput.textContent;
+            if (!configText) {
+                alert('No configuration to save');
+                return;
+            }
+            
+            try {
+                const config = JSON.parse(configText);
+                
+                // Show save confirmation modal
+                showSaveConfirmationModal(config);
+            } catch (error) {
+                alert('Error parsing configuration: ' + error.message);
+            }
+        }
+        
+        function showSaveConfirmationModal(config) {
+            // Determine org var name
+            let orgVarName = `datatable_${nextDatatableNumber}`;
+            let isNewConfig = true;
+            
+            // Check if this is an existing config being edited (use the tracked value)
+            if (window.currentEditingOrgVarName) {
+                orgVarName = window.currentEditingOrgVarName;
+                isNewConfig = false;
+            }
+            
+            // Create or get modal
+            let modal = document.getElementById('saveConfirmModal');
+            if (!modal) {
+                modal = document.createElement('div');
+                modal.id = 'saveConfirmModal';
+                modal.style.cssText = `
+                    position: fixed;
+                    top: 50%;
+                    left: 50%;
+                    transform: translate(-50%, -50%);
+                    background: #191A24;
+                    padding: 2rem;
+                    border-radius: 8px;
+                    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+                    z-index: 2001;
+                    max-width: 700px;
+                    max-height: 80vh;
+                    overflow-y: auto;
+                    border: 2px solid #2E5F75;
+                `;
+                document.body.appendChild(modal);
+            }
+            
+            // Create backdrop if it doesn't exist
+            let backdrop = document.getElementById('saveConfirmBackdrop');
+            if (!backdrop) {
+                backdrop = document.createElement('div');
+                backdrop.id = 'saveConfirmBackdrop';
+                backdrop.style.cssText = `
+                    position: fixed;
+                    top: 0;
+                    left: 0;
+                    right: 0;
+                    bottom: 0;
+                    background: rgba(0, 0, 0, 0.5);
+                    z-index: 2000;
+                `;
+                document.body.appendChild(backdrop);
+            }
+            
+            // Build modal content
+            const jsonContent = JSON.stringify(config, null, 2);
+            modal.innerHTML = `
+                <h2 style="color: #5a9fb8; margin-top: 0;">Save Configuration</h2>
+                
+                <div style="margin-bottom: 1.5rem;">
+                    <label style="color: #e0e0e0; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 0.5rem;">Org Variable Name:</label>
+                    <div style="background: #2a2a2a; border: 2px solid #404040; border-radius: 4px; padding: 0.75rem; color: #5a9fb8; font-weight: 600; font-family: monospace;">
+                        ${orgVarName}
+                    </div>
+                    <div style="color: #888; font-size: 0.8rem; margin-top: 0.25rem;">
+                        ${isNewConfig ? '(New configuration)' : '(Updating existing configuration)'}
+                    </div>
+                </div>
+                
+                <div style="margin-bottom: 1.5rem;">
+                    <label style="color: #e0e0e0; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 0.5rem;">Configuration JSON:</label>
+                    <pre style="background: #2a2a2a; border: 2px solid #404040; border-radius: 4px; padding: 1rem; color: #e0e0e0; font-size: 0.8rem; max-height: 400px; overflow-y: auto; margin: 0; white-space: pre-wrap; word-wrap: break-word;">${jsonContent}</pre>
+                </div>
+                
+                <div style="display: flex; gap: 1rem; justify-content: flex-end;">
+                    <button onclick="closeSaveConfirmationModal()" style="padding: 0.5rem 1.5rem; background: #6c757d; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: 600;">Cancel</button>
+                    <button onclick="confirmSave('${orgVarName}', '${isNewConfig}')" style="padding: 0.5rem 1.5rem; background: #4caf50; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: 600;">Confirm & Save</button>
+                </div>
+            `;
+            
+            modal.style.display = 'block';
+            backdrop.style.display = 'block';
+        }
+        
+        function closeSaveConfirmationModal() {
+            const modal = document.getElementById('saveConfirmModal');
+            const backdrop = document.getElementById('saveConfirmBackdrop');
+            if (modal) modal.style.display = 'none';
+            if (backdrop) backdrop.style.display = 'none';
+        }
+        
+        function confirmSave(orgVarName, isNewConfig) {
+            console.log('Confirm save:', orgVarName, isNewConfig);
+            closeSaveConfirmationModal();
+            
+            // Show saving modal
+            const savingModal = document.createElement('div');
+            savingModal.id = 'savingModal';
+            savingModal.style.cssText = `
+                position: fixed;
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%);
+                background: #191A24;
+                padding: 2rem;
+                border-radius: 8px;
+                box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+                z-index: 2001;
+                text-align: center;
+                border: 2px solid #2E5F75;
+            `;
+            savingModal.innerHTML = '<h2 style="color: #5a9fb8; margin-top: 0;">Saving...</h2>';
+            
+            const backdrop = document.createElement('div');
+            backdrop.id = 'savingBackdrop';
+            backdrop.style.cssText = `
+                position: fixed;
+                top: 0;
+                left: 0;
+                right: 0;
+                bottom: 0;
+                background: rgba(0, 0, 0, 0.5);
+                z-index: 2000;
+            `;
+            
+            document.body.appendChild(backdrop);
+            document.body.appendChild(savingModal);
+            
+            // Get config JSON
+            const configText = jsonOutput.textContent;
+            const config = JSON.parse(configText);
+            const configValue = JSON.stringify(config);
+            
+            (async () => {
+                try {
+                    if (isNewConfig === 'true' || isNewConfig === true) {
+                        // Create new org variable
+                        console.log('Creating new org variable:', orgVarName);
+                        const createResult = await rewst._graphql('createOrgVariable', `
+                            mutation createOrgVariable($orgVariable: OrgVariableCreateInput!) {
+                                createOrgVariable(orgVariable: $orgVariable) {
+                                    id
+                                    name
+                                }
+                            }
+                        `, {
+                            orgVariable: {
+                                name: orgVarName,
+                                value: configValue,
+                                orgId: ORG_ID,
+                                category: "general",
+                                cascade: false
+                            }
+                        });
+                        console.log('Create result:', createResult);
+                    } else {
+                        // Update existing org variable
+                        const orgVarId = window.savedOrgVariables.find(v => v.orgVarName === orgVarName)?.orgVarId;
+                        console.log('Updating org variable:', orgVarName, 'with ID:', orgVarId);
+                        
+                        if (!orgVarId) {
+                            document.body.removeChild(savingModal);
+                            document.body.removeChild(backdrop);
+                            showModalMessage('Error: Could not find org variable ID for update', 'error');
+                            return;
+                        }
+                        
+                        const updateResult = await rewst._graphql('updateOrgVariables', `
+                            mutation updateOrgVariables($orgVariables: [OrgVariableUpdateInput!]!) {
+                                updateOrgVariables(orgVariables: $orgVariables) {
+                                    id
+                                    name
+                                }
+                            }
+                        `, {
+                            orgVariables: [{
+                                id: orgVarId,
+                                name: orgVarName,
+                                value: configValue,
+                                orgId: ORG_ID
+                            }]
+                        });
+                        console.log('Update result:', updateResult);
+                    }
+                    
+                    document.body.removeChild(savingModal);
+                    document.body.removeChild(backdrop);
+                    showModalMessage(`Saved changes to ${datatableName.value || 'Datatable'}`, 'success');
+                    
+                    // Clear editing tracking
+                    window.currentEditingConfigId = null;
+                    window.currentEditingOrgVarName = null;
+                    
+                    // After success, reset form and reload the org variables to update the dropdown
+                    setTimeout(() => {
+                        // Clear unsaved changes flag so resetConfiguration doesn't prompt
+                        hasUnsavedChanges = false;
+                        
+                        // Reset the fetch cache so loadOrgVariables will re-fetch
+                        datatableConfigsAlreadyFetched = false;
+                        resetConfiguration();
+                        loadOrgVariables().then(() => {
+                            // Repopulate the dropdown after org variables are loaded
+                            populateExistingConfigDropdown();
+                        });
+                    }, 1500);
+                } catch (error) {
+                    console.error('Error saving:', error);
+                    if (document.body.contains(savingModal)) {
+                        document.body.removeChild(savingModal);
+                    }
+                    if (document.body.contains(backdrop)) {
+                        document.body.removeChild(backdrop);
+                    }
+                    showModalMessage(`Error saving configuration: ${error.message}`, 'error');
+                }
+            })();
+        }
+        
+        function loadSavedConfiguration(configId) {
+            if (!window.savedOrgVariables) {
+                alert('No saved configurations loaded yet');
+                return;
+            }
+            
+            // Reset form first
+            resetConfiguration();
+            
+            const savedConfig = window.savedOrgVariables.find(v => v.config_id === configId);
+            if (!savedConfig) {
+                alert(`Configuration not found`);
+                return;
+            }
+            
+            try {
+                // Track that we're editing this config
+                window.currentEditingConfigId = configId;
+                window.currentEditingOrgVarName = savedConfig.orgVarName;
+                
+                // Enable delete button since we have a config loaded
+                const deleteBtn = document.getElementById('deleteBtn');
+                if (deleteBtn) deleteBtn.disabled = false;
+                
+                const config = savedConfig.config_parsed;
+                console.log('Loading configuration:', config);
+                
+                // Populate form fields - use correct field names from saved config
+                datatableName.value = config.name || config.datatable_name || '';
+                datatableDesc.value = config.desc || config.datatable_description || '';
+                
+                // Set workflows - find the workflow name from allWorkflows if available
+                const dataWorkflowId = config.data_workflow || '';
+                const updateWorkflowId = config.update_workflow || '';
+                
+                if (dataWorkflowId && typeof allWorkflows !== 'undefined' && allWorkflows.length > 0) {
+                    const dataWf = allWorkflows.find(w => w.id === dataWorkflowId);
+                    if (dataWf) {
+                        dataWorkflow.value = dataWf.name;
+                        dataWorkflow.dataset.value = dataWf.id;
+                    } else {
+                        // Workflow not found in list, just set the ID
+                        dataWorkflow.value = dataWorkflowId;
+                        dataWorkflow.dataset.value = dataWorkflowId;
+                    }
+                } else {
+                    dataWorkflow.value = dataWorkflowId;
+                    dataWorkflow.dataset.value = dataWorkflowId;
+                }
+                
+                if (updateWorkflowId && typeof allWorkflows !== 'undefined' && allWorkflows.length > 0) {
+                    const updateWf = allWorkflows.find(w => w.id === updateWorkflowId);
+                    if (updateWf) {
+                        updateWorkflow.value = updateWf.name;
+                        updateWorkflow.dataset.value = updateWf.id;
+                    } else {
+                        // Workflow not found in list, just set the ID
+                        updateWorkflow.value = updateWorkflowId;
+                        updateWorkflow.dataset.value = updateWorkflowId;
+                    }
+                } else {
+                    updateWorkflow.value = updateWorkflowId;
+                    updateWorkflow.dataset.value = updateWorkflowId;
+                }
+                
+                outputVar.value = config.output_var || '';
+                
+                allowCreate.checked = config.allow_create !== false;
+                allowUpdate.checked = config.allow_update !== false;
+                allowDelete.checked = config.allow_delete !== false;
+                
+                // Handle edit_type radio buttons
+                const editType = config.edit_type || 'window';
+                const editTypeRadio = document.querySelector(`input[name="editType"][value="${editType}"]`);
+                if (editTypeRadio) {
+                    editTypeRadio.checked = true;
+                }
+                
+                // Handle use_sql checkbox
+                if (config.use_sql !== undefined) {
+                    sqlData.checked = config.use_sql;
+                }
+                
+                // Handle table_name field
+                if (config.table_name) {
+                    tableName.value = config.table_name;
+                    tableName.dataset.value = config.table_name;
+                }
+                
+                // Populate SQL query if it exists
+                if (config.input_vars && config.input_vars.sql_query) {
+                    sqlQuery.value = config.input_vars.sql_query;
+                }
+                
+                // Populate columns - handle both old and new field names
+                columns = [];
+                const colSettings = config.col_settings || config.column_settings || [];
+                if (Array.isArray(colSettings)) {
+                    columns = colSettings.map(col => ({
+                        col_name: col.col_name || '',
+                        data_type: col.type || col.data_type || '',
+                        col_label: col.col_label || '',
+                        required: col.required || false,
+                        p_key: col.p_key || false,
+                        hide_table: col.hide_table || false,
+                        hide_edit: col.hide_edit || false,
+                        editable: col.editable !== false,
+                        gen: col.gen || false,
+                        from_sql: col.from_sql || false
+                    }));
+                }
+                
+                // Populate input variables - exclude sql_query since it's handled separately
+                inputVariables = [];
+                if (config.input_vars && typeof config.input_vars === 'object') {
+                    Object.entries(config.input_vars).forEach(([key, value]) => {
+                        if (key !== 'sql_query') {
+                            // Check if this variable has config info
+                            let varConfig = {};
+                            if (config.input_var_config && Array.isArray(config.input_var_config)) {
+                                varConfig = config.input_var_config.find(v => v.name === key) || {};
+                            }
+                            
+                            // Get workflow name from ID if available
+                            const workflowId = varConfig.workflow || '';
+                            let workflowName = '';
+                            if (workflowId && typeof allWorkflows !== 'undefined' && allWorkflows.length > 0) {
+                                const wf = allWorkflows.find(w => w.id === workflowId);
+                                workflowName = wf ? wf.name : workflowId;
+                            } else {
+                                workflowName = workflowId;
+                            }
+                            
+                            inputVariables.push({
+                                name: key,
+                                value: value || '',
+                                fromUrl: varConfig.from_url || false,
+                                required: varConfig.required || false,
+                                fromDataset: varConfig.from_dataset || false,
+                                datatable_var: varConfig.datatable_var || false,
+                                dspl_name: varConfig.dspl_name || '',
+                                workflow: workflowName,
+                                workflow_id: workflowId,
+                                input_var: varConfig.input_var || '',
+                                output_var: varConfig.output_var || '',
+                                output_id: varConfig.output_id || 'id',
+                                output_label: varConfig.output_label || 'name'
+                            });
+                        }
+                    });
+                }
+                
+                // Populate filters
+                filters = [];
+                const filterSettings = config.filters || [];
+                if (Array.isArray(filterSettings)) {
+                    filters = filterSettings.map(f => ({
+                        col_name: f.col_name || '',
+                        display_label: f.display_label || '',
+                        filter_value: f.filter_value || '',
+                        default_checked: f.default_checked || false
+                    }));
+                }
+                
+                // Trigger the sqlData checkbox change event to show/hide relevant fields
+                if (config.use_sql) {
+                    // Use a small delay to ensure the DOM is ready before triggering the event
+                    setTimeout(() => {
+                        console.log('Triggering sqlData change event');
+                        sqlData.dispatchEvent(new Event('change', { bubbles: true }));
+                    }, 100);
+                }
+                
+                renderColumns();
+                renderInputVariables();
+                updateOutput();
+                markConfigurationLoaded();
+                
+                // Check if configuration is locked
+                isLocked = config.locked === true;
+                const saveBtn = document.getElementById('saveBtn');
+                const lockWarningRow = document.getElementById('lockWarningRow');
+                const lockWarningDiv = document.getElementById('lockWarning');
+                
+                if (isLocked && saveBtn) {
+                    saveBtn.disabled = true;
+                    if (lockWarningRow && lockWarningDiv) {
+                        const orgVarName = window.currentEditingOrgVarName || 'datatable_config';
+                        lockWarningDiv.innerHTML = `This configuration is locked, no edits can be saved. Unlock by manually editing the associated org variable '<strong>${orgVarName}</strong>' and setting <strong>locked</strong> to <strong>false</strong>.`;
+                        lockWarningRow.style.display = 'block';
+                    }
+                }
+                
+                showModalMessage(`Configuration "${savedConfig.config_name}" loaded successfully!`, 'success');
+            } catch (error) {
+                console.error('Error loading configuration:', error);
+                showModalMessage('Error loading configuration: ' + error.message, 'error');
+            }
+        }
+        
+        function loadSelectedConfig() {
+            const dropdown = document.getElementById('existingConfigDropdown');
+            if (!dropdown.value) {
+                alert('Please select a configuration first');
+                return;
+            }
+            
+            // Check for unsaved changes
+            if (hasUnsavedChanges) {
+                if (!confirm('You have unsaved changes. Loading a new configuration will discard them. Continue?')) {
+                    return;
+                }
+            }
+            
+            loadSavedConfiguration(dropdown.value);
+            // Reset dropdown to placeholder after loading
+            dropdown.value = '';
+            updateLoadButtonState();
+        }
+        
+        function updateLoadButtonState() {
+            const dropdown = document.getElementById('existingConfigDropdown');
+            const loadBtn = document.getElementById('loadConfigBtn');
+            const deleteBtn = document.getElementById('deleteBtn');
+            
+            // Return early if elements don't exist yet
+            if (!dropdown || !loadBtn || !deleteBtn) {
+                console.log('updateLoadButtonState - elements not ready yet');
+                return;
+            }
+            
+            console.log('updateLoadButtonState called');
+            console.log('  dropdown exists:', !!dropdown);
+            console.log('  dropdown.value:', dropdown.value);
+            console.log('  dropdown.value.length:', dropdown.value.length);
+            console.log('  dropdown.value.trim():', dropdown.value.trim());
+            console.log('  loadBtn exists:', !!loadBtn);
+            console.log('  deleteBtn exists:', !!deleteBtn);
+            
+            if (dropdown.value && dropdown.value.trim() !== '') {
+                loadBtn.disabled = false;
+                deleteBtn.disabled = false;
+                console.log('Load and Delete buttons ENABLED');
+            } else {
+                loadBtn.disabled = true;
+                deleteBtn.disabled = true;
+                console.log('Load and Delete buttons DISABLED');
+            }
+        }
+
+        // ============================================
+        // INITIALIZATION
+        // ============================================
         function initializeApp() {
-            jsonOutput = document.getElementById('jsonOutput');
-            validationOutput = document.getElementById('validationOutput');
-            filtersList = document.getElementById('filtersList');
+            console.log('initializeApp: Starting');
+            
+            // Initialize Load button state
+            updateLoadButtonState();
+            
+            // Load organization variables on page load
+            loadOrgVariables().then(configs => {
+                if (configs && configs.length > 0) {
+                    console.log('Available saved configurations:', configs.map(c => c.config_name));
+                    console.log('Configs ready for loading:', configs);
+                    // Populate the dropdown
+                    populateExistingConfigDropdown();
+                } else {
+                    console.log('No datatable configurations found');
+                }
+            });
+            
+            // Get DOM elements
+            datatableName = document.getElementById('datatableName');
+            datatableDesc = document.getElementById('datatableDesc');
+            sqlData = document.getElementById('sqlData');
+            tableName = document.getElementById('tableName');
+            tableNameGroup = document.getElementById('tableNameGroup');
+            sqlQueryGroup = document.getElementById('sqlQueryGroup');
+            dataWorkflow = document.getElementById('dataWorkflow');
+            updateWorkflow = document.getElementById('updateWorkflow');
+            sqlQuery = document.getElementById('sqlQuery');
+            outputVar = document.getElementById('outputVar');
+            allowCreate = document.getElementById('allowCreate');
+            allowUpdate = document.getElementById('allowUpdate');
+            allowDelete = document.getElementById('allowDelete');
+            newColName = document.getElementById('newColName');
             columnsList = document.getElementById('columnsList');
+            filtersList = document.getElementById('filtersList');
+            jsonOutput = document.getElementById('jsonOutput');
+
+            validationOutput = document.getElementById('validationOutput');
+            
+            console.log('initializeApp: DOM elements loaded');
+            
+            // Event listeners for real-time updates
+            [datatableName, datatableDesc, sqlQuery, outputVar, allowCreate, allowUpdate, allowDelete, tableName].forEach(el => {
+                if (el) {
+                    el.addEventListener('change', updateOutput);
+                    el.addEventListener('input', updateOutput);
+                }
+            });
+            
+            if (newColName) {
+                newColName.addEventListener('keypress', (e) => {
+                    if (e.key === 'Enter') {
+                        addColumn();
+                    }
+                });
+            }
+
+            // Helper functions for workflow field state management
+            const sqlWorkflowId = '0198d3fa-fa9b-75ac-9866-341fda8e72a3';
+            
+            function setSQLWorkflow(field, dropdown) {
+                const sqlWorkflowName = allWorkflows.find(w => w.id === sqlWorkflowId)?.name || sqlWorkflowId;
+                field.value = sqlWorkflowName;
+                field.dataset.value = sqlWorkflowId;
+                field.setAttribute('readonly', 'readonly');
+                field.style.cursor = 'not-allowed';
+                field.style.opacity = '0.6';
+                if (dropdown) dropdown.classList.remove('active');
+            }
+            
+            function setWorkflowEditable(field, dropdown) {
+                field.value = '';
+                field.dataset.value = '';
+                field.removeAttribute('readonly');
+                field.style.cursor = 'pointer';
+                field.style.opacity = '1';
+                if (dropdown && allWorkflows.length > 0) {
+                    dropdown.innerHTML = allWorkflows.map(w => 
+                        `<div class="searchable-select-option" onclick="selectWorkflow('${field.id}', '${w.id}', '${w.name}')">${w.name}</div>`
+                    ).join('');
+                    // Don't auto-open - let user click to open
+                    dropdown.classList.remove('active');
+                }
+            }
+            
+            // SQL Data checkbox handler
+            const dataWorkflowOverrideContainer = document.getElementById('dataWorkflowOverrideContainer');
+            const dataWorkflowOverride = document.getElementById('dataWorkflowOverride');
+            const updateWorkflowOverrideContainer = document.getElementById('updateWorkflowOverrideContainer');
+            const updateWorkflowOverride = document.getElementById('updateWorkflowOverride');
+            
+            if (sqlData) {
+                sqlData.addEventListener('change', (e) => { 
+                    updateOutput();
+                    renderColumns();
+                    const dataWorkflowDropdown = document.getElementById('dataWorkflowDropdown');
+                    const updateWorkflowDropdown = document.getElementById('updateWorkflowDropdown');
+                    
+                    if (e.target.checked) {
+                        console.log('Use MySQL Data: Checked');
+                        
+                        // 0. Hide Add Column section
+                        const addColumnSection = document.getElementById('addColumnSection');
+                        if (addColumnSection) {
+                            addColumnSection.style.display = 'none';
+                        }
+                        
+                        // 1. Show SQL Table Name field
+                        tableNameGroup.style.display = 'block';
+                        console.log('Use MySQL Data: Step 1 - Show SQL Table Name field');
+                        
+                        // 4. Show SQL Query field
+                        sqlQueryGroup.style.display = 'block';
+                        console.log('Use MySQL Data: Step 4 - Show SQL Query field');
+                        
+                        // 2. Set both workflow fields to SQL workflow (disabled)
+                        setSQLWorkflow(dataWorkflow, dataWorkflowDropdown);
+                        setSQLWorkflow(updateWorkflow, updateWorkflowDropdown);
+                        console.log('Use MySQL Data: Step 2 - Set Data and Update Workflows');
+                        
+                        // 3. Show override checkboxes
+                        dataWorkflowOverrideContainer.style.display = 'block';
+                        dataWorkflowOverride.checked = false;
+                        updateWorkflowOverrideContainer.style.display = 'block';
+                        updateWorkflowOverride.checked = false;
+                        console.log('Use MySQL Data: Step 3 - Show Override Workflow checkboxes');
+                        
+                        // 5. Set output variable
+                        outputVar.value = 'sql_result';
+                        console.log('Use MySQL Data: Step 5 - Set Output Variable to sql_result');
+                        
+                        // Execute workflow if not already loaded
+                        if (Object.keys(tableColumnInfo).length === 0) {
+                            console.log('Use MySQL Data: Tables not yet loaded, executing discovery workflow');
+                            executeWorkflowForTables();
+                        } else {
+                            console.log('Use MySQL Data: Tables already loaded, skipping discovery workflow');
+                        }
+                        
+                        updateOutput();
+                    } else {
+                        // Show Add Column section
+                        const addColumnSection = document.getElementById('addColumnSection');
+                        if (addColumnSection) {
+                            addColumnSection.style.display = 'block';
+                        }
+                        
+                        tableNameGroup.style.display = 'none';
+                        sqlQueryGroup.style.display = 'none';
+                        tableName.value = '';
+                        tableName.dataset.value = '';
+                        sqlQuery.value = '';
+                        
+                        // Make workflow fields editable
+                        dataWorkflow.value = '';
+                        dataWorkflow.dataset.value = '';
+                        dataWorkflow.removeAttribute('readonly');
+                        dataWorkflow.style.cursor = 'pointer';
+                        dataWorkflow.style.opacity = '1';
+                        
+                        updateWorkflow.value = '';
+                        updateWorkflow.dataset.value = '';
+                        updateWorkflow.removeAttribute('readonly');
+                        updateWorkflow.style.cursor = 'pointer';
+                        updateWorkflow.style.opacity = '1';
+                        
+                        outputVar.value = '';
+                        
+                        // Hide override checkboxes
+                        dataWorkflowOverrideContainer.style.display = 'none';
+                        dataWorkflowOverride.checked = false;
+                        updateWorkflowOverrideContainer.style.display = 'none';
+                        updateWorkflowOverride.checked = false;
+                        
+                        clearColumnsAndShowAddInput();
+                    }
+                    updateOutput();
+                });
+            }
+            
+            // Data Workflow Override checkbox handler
+            if (dataWorkflowOverride) {
+                dataWorkflowOverride.addEventListener('change', (e) => {
+                    const dataWorkflowDropdown = document.getElementById('dataWorkflowDropdown');
+                    if (e.target.checked) {
+                        setWorkflowEditable(dataWorkflow, dataWorkflowDropdown);
+                    } else {
+                        setSQLWorkflow(dataWorkflow, dataWorkflowDropdown);
+                    }
+                });
+            }
+            
+            // Update Workflow Override checkbox handler
+            if (updateWorkflowOverride) {
+                updateWorkflowOverride.addEventListener('change', (e) => {
+                    const updateWorkflowDropdown = document.getElementById('updateWorkflowDropdown');
+                    if (e.target.checked) {
+                        setWorkflowEditable(updateWorkflow, updateWorkflowDropdown);
+                    } else {
+                        setSQLWorkflow(updateWorkflow, updateWorkflowDropdown);
+                    }
+                });
+            }
+
+            // Table name selection handler
+            if (tableName) {
+                tableName.addEventListener('change', () => {
+                    const selectedTable = tableName.dataset.value || tableName.value;
+                    if (selectedTable && tableColumnInfo[selectedTable]) {
+                        autoPopulateColumnsForTable(selectedTable);
+                    }
+                });
+            }
+
+            // Add event listener to SQL Query to trigger validation updates
+            if (sqlQuery) {
+                sqlQuery.addEventListener('input', () => {
+                    updateOutput();
+                });
+            }
+            
+            updateOutput();
+            loadWorkflows();
+            executeWorkflowForTables();
+            
+            // Close dropdowns when clicking outside
+            document.addEventListener('click', (e) => {
+                const dataWorkflowDropdown = document.getElementById('dataWorkflowDropdown');
+                const updateWorkflowDropdown = document.getElementById('updateWorkflowDropdown');
+                const tableNameDropdown = document.querySelector('.searchable-select-dropdown');
+                
+                if (dataWorkflow && !dataWorkflow.parentElement.contains(e.target)) {
+                    if (dataWorkflowDropdown) dataWorkflowDropdown.classList.remove('active');
+                }
+                if (updateWorkflow && !updateWorkflow.parentElement.contains(e.target)) {
+                    if (updateWorkflowDropdown) updateWorkflowDropdown.classList.remove('active');
+                }
+                if (tableName && !tableName.parentElement.contains(e.target)) {
+                    if (tableNameDropdown) tableNameDropdown.classList.remove('active');
+                }
+            });
+            
+            // Mark that initialization is complete
+            pageInitialized = true;
+        }
+
+        // ============================================
+        // WORKFLOW EXECUTION
+        // ============================================
+        async function executeWorkflowForTables() {
+            console.log('executeWorkflowForTables: Starting with DISCOVERY_WORKFLOW_ID:', DISCOVERY_WORKFLOW_ID);
+            if (isLoadingTableInfo) {
+                console.log('executeWorkflowForTables: Already loading, returning');
+                return;
+            }
+            
+            try {
+                isLoadingTableInfo = true;
+                
+                // Save the current table name value if it exists (in case a config was loaded)
+                const currentValue = tableName.value;
+                const currentDataValue = tableName.dataset.value;
+                tableName.dataset.savedValue = currentValue;
+                tableName.dataset.savedDataValue = currentDataValue;
+                console.log('executeWorkflowForTables: Saving table name before workflow:', currentValue);
+                
+                // Show loading message in table name field
+                if (tableName) {
+                    tableName.value = 'Loading...';
+                    tableName.disabled = true;
+                    tableName.classList.add('loading-state');
+                }
+                console.log('executeWorkflowForTables: Calling rewst.runWorkflowSmart');
+                
+                const sqlQuery = `
+                    SELECT TABLE_NAME, COLUMN_NAME, DATA_TYPE, COLUMN_KEY, EXTRA, COLUMN_DEFAULT
+                    FROM INFORMATION_SCHEMA.COLUMNS
+                    WHERE TABLE_SCHEMA = 'rewst'
+                    ORDER BY TABLE_NAME, ORDINAL_POSITION
+                `;
+                
+                const result = await rewst.runWorkflowSmart(DISCOVERY_WORKFLOW_ID, {
+                    sql_query: sqlQuery
+                });
+                console.log('executeWorkflowForTables: Workflow result:', result);
+
+                if (result && result.success) {
+                    console.log('executeWorkflowForTables: Result success, parsing output');
+                    console.log('executeWorkflowForTables: conductor.output:', result.conductor?.output);
+                    
+                    const sqlResult = result.conductor?.output?.sql_result || [];
+                    console.log('executeWorkflowForTables: Extracted sql_result:', sqlResult);
+                    
+                    if (Array.isArray(sqlResult)) {
+                        tableColumnInfo = {};
+                        const tableNames = new Set();
+                        
+                        sqlResult.forEach(row => {
+                            const tname = row.TABLE_NAME || row.table_name;
+                            const cname = row.COLUMN_NAME || row.column_name;
+                            let dtype = row.DATA_TYPE || row.data_type;
+                            const ckey = row.COLUMN_KEY || row.column_key || '';
+                            const extra = row.EXTRA || row.extra || '';
+                            const columnDefault = row.COLUMN_DEFAULT || row.column_default;
+                            
+                            // Check if tinyint with default 0 or 1 should be treated as boolean
+                            if (dtype && dtype.toLowerCase() === 'tinyint' && (columnDefault === '0' || columnDefault === '1' || columnDefault === 0 || columnDefault === 1)) {
+                                dtype = 'boolean';
+                                console.log(`executeWorkflowForTables: Converting ${tname}.${cname} from tinyint to boolean (default: ${columnDefault})`);
+                            }
+                            
+                            if (tname && cname) {
+                                tableNames.add(tname);
+                                
+                                if (!tableColumnInfo[tname]) {
+                                    tableColumnInfo[tname] = [];
+                                }
+                                
+                                tableColumnInfo[tname].push({
+                                    name: cname,
+                                    type: dtype,
+                                    isPrimaryKey: ckey === 'PRI',
+                                    isGenerated: extra.includes('auto_increment') || extra.includes('GENERATED')
+                                });
+                            }
+                        });
+                        
+                        console.log('executeWorkflowForTables: Found tables:', Array.from(tableNames));
+                        populateTableDropdown(Array.from(tableNames));
+                    }
+                }
+            } catch (error) {
+                console.error('Error discovering tables:', error);
+            } finally {
+                isLoadingTableInfo = false;
+                // Restore the previous table name AFTER the dropdown is populated
+                if (tableName) {
+                    // Use setTimeout to allow the dropdown population to complete first
+                    setTimeout(() => {
+                        const savedValue = tableName.dataset.savedValue;
+                        const savedDataValue = tableName.dataset.savedDataValue;
+                        
+                        console.log('executeWorkflowForTables finally: savedValue=', savedValue, 'current value=', tableName.value);
+                        
+                        if (savedValue && savedValue !== 'Loading...') {
+                            tableName.value = savedValue;
+                            tableName.dataset.value = savedDataValue || savedValue;
+                            console.log('executeWorkflowForTables: Restored table name:', savedValue);
+                        } else if (!tableName.value || tableName.value === 'Loading...') {
+                            tableName.value = '';
+                            tableName.dataset.value = '';
+                        }
+                        // else: keep whatever value is currently in the field
+                        
+                        // Clear the saved values
+                        delete tableName.dataset.savedValue;
+                        delete tableName.dataset.savedDataValue;
+                        
+                        tableName.disabled = false;
+                        tableName.classList.remove('loading-state');
+                        console.log('executeWorkflowForTables finally: final value=', tableName.value);
+                    }, 150);  // Increased delay slightly
+                }
+            }
+        }
+
+        async function loadWorkflows() {
+            try {
+                console.log('loadWorkflows: Starting GraphQL query');
+                const query = `
+                    query {
+                        workflows {
+                            id
+                            name
+                        }
+                    }
+                `;
+                
+                const response = await fetch('/graphql', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ query })
+                });
+
+                console.log('loadWorkflows: Response status', response.status);
+                
+                const data = await response.json();
+                console.log('loadWorkflows: Response data', data);
+                
+                if (!response.ok) {
+                    console.error('loadWorkflows: HTTP error', response.status);
+                    console.error('loadWorkflows: Error details', data);
+                    return;
+                }
+
+                if (data.errors) {
+                    console.error('loadWorkflows: GraphQL errors', data.errors);
+                    data.errors.forEach((err, idx) => {
+                        console.error(`  Error ${idx + 1}:`, err.message);
+                    });
+                    return;
+                }
+                
+                const workflows = data.data?.workflows || [];
+                console.log('loadWorkflows: Parsed workflows', workflows.length, 'items');
+                allWorkflows = workflows;  // Store for later lookup
+                populateWorkflowDropdowns(workflows);
+            } catch (error) {
+                console.error('Error loading workflows:', error);
+            }
+        }
+
+        // ============================================
+        // UI FUNCTIONS
+        // ============================================
+        function populateTableDropdown(tableNames) {
+            console.log('populateTableDropdown: Populating with tables:', tableNames);
+            const wrapper = tableName.parentElement;
+            const dropdown = wrapper.querySelector('.searchable-select-dropdown');
+            if (!dropdown) {
+                console.error('populateTableDropdown: Could not find dropdown');
+                return;
+            }
+            
+            dropdown.innerHTML = tableNames.map(name => 
+                `<div class="searchable-select-option" onclick="selectTable('${name}')">${name}</div>`
+            ).join('');
+            
+            console.log('populateTableDropdown: Dropdown populated');
+            
+            // Add input listener for filtering
+            tableName.addEventListener('input', (e) => {
+                const query = e.target.value.toLowerCase();
+                const filtered = tableNames.filter(name => name.toLowerCase().includes(query));
+                dropdown.innerHTML = filtered.map(name => 
+                    `<div class="searchable-select-option" onclick="selectTable('${name}')">${name}</div>`
+                ).join('');
+                dropdown.classList.toggle('active', filtered.length > 0);
+            });
+            
+            // Show dropdown on focus
+            tableName.addEventListener('focus', (e) => {
+                dropdown.classList.add('active');
+            });
+        }
+
+        function selectTable(name) {
+            tableName.value = name;
+            tableName.dataset.value = name;
+            const dropdown = tableName.parentElement.querySelector('.searchable-select-dropdown');
+            if (dropdown) dropdown.classList.remove('active');
+            if (tableColumnInfo[name]) {
+                autoPopulateColumnsForTable(name);
+            }
+        }
+
+        function getWorkflowOptions() {
+            return allWorkflows.map(w => w.name).sort();
+        }
+
+        function populateWorkflowDropdowns(workflows) {
+            console.log('populateWorkflowDropdowns: Received', workflows.length, 'workflows');
+            // Store globally for later lookup
+            allWorkflows = workflows;
+            
+            const populateDropdown = (input, dropdownId) => {
+                const dropdown = document.getElementById(dropdownId);
+                if (!dropdown) {
+                    console.error(`populateWorkflowDropdowns: Could not find dropdown ${dropdownId}`);
+                    return;
+                }
+                
+                // Show all workflows initially
+                dropdown.innerHTML = workflows.map(w => 
+                    `<div class="searchable-select-option" onclick="selectWorkflow('${input.id}', '${w.id}', '${w.name}')">${w.name}</div>`
+                ).join('');
+                console.log(`populateWorkflowDropdowns: Populated ${dropdownId} with ${workflows.length} items`);
+                
+                // Add input event listener for filtering
+                input.addEventListener('input', (e) => {
+                    const query = e.target.value.toLowerCase();
+                    const filtered = workflows.filter(w => w.name.toLowerCase().includes(query));
+                    
+                    dropdown.innerHTML = filtered.map(w => 
+                        `<div class="searchable-select-option" onclick="selectWorkflow('${input.id}', '${w.id}', '${w.name}')">${w.name}</div>`
+                    ).join('');
+                    
+                    dropdown.classList.toggle('active', filtered.length > 0);
+                });
+                
+                // Show dropdown on focus
+                input.addEventListener('focus', (e) => {
+                    const query = e.target.value.toLowerCase();
+                    const filtered = workflows.filter(w => w.name.toLowerCase().includes(query) || query === '');
+                    
+                    dropdown.innerHTML = filtered.map(w => 
+                        `<div class="searchable-select-option" onclick="selectWorkflow('${input.id}', '${w.id}', '${w.name}')">${w.name}</div>`
+                    ).join('');
+                    
+                    dropdown.classList.add('active');
+                });
+            };
+
+            populateDropdown(dataWorkflow, 'dataWorkflowDropdown');
+            populateDropdown(updateWorkflow, 'updateWorkflowDropdown');
+        }
+
+        function selectWorkflow(inputId, workflowId, workflowName) {
+            const input = document.getElementById(inputId);
+            input.value = workflowName;
+            input.dataset.value = workflowId;
+            const dropdown = input.parentElement.querySelector('.searchable-select-dropdown');
+            if (dropdown) dropdown.classList.remove('active');
+            updateOutput();
+        }
+
+        function autoPopulateColumnsForTable(tableName) {
+            console.log('Auto-populating columns for table:', tableName);
+            
+            const tableInfo = tableColumnInfo[tableName];
+            if (!tableInfo) return;
+            
+            columns = [];
+            let hasPrimaryKey = false;
+            
+            tableInfo.forEach(col => {
+                const isPrimaryKey = col.isPrimaryKey;
+                if (isPrimaryKey) hasPrimaryKey = true;
+                
+                columns.push({
+                    col_name: col.name,
+                    data_type: col.type,
+                    p_key: isPrimaryKey,
+                    hide_table: false,
+                    hide_edit: isPrimaryKey,
+                    gen: col.isGenerated,
+                    editable: !col.isGenerated,
+                    from_sql: true
+                });
+            });
+            
+            sqlQuery.value = `select * from rewst.${tableName}`;
+            renderColumns();
+            updateOutput();
+            
+            const addColSection = document.querySelector('.panel-section:has(#newColName)');
+            if (addColSection) {
+                addColSection.style.display = 'none';
+            }
+        }
+
+        function clearColumnsAndShowAddInput() {
+            console.log('Clearing columns');
+            
+            columns = [];
+            sqlQuery.value = '';
+            renderColumns();
+            updateOutput();
+            
+            const addColSection = document.querySelector('.panel-section:has(#newColName)');
+            if (addColSection) {
+                addColSection.style.display = 'flex';
+            }
+        }
+
+        function addColumn() {
+            columns.push({
+                col_name: '',
+                col_label: '',
+                data_type: '',
+                required: false,
+                p_key: false,
+                hide_table: false,
+                hide_edit: false,
+                gen: false,
+                editable: true
+            });
+            
+            renderColumns();
+            updateOutput();
+        }
+
+        function removeColumn(idx) {
+            columns.splice(idx, 1);
+            renderColumns();
+            updateOutput();
+        }
+
+        function moveColumn(idx, direction) {
+            if (direction === 'up' && idx > 0) {
+                [columns[idx], columns[idx - 1]] = [columns[idx - 1], columns[idx]];
+                renderColumns();
+                updateOutput();
+            } else if (direction === 'down' && idx < columns.length - 1) {
+                [columns[idx], columns[idx + 1]] = [columns[idx + 1], columns[idx]];
+                renderColumns();
+                updateOutput();
+            }
+        }
+
+        function updateColumn(colName, field, value) {
+            const col = columns.find(c => c.col_name === colName);
+            if (col) {
+                col[field] = value;
+                updateOutput();
+            }
+        }
+        
+        function updateColumnByIndex(idx, field, value) {
+            if (idx >= 0 && idx < columns.length) {
+                columns[idx][field] = value;
+                // Only re-render if it's a structural change (col_name or data_type)
+                // For checkbox/boolean updates, just update output to avoid page jump
+                if (field === 'col_name' || field === 'data_type' || field === 'col_label') {
+                    renderColumns();
+                }
+                updateOutput();
+            }
+        }
+
+        function addInputVariable() {
+            inputVariables.push({
+                name: '',
+                value: '',
+                fromUrl: false,
+                required: false,
+                fromDataset: false,
+                datatable_var: false,
+                dspl_name: '',
+                workflow: '',
+                workflow_id: '',
+                input_var: '',
+                output_var: '',
+                output_id: 'id',
+                output_label: 'name'
+            });
+            
+            renderInputVariables();
+        }
+
+        function moveInputVariable(index, direction) {
+            if (direction === 'up' && index > 0) {
+                [inputVariables[index], inputVariables[index - 1]] = [inputVariables[index - 1], inputVariables[index]];
+                renderInputVariables();
+                updateOutput();
+            } else if (direction === 'down' && index < inputVariables.length - 1) {
+                [inputVariables[index], inputVariables[index + 1]] = [inputVariables[index + 1], inputVariables[index]];
+                renderInputVariables();
+                updateOutput();
+            }
+        }
+
+        function removeInputVariable(index) {
+            inputVariables.splice(index, 1);
+            renderInputVariables();
+            updateOutput();
+        }
+
+        function getWorkflowIdFromName(workflowName) {
+            if (!workflowName || !allWorkflows) return '';
+            const wf = allWorkflows.find(w => w.name === workflowName);
+            return wf ? wf.id : '';
+        }
+
+        function updateInputVariable(index, field, value) {
+            if (field === 'name' && (!value || value.trim() === '')) {
+                // Allow clearing during editing, validation happens on output
+                inputVariables[index][field] = '';
+            } else if (field === 'fromUrl') {
+                inputVariables[index][field] = value;
+            } else {
+                inputVariables[index][field] = value;
+            }
+            
+            // If workflow is being updated, also store the workflow ID
+            if (field === 'workflow' && value) {
+                inputVariables[index].workflow_id = getWorkflowIdFromName(value);
+            }
+            
+            // Re-render if updating fromDataset to show/hide the workflow dropdown
+            if (field === 'fromDataset') {
+                renderInputVariables();
+            }
+            updateOutput();
+        }
+
+        function renderInputVariables() {
+            const listContainer = document.getElementById('inputVariablesList');
+            const templateNote = document.getElementById('templateVarsNote');
+            if (!listContainer) return;
+            
+            // Show template note if there are input variables
+            if (templateNote) {
+                templateNote.style.display = inputVariables.length > 0 ? 'block' : 'none';
+            }
+            
+            if (inputVariables.length === 0) {
+                listContainer.innerHTML = '';
+                return;
+            }
+
+            listContainer.innerHTML = inputVariables.map((iv, idx) => {
+                const workflowOptions = iv.fromDataset ? getWorkflowOptions().map(wf => `<option value="${wf}" ${iv.workflow === wf ? 'selected' : ''}>${wf}</option>`).join('') : '';
+                const datasetSection = iv.fromDataset ? `
+                    <div style="display: flex; flex-direction: column; gap: 0.3rem; padding-top: 0.5rem; border-top: 1px solid #404040;">
+                        <label>Dataset Selector Workflow</label>
+                        <select onchange="updateInputVariable(${idx}, 'workflow', this.value)" class="form-input">
+                            <option value="">-- Select Workflow --</option>
+                            ${workflowOptions}
+                        </select>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; margin-top: 0.5rem;">
+                            <div style="display: flex; flex-direction: column;">
+                                <label>Workflow Input Variable</label>
+                                <input type="text" value="${iv.input_var || ''}" 
+                                       onchange="updateInputVariable(${idx}, 'input_var', this.value)"
+                                       placeholder="e.g., selected_dataset" class="form-input">
+                            </div>
+                            <div style="display: flex; flex-direction: column;">
+                                <label>Workflow Output Variable</label>
+                                <input type="text" value="${iv.output_var || ''}" 
+                                       onchange="updateInputVariable(${idx}, 'output_var', this.value)"
+                                       placeholder="e.g., dataset_result" class="form-input">
+                            </div>
+                        </div>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; margin-top: 0.5rem;">
+                            <div style="display: flex; flex-direction: column;">
+                                <label>Output ID Variable</label>
+                                <input type="text" value="${iv.output_id}" 
+                                       onchange="updateInputVariable(${idx}, 'output_id', this.value)"
+                                       placeholder="e.g., id" class="form-input">
+                            </div>
+                            <div style="display: flex; flex-direction: column;">
+                                <label>Output Label Variable</label>
+                                <input type="text" value="${iv.output_label}" 
+                                       onchange="updateInputVariable(${idx}, 'output_label', this.value)"
+                                       placeholder="e.g., name" class="form-input">
+                            </div>
+                        </div>
+                    </div>
+                ` : '';
+                
+                return `
+                <div class="grey-panel gp-two-column">
+                    <div class="gp-panel-left">
+                        <div class="gp-row">
+                            <div class="gp-field">
+                                <label>Name</label>
+                                <input type="text" value="${iv.name}" 
+                                       onchange="updateInputVariable(${idx}, 'name', this.value)"
+                                       placeholder="Variable name"
+                                       class="gp-input">
+                            </div>
+                            <div class="gp-field">
+                                <label>Value</label>
+                                <input type="text" value="${iv.value}" 
+                                       onchange="updateInputVariable(${idx}, 'value', this.value)"
+                                       placeholder="Value or [[variableName]]"
+                                       class="gp-input">
+                            </div>
+                        </div>
+                        <div class="gp-row">
+                            <div class="gp-field">
+                                <label>Display Name</label>
+                                <input type="text" value="${iv.dspl_name || ''}" 
+                                       onchange="updateInputVariable(${idx}, 'dspl_name', this.value)"
+                                       placeholder="Display name for UI"
+                                       class="gp-input">
+                            </div>
+                        </div>
+                        <div class="gp-row gp-row-grid">
+                            <div class="checkbox-col-left">
+                                <div class="gp-checkbox-item">
+                                    <input type="checkbox" id="required_${idx}" ${iv.required ? 'checked' : ''} 
+                                           onchange="updateInputVariable(${idx}, 'required', this.checked)">
+                                    <label for="required_${idx}">Required</label>
+                                </div>
+                                <div class="gp-checkbox-item">
+                                    <input type="checkbox" id="fromUrl_${idx}" ${iv.fromUrl ? 'checked' : ''} 
+                                           onchange="updateInputVariable(${idx}, 'fromUrl', this.checked)">
+                                    <label for="fromUrl_${idx}">From URL</label>
+                                </div>
+                            </div>
+                            <div class="checkbox-col-right">
+                                <div class="gp-checkbox-item">
+                                    <input type="checkbox" id="datatableVar_${idx}" ${iv.datatable_var ? 'checked' : ''} 
+                                           onchange="updateInputVariable(${idx}, 'datatable_var', this.checked)">
+                                    <label for="datatableVar_${idx}">Include in Datatable Payload</label>
+                                </div>
+                                <div class="gp-checkbox-item">
+                                    <input type="checkbox" id="fromDataset_${idx}" ${iv.fromDataset ? 'checked' : ''} 
+                                           onchange="updateInputVariable(${idx}, 'fromDataset', this.checked)">
+                                    <label for="fromDataset_${idx}">From Dataset Selector</label>
+                                </div>
+                            </div>
+                        </div>
+                        ${datasetSection}
+                    </div>
+                    <div class="gp-panel-right">
+                        <div class="gp-button-row">
+                            <button onclick="moveInputVariable(${idx}, 'up')" ${idx === 0 ? 'disabled' : ''} class="btn btn-bluegrey btn-small gp-move-btn">▲</button>
+                            <button onclick="moveInputVariable(${idx}, 'down')" ${idx === inputVariables.length - 1 ? 'disabled' : ''} class="btn btn-bluegrey btn-small gp-move-btn">▼</button>
+                        </div>
+                        <button class="btn btn-red btn-small" onclick="removeInputVariable(${idx})">Remove</button>
+                    </div>
+                </div>
+                `;
+            }).join('');
+        }
+
+        function renderColumns() {
+            if (columns.length === 0) {
+                columnsList.innerHTML = '<div style="color: #666; text-align: center; padding: 1rem;">No columns configured yet</div>';
+                return;
+            }
+
+            columnsList.innerHTML = columns.map((col, idx) => `
+                <div class="grey-panel gp-two-column">
+                    <div class="gp-panel-left">
+                        <div class="gp-row">
+                            <label>Column Name</label>
+                            <input type="text" value="${col.col_name}" 
+                                   placeholder="Column name" 
+                                   onchange="updateColumnByIndex(${idx}, 'col_name', this.value)"
+                                   ${sqlData.checked ? 'disabled' : ''}>
+                        </div>
+                        
+                        <div class="gp-row">
+                            <label>Display Name</label>
+                            <input type="text" value="${col.col_label || ''}" 
+                                   placeholder="Display name" 
+                                   onchange="updateColumnByIndex(${idx}, 'col_label', this.value)">
+                        </div>
+                        
+                        <div class="gp-row">
+                            <label for="type_${idx}">DataType</label>
+                            <select class="column-type" id="type_${idx}" 
+                                    onchange="updateColumnByIndex(${idx}, 'data_type', this.value)"
+                                    ${col.from_sql || sqlData.checked ? 'disabled' : ''}>
+                                <option value="int" ${col.data_type === 'int' ? 'selected' : ''}>int</option>
+                                <option value="varchar" ${col.data_type === 'varchar' ? 'selected' : ''}>varchar</option>
+                                <option value="text" ${col.data_type === 'text' ? 'selected' : ''}>text</option>
+                                <option value="datetime" ${col.data_type === 'datetime' ? 'selected' : ''}>datetime</option>
+                                <option value="date" ${col.data_type === 'date' ? 'selected' : ''}>date</option>
+                                <option value="boolean" ${col.data_type === 'boolean' ? 'selected' : ''}>boolean</option>
+                                <option value="float" ${col.data_type === 'float' ? 'selected' : ''}>float</option>
+                                <option value="decimal" ${col.data_type === 'decimal' ? 'selected' : ''}>decimal</option>
+                                <option value="json" ${col.data_type === 'json' ? 'selected' : ''}>json</option>
+                                <option value="bigint" ${col.data_type === 'bigint' ? 'selected' : ''}>bigint</option>
+                            </select>
+                        </div>
+                        
+                        <div class="gp-row gp-row-grid2">
+                            <div class="checkbox-col-left">
+                                <div class="checkbox-item">
+                                    <input type="checkbox" id="pkey_${idx}" ${col.p_key ? 'checked' : ''} 
+                                           onchange="updateColumnByIndex(${idx}, 'p_key', this.checked)"
+                                           ${sqlData.checked ? 'disabled' : ''}>
+                                    <label for="pkey_${idx}">Primary Key</label>
+                                </div>
+                                <div class="checkbox-item">
+                                    <input type="checkbox" id="gen_${idx}" ${col.gen ? 'checked' : ''} 
+                                           onchange="updateColumnByIndex(${idx}, 'gen', this.checked)"
+                                           ${sqlData.checked ? 'disabled' : ''}>
+                                    <label for="gen_${idx}">Generated</label>
+                                </div>
+                                <div class="checkbox-item">
+                                    <input type="checkbox" id="editable_${idx}" ${col.editable ? 'checked' : ''} 
+                                           onchange="updateColumnByIndex(${idx}, 'editable', this.checked)">
+                                    <label for="editable_${idx}">Editable</label>
+                                </div>
+                            </div>
+                            <div class="checkbox-col-right">
+                                <div class="checkbox-item">
+                                    <input type="checkbox" id="required_${idx}" ${col.required ? 'checked' : ''} 
+                                           onchange="updateColumnByIndex(${idx}, 'required', this.checked)">
+                                    <label for="required_${idx}">Required</label>
+                                </div>
+                                <div class="checkbox-item">
+                                    <input type="checkbox" id="hideTable_${idx}" ${col.hide_table ? 'checked' : ''} 
+                                           onchange="updateColumnByIndex(${idx}, 'hide_table', this.checked)">
+                                    <label for="hideTable_${idx}">Hide in Table</label>
+                                </div>
+                                <div class="checkbox-item">
+                                    <input type="checkbox" id="hideEdit_${idx}" ${col.hide_edit ? 'checked' : ''} 
+                                           onchange="updateColumnByIndex(${idx}, 'hide_edit', this.checked)">
+                                    <label for="hideEdit_${idx}">Hide in Edit</label>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="gp-panel-right">
+                        <div class="gp-button-row">
+                            <button onclick="moveColumn(${idx}, 'up')" ${idx === 0 ? 'disabled' : ''} class="btn btn-bluegrey btn-small gp-move-btn">▲</button>
+                            <button onclick="moveColumn(${idx}, 'down')" ${idx === columns.length - 1 ? 'disabled' : ''} class="btn btn-bluegrey btn-small gp-move-btn">▼</button>
+                        </div>
+                        ${!col.from_sql && !sqlData.checked ? `<button class="btn btn-red btn-small" onclick="removeColumn(${idx})">Remove</button>` : (sqlData.checked ? `<button class="btn btn-red btn-small" onclick="removeColumn(${idx})" disabled>Remove</button>` : '')}
+                    </div>
+                </div>
+            `).join('');
         }
 
         function addFilter() {
-            filters.push({ col_name: '' });
+            const newFilter = {
+                col_name: '',
+                display_label: '',
+                filter_value: '',
+                default_checked: false
+            };
+            filters.push(newFilter);
             renderFilters();
             updateOutput();
         }
@@ -351,6 +3227,7 @@
         function updateFilterByIndex(idx, field, value) {
             if (filters[idx]) {
                 filters[idx][field] = value;
+                markAsChanged();
                 updateOutput();
             }
         }
@@ -361,32 +3238,266 @@
                 return;
             }
 
-            filtersList.innerHTML = filters.map((filter, idx) => `
+            filtersList.innerHTML = filters.map((filter, idx) => {
+                const allColumns = columns.filter(col => col.col_name && col.col_name.trim()).map(col => col.col_name);
+                const columnOptions = allColumns.map(colName => `<option value="${colName}" ${filter.col_name === colName ? 'selected' : ''}>${colName}</option>`).join('');
+                
+                return `
                 <div class="grey-panel gp-two-column">
                     <div class="gp-panel-left">
                         <div class="gp-row">
-                            <label>Column Name</label>
-                            <input type="text" value="${filter.col_name}" 
-                                   placeholder="Column name" 
-                                   onchange="updateFilterByIndex(${idx}, 'col_name', this.value)">
+                            <label>Column</label>
+                            <select onchange="updateFilterByIndex(${idx}, 'col_name', this.value)">
+                                <option value="">-- Select Column --</option>
+                                ${columnOptions}
+                            </select>
+                        </div>
+                        <div class="gp-row">
+                            <label>Display Label</label>
+                            <input type="text" value="${filter.display_label || ''}" 
+                                   placeholder="e.g., Show Closed?" 
+                                   onchange="updateFilterByIndex(${idx}, 'display_label', this.value)">
+                        </div>
+                        <div class="gp-row">
+                            <label>Filter Value</label>
+                            <input type="text" value="${filter.filter_value || ''}" 
+                                   placeholder="e.g., 1 (for boolean)" 
+                                   onchange="updateFilterByIndex(${idx}, 'filter_value', this.value)">
+                        </div>
+                        <div class="gp-row">
+                            <div class="gp-checkbox-item">
+                                <input type="checkbox" id="defaultChecked_${idx}" ${filter.default_checked ? 'checked' : ''} 
+                                       onchange="updateFilterByIndex(${idx}, 'default_checked', this.checked)">
+                                <label for="defaultChecked_${idx}">Default Checked</label>
+                            </div>
                         </div>
                     </div>
                     <div class="gp-panel-right">
                         <div class="gp-button-row">
-                            <button onclick="moveFilter(${idx}, 'up')" ${idx === 0 ? 'disabled' : ''} class="gp-move-btn">▲</button>
-                            <button onclick="moveFilter(${idx}, 'down')" ${idx === filters.length - 1 ? 'disabled' : ''} class="gp-move-btn">▼</button>
+                            <button onclick="moveFilter(${idx}, 'up')" ${idx === 0 ? 'disabled' : ''} class="btn btn-bluegrey btn-small gp-move-btn">▲</button>
+                            <button onclick="moveFilter(${idx}, 'down')" ${idx === filters.length - 1 ? 'disabled' : ''} class="btn btn-bluegrey btn-small gp-move-btn">▼</button>
                         </div>
                         <button class="btn btn-red btn-small" onclick="removeFilter(${idx})">Remove</button>
                     </div>
                 </div>
-            `).join('');
+            `;
+            }).join('');
+        }
+
+        function buildConfigObject() {
+            // Build config object for comparison and output
+            return {
+                user: userName,
+                updated: getCurrentTimeStamp(),
+                name: datatableName.value || 'unnamed_table',
+                desc: datatableDesc.value,
+                edit_type: document.querySelector('input[name="editType"]:checked').value,
+                data_workflow: dataWorkflow.dataset.value || dataWorkflow.value,
+                update_workflow: updateWorkflow.dataset.value || updateWorkflow.value || null,
+                input_vars: {
+                    sql_query: sqlQuery.value,
+                    ...Object.fromEntries(inputVariables
+                        .filter(iv => iv.name && iv.name.trim())  // Only include variables with names
+                        .map(iv => [iv.name, iv.value]))
+                },
+                input_var_config: [
+                    ...(sqlData.checked ? [{ name: 'sql_query', datatable_var: true }] : []),
+                    ...inputVariables.map(iv => {
+                        const varConfig = { name: iv.name };
+                        if (iv.fromUrl) varConfig.from_url = true;
+                        if (iv.required) varConfig.required = true;
+                        if (iv.datatable_var) varConfig.datatable_var = true;
+                        if (iv.dspl_name) varConfig.dspl_name = iv.dspl_name;
+                        if (iv.fromDataset) varConfig.from_dataset = true;
+                        if (iv.fromDataset && iv.input_var) varConfig.input_var = iv.input_var;
+                        if (iv.fromDataset && iv.workflow_id) varConfig.workflow = iv.workflow_id;
+                        if (iv.fromDataset && iv.output_var) varConfig.output_var = iv.output_var;
+                        if (iv.fromDataset && iv.output_id) varConfig.output_id = iv.output_id;
+                        if (iv.fromDataset && iv.output_label) varConfig.output_label = iv.output_label;
+                        return varConfig;
+                    })
+                ],
+                output_var: outputVar.value,
+                allow_create: allowCreate.checked,
+                allow_update: allowUpdate.checked,
+                allow_delete: allowDelete.checked,
+                use_sql: sqlData.checked,
+                col_settings: columns.map(({from_sql, data_type, ...col}) => {
+                    const colConfig = { col_name: col.col_name };
+                    if (col.col_label) colConfig.col_label = col.col_label;
+                    if (col.required) colConfig.required = true;
+                    if (col.p_key) colConfig.p_key = true;
+                    if (col.hide_table) colConfig.hide_table = true;
+                    if (col.hide_edit) colConfig.hide_edit = true;
+                    if (col.gen) colConfig.gen = true;
+                    colConfig.editable = col.editable;
+                    colConfig.type = data_type;
+                    return colConfig;
+                }),
+                filters: filters.map(f => {
+                    const filterConfig = { col_name: f.col_name };
+                    if (f.display_label) filterConfig.display_label = f.display_label;
+                    if (f.filter_value) filterConfig.filter_value = f.filter_value;
+                    if (f.default_checked !== undefined) filterConfig.default_checked = f.default_checked;
+                    return filterConfig;
+                }),
+                locked: false
+            };
         }
 
         function updateOutput() {
-            jsonOutput.textContent = JSON.stringify({
-                filters: filters,
-                updated: new Date().toISOString()
-            }, null, 2);
+            markAsChanged();
+            // Check for validation errors and disable Save button if needed
+            const saveBtn = document.getElementById('saveBtn');
+            
+            // Build validation errors list
+            const errors = [];
+            
+            // Check if configuration is locked
+            if (isLocked) {
+                errors.push('Configuration is locked');
+            }
+            
+            // Essential fields
+            if (!datatableName.value) {
+                errors.push('Datatable Name is required');
+            }
+            if (!dataWorkflow.dataset.value) {
+                errors.push('Data Workflow is required');
+            }
+            if (!updateWorkflow.dataset.value && !updateWorkflow.value) {
+                errors.push('Update Workflow is required');
+            }
+            if (!outputVar.value || outputVar.value.trim() === '') {
+                errors.push('Output Variable Name is required');
+            }
+            
+            // MySQL Data validations
+            if (sqlData.checked) {
+                if (!tableName.value && !tableName.dataset.value) {
+                    errors.push('SQL Table Name is required when using MySQL Data');
+                }
+                if (!sqlQuery.value || sqlQuery.value.trim() === '') {
+                    errors.push('SQL Query For Initial Data Retrieval is required when using MySQL Data');
+                }
+            }
+            
+            // Column name validation
+            const columnsWithoutName = columns.filter(col => !col.col_name || col.col_name.trim() === '');
+            if (columnsWithoutName.length > 0) {
+                errors.push(`Column${columnsWithoutName.length > 1 ? 's' : ''} must have a name (${columnsWithoutName.length} column${columnsWithoutName.length > 1 ? 's' : ''} without name)`);
+            }
+            
+            // Input Variables validation
+            const inputVarsWithoutName = inputVariables.filter(iv => !iv.name || iv.name.trim() === '');
+            if (inputVarsWithoutName.length > 0) {
+                errors.push(`Input Variable${inputVarsWithoutName.length > 1 ? 's' : ''} must have a name (${inputVarsWithoutName.length} ${inputVarsWithoutName.length > 1 ? 'variables' : 'variable'} without name)`);
+            }
+            
+            // Check for duplicate input variable names
+            const inputVarNames = inputVariables
+                .map(iv => iv.name)
+                .filter(name => name && name.trim());
+            const uniqueNames = new Set(inputVarNames.map(n => n.toLowerCase()));
+            if (uniqueNames.size < inputVarNames.length) {
+                // Find which names are duplicated
+                const nameCounts = {};
+                inputVarNames.forEach(name => {
+                    const lowerName = name.toLowerCase();
+                    nameCounts[lowerName] = (nameCounts[lowerName] || 0) + 1;
+                });
+                const duplicateNames = Object.entries(nameCounts)
+                    .filter(([name, count]) => count > 1)
+                    .map(([name]) => name);
+                errors.push(`Duplicate input variable name${duplicateNames.length > 1 ? 's' : ''}: ${duplicateNames.join(', ')}`);
+            }
+            
+            // Validate fromDataset requires workflow
+            const datasetVarsWithoutWorkflow = inputVariables.filter(iv => iv.fromDataset && (!iv.workflow || iv.workflow.trim() === ''));
+            if (datasetVarsWithoutWorkflow.length > 0) {
+                errors.push(`Input Variable${datasetVarsWithoutWorkflow.length > 1 ? 's' : ''} with "From Dataset Selector" checked must have a Dataset Selector Workflow selected`);
+            }
+            
+            // Validate fromDataset requires output_var
+            const datasetVarsWithoutOutputVar = inputVariables.filter(iv => iv.fromDataset && (!iv.output_var || iv.output_var.trim() === ''));
+            if (datasetVarsWithoutOutputVar.length > 0) {
+                errors.push(`Input Variable${datasetVarsWithoutOutputVar.length > 1 ? 's' : ''} with "From Dataset Selector" checked must have a Workflow Output Variable specified`);
+            }
+            
+            // Validate fromDataset requires output_id
+            const datasetVarsWithoutOutputId = inputVariables.filter(iv => iv.fromDataset && (!iv.output_id || iv.output_id.trim() === ''));
+            if (datasetVarsWithoutOutputId.length > 0) {
+                errors.push(`Input Variable${datasetVarsWithoutOutputId.length > 1 ? 's' : ''} with "From Dataset Selector" checked must have an Output ID Variable specified`);
+            }
+            
+            // Validate fromDataset requires output_label
+            const datasetVarsWithoutOutputLabel = inputVariables.filter(iv => iv.fromDataset && (!iv.output_label || iv.output_label.trim() === ''));
+            if (datasetVarsWithoutOutputLabel.length > 0) {
+                errors.push(`Input Variable${datasetVarsWithoutOutputLabel.length > 1 ? 's' : ''} with "From Dataset Selector" checked must have an Output Label Variable specified`);
+            }
+            
+            // Disable Save button if there are errors
+            const hasErrors = errors.length > 0;
+            saveBtn.disabled = hasErrors;
+            
+            // Display validation messages
+            if (validationOutput) {
+                let validationHTML = '';
+                
+                if (errors.length > 0) {
+                    validationHTML += '<div style="color: #ff6b6b; margin-bottom: 1rem;"><strong>Blocking Validations:</strong><ul style="text-align: left; margin: 0.5rem 0; padding-left: 1.5rem;">' + 
+                        errors.map(err => `<li>${err}</li>`).join('') + 
+                        '</ul></div>';
+                }
+                
+                // Non-blocking warnings
+                if (columns.length === 0) {
+                    validationHTML += '<div style="color: #ffa500;"><strong>⚠  Warning:</strong> No columns defined</div>';
+                }
+                
+                if (validationHTML === '') {
+                    validationHTML = '<div style="color: #4caf50;"><strong>✓ No validation issues</strong></div>';
+                }
+                
+                validationOutput.innerHTML = validationHTML;
+            }
+            
+            const config = buildConfigObject();
+
+            if (sqlData.checked) {
+                const selectedTable = tableName.dataset.value || tableName.value;
+                if (selectedTable) {
+                    config.table_name = selectedTable;
+                }
+            }
+
+            jsonOutput.textContent = JSON.stringify(config, null, 2);
+            
+            const orgVarName = datatableName.value || 'config';
+            
+            updateValidation(config);
+            renderFilters();
+        }
+
+        function updateValidation(config) {
+            const issues = [];
+            
+            if (!config.name || config.name === 'unnamed_table') {
+                issues.push({ type: 'invalid', text: 'Datatable name is required' });
+            }
+            if (!config.data_workflow) {
+                issues.push({ type: 'invalid', text: 'Data workflow is required' });
+            }
+            if (!config.output_var) {
+                issues.push({ type: 'invalid', text: 'Output variable name is required' });
+            }
+            
+            const colSettings = config.col_settings || config.column_settings || [];
+            if (colSettings.length === 0) {
+                issues.push({ type: 'warning', text: 'No columns configured' });
+            }
+
+            // Validation output is now handled earlier in the function
         }
 
         function switchTab(tabName) {
@@ -412,6 +3523,69 @@
             });
         }
 
+        // Track unsaved changes
+        let hasUnsavedChanges = false;
+        let configurationLoaded = false;
+        let pageInitialized = false;
+        let originalLoadedConfig = null;
+        let isResetting = false;
+        let isLocked = false;
+
+        function markAsChanged() {
+            // Skip marking as changed during reset operations
+            if (isResetting) {
+                return;
+            }
+            
+            // Only mark as changed if the page has finished initializing
+            if (pageInitialized) {
+                // If a config was loaded, compare current state with original
+                if (configurationLoaded && originalLoadedConfig) {
+                    const currentConfig = buildConfigObject();
+                    // Remove user and updated fields for comparison
+                    const currentForComparison = { ...currentConfig };
+                    const originalForComparison = { ...originalLoadedConfig };
+                    delete currentForComparison.user;
+                    delete currentForComparison.updated;
+                    delete originalForComparison.user;
+                    delete originalForComparison.updated;
+                    
+                    // Compare JSON strings to detect changes
+                    const hasActualChanges = JSON.stringify(currentForComparison) !== JSON.stringify(originalForComparison);
+                    hasUnsavedChanges = hasActualChanges;
+                } else if (!configurationLoaded) {
+                    // For new configs, mark as changed if any substantial field has a value
+                    if (!hasUnsavedChanges) {
+                        hasUnsavedChanges = true;
+                    }
+                }
+            }
+        }
+
+        function resetChangeTracking() {
+            hasUnsavedChanges = false;
+            configurationLoaded = false;
+            originalLoadedConfig = null;
+        }
+
+        function markConfigurationLoaded() {
+            configurationLoaded = true;
+            hasUnsavedChanges = false;
+            // Store the original config for comparison
+            originalLoadedConfig = buildConfigObject();
+        }
+
+        // Set up beforeunload event listener
+        window.addEventListener('beforeunload', (e) => {
+            // Check if we have unsaved changes (new config with changes or loaded config with changes)
+            if ((configurationLoaded && hasUnsavedChanges) || (!configurationLoaded && hasUnsavedChanges)) {
+                e.preventDefault();
+                e.returnValue = '';
+                return '';
+            }
+        });
+
+        // Initialize when DOM is ready
         if (document.readyState === 'loading') {
             document.addEventListener('DOMContentLoaded', initializeApp);
         } else {
