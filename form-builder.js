@@ -1554,11 +1554,11 @@ if (formColumnsSelect) {
         document.addEventListener('DOMContentLoaded', () => {
             console.log('DOM loaded, calling updateColumnDisplay');
             
-            // Initialize permissionsSelect with admin-role default (created by security.js)
+            // Initialize permissionsSelect with admin role default (created by security.js)
             const permissionsSelect = document.getElementById('permissionsSelect');
             if (permissionsSelect) {
-                permissionsSelect.setAttribute('data-selected-values', JSON.stringify(['admin-role']));
-                console.log('[INIT] Set permissionsSelect.dataset.selectedValues to admin-role');
+                permissionsSelect.setAttribute('data-selected-values', JSON.stringify(['role-admin']));
+                console.log('[INIT] Set permissionsSelect.dataset.selectedValues to role-admin');
             }
             
             updateColumnDisplay();
@@ -1572,11 +1572,11 @@ if (formColumnsSelect) {
     } else {
         console.log('DOM already loaded, calling updateColumnDisplay');
         
-        // Initialize permissionsSelect with admin-role default (created by security.js)
+        // Initialize permissionsSelect with admin role default (created by security.js)
         const permissionsSelect = document.getElementById('permissionsSelect');
         if (permissionsSelect) {
-            permissionsSelect.setAttribute('data-selected-values', JSON.stringify(['admin-role']));
-            console.log('[INIT] Set permissionsSelect.dataset.selectedValues to admin-role');
+            permissionsSelect.setAttribute('data-selected-values', JSON.stringify(['role-admin']));
+            console.log('[INIT] Set permissionsSelect.dataset.selectedValues to role-admin');
         }
         
         updateColumnDisplay();
@@ -4949,10 +4949,10 @@ if (resetFormBtn) {
             hiddenOutputVar.value = '';
         }
         
-        // Reset form permissions to default (admin-role)
+        // Reset form permissions to default (role-admin)
         const permissionsSelect = document.getElementById('permissionsSelect');
         if (permissionsSelect) {
-            permissionsSelect.setAttribute('data-selected-values', JSON.stringify(['admin-role']));
+            permissionsSelect.setAttribute('data-selected-values', JSON.stringify(['role-admin']));
         }
         
         // Reset GraphQL submit operation
