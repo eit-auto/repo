@@ -4,6 +4,31 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>REWST Form Viewer</title>
+
+    <!-- ============================================
+         USER CONTEXT & SECURITY INITIALIZATION
+         Populates variables for later use:
+         - rewstUser (Elements: username, id, roleIds, orgId)
+         - allUserRoles (List Item elements: label, value)
+         For config-based pages, leave pagePermissions empty.
+         For hardcoded permission pages, set pagePermissions array.
+         ============================================ -->
+    <style>
+        #page-content { display: none !important; }
+    </style>
+    <script>
+        const rawUserData = `{{ CTX.user }}`;
+        let pagePermissions = []; // Changed to 'let' to allow reassignment from config
+        window.ORG_ID = '019176c2-059f-7391-afbc-97b201efbd93';
+    </script>
+    <script src="https://eit-auto.github.io/repo/security.js?v=1.0"></script>
+    <script>
+        // Check hardcoded permissions if pagePermissions is set
+        if (pagePermissions.length > 0) {
+            checkPagePermission(pagePermissions);
+        }
+    </script>
+
     <!-- External Rewst Library CSS -->
     <link rel="stylesheet" href="https://eit-auto.github.io/repo/rewst-library.css">
     <style>
@@ -155,13 +180,65 @@
             background: #dc3545;
         }
     </style>
-    <!-- Organization ID - must be set before loading rewst-library.js -->
-    <script>
-        window.ORG_ID = '019176c2-059f-7391-afbc-97b201efbd93';
-    </script>
-    <!-- Rewst Library JavaScript (embedded) -->
+    <!-- Rewst Library JavaScript (must load before loadFormConfigEarly) -->
     <script src="https://eit-auto.github.io/repo/rewst-library.js"></script>
+    <!-- Load form config and check permissions before rendering body -->
+    <script>
+        /**
+         * Load form config from org variables before body renders
+         * This allows permission checking before page content is shown
+         */
+        async function loadFormConfigEarly() {
+            try {
+                const formId = RewstLib.forms.detectUrlFormId();
+                console.log('[CONFIG EARLY LOAD] Form ID detected:', formId);
+                
+                if (!formId) {
+                    console.warn('[CONFIG EARLY LOAD] No form ID found, skipping early permission check');
+                    return;
+                }
+                
+                // Fetch form config from org variables
+                console.log('[CONFIG EARLY LOAD] Fetching form config for:', formId);
+                const formVariable = await RewstLib.orgVariables.get(`form_${formId}`);
+                
+                if (!formVariable) {
+                    console.warn('[CONFIG EARLY LOAD] Form config not found:', formId);
+                    return;
+                }
+                
+                let formConfig = null;
+                try {
+                    formConfig = JSON.parse(formVariable.value);
+                } catch (e) {
+                    console.error('[CONFIG EARLY LOAD] Failed to parse form config:', e);
+                    return;
+                }
+                
+                console.log('[CONFIG EARLY LOAD] Form config loaded, permissions:', formConfig.permissions);
+                
+                // Re-populate pagePermissions with form config permissions
+                if (formConfig.permissions && Array.isArray(formConfig.permissions)) {
+                    pagePermissions = formConfig.permissions;
+                    console.log('[CONFIG EARLY LOAD] Updated pagePermissions:', pagePermissions);
+                    
+                    // Check permissions before page renders
+                    checkPagePermission(pagePermissions);
+                } else {
+                    console.log('[CONFIG EARLY LOAD] No permissions in form config, showing page');
+                    showPageContent();
+                }
+                
+            } catch (error) {
+                console.error('[CONFIG EARLY LOAD] Error during early config load:', error);
+            }
+        }
+        
+        // Run config loading as soon as RewstLib and security are ready
+        loadFormConfigEarly();
+    </script>
 <body>
+<div id="page-content">
     <!-- Validation Error Modal -->
     <div id="validationErrorModal" style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.5); display: none; align-items: center; justify-content: center; z-index: 1000;">
         <div style="background: #2E5F75; border-radius: 8px; padding: 30px; max-width: 500px; box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3); color: #ffffff;">
@@ -630,7 +707,6 @@
         const getUrlParameter = (name) => RewstLib.forms.getUrlParameter(name);
         const getFormIdFromParent = () => RewstLib.forms.getFormIdFromParent();
         const detectUrlFormId = () => RewstLib.forms.detectUrlFormId();
-        const escapeHtml = (text) => RewstLib.forms.escapeHtml(text);
         const formatTaskName = (name) => RewstLib.forms.formatTaskName(name);
 
         // ============================================
@@ -2869,5 +2945,6 @@
             console.log('===========================');
         }
     </script>
+</div>
 </body>
 </html>
