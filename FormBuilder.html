@@ -4,16 +4,37 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>REWST Form Builder v2</title>
+
+    <!-- ============================================
+         USER CONTEXT & SECURITY INITIALIZATION
+         Populates variables for later use:
+         - rewstUser (Elements: username, id, roleIds, orgId)
+         - allUserRoles (List Item elements: label, value)
+         For config-based pages, leave pagePermissions empty.
+         For hardcoded permission pages, set pagePermissions array.
+         ============================================ -->
+    <style>
+        #page-content { display: none !important; }
+    </style>
+    <script>
+        const rawUserData = `{{ CTX.user }}`;
+        let pagePermissions = ['role-admin', 'c401ac8f-d0e3-4baf-b349-ebd65fef66b3']; // FormBuilder requires admin roles
+        window.ORG_ID = '019176c2-059f-7391-afbc-97b201efbd93';
+    </script>
+    <script src="https://eit-auto.github.io/repo/security.js?v=1.0"></script>
+    <script>
+        // Check hardcoded permissions if pagePermissions is set
+        if (pagePermissions.length > 0) {
+            checkPagePermission(pagePermissions);
+        }
+    </script>
+
     <link rel="stylesheet" href="https://eit-auto.github.io/repo/rewst-library.css">
     <link rel="stylesheet" href="https://eit-auto.github.io/repo/form-builder.css?v=1.0.0">
 </head>
 <body>
-        </div>
-    <script>
-        window.ORG_ID = '019176c2-059f-7391-afbc-97b201efbd93';
-    </script>
-    <script src="https://eit-auto.github.io/repo/rewst-library.js?v=2.1"></script>
-    
+    <div id="page-content">
+        <script src="https://eit-auto.github.io/repo/rewst-library.js?v=2.1"></script>
     <div class="modal-overlay" id="executionModal">
         <div class="modal">
             <button class="btn-close" id="modalCloseBtn">&times;</button>
@@ -44,7 +65,7 @@
     <div class="modal-overlay" id="generalSettingsModal">
         <div class="modal" style="max-width: 30%; width: 30%; padding: 15px 30px 30px 30px;">
             <h2 style="margin-top: 0; margin-bottom: 20px; color: #ffffff; text-align: center;">General Settings</h2>
-            <div style="color: #ffffff;">
+            <div style="color: #ffffff;" class="form-container">
                 <!-- Show Form Name -->
                 <div class="mb-20">
                     <label style="display: flex; align-items: center; gap: 10px; color: #ffffff; font-weight: 600; font-size: 14px; cursor: pointer;">
@@ -91,6 +112,12 @@
                 <div id="output_var_section" style="margin-bottom: 30px;">
                     <label style="display: block; color: #ffffff; font-weight: 600; margin-bottom: 8px; font-size: 14px;">Output Variable Name</label>
                     <input type="text" id="output_var_name" class="form-field-input" placeholder="e.g., form_output" style="width: 100%;">
+                </div>
+                
+                <!-- Form Permissions -->
+                <div style="margin-bottom: 30px;">
+                    <label style="display: block; color: #ffffff; font-weight: 600; margin-bottom: 8px; font-size: 14px;">Form Permissions</label>
+                    <button type="button" onclick="openPermissionsModal()" class="btn btn-blue" style="width: 100%;">Edit Permissions</button>
                 </div>
                 
                 <div class="flex-gap-10-center">
@@ -361,11 +388,6 @@
 
     </div>
 
-
-    <script>
-        // Set username - Jinja will process this
-        userName = "{{ CTX.user.username }}";
-    </script>
     <script src="https://eit-auto.github.io/repo/form-builder.js?v=1.0.0"></script>
     </div>
 </body>
