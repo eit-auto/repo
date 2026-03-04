@@ -2393,36 +2393,8 @@ function showElementSettings(elementUid) {
     if (fieldConfig.type === 'array') {
         formHTML += `
             <div class="mb-20">
-                <div style="display: flex; gap: 8px; align-items: flex-end; margin-bottom: 8px;">
-                    <div style="flex: 1;">
-                        <label style="color: #ffffff; font-weight: 600; font-size: 14px; margin: 0 0 8px 0; display: block;">Items</label>
-                        <div class="flex-gap-8">
-                            <div style="flex: 1; color: #999; font-size: 12px; font-weight: 600;">Label</div>
-                            <div style="flex: 1; color: #999; font-size: 12px; font-weight: 600;">Value</div>
-                        </div>
-                    </div>
-                    <div>
-                        <button id="addArrayItemBtn" class="btn-builder-blue" title="Add Item">+</button>
-                    </div>
-                </div>
-                <div id="arrayItemsList" style="display: flex; flex-direction: column; gap: 8px;">
-        `;
-        
-        // Add existing array items as editable fields
-        if (fieldConfig.items && typeof fieldConfig.items === 'object') {
-            Object.entries(fieldConfig.items).forEach(([key, value], index) => {
-                formHTML += `
-                    <div class="array-item-row" data-index="${index}" style="display: flex; gap: 8px; align-items: center;">
-                        <input type="text" class="array-item-label" value="${key}" placeholder="Label" style="flex: 1; padding: 8px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; font-size: 13px; width: 50%;">
-                        <input type="text" class="array-item-value" value="${value}" placeholder="Value" style="flex: 1; padding: 8px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; font-size: 13px; width: 50%;">
-                        <button class="delete-array-item-btn" class="btn-builder-red" title="Delete Item">⊘</button>
-                    </div>
-                `;
-            });
-        }
-        
-        formHTML += `
-                </div>
+                <label style="color: #ffffff; font-weight: 600; font-size: 14px; margin: 0 0 8px 0; display: block;">Items</label>
+                <button type="button" id="editArrayItemsBtn" class="btn btn-blue" style="width: 100%;">Edit Array</button>
             </div>
         `;
     }
@@ -3167,51 +3139,11 @@ function showElementSettings(elementUid) {
     
     // Add listeners for array items
     if (fieldConfig.type === 'array') {
-        const addArrayItemBtn = document.getElementById('addArrayItemBtn');
-        const arrayItemsList = document.getElementById('arrayItemsList');
-        
-        if (addArrayItemBtn && arrayItemsList) {
-            addArrayItemBtn.addEventListener('click', (e) => {
+        const editArrayItemsBtn = document.getElementById('editArrayItemsBtn');
+        if (editArrayItemsBtn) {
+            editArrayItemsBtn.addEventListener('click', (e) => {
                 e.preventDefault();
-                const index = arrayItemsList.children.length;
-                const newRow = document.createElement('div');
-                newRow.className = 'array-item-row';
-                newRow.dataset.index = index;
-                newRow.style.cssText = 'display: flex; gap: 8px; align-items: center;';
-                newRow.innerHTML = `
-                    <input type="text" class="array-item-label" value="" placeholder="Label" style="flex: 1; padding: 8px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; font-size: 13px; width: 50%;">
-                    <input type="text" class="array-item-value" value="" placeholder="Value" style="flex: 1; padding: 8px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; font-size: 13px; width: 50%;">
-                    <button class="delete-array-item-btn" class="btn-builder-red" title="Delete Item">⊘</button>
-                `;
-                arrayItemsList.appendChild(newRow);
-                attachDeleteArrayItemListener(newRow.querySelector('.delete-array-item-btn'));
-                
-                // Add input listeners to detect changes
-                newRow.querySelector('.array-item-label').addEventListener('input', () => {
-                    formHasBeenModified = true;
-                    updateElementSettingsSaveButtonVisibility();
-                });
-                newRow.querySelector('.array-item-value').addEventListener('input', () => {
-                    formHasBeenModified = true;
-                    updateElementSettingsSaveButtonVisibility();
-                });
-                
-                // Trigger save button on adding new item
-                formHasBeenModified = true;
-                updateElementSettingsSaveButtonVisibility();
-            });
-            
-            // Attach delete listeners to existing buttons and input listeners
-            document.querySelectorAll('.delete-array-item-btn').forEach(btn => {
-                attachDeleteArrayItemListener(btn);
-            });
-            
-            // Add input listeners to existing array items
-            document.querySelectorAll('.array-item-label, .array-item-value').forEach(input => {
-                input.addEventListener('input', () => {
-                    formHasBeenModified = true;
-                    updateElementSettingsSaveButtonVisibility();
-                });
+                openArrayItemsModal(fieldConfig);
             });
         }
     }
@@ -5800,6 +5732,174 @@ async function checkAndAutoLoad() {
             console.error('[AUTO-LOAD] Error fetching form config:', error);
         }
     }
+}
+
+// ============================================
+// ARRAY ITEMS MODAL
+// ============================================
+
+let currentArrayFieldConfig = null;
+
+/**
+ * Initialize Array Items Modal HTML if it doesn't exist
+ */
+function initializeArrayItemsModal() {
+    if (!document.getElementById('arrayItemsModalBackdrop')) {
+        const modalHtml = `
+        <div id="arrayItemsModalBackdrop" style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.7); z-index: 9998; display: none;"></div>
+        <div id="arrayItemsModal" style="position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #234656; border: 2px solid #404040; border-radius: 8px; padding: 2rem; z-index: 9999; min-width: 500px; max-height: 80vh; overflow-y: auto; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3); display: none; flex-direction: column; gap: 1.5rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <h3 style="margin: 0; color: #ffffff; font-size: 1.25rem;">Array Items</h3>
+                <button onclick="closeArrayItemsModal()" style="background: none; border: none; color: #ffffff; font-size: 1.5rem; cursor: pointer; padding: 0; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center;">×</button>
+            </div>
+            
+            <div style="display: flex; gap: 8px; align-items: flex-end; margin-bottom: 8px;">
+                <div style="flex: 1;">
+                    <div style="display: flex; gap: 8px;">
+                        <div style="flex: 1; color: #999; font-size: 12px; font-weight: 600;">Label</div>
+                        <div style="flex: 1; color: #999; font-size: 12px; font-weight: 600;">Value</div>
+                    </div>
+                </div>
+                <div>
+                    <button id="addArrayItemModalBtn" class="btn btn-blue btn-small" title="Add Item" style="min-width: auto;">+</button>
+                </div>
+            </div>
+            
+            <div id="arrayItemsModalList" style="display: flex; flex-direction: column; gap: 8px; max-height: 300px; overflow-y: auto;"></div>
+            
+            <div style="display: flex; gap: 0.75rem; justify-content: flex-end;">
+                <button onclick="closeArrayItemsModal()" class="btn btn-bluegrey btn-small">Cancel</button>
+                <button onclick="saveArrayItems()" class="btn btn-green btn-small">Confirm</button>
+            </div>
+        </div>
+        `;
+        document.body.insertAdjacentHTML('beforeend', modalHtml);
+        console.log('[ARRAY-MODAL] Initialized Array Items Modal HTML');
+    }
+}
+
+/**
+ * Open Array Items Modal and populate with current items
+ * @param {object} fieldConfig - The field configuration object containing items
+ */
+function openArrayItemsModal(fieldConfig) {
+    currentArrayFieldConfig = fieldConfig;
+    
+    initializeArrayItemsModal();
+    
+    const modal = document.getElementById('arrayItemsModal');
+    const backdrop = document.getElementById('arrayItemsModalBackdrop');
+    const arrayItemsModalList = document.getElementById('arrayItemsModalList');
+    const addArrayItemModalBtn = document.getElementById('addArrayItemModalBtn');
+    
+    if (!modal || !backdrop || !arrayItemsModalList) {
+        console.error('[ARRAY-MODAL] Modal elements not found');
+        return;
+    }
+    
+    // Clear existing items
+    arrayItemsModalList.innerHTML = '';
+    
+    // Populate with existing items
+    if (fieldConfig.items && typeof fieldConfig.items === 'object') {
+        Object.entries(fieldConfig.items).forEach(([key, value], index) => {
+            const newRow = document.createElement('div');
+            newRow.className = 'array-item-row';
+            newRow.dataset.index = index;
+            newRow.style.cssText = 'display: flex; gap: 8px; align-items: center;';
+            newRow.innerHTML = `
+                <input type="text" class="array-item-label" value="${RewstLib.utils.escapeHtml(key)}" placeholder="Label" style="flex: 1; padding: 8px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; font-size: 13px;">
+                <input type="text" class="array-item-value" value="${RewstLib.utils.escapeHtml(value)}" placeholder="Value" style="flex: 1; padding: 8px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; font-size: 13px;">
+                <button class="delete-array-item-modal-btn" class="btn btn-red btn-small" title="Delete Item" style="min-width: auto;">⊘</button>
+            `;
+            arrayItemsModalList.appendChild(newRow);
+            attachDeleteArrayItemModalListener(newRow.querySelector('.delete-array-item-modal-btn'));
+        });
+    }
+    
+    // Add button listener
+    addArrayItemModalBtn.onclick = (e) => {
+        e.preventDefault();
+        const newRow = document.createElement('div');
+        newRow.className = 'array-item-row';
+        newRow.style.cssText = 'display: flex; gap: 8px; align-items: center;';
+        newRow.innerHTML = `
+            <input type="text" class="array-item-label" value="" placeholder="Label" style="flex: 1; padding: 8px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; font-size: 13px;">
+            <input type="text" class="array-item-value" value="" placeholder="Value" style="flex: 1; padding: 8px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; font-size: 13px;">
+            <button class="delete-array-item-modal-btn" class="btn btn-red btn-small" title="Delete Item" style="min-width: auto;">⊘</button>
+        `;
+        arrayItemsModalList.appendChild(newRow);
+        attachDeleteArrayItemModalListener(newRow.querySelector('.delete-array-item-modal-btn'));
+    };
+    
+    // Show modal
+    modal.style.display = 'flex';
+    backdrop.style.display = 'block';
+    console.log('[ARRAY-MODAL] Opened Array Items Modal');
+}
+
+/**
+ * Close Array Items Modal
+ */
+function closeArrayItemsModal() {
+    const modal = document.getElementById('arrayItemsModal');
+    const backdrop = document.getElementById('arrayItemsModalBackdrop');
+    if (modal) modal.style.display = 'none';
+    if (backdrop) backdrop.style.display = 'none';
+    currentArrayFieldConfig = null;
+    console.log('[ARRAY-MODAL] Closed Array Items Modal');
+}
+
+/**
+ * Save Array Items from Modal and update fieldConfig
+ */
+function saveArrayItems() {
+    if (!currentArrayFieldConfig) return;
+    
+    const arrayItemsModalList = document.getElementById('arrayItemsModalList');
+    if (!arrayItemsModalList) return;
+    
+    const arrayItemRows = arrayItemsModalList.querySelectorAll('.array-item-row');
+    const items = {};
+    
+    arrayItemRows.forEach(row => {
+        const labelInput = row.querySelector('.array-item-label');
+        const valueInput = row.querySelector('.array-item-value');
+        if (labelInput && valueInput) {
+            const label = labelInput.value.trim();
+            const value = valueInput.value.trim();
+            if (label && value) {
+                items[label] = value;
+            }
+        }
+    });
+    
+    currentArrayFieldConfig.items = items;
+    console.log('[ARRAY-MODAL] Saved array items:', items);
+    
+    // Mark form as modified
+    if (typeof formHasBeenModified !== 'undefined') {
+        formHasBeenModified = true;
+        if (typeof updateElementSettingsSaveButtonVisibility === 'function') {
+            updateElementSettingsSaveButtonVisibility();
+        }
+    }
+    
+    closeArrayItemsModal();
+}
+
+/**
+ * Attach delete listener to array item delete button in modal
+ * @param {HTMLElement} btn - Delete button element
+ */
+function attachDeleteArrayItemModalListener(btn) {
+    btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        const row = btn.closest('.array-item-row');
+        if (row) {
+            row.remove();
+        }
+    });
 }
 
 // ============================================
