@@ -5736,7 +5736,7 @@ function initializeArrayItemsModal() {
     if (!document.getElementById('arrayItemsModalBackdrop')) {
         const modalHtml = `
         <div id="arrayItemsModalBackdrop" style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.7); z-index: 9998; display: none;"></div>
-        <div id="arrayItemsModal" style="position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #234656; border: 2px solid #404040; border-radius: 8px; padding: 2rem; z-index: 9999; min-width: 500px; max-height: 80vh; overflow-y: auto; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3); display: none; flex-direction: column; gap: 1.5rem;">
+        <div id="arrayItemsModal" style="position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #234656; border: 2px solid #404040; border-radius: 8px; padding: 2rem; z-index: 9999; min-width: 600px; max-height: 80vh; overflow-y: auto; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3); display: none; flex-direction: column; gap: 1.5rem;">
             <div style="display: flex; justify-content: space-between; align-items: center;">
                 <h3 style="margin: 0; color: #ffffff; font-size: 1.25rem;">Array Items</h3>
                 <button onclick="closeArrayItemsModal()" style="background: none; border: none; color: #ffffff; font-size: 1.5rem; cursor: pointer; padding: 0; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center;">×</button>
@@ -5744,9 +5744,10 @@ function initializeArrayItemsModal() {
             
             <div style="display: flex; gap: 8px; align-items: flex-end; margin-bottom: 8px;">
                 <div style="flex: 1;">
-                    <div style="display: flex; gap: 8px;">
-                        <div style="flex: 1; color: #999; font-size: 12px; font-weight: 600;">Label</div>
-                        <div style="flex: 1; color: #999; font-size: 12px; font-weight: 600;">Value</div>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px;">
+                        <div style="color: #999; font-size: 12px; font-weight: 600;">Name</div>
+                        <div style="color: #999; font-size: 12px; font-weight: 600;">Display Name</div>
+                        <div style="color: #999; font-size: 12px; font-weight: 600;">Type</div>
                     </div>
                 </div>
                 <div>
@@ -5754,7 +5755,7 @@ function initializeArrayItemsModal() {
                 </div>
             </div>
             
-            <div id="arrayItemsModalList" style="display: flex; flex-direction: column; gap: 8px; max-height: 300px; overflow-y: auto;"></div>
+            <div id="arrayItemsModalList" style="display: flex; flex-direction: column; gap: 12px; max-height: 400px; overflow-y: auto;"></div>
             
             <div style="display: flex; gap: 0.75rem; justify-content: flex-end;">
                 <button onclick="closeArrayItemsModal()" class="btn btn-bluegrey btn-small">Cancel</button>
@@ -5789,42 +5790,237 @@ function openArrayItemsModal(fieldConfig) {
     // Clear existing items
     arrayItemsModalList.innerHTML = '';
     
-    // Populate with existing items
-    if (fieldConfig.items && typeof fieldConfig.items === 'object') {
-        Object.entries(fieldConfig.items).forEach(([key, value], index) => {
-            const newRow = document.createElement('div');
-            newRow.className = 'array-item-row';
-            newRow.dataset.index = index;
-            newRow.style.cssText = 'display: flex; gap: 8px; align-items: center;';
-            newRow.innerHTML = `
-                <input type="text" class="array-item-label" value="${RewstLib.utils.escapeHtml(key)}" placeholder="Label" style="flex: 1; padding: 8px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; font-size: 13px;">
-                <input type="text" class="array-item-value" value="${RewstLib.utils.escapeHtml(value)}" placeholder="Value" style="flex: 1; padding: 8px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; font-size: 13px;">
-                <button class="delete-array-item-modal-btn" class="btn btn-red btn-small" title="Delete Item" style="min-width: auto;">⊘</button>
-            `;
-            arrayItemsModalList.appendChild(newRow);
-            attachDeleteArrayItemModalListener(newRow.querySelector('.delete-array-item-modal-btn'));
-        });
+    // Normalize items: convert old format (object) to new format (array) if needed
+    let items = [];
+    if (fieldConfig.items) {
+        if (Array.isArray(fieldConfig.items)) {
+            // Already in new format
+            items = fieldConfig.items;
+        } else if (typeof fieldConfig.items === 'object') {
+            // Convert old format {label: value} to new format
+            items = Object.entries(fieldConfig.items).map(([key, value]) => ({
+                name: key,
+                display_name: key,
+                type: 'text',
+                value: value
+            }));
+            console.log('[ARRAY-MODAL] Converted old format to new format:', items);
+        }
     }
+    
+    // Populate with existing items
+    items.forEach((item, index) => {
+        renderArrayItemRow(arrayItemsModalList, item, index);
+    });
     
     // Add button listener
     addArrayItemModalBtn.onclick = (e) => {
         e.preventDefault();
-        const newRow = document.createElement('div');
-        newRow.className = 'array-item-row';
-        newRow.style.cssText = 'display: flex; gap: 8px; align-items: center;';
-        newRow.innerHTML = `
-            <input type="text" class="array-item-label" value="" placeholder="Label" style="flex: 1; padding: 8px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; font-size: 13px;">
-            <input type="text" class="array-item-value" value="" placeholder="Value" style="flex: 1; padding: 8px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; font-size: 13px;">
-            <button class="delete-array-item-modal-btn" class="btn btn-red btn-small" title="Delete Item" style="min-width: auto;">⊘</button>
-        `;
-        arrayItemsModalList.appendChild(newRow);
-        attachDeleteArrayItemModalListener(newRow.querySelector('.delete-array-item-modal-btn'));
+        const newItem = {
+            name: '',
+            display_name: '',
+            type: 'text',
+            value: ''
+        };
+        renderArrayItemRow(arrayItemsModalList, newItem, arrayItemsModalList.children.length);
     };
     
     // Show modal
     modal.style.display = 'flex';
     backdrop.style.display = 'block';
     console.log('[ARRAY-MODAL] Opened Array Items Modal');
+}
+
+/**
+ * Render a single array item row with type-specific fields
+ * @param {HTMLElement} container - Container to append row to
+ * @param {object} item - Item object with name, display_name, type, etc.
+ * @param {number} index - Index of item
+ */
+function renderArrayItemRow(container, item, index) {
+    const rowContainer = document.createElement('div');
+    rowContainer.className = 'array-item-row-container';
+    rowContainer.dataset.index = index;
+    rowContainer.style.cssText = 'background: #1a3540; padding: 12px; border-radius: 4px; border: 1px solid #404040;';
+    
+    // Main row with name, display_name, type
+    const mainRow = document.createElement('div');
+    mainRow.style.cssText = 'display: grid; grid-template-columns: 1fr 1fr 1fr auto; gap: 8px; align-items: center; margin-bottom: 12px;';
+    mainRow.innerHTML = `
+        <input type="text" class="array-item-name" value="${RewstLib.utils.escapeHtml(item.name || '')}" placeholder="Field Name" style="padding: 6px; background: #234656; border: 1px solid #555; border-radius: 4px; color: #ffffff; font-size: 12px;">
+        <input type="text" class="array-item-display-name" value="${RewstLib.utils.escapeHtml(item.display_name || '')}" placeholder="Display Name" style="padding: 6px; background: #234656; border: 1px solid #555; border-radius: 4px; color: #ffffff; font-size: 12px;">
+        <select class="array-item-type" style="padding: 6px; background: #234656; border: 1px solid #555; border-radius: 4px; color: #ffffff; font-size: 12px;">
+            <option value="text" ${item.type === 'text' ? 'selected' : ''}>Text</option>
+            <option value="dropdown_graphql" ${item.type === 'dropdown_graphql' ? 'selected' : ''}>GraphQL Dropdown</option>
+            <option value="dropdown_static" ${item.type === 'dropdown_static' ? 'selected' : ''}>Static Dropdown</option>
+        </select>
+        <button class="delete-array-item-modal-btn" class="btn btn-red btn-small" title="Delete Item" style="min-width: auto; padding: 6px 10px;">⊘</button>
+    `;
+    rowContainer.appendChild(mainRow);
+    
+    // Type-specific config section
+    const configSection = document.createElement('div');
+    configSection.className = 'array-item-config';
+    configSection.style.cssText = 'padding-top: 12px; border-top: 1px solid #404040;';
+    renderArrayItemConfig(configSection, item);
+    rowContainer.appendChild(configSection);
+    
+    container.appendChild(rowContainer);
+    
+    // Attach event listeners
+    const typeSelect = mainRow.querySelector('.array-item-type');
+    typeSelect.addEventListener('change', (e) => {
+        item.type = e.target.value;
+        configSection.innerHTML = '';
+        renderArrayItemConfig(configSection, item);
+        console.log('[ARRAY-MODAL] Changed item type to:', e.target.value);
+    });
+    
+    attachDeleteArrayItemModalListener(mainRow.querySelector('.delete-array-item-modal-btn'), rowContainer);
+}
+
+/**
+ * Render type-specific configuration fields for array item
+ * @param {HTMLElement} container - Container to render config fields into
+ * @param {object} item - Item object with configuration
+ */
+function renderArrayItemConfig(container, item) {
+    if (item.type === 'text') {
+        container.innerHTML = `
+            <div style="display: flex; flex-direction: column; gap: 8px;">
+                <label style="color: #ccc; font-size: 12px; font-weight: 600;">Default Value</label>
+                <input type="text" class="array-item-text-value" value="${RewstLib.utils.escapeHtml(item.value || '')}" placeholder="Default value" style="padding: 6px; background: #234656; border: 1px solid #555; border-radius: 4px; color: #ffffff; font-size: 12px;">
+            </div>
+        `;
+        
+        const valueInput = container.querySelector('.array-item-text-value');
+        valueInput.addEventListener('input', (e) => {
+            item.value = e.target.value;
+        });
+    } else if (item.type === 'dropdown_graphql') {
+        container.innerHTML = `
+            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px;">
+                <div style="display: flex; flex-direction: column; gap: 6px;">
+                    <label style="color: #ccc; font-size: 12px; font-weight: 600;">GraphQL Op</label>
+                    <input type="text" class="array-item-graphql-op" value="${RewstLib.utils.escapeHtml(item.graphql_op || '')}" placeholder="e.g., graphql_operations.list_orgs" style="padding: 6px; background: #234656; border: 1px solid #555; border-radius: 4px; color: #ffffff; font-size: 12px;">
+                </div>
+                <div style="display: flex; flex-direction: column; gap: 6px;">
+                    <label style="color: #ccc; font-size: 12px; font-weight: 600;">Label Field</label>
+                    <input type="text" class="array-item-label-name" value="${RewstLib.utils.escapeHtml(item.label_name || 'name')}" placeholder="e.g., name" style="padding: 6px; background: #234656; border: 1px solid #555; border-radius: 4px; color: #ffffff; font-size: 12px;">
+                </div>
+                <div style="display: flex; flex-direction: column; gap: 6px;">
+                    <label style="color: #ccc; font-size: 12px; font-weight: 600;">Value Field</label>
+                    <input type="text" class="array-item-value-name" value="${RewstLib.utils.escapeHtml(item.value_name || 'id')}" placeholder="e.g., id" style="padding: 6px; background: #234656; border: 1px solid #555; border-radius: 4px; color: #ffffff; font-size: 12px;">
+                </div>
+            </div>
+            <div style="display: flex; align-items: center; gap: 8px; margin-top: 8px;">
+                <input type="checkbox" class="array-item-multi-select" ${item.multi_select ? 'checked' : ''} style="accent-color: #5a9fb8;">
+                <label style="color: #ccc; font-size: 12px; font-weight: 600; margin: 0; cursor: pointer;">Multi-Select</label>
+            </div>
+        `;
+        
+        const opInput = container.querySelector('.array-item-graphql-op');
+        const labelInput = container.querySelector('.array-item-label-name');
+        const valueInput = container.querySelector('.array-item-value-name');
+        const multiSelect = container.querySelector('.array-item-multi-select');
+        
+        opInput.addEventListener('input', (e) => { item.graphql_op = e.target.value; });
+        labelInput.addEventListener('input', (e) => { item.label_name = e.target.value; });
+        valueInput.addEventListener('input', (e) => { item.value_name = e.target.value; });
+        multiSelect.addEventListener('change', (e) => { item.multi_select = e.target.checked; });
+    } else if (item.type === 'dropdown_static') {
+        const options = item.options || {};
+        
+        let optionsHtml = `
+            <div style="display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px;">
+                <label style="color: #ccc; font-size: 12px; font-weight: 600;">Options</label>
+                <div id="staticOptionsContainer" style="display: flex; flex-direction: column; gap: 6px; max-height: 150px; overflow-y: auto;">
+        `;
+        
+        Object.entries(options).forEach(([key, value]) => {
+            optionsHtml += `
+                <div style="display: flex; gap: 6px; align-items: center;">
+                    <input type="text" class="static-option-label" value="${RewstLib.utils.escapeHtml(key)}" placeholder="Label" style="flex: 1; padding: 4px; background: #234656; border: 1px solid #555; border-radius: 4px; color: #ffffff; font-size: 12px;">
+                    <input type="text" class="static-option-value" value="${RewstLib.utils.escapeHtml(value)}" placeholder="Value" style="flex: 1; padding: 4px; background: #234656; border: 1px solid #555; border-radius: 4px; color: #ffffff; font-size: 12px;">
+                    <button class="delete-static-option" style="padding: 4px 8px; background: #b8242f; border: none; border-radius: 4px; color: #ffffff; cursor: pointer; font-size: 12px;">×</button>
+                </div>
+            `;
+        });
+        
+        optionsHtml += `
+                </div>
+                <button id="addStaticOption" class="btn btn-blue btn-small" style="align-self: flex-start;">+ Add Option</button>
+            </div>
+            <div style="display: flex; align-items: center; gap: 8px;">
+                <input type="checkbox" class="array-item-multi-select" ${item.multi_select ? 'checked' : ''} style="accent-color: #5a9fb8;">
+                <label style="color: #ccc; font-size: 12px; font-weight: 600; margin: 0; cursor: pointer;">Multi-Select</label>
+            </div>
+        `;
+        
+        container.innerHTML = optionsHtml;
+        
+        // Attach option handlers
+        container.querySelectorAll('.delete-static-option').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.preventDefault();
+                btn.closest('div').remove();
+                updateStaticOptions(container, item);
+            });
+        });
+        
+        container.querySelector('#addStaticOption').addEventListener('click', (e) => {
+            e.preventDefault();
+            const optionsContainer = container.querySelector('#staticOptionsContainer');
+            const optionRow = document.createElement('div');
+            optionRow.style.cssText = 'display: flex; gap: 6px; align-items: center;';
+            optionRow.innerHTML = `
+                <input type="text" class="static-option-label" placeholder="Label" style="flex: 1; padding: 4px; background: #234656; border: 1px solid #555; border-radius: 4px; color: #ffffff; font-size: 12px;">
+                <input type="text" class="static-option-value" placeholder="Value" style="flex: 1; padding: 4px; background: #234656; border: 1px solid #555; border-radius: 4px; color: #ffffff; font-size: 12px;">
+                <button class="delete-static-option" style="padding: 4px 8px; background: #b8242f; border: none; border-radius: 4px; color: #ffffff; cursor: pointer; font-size: 12px;">×</button>
+            `;
+            optionsContainer.appendChild(optionRow);
+            
+            optionRow.querySelector('.delete-static-option').addEventListener('click', (e) => {
+                e.preventDefault();
+                optionRow.remove();
+                updateStaticOptions(container, item);
+            });
+            
+            optionRow.querySelector('.static-option-label').addEventListener('input', () => updateStaticOptions(container, item));
+            optionRow.querySelector('.static-option-value').addEventListener('input', () => updateStaticOptions(container, item));
+        });
+        
+        // Input listeners for existing options
+        container.querySelectorAll('.static-option-label, .static-option-value').forEach(input => {
+            input.addEventListener('input', () => updateStaticOptions(container, item));
+        });
+        
+        // Multi-select listener
+        container.querySelector('.array-item-multi-select').addEventListener('change', (e) => {
+            item.multi_select = e.target.checked;
+        });
+    }
+}
+
+/**
+ * Update static dropdown options in item from DOM
+ * @param {HTMLElement} container - Config container
+ * @param {object} item - Item object to update
+ */
+function updateStaticOptions(container, item) {
+    const options = {};
+    container.querySelectorAll('[style*="display: flex; gap: 6px"]').forEach(row => {
+        const labelInput = row.querySelector('.static-option-label');
+        const valueInput = row.querySelector('.static-option-value');
+        if (labelInput && valueInput) {
+            const label = labelInput.value.trim();
+            const value = valueInput.value.trim();
+            if (label && value) {
+                options[label] = value;
+            }
+        }
+    });
+    item.options = options;
 }
 
 /**
@@ -5848,18 +6044,64 @@ function saveArrayItems() {
     const arrayItemsModalList = document.getElementById('arrayItemsModalList');
     if (!arrayItemsModalList) return;
     
-    const arrayItemRows = arrayItemsModalList.querySelectorAll('.array-item-row');
-    const items = {};
+    const arrayItemRowContainers = arrayItemsModalList.querySelectorAll('.array-item-row-container');
+    const items = [];
     
-    arrayItemRows.forEach(row => {
-        const labelInput = row.querySelector('.array-item-label');
-        const valueInput = row.querySelector('.array-item-value');
-        if (labelInput && valueInput) {
-            const label = labelInput.value.trim();
-            const value = valueInput.value.trim();
-            if (label && value) {
-                items[label] = value;
+    arrayItemRowContainers.forEach(container => {
+        const nameInput = container.querySelector('.array-item-name');
+        const displayNameInput = container.querySelector('.array-item-display-name');
+        const typeSelect = container.querySelector('.array-item-type');
+        
+        if (nameInput && displayNameInput && typeSelect) {
+            const name = nameInput.value.trim();
+            const display_name = displayNameInput.value.trim();
+            const type = typeSelect.value;
+            
+            // Only save if name is provided
+            if (!name) return;
+            
+            const itemData = { name, display_name, type };
+            
+            // Collect type-specific fields
+            if (type === 'text') {
+                const valueInput = container.querySelector('.array-item-text-value');
+                if (valueInput) {
+                    itemData.value = valueInput.value;
+                }
+            } else if (type === 'dropdown_graphql') {
+                const opInput = container.querySelector('.array-item-graphql-op');
+                const labelInput = container.querySelector('.array-item-label-name');
+                const valueInput = container.querySelector('.array-item-value-name');
+                const multiSelect = container.querySelector('.array-item-multi-select');
+                
+                itemData.graphql_op = opInput ? opInput.value : '';
+                itemData.label_name = labelInput ? labelInput.value : 'name';
+                itemData.value_name = valueInput ? valueInput.value : 'id';
+                itemData.multi_select = multiSelect ? multiSelect.checked : false;
+            } else if (type === 'dropdown_static') {
+                const optionsContainer = container.querySelector('#staticOptionsContainer');
+                const multiSelect = container.querySelector('.array-item-multi-select');
+                
+                const options = {};
+                if (optionsContainer) {
+                    optionsContainer.querySelectorAll('[style*="display: flex; gap: 6px"]').forEach(row => {
+                        const labelInput = row.querySelector('.static-option-label');
+                        const valueInput = row.querySelector('.static-option-value');
+                        if (labelInput && valueInput) {
+                            const label = labelInput.value.trim();
+                            const value = valueInput.value.trim();
+                            if (label && value) {
+                                options[label] = value;
+                            }
+                        }
+                    });
+                }
+                
+                itemData.options = options;
+                itemData.multi_select = multiSelect ? multiSelect.checked : false;
             }
+            
+            items.push(itemData);
         }
     });
     
@@ -5880,13 +6122,19 @@ function saveArrayItems() {
 /**
  * Attach delete listener to array item delete button in modal
  * @param {HTMLElement} btn - Delete button element
+ * @param {HTMLElement} rowContainer - Row container element to remove
  */
-function attachDeleteArrayItemModalListener(btn) {
+function attachDeleteArrayItemModalListener(btn, rowContainer) {
     btn.addEventListener('click', (e) => {
         e.preventDefault();
-        const row = btn.closest('.array-item-row');
-        if (row) {
-            row.remove();
+        if (rowContainer) {
+            rowContainer.remove();
+        } else {
+            // Fallback for older structure
+            const row = btn.closest('.array-item-row-container') || btn.closest('.array-item-row');
+            if (row) {
+                row.remove();
+            }
         }
     });
 }
