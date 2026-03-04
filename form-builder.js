@@ -5855,13 +5855,13 @@ function renderArrayItemRow(container, item, index) {
             <option value="dropdown_graphql" ${item.type === 'dropdown_graphql' ? 'selected' : ''}>GraphQL Dropdown</option>
             <option value="dropdown_static" ${item.type === 'dropdown_static' ? 'selected' : ''}>Static Dropdown</option>
         </select>
-        <div id="arrayItemValueField" style="width: 100%;"></div>
+        <div id="arrayItemValueField_${index}" style="width: 100%;"></div>
         <button class="delete-array-item-modal-btn" class="btn btn-red btn-small" title="Delete Item" style="min-width: auto; padding: 6px 10px;">⊘</button>
     `;
     rowContainer.appendChild(mainRow);
     
     // Render the value field based on type
-    const valueFieldContainer = mainRow.querySelector('#arrayItemValueField');
+    const valueFieldContainer = mainRow.querySelector(`#arrayItemValueField_${index}`);
     renderArrayItemValueField(valueFieldContainer, item);
     
     // Type-specific config section (below main row)
