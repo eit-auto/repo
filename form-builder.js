@@ -5736,7 +5736,7 @@ function initializeArrayItemsModal() {
     if (!document.getElementById('arrayItemsModalBackdrop')) {
         const modalHtml = `
         <div id="arrayItemsModalBackdrop" style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.7); z-index: 9998; display: none;"></div>
-        <div id="arrayItemsModal" style="position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #234656; border: 2px solid #404040; border-radius: 8px; padding: 2rem; z-index: 9999; min-width: 600px; max-height: 80vh; overflow-y: auto; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3); display: none; flex-direction: column; gap: 1.5rem;">
+        <div id="arrayItemsModal" style="position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #234656; border: 2px solid #404040; border-radius: 8px; padding: 2rem; z-index: 9999; min-width: 1000px; max-height: 80vh; overflow-y: auto; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3); display: none; flex-direction: column; gap: 1.5rem;">
             <div style="display: flex; justify-content: space-between; align-items: center;">
                 <h3 style="margin: 0; color: #ffffff; font-size: 1.25rem;">Array Items</h3>
                 <button onclick="closeArrayItemsModal()" style="background: none; border: none; color: #ffffff; font-size: 1.5rem; cursor: pointer; padding: 0; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center;">×</button>
@@ -5744,10 +5744,11 @@ function initializeArrayItemsModal() {
             
             <div style="display: flex; gap: 8px; align-items: flex-end; margin-bottom: 8px;">
                 <div style="flex: 1;">
-                    <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px;">
+                    <div style="display: grid; grid-template-columns: 1fr 1fr 0.8fr 1fr; gap: 8px;">
                         <div style="color: #999; font-size: 12px; font-weight: 600;">Name</div>
                         <div style="color: #999; font-size: 12px; font-weight: 600;">Display Name</div>
                         <div style="color: #999; font-size: 12px; font-weight: 600;">Type</div>
+                        <div style="color: #999; font-size: 12px; font-weight: 600;">Value</div>
                     </div>
                 </div>
                 <div>
@@ -5843,9 +5844,9 @@ function renderArrayItemRow(container, item, index) {
     rowContainer.dataset.index = index;
     rowContainer.style.cssText = 'background: #1a3540; padding: 12px; border-radius: 4px; border: 1px solid #404040;';
     
-    // Main row with name, display_name, type
+    // Main row with name, display_name, type, value field
     const mainRow = document.createElement('div');
-    mainRow.style.cssText = 'display: grid; grid-template-columns: 1fr 1fr 1fr auto; gap: 8px; align-items: center; margin-bottom: 12px;';
+    mainRow.style.cssText = 'display: grid; grid-template-columns: 1fr 1fr 0.8fr 1fr auto; gap: 8px; align-items: center; margin-bottom: 12px;';
     mainRow.innerHTML = `
         <input type="text" class="array-item-name" value="${RewstLib.utils.escapeHtml(item.name || '')}" placeholder="Field Name" style="padding: 6px; background: #234656; border: 1px solid #555; border-radius: 4px; color: #ffffff; font-size: 12px;">
         <input type="text" class="array-item-display-name" value="${RewstLib.utils.escapeHtml(item.display_name || '')}" placeholder="Display Name" style="padding: 6px; background: #234656; border: 1px solid #555; border-radius: 4px; color: #ffffff; font-size: 12px;">
@@ -5854,11 +5855,16 @@ function renderArrayItemRow(container, item, index) {
             <option value="dropdown_graphql" ${item.type === 'dropdown_graphql' ? 'selected' : ''}>GraphQL Dropdown</option>
             <option value="dropdown_static" ${item.type === 'dropdown_static' ? 'selected' : ''}>Static Dropdown</option>
         </select>
+        <div id="arrayItemValueField" style="width: 100%;"></div>
         <button class="delete-array-item-modal-btn" class="btn btn-red btn-small" title="Delete Item" style="min-width: auto; padding: 6px 10px;">⊘</button>
     `;
     rowContainer.appendChild(mainRow);
     
-    // Type-specific config section
+    // Render the value field based on type
+    const valueFieldContainer = mainRow.querySelector('#arrayItemValueField');
+    renderArrayItemValueField(valueFieldContainer, item);
+    
+    // Type-specific config section (below main row)
     const configSection = document.createElement('div');
     configSection.className = 'array-item-config';
     configSection.style.cssText = 'padding-top: 12px; border-top: 1px solid #404040;';
@@ -5871,6 +5877,8 @@ function renderArrayItemRow(container, item, index) {
     const typeSelect = mainRow.querySelector('.array-item-type');
     typeSelect.addEventListener('change', (e) => {
         item.type = e.target.value;
+        valueFieldContainer.innerHTML = '';
+        renderArrayItemValueField(valueFieldContainer, item);
         configSection.innerHTML = '';
         renderArrayItemConfig(configSection, item);
         console.log('[ARRAY-MODAL] Changed item type to:', e.target.value);
@@ -5880,17 +5888,14 @@ function renderArrayItemRow(container, item, index) {
 }
 
 /**
- * Render type-specific configuration fields for array item
- * @param {HTMLElement} container - Container to render config fields into
+ * Render the value field for the main row based on item type
+ * @param {HTMLElement} container - Container to render field into
  * @param {object} item - Item object with configuration
  */
-function renderArrayItemConfig(container, item) {
+function renderArrayItemValueField(container, item) {
     if (item.type === 'text') {
         container.innerHTML = `
-            <div style="display: flex; flex-direction: column; gap: 8px;">
-                <label style="color: #ccc; font-size: 12px; font-weight: 600;">Default Value</label>
-                <input type="text" class="array-item-text-value" value="${RewstLib.utils.escapeHtml(item.value || '')}" placeholder="Default value" style="padding: 6px; background: #234656; border: 1px solid #555; border-radius: 4px; color: #ffffff; font-size: 12px;">
-            </div>
+            <input type="text" class="array-item-text-value" value="${RewstLib.utils.escapeHtml(item.value || '')}" placeholder="Default Value" style="padding: 6px; background: #234656; border: 1px solid #555; border-radius: 4px; color: #ffffff; font-size: 12px; width: 100%;">
         `;
         
         const valueInput = container.querySelector('.array-item-text-value');
@@ -5898,12 +5903,50 @@ function renderArrayItemConfig(container, item) {
             item.value = e.target.value;
         });
     } else if (item.type === 'dropdown_graphql') {
+        // Build dropdown of available GraphQL operations
+        let opOptions = '<option value="">-- Select Operation --</option>';
+        if (typeof availableGraphQLOperations !== 'undefined' && availableGraphQLOperations.length > 0) {
+            availableGraphQLOperations.forEach(op => {
+                const opKey = `${op.operation}`;
+                const selected = item.graphql_op === opKey ? 'selected' : '';
+                opOptions += `<option value="${opKey}" ${selected}>${op.operation}</option>`;
+            });
+        }
+        
         container.innerHTML = `
-            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px;">
-                <div style="display: flex; flex-direction: column; gap: 6px;">
-                    <label style="color: #ccc; font-size: 12px; font-weight: 600;">GraphQL Op</label>
-                    <input type="text" class="array-item-graphql-op" value="${RewstLib.utils.escapeHtml(item.graphql_op || '')}" placeholder="e.g., graphql_operations.list_orgs" style="padding: 6px; background: #234656; border: 1px solid #555; border-radius: 4px; color: #ffffff; font-size: 12px;">
-                </div>
+            <select class="array-item-graphql-op" style="padding: 6px; background: #234656; border: 1px solid #555; border-radius: 4px; color: #ffffff; font-size: 12px; width: 100%;">
+                ${opOptions}
+            </select>
+        `;
+        
+        const opSelect = container.querySelector('.array-item-graphql-op');
+        opSelect.addEventListener('change', (e) => {
+            item.graphql_op = e.target.value;
+        });
+    } else if (item.type === 'dropdown_static') {
+        // Static dropdown - show option count or placeholder
+        const optCount = item.options ? Object.keys(item.options).length : 0;
+        container.innerHTML = `
+            <div style="padding: 6px; background: #234656; border: 1px solid #555; border-radius: 4px; color: #999; font-size: 12px; display: flex; align-items: center;">
+                ${optCount} options
+            </div>
+        `;
+    }
+}
+
+/**
+ * Render type-specific configuration fields for array item
+ * @param {HTMLElement} container - Container to render config fields into
+ * @param {object} item - Item object with configuration
+ */
+function renderArrayItemConfig(container, item) {
+    if (item.type === 'text') {
+        // No additional config for text - everything is on main row
+        container.style.display = 'none';
+    } else if (item.type === 'dropdown_graphql') {
+        // Secondary config: Label Field, Value Field, Multi-Select
+        container.innerHTML = `
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
                 <div style="display: flex; flex-direction: column; gap: 6px;">
                     <label style="color: #ccc; font-size: 12px; font-weight: 600;">Label Field</label>
                     <input type="text" class="array-item-label-name" value="${RewstLib.utils.escapeHtml(item.label_name || 'name')}" placeholder="e.g., name" style="padding: 6px; background: #234656; border: 1px solid #555; border-radius: 4px; color: #ffffff; font-size: 12px;">
@@ -5919,12 +5962,10 @@ function renderArrayItemConfig(container, item) {
             </div>
         `;
         
-        const opInput = container.querySelector('.array-item-graphql-op');
         const labelInput = container.querySelector('.array-item-label-name');
         const valueInput = container.querySelector('.array-item-value-name');
         const multiSelect = container.querySelector('.array-item-multi-select');
         
-        opInput.addEventListener('input', (e) => { item.graphql_op = e.target.value; });
         labelInput.addEventListener('input', (e) => { item.label_name = e.target.value; });
         valueInput.addEventListener('input', (e) => { item.value_name = e.target.value; });
         multiSelect.addEventListener('change', (e) => { item.multi_select = e.target.checked; });
