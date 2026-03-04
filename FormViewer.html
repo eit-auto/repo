@@ -2288,24 +2288,48 @@
                     formConfig.field_configs.forEach(config => {
                         if (config.type === 'array') {
                             // Collect array field data
-                            const arrayContainer = document.querySelector(`[data-array-name="${config.field_name}"]`);
+                            // Use more specific selector to target .array-instances div, not the button which also has data-array-name
+                            const arrayContainer = document.querySelector(`.array-instances[data-array-name="${config.field_name}"]`);
+                            console.log(`[SUBMIT DEBUG] Looking for array: ${config.field_name}`);
+                            console.log(`[SUBMIT DEBUG] Container found:`, !!arrayContainer, arrayContainer?.className, arrayContainer?.id);
+                            
                             if (arrayContainer) {
                                 const instances = [];
-                                arrayContainer.querySelectorAll('.array-instance').forEach(instance => {
+                                const instanceElements = arrayContainer.querySelectorAll('.array-instance');
+                                console.log(`[SUBMIT DEBUG] Found ${instanceElements.length} .array-instance elements`);
+                                console.log(`[SUBMIT DEBUG] Container HTML:`, arrayContainer.innerHTML.substring(0, 200));
+                                
+                                instanceElements.forEach(instance => {
                                     const instanceData = {};
-                                    const inputs = instance.querySelectorAll('input[type="text"]');
+                                    const instanceIndex = instance.getAttribute('data-instance-index');
+                                    console.log(`[SUBMIT DEBUG] Processing instance ${instanceIndex}`);
                                     
-                                    Object.entries(config.items || {}).forEach(([label, fieldName], index) => {
-                                        if (inputs[index]) {
-                                            instanceData[fieldName] = inputs[index].value;
+                                    Object.entries(config.items || {}).forEach(([label, fieldName]) => {
+                                        // Query by actual name attribute instead of index position
+                                        const inputName = `${config.field_name}_${fieldName}_${instanceIndex}`;
+                                        const input = instance.querySelector(`input[name="${inputName}"]`);
+                                        console.log(`[SUBMIT DEBUG] Looking for input[name="${inputName}"], found:`, !!input, input?.value);
+                                        
+                                        if (input) {
+                                            instanceData[fieldName] = input.value;
                                         }
                                     });
                                     
-                                    instances.push(instanceData);
+                                    // Check if at least one field has a value
+                                    const hasAtLeastOneValue = Object.values(instanceData).some(value => value && value.trim && value.trim() !== '');
+                                    
+                                    if (hasAtLeastOneValue) {
+                                        instances.push(instanceData);
+                                        console.log(`[SUBMIT DEBUG] Instance ${instanceIndex} has values, including in payload`);
+                                    } else {
+                                        console.log(`[SUBMIT DEBUG] Instance ${instanceIndex} is empty, excluding from payload`);
+                                    }
                                 });
                                 
                                 formData[config.field_name] = instances;
                                 console.log(`[SUBMIT] Array field ${config.field_name}: ${instances.length} instances`, instances);
+                            } else {
+                                console.warn(`[SUBMIT] No array container found for field: ${config.field_name}`);
                             }
                             return; // Skip the normal input lookup for array types
                         }
