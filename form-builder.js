@@ -5903,13 +5903,15 @@ function renderArrayItemValueField(container, item) {
             item.value = e.target.value;
         });
     } else if (item.type === 'dropdown_graphql') {
-        // Build dropdown of available GraphQL operations
+        // Build dropdown of available GraphQL operations filtered by type === 'form_field'
         let opOptions = '<option value="">-- Select Operation --</option>';
-        if (typeof availableGraphQLOperations !== 'undefined' && availableGraphQLOperations.length > 0) {
-            availableGraphQLOperations.forEach(op => {
-                const opKey = `${op.operation}`;
-                const selected = item.graphql_op === opKey ? 'selected' : '';
-                opOptions += `<option value="${opKey}" ${selected}>${op.operation}</option>`;
+        if (RewstLib && RewstLib.graphqlOperations) {
+            const allOperations = RewstLib.graphqlOperations.getAll();
+            Object.entries(allOperations).forEach(([operationKey, operation]) => {
+                if (operation.type === 'form_field') {
+                    const selected = item.graphql_op === operationKey ? 'selected' : '';
+                    opOptions += `<option value="${operationKey}" ${selected}>${operation.name}</option>`;
+                }
             });
         }
         
