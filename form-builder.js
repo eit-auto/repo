@@ -890,21 +890,10 @@ function saveTypeSpecificFields(fieldConfig) {
                 }
             }
         } else if (elementType === 'array') {
-            // Collect array items from individual text fields
-            const arrayItemRows = document.querySelectorAll('.array-item-row');
-            const items = {};
-            arrayItemRows.forEach(row => {
-                const labelInput = row.querySelector('.array-item-label');
-                const valueInput = row.querySelector('.array-item-value');
-                if (labelInput && valueInput) {
-                    const label = labelInput.value.trim();
-                    const value = valueInput.value.trim();
-                    if (label && value) {
-                        items[label] = value;
-                    }
-                }
-            });
-            fieldConfig.items = items;
+            // Array items are saved via the modal (saveArrayItems)
+            // fieldConfig.items is already updated when user clicks Confirm in modal
+            // No need to re-collect from DOM since they're no longer there
+            console.log('[SAVE] Array items already saved via modal:', fieldConfig.items);
         }
     } catch (error) {
         console.error('Error saving type-specific fields:', error);
