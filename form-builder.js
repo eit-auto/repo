@@ -2636,7 +2636,7 @@ function showElementSettings(elementUid) {
     }
     let dependantFieldsHTML = '';
     
-    // Add common fields - Dependant Fields
+    // Add common fields - Dependent Fields
     // Parse dependant_fields - handle both old string format and new object format
     let currentDependantFieldsObj = {};
     if (fieldConfig.dependant_fields) {
@@ -2678,10 +2678,10 @@ function showElementSettings(elementUid) {
     
     formHTML += `
         <div class="mb-15">
-            <label class="form-label">Dependant Fields</label>
+            <label class="form-label">Dependent Fields</label>
             <div style="position: relative;">
                 <button type="button" id="dependant_fields_btn" style="width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; text-align: left; cursor: pointer; font-size: 14px;">
-                    <span id="dependant_fields_display">${currentDependantFields.length > 0 ? currentDependantFields.length + ' field(s) selected' : 'Select dependant fields...'}</span>
+                    <span id="dependant_fields_display">${currentDependantFields.length > 0 ? currentDependantFields.length + ' field(s) selected' : 'Select dependent fields...'}</span>
                 </button>
                 <div id="dependant_fields_dropdown" style="position: absolute; top: 100%; left: 0; right: 0; background: #1a3540; border: 1px solid #555; border-top: none; border-radius: 0 0 4px 4px; max-height: 200px; overflow-y: auto; display: none; z-index: 1001; margin-top: -1px;">
                     ${dependantFieldsHTML}
@@ -3348,7 +3348,7 @@ function showElementSettings(elementUid) {
         });
     }
     
-    // Add event listeners for dependant fields dropdown
+    // Add event listeners for dependent fields dropdown
     const dependantFieldsBtn = document.getElementById('dependant_fields_btn');
     const dependantFieldsDropdown = document.getElementById('dependant_fields_dropdown');
     const dependantFieldsDisplay = document.getElementById('dependant_fields_display');
@@ -3408,9 +3408,9 @@ function showElementSettings(elementUid) {
             
             // Store as JSON in hidden input
             dependantFieldsInput.value = Object.keys(dependantFieldsObj).length > 0 ? JSON.stringify(dependantFieldsObj) : '';
-            dependantFieldsDisplay.textContent = Object.keys(dependantFieldsObj).length > 0 ? Object.keys(dependantFieldsObj).length + ' field(s) selected' : 'Select dependant fields...';
+            dependantFieldsDisplay.textContent = Object.keys(dependantFieldsObj).length > 0 ? Object.keys(dependantFieldsObj).length + ' field(s) selected' : 'Select dependent fields...';
             
-            // Update save button visibility when dependant fields change (important for form_extend validation)
+            // Update save button visibility when dependent fields change (important for form_extend validation)
             formHasBeenModified = true;
             const saveButton = document.getElementById('saveSettings');
             const validationError = validateFormExtendSettings();
@@ -3533,7 +3533,7 @@ function saveElementSettings() {
             fieldConfig.dependant_fields = null;
         }
         
-        // Validation: form_extend elements must have at least one dependant field
+        // Validation: form_extend elements must have at least one dependent field
         const validationError = validateFormExtendSettings();
         if (validationError) {
             showValidationErrorModal(validationError);
@@ -3747,7 +3747,7 @@ function validateFormExtendSettings() {
             const dependantFieldsInput = document.getElementById('dependant_fields');
             const dependantFieldsValue = dependantFieldsInput?.value;
             if (!dependantFieldsValue) {
-                return 'Form Extend elements must have at least one Dependant Field selected.';
+                return 'Form Extend elements must have at least one Dependent Field selected.';
             }
         }
     }
@@ -3808,7 +3808,7 @@ function updateSaveButtonState() {
     
     const hasElements = fieldConfigs.length > 0;
     
-    // Check if all form_extend elements have at least one dependant field
+    // Check if all form_extend elements have at least one dependent field
     const formExtendWithoutDependants = fieldConfigs.filter(f => {
         if (f.type !== 'form_extend') return false;
         if (!f.dependant_fields) return true;
@@ -3891,7 +3891,7 @@ function updateSaveButtonState() {
             });
         }
         
-        // Add validation for each form_extend without dependant fields (both apps)
+        // Add validation for each form_extend without dependent fields (both apps)
         const formExtendWithoutDependants = fieldConfigs.filter(f => {
             if (f.type !== 'form_extend') return false;
             if (!f.dependant_fields) return true;
@@ -3901,7 +3901,7 @@ function updateSaveButtonState() {
         });
         formExtendWithoutDependants.forEach(formExtend => {
             items.push({
-                label: `${formExtend.field_name} Dependant Fields`,
+                label: `${formExtend.field_name} Dependent Fields`,
                 valid: false
             });
         });
