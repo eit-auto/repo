@@ -6200,9 +6200,9 @@ function openDependentFieldsModal(fieldConfig) {
             fieldNameDiv.style.cssText = 'color: #999; font-size: 12px; margin-top: 4px;';
             leftDiv.appendChild(fieldNameDiv);
             
-            // Right side: blocking and incl_hidden checkboxes
+            // Right side: blocking and incl_hidden checkboxes (stacked vertically)
             const rightDiv = document.createElement('div');
-            rightDiv.style.cssText = 'display: flex; align-items: center; gap: 16px;';
+            rightDiv.style.cssText = 'display: flex; flex-direction: column; align-items: flex-start; gap: 8px;';
             
             // Blocking checkbox
             const blockingCheckbox = document.createElement('input');
