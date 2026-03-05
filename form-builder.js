@@ -6255,46 +6255,90 @@ function closeDependentFieldsModal() {
  * Save Dependent Fields selections and update fieldConfig
  */
 function saveDependentFields() {
-    if (!currentDependentFieldConfig) return;
+    if (!currentDependentFieldConfig) {
+        console.error('[DEPENDENT-FIELDS-MODAL] No currentDependentFieldConfig');
+        return;
+    }
     
     const fieldsList = document.getElementById('dependentFieldsModalList');
-    if (!fieldsList) return;
+    if (!fieldsList) {
+        console.error('[DEPENDENT-FIELDS-MODAL] fieldsList not found');
+        return;
+    }
+    
+    console.log('[DEPENDENT-FIELDS-MODAL] Starting saveDependentFields...');
+    console.log('[DEPENDENT-FIELDS-MODAL] currentDependentFieldConfig:', currentDependentFieldConfig);
+    
+    // Get all checkboxes (both checked and unchecked) for debugging
+    const allCheckboxes = fieldsList.querySelectorAll('.dependent-field-checkbox');
+    console.log('[DEPENDENT-FIELDS-MODAL] Total checkboxes found:', allCheckboxes.length);
+    allCheckboxes.forEach((cb, idx) => {
+        console.log(`  [${idx}] Checkbox:`, {
+            checked: cb.checked,
+            dataset: cb.dataset,
+            datasetFieldName: cb.dataset.fieldName,
+            getAttribute: cb.getAttribute('data-field-name'),
+            value: cb.value,
+            innerHTML: cb.innerHTML
+        });
+    });
     
     const dependentFieldsObj = {};
     const checkboxes = fieldsList.querySelectorAll('.dependent-field-checkbox:checked');
     
-    checkboxes.forEach(checkbox => {
+    console.log('[DEPENDENT-FIELDS-MODAL] Checked checkboxes found:', checkboxes.length);
+    
+    checkboxes.forEach((checkbox, idx) => {
+        console.log(`\n[DEPENDENT-FIELDS-MODAL] Processing checkbox ${idx}:`, checkbox);
+        
         // Try multiple ways to get the field name
-        let fieldName = checkbox.dataset.fieldName || checkbox.getAttribute('data-field-name');
+        let fieldName = checkbox.dataset.fieldName;
+        console.log(`  [${idx}] Initial dataset.fieldName:`, fieldName, typeof fieldName);
+        
+        if (!fieldName) {
+            fieldName = checkbox.getAttribute('data-field-name');
+            console.log(`  [${idx}] getAttribute('data-field-name'):`, fieldName, typeof fieldName);
+        }
         
         // If still empty, try getting it from the parent or sibling
         if (!fieldName) {
             const parent = checkbox.closest('[data-field-name]');
             fieldName = parent ? parent.getAttribute('data-field-name') : null;
+            console.log(`  [${idx}] From closest parent:`, fieldName, typeof fieldName);
         }
         
-        if (!fieldName) {
+        console.log(`  [${idx}] Final fieldName after checks:`, fieldName, typeof fieldName);
+        
+        if (!fieldName || fieldName === '') {
             console.warn('[DEPENDENT-FIELDS-MODAL] Could not find field name for checkbox:', checkbox);
+            console.warn('  Checkbox HTML:', checkbox.outerHTML);
             return;
         }
         
         const blockingCheckbox = fieldsList.querySelector(`.dependent-field-blocking[data-field-name="${fieldName}"]`);
-        const isBlocking = blockingCheckbox ? blockingCheckbox.checked : true;
+        console.log(`  [${idx}] Found blocking checkbox for "${fieldName}":`, blockingCheckbox ? 'YES' : 'NO');
         
-        console.log('[DEPENDENT-FIELDS-MODAL] Adding field:', fieldName, '- Blocking:', isBlocking);
+        const isBlocking = blockingCheckbox ? blockingCheckbox.checked : true;
+        console.log(`  [${idx}] isBlocking:`, isBlocking);
+        
+        console.log(`[DEPENDENT-FIELDS-MODAL] Adding to object: "${fieldName}" = { blocking: ${isBlocking} }`);
         dependentFieldsObj[fieldName] = { blocking: isBlocking };
     });
+    
+    console.log('[DEPENDENT-FIELDS-MODAL] Final dependentFieldsObj:', dependentFieldsObj);
+    console.log('[DEPENDENT-FIELDS-MODAL] Object keys:', Object.keys(dependentFieldsObj));
     
     // Update fieldConfig
     currentDependentFieldConfig.dependant_fields = Object.keys(dependentFieldsObj).length > 0 ? dependentFieldsObj : null;
     
-    console.log('[DEPENDENT-FIELDS-MODAL] Saved dependent fields:', currentDependentFieldConfig.dependant_fields);
+    console.log('[DEPENDENT-FIELDS-MODAL] Updated currentDependentFieldConfig.dependant_fields:', currentDependentFieldConfig.dependant_fields);
     
     // Update button text
     const editBtn = document.getElementById('editDependentFieldsBtn');
     if (editBtn) {
         const count = Object.keys(dependentFieldsObj).length;
         editBtn.textContent = count > 0 ? `${count} field(s) selected` : 'Select dependent fields...';
+        console.log('[DEPENDENT-FIELDS-MODAL] Updated button text to:', editBtn.textContent);
     }
     
     // Mark form as modified
