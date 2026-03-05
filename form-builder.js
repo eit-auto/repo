@@ -2641,9 +2641,9 @@ function showElementSettings(elementUid) {
     let currentDependantFieldsObj = {};
     if (fieldConfig.dependant_fields) {
         if (typeof fieldConfig.dependant_fields === 'string') {
-            // Old format: convert "field1,field2" to object with all blocking:true
+            // Old format: convert "field1,field2" to object with all properties set to true
             fieldConfig.dependant_fields.split(',').forEach(f => {
-                currentDependantFieldsObj[f.trim()] = { blocking: true };
+                currentDependantFieldsObj[f.trim()] = { blocking: true, block_hidden: true, incl_hidden: true };
             });
         } else if (typeof fieldConfig.dependant_fields === 'object') {
             // New format: already an object
@@ -3437,24 +3437,34 @@ function saveElementSettings() {
             fieldConfig.hidden = true;
         }
         
-        // Handle dependant_fields from hidden input (populated by dropdown checkboxes)
+        // Handle dependant_fields from hidden input (populated by modal)
         const dependantFieldsInput = document.getElementById('dependant_fields');
         const dependantFieldsValue = dependantFieldsInput?.value;
+        
+        console.log('[SAVE-SETTINGS] Reading dependant_fields from hidden input:', dependantFieldsValue);
         
         // Parse JSON format, handle null/empty
         if (dependantFieldsValue) {
             try {
                 fieldConfig.dependant_fields = JSON.parse(dependantFieldsValue);
+                console.log('[SAVE-SETTINGS] Parsed dependant_fields from JSON:', fieldConfig.dependant_fields);
+                
+                // Verify all properties are present
+                Object.entries(fieldConfig.dependant_fields).forEach(([fieldName, props]) => {
+                    console.log(`  Field "${fieldName}": blocking=${props.blocking}, block_hidden=${props.block_hidden}, incl_hidden=${props.incl_hidden}`);
+                });
             } catch (e) {
+                console.warn('[SAVE-SETTINGS] Failed to parse JSON, falling back to comma-separated format:', e.message);
                 // If not valid JSON, assume it's old comma-separated format
                 const fields = dependantFieldsValue.split(',').map(f => f.trim()).filter(f => f);
                 fieldConfig.dependant_fields = {};
                 fields.forEach(f => {
-                    fieldConfig.dependant_fields[f] = { blocking: true };
+                    fieldConfig.dependant_fields[f] = { blocking: true, block_hidden: true, incl_hidden: true };
                 });
             }
         } else {
             fieldConfig.dependant_fields = null;
+            console.log('[SAVE-SETTINGS] No dependant_fields value, setting to null');
         }
         
         // Validation: form_extend elements must have at least one dependent field
@@ -6172,11 +6182,11 @@ function openDependentFieldsModal(fieldConfig) {
             const inclHidden = currentSelections[field.field_name]?.incl_hidden !== false; // Default to true
             
             const fieldRow = document.createElement('div');
-            fieldRow.style.cssText = 'background: #1a3540; padding: 12px; border-radius: 4px; border: 1px solid #404040; display: flex; align-items: flex-start; gap: 12px;';
+            fieldRow.style.cssText = 'background: #1a3540; padding: 12px; border-radius: 4px; border: 1px solid #404040; display: flex; align-items: flex-start; gap: 16px;';
             
-            // Left side: field info and checkbox
-            const leftDiv = document.createElement('div');
-            leftDiv.style.cssText = 'flex: 1;';
+            // ===== COLUMN 1: Field selection (flex, takes remaining space)
+            const col1 = document.createElement('div');
+            col1.style.cssText = 'flex: 1; display: flex; flex-direction: column; gap: 4px;';
             
             const checkboxLabel = document.createElement('label');
             checkboxLabel.style.cssText = 'display: flex; align-items: center; gap: 8px; cursor: pointer; margin: 0;';
@@ -6194,20 +6204,16 @@ function openDependentFieldsModal(fieldConfig) {
             
             checkboxLabel.appendChild(checkbox);
             checkboxLabel.appendChild(labelText);
-            leftDiv.appendChild(checkboxLabel);
+            col1.appendChild(checkboxLabel);
             
             const fieldNameDiv = document.createElement('div');
             fieldNameDiv.textContent = field.field_name;
-            fieldNameDiv.style.cssText = 'color: #999; font-size: 12px; margin-top: 4px;';
-            leftDiv.appendChild(fieldNameDiv);
+            fieldNameDiv.style.cssText = 'color: #999; font-size: 12px;';
+            col1.appendChild(fieldNameDiv);
             
-            // Right side: checkboxes in two rows
-            const rightDiv = document.createElement('div');
-            rightDiv.style.cssText = 'display: flex; flex-direction: column; gap: 8px;';
-            
-            // Top row: Blocking and Block When Hidden (side by side)
-            const topRow = document.createElement('div');
-            topRow.style.cssText = 'display: flex; gap: 16px; align-items: center;';
+            // ===== COLUMN 2: Blocking and Incl. Hidden (stacked, shrink to fit)
+            const col2 = document.createElement('div');
+            col2.style.cssText = 'display: flex; flex-direction: column; gap: 8px; flex-shrink: 0;';
             
             // Blocking checkbox
             const blockingCheckbox = document.createElement('input');
@@ -6220,38 +6226,14 @@ function openDependentFieldsModal(fieldConfig) {
             
             const blockingLabel = document.createElement('label');
             blockingLabel.textContent = 'Blocking';
-            blockingLabel.style.cssText = 'color: #ccc; font-size: 12px; font-weight: 600; margin: 0; cursor: pointer;';
+            blockingLabel.style.cssText = 'color: #ccc; font-size: 12px; font-weight: 600; margin: 0; cursor: pointer; display: inline;';
             
             const blockingContainer = document.createElement('div');
             blockingContainer.style.cssText = 'display: flex; align-items: center; gap: 6px;';
             blockingContainer.appendChild(blockingCheckbox);
             blockingContainer.appendChild(blockingLabel);
             
-            // Block When Hidden checkbox
-            const blockHiddenCheckbox = document.createElement('input');
-            blockHiddenCheckbox.type = 'checkbox';
-            blockHiddenCheckbox.className = 'dependent-field-block-hidden';
-            blockHiddenCheckbox.setAttribute('data-field-name', field.field_name);
-            blockHiddenCheckbox.checked = blockHidden;
-            blockHiddenCheckbox.disabled = !isSelected;
-            blockHiddenCheckbox.style.cssText = 'accent-color: #5a9fb8; cursor: pointer;';
-            
-            const blockHiddenLabel = document.createElement('label');
-            blockHiddenLabel.textContent = 'Block When Hidden';
-            blockHiddenLabel.style.cssText = 'color: #ccc; font-size: 12px; font-weight: 600; margin: 0; cursor: pointer;';
-            
-            const blockHiddenContainer = document.createElement('div');
-            blockHiddenContainer.style.cssText = 'display: flex; align-items: center; gap: 6px;';
-            blockHiddenContainer.appendChild(blockHiddenCheckbox);
-            blockHiddenContainer.appendChild(blockHiddenLabel);
-            
-            topRow.appendChild(blockingContainer);
-            topRow.appendChild(blockHiddenContainer);
-            
-            // Bottom row: Include if Hidden
-            const bottomRow = document.createElement('div');
-            bottomRow.style.cssText = 'display: flex; align-items: center; gap: 6px;';
-            
+            // Include if Hidden checkbox
             const inclHiddenCheckbox = document.createElement('input');
             inclHiddenCheckbox.type = 'checkbox';
             inclHiddenCheckbox.className = 'dependent-field-incl-hidden';
@@ -6262,16 +6244,39 @@ function openDependentFieldsModal(fieldConfig) {
             
             const inclHiddenLabel = document.createElement('label');
             inclHiddenLabel.textContent = 'Incl. Hidden';
-            inclHiddenLabel.style.cssText = 'color: #ccc; font-size: 12px; font-weight: 600; margin: 0; cursor: pointer;';
+            inclHiddenLabel.style.cssText = 'color: #ccc; font-size: 12px; font-weight: 600; margin: 0; cursor: pointer; display: inline;';
             
-            bottomRow.appendChild(inclHiddenCheckbox);
-            bottomRow.appendChild(inclHiddenLabel);
+            const inclHiddenContainer = document.createElement('div');
+            inclHiddenContainer.style.cssText = 'display: flex; align-items: center; gap: 6px;';
+            inclHiddenContainer.appendChild(inclHiddenCheckbox);
+            inclHiddenContainer.appendChild(inclHiddenLabel);
             
-            rightDiv.appendChild(topRow);
-            rightDiv.appendChild(bottomRow);
+            col2.appendChild(blockingContainer);
+            col2.appendChild(inclHiddenContainer);
             
-            fieldRow.appendChild(leftDiv);
-            fieldRow.appendChild(rightDiv);
+            // ===== COLUMN 3: Block if Hidden (shrink to fit)
+            const col3 = document.createElement('div');
+            col3.style.cssText = 'display: flex; align-items: center; gap: 6px; flex-shrink: 0;';
+            
+            const blockHiddenCheckbox = document.createElement('input');
+            blockHiddenCheckbox.type = 'checkbox';
+            blockHiddenCheckbox.className = 'dependent-field-block-hidden';
+            blockHiddenCheckbox.setAttribute('data-field-name', field.field_name);
+            blockHiddenCheckbox.checked = blockHidden;
+            blockHiddenCheckbox.disabled = !isSelected;
+            blockHiddenCheckbox.style.cssText = 'accent-color: #5a9fb8; cursor: pointer;';
+            
+            const blockHiddenLabel = document.createElement('label');
+            blockHiddenLabel.textContent = 'Block if Hidden';
+            blockHiddenLabel.style.cssText = 'color: #ccc; font-size: 12px; font-weight: 600; margin: 0; cursor: pointer;';
+            
+            col3.appendChild(blockHiddenCheckbox);
+            col3.appendChild(blockHiddenLabel);
+            
+            // Assemble row
+            fieldRow.appendChild(col1);
+            fieldRow.appendChild(col2);
+            fieldRow.appendChild(col3);
             fieldsList.appendChild(fieldRow);
             
             // Attach listeners
@@ -6400,6 +6405,21 @@ function saveDependentFields() {
     console.log('[DEPENDENT-FIELDS-MODAL] Final dependentFieldsObj:', dependentFieldsObj);
     console.log('[DEPENDENT-FIELDS-MODAL] Object keys:', Object.keys(dependentFieldsObj));
     
+    // VERIFY all three properties are present for each field
+    console.log('[DEPENDENT-FIELDS-MODAL] Verifying all properties are included:');
+    Object.entries(dependentFieldsObj).forEach(([fieldName, props]) => {
+        const hasBlocking = 'blocking' in props;
+        const hasBlockHidden = 'block_hidden' in props;
+        const hasInclHidden = 'incl_hidden' in props;
+        console.log(`  Field "${fieldName}":`, {
+            hasBlocking, 
+            hasBlockHidden, 
+            hasInclHidden,
+            allPresent: hasBlocking && hasBlockHidden && hasInclHidden,
+            values: props
+        });
+    });
+    
     // Update fieldConfig
     currentDependentFieldConfig.dependant_fields = Object.keys(dependentFieldsObj).length > 0 ? dependentFieldsObj : null;
     
@@ -6408,8 +6428,16 @@ function saveDependentFields() {
     // UPDATE HIDDEN INPUT with the new value
     const dependantFieldsInput = document.getElementById('dependant_fields');
     if (dependantFieldsInput) {
-        dependantFieldsInput.value = Object.keys(dependentFieldsObj).length > 0 ? JSON.stringify(dependentFieldsObj) : '';
-        console.log('[DEPENDENT-FIELDS-MODAL] Updated hidden input value to:', dependantFieldsInput.value);
+        const jsonValue = Object.keys(dependentFieldsObj).length > 0 ? JSON.stringify(dependentFieldsObj) : '';
+        dependantFieldsInput.value = jsonValue;
+        console.log('[DEPENDENT-FIELDS-MODAL] Updated hidden input value to:', jsonValue);
+        
+        // Log each field's properties for verification
+        console.log('[DEPENDENT-FIELDS-MODAL] Saved fields detail:');
+        Object.entries(dependentFieldsObj).forEach(([fieldName, props]) => {
+            console.log(`  - ${fieldName}:`, props);
+            console.log(`    blocking: ${props.blocking}, block_hidden: ${props.block_hidden}, incl_hidden: ${props.incl_hidden}`);
+        });
     }
     
     // Update button text
