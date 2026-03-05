@@ -2679,15 +2679,10 @@ function showElementSettings(elementUid) {
     formHTML += `
         <div class="mb-15">
             <label class="form-label">Dependent Fields</label>
-            <div style="position: relative;">
-                <button type="button" id="dependant_fields_btn" style="width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; text-align: left; cursor: pointer; font-size: 14px;">
-                    <span id="dependant_fields_display">${currentDependantFields.length > 0 ? currentDependantFields.length + ' field(s) selected' : 'Select dependent fields...'}</span>
-                </button>
-                <div id="dependant_fields_dropdown" style="position: absolute; top: 100%; left: 0; right: 0; background: #1a3540; border: 1px solid #555; border-top: none; border-radius: 0 0 4px 4px; max-height: 200px; overflow-y: auto; display: none; z-index: 1001; margin-top: -1px;">
-                    ${dependantFieldsHTML}
-                </div>
-                <input type="hidden" id="dependant_fields" value="${typeof fieldConfig.dependant_fields === 'object' ? RewstLib.utils.escapeHtml(JSON.stringify(fieldConfig.dependant_fields)) : (fieldConfig.dependant_fields || '')}">
-            </div>
+            <button type="button" id="editDependentFieldsBtn" class="btn btn-blue" style="width: 100%;">
+                ${currentDependantFields.length > 0 ? currentDependantFields.length + ' field(s) selected' : 'Select dependent fields...'}
+            </button>
+            <input type="hidden" id="dependant_fields" value="${typeof fieldConfig.dependant_fields === 'object' ? RewstLib.utils.escapeHtml(JSON.stringify(fieldConfig.dependant_fields)) : (fieldConfig.dependant_fields || '')}">
         </div>
     `;
     
@@ -3348,84 +3343,13 @@ function showElementSettings(elementUid) {
         });
     }
     
-    // Add event listeners for dependent fields dropdown
-    const dependantFieldsBtn = document.getElementById('dependant_fields_btn');
-    const dependantFieldsDropdown = document.getElementById('dependant_fields_dropdown');
-    const dependantFieldsDisplay = document.getElementById('dependant_fields_display');
-    const dependantFieldsInput = document.getElementById('dependant_fields');
-    const dependantFieldOptions = document.querySelectorAll('.dependant-field-option');
-    
-    if (dependantFieldsBtn && dependantFieldsDropdown) {
-        // Toggle dropdown on button click
-        dependantFieldsBtn.addEventListener('click', (e) => {
+    // Add event listener for Edit Dependent Fields button
+    const editDependentFieldsBtn = document.getElementById('editDependentFieldsBtn');
+    if (editDependentFieldsBtn) {
+        editDependentFieldsBtn.addEventListener('click', (e) => {
             e.preventDefault();
-            dependantFieldsDropdown.style.display = dependantFieldsDropdown.style.display === 'none' ? 'block' : 'none';
+            openDependentFieldsModal(fieldConfig);
         });
-        
-        // Handle checkbox changes
-        dependantFieldOptions.forEach(option => {
-            const checkbox = option.querySelector('input[type="checkbox"]');
-            const blockingCheckbox = option.querySelector('.blocking-checkbox');
-            
-            // Toggle checkbox when clicking on the option
-            option.addEventListener('click', (e) => {
-                if (e.target !== checkbox && e.target !== blockingCheckbox) {
-                    checkbox.checked = !checkbox.checked;
-                    updateDependantFields();
-                }
-            });
-            
-            // Update on checkbox change
-            checkbox.addEventListener('change', updateDependantFields);
-            
-            // Update on blocking checkbox change
-            if (blockingCheckbox) {
-                blockingCheckbox.addEventListener('change', updateDependantFields);
-            }
-        });
-        
-        // Close dropdown when clicking outside
-        document.addEventListener('click', (e) => {
-            if (!e.target.closest('[id="dependant_fields_btn"]') && !e.target.closest('[id="dependant_fields_dropdown"]')) {
-                dependantFieldsDropdown.style.display = 'none';
-            }
-        });
-        
-        // Update the hidden input and display text
-        function updateDependantFields() {
-            // Select only the main selection checkboxes, exclude blocking checkboxes
-            const selectedCheckboxes = dependantFieldsDropdown.querySelectorAll('input[type="checkbox"]:not(.blocking-checkbox):checked');
-            const dependantFieldsObj = {};
-            
-            selectedCheckboxes.forEach(cb => {
-                const fieldName = cb.value;
-                // Find the corresponding blocking checkbox for this field
-                const blockingCheckbox = dependantFieldsDropdown.querySelector(`.blocking-checkbox[data-field-name="${fieldName}"]`);
-                const isBlocking = blockingCheckbox ? blockingCheckbox.checked : true; // Default to blocking if not found
-                
-                dependantFieldsObj[fieldName] = { blocking: isBlocking };
-            });
-            
-            // Store as JSON in hidden input
-            dependantFieldsInput.value = Object.keys(dependantFieldsObj).length > 0 ? JSON.stringify(dependantFieldsObj) : '';
-            dependantFieldsDisplay.textContent = Object.keys(dependantFieldsObj).length > 0 ? Object.keys(dependantFieldsObj).length + ' field(s) selected' : 'Select dependent fields...';
-            
-            // Update save button visibility when dependent fields change (important for form_extend validation)
-            formHasBeenModified = true;
-            const saveButton = document.getElementById('saveSettings');
-            const validationError = validateFormExtendSettings();
-            
-            if (hasUnsavedFormChanges() && !validationError) {
-                saveButton.style.display = 'inline-block';
-                saveButton.disabled = false;
-            } else {
-                saveButton.style.display = 'none';
-                saveButton.disabled = true;
-            }
-            
-            // Update main form save button state to reflect changes to dependant fields
-            updateSaveButtonState();
-        }
     }
     
     // Add workflow search functionality if this is a dropdown element
@@ -6180,6 +6104,161 @@ function attachDeleteArrayItemModalListener(btn, rowContainer) {
             }
         }
     });
+}
+
+// Global variable to track current field config being edited in dependent fields modal
+let currentDependentFieldConfig = null;
+
+/**
+ * Initialize Dependent Fields Modal HTML (injected once into DOM)
+ */
+function initializeDependentFieldsModal() {
+    if (!document.getElementById('dependentFieldsModalBackdrop')) {
+        const modalHtml = `
+        <div id="dependentFieldsModalBackdrop" style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.7); z-index: 9998; display: none;"></div>
+        <div id="dependentFieldsModal" style="position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #234656; border: 2px solid #404040; border-radius: 8px; padding: 2rem; z-index: 9999; min-width: 500px; max-height: 80vh; overflow-y: auto; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3); display: none; flex-direction: column; gap: 1.5rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <h3 style="margin: 0; color: #ffffff; font-size: 1.25rem;">Dependent Fields</h3>
+                <button onclick="closeDependentFieldsModal()" style="background: none; border: none; color: #ffffff; font-size: 1.5rem; cursor: pointer; padding: 0; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center;">×</button>
+            </div>
+            
+            <div id="dependentFieldsModalList" style="display: flex; flex-direction: column; gap: 8px; max-height: 400px; overflow-y: auto;"></div>
+            
+            <div style="display: flex; gap: 0.75rem; justify-content: flex-end;">
+                <button onclick="closeDependentFieldsModal()" class="btn btn-bluegrey btn-small">Cancel</button>
+                <button onclick="saveDependentFields()" class="btn btn-green btn-small">Confirm</button>
+            </div>
+        </div>
+        `;
+        document.body.insertAdjacentHTML('beforeend', modalHtml);
+        console.log('[DEPENDENT-FIELDS-MODAL] Initialized');
+    }
+}
+
+/**
+ * Open Dependent Fields Modal and populate with available fields
+ * @param {object} fieldConfig - The field configuration object
+ */
+function openDependentFieldsModal(fieldConfig) {
+    currentDependentFieldConfig = fieldConfig;
+    
+    initializeDependentFieldsModal();
+    
+    const modal = document.getElementById('dependentFieldsModal');
+    const backdrop = document.getElementById('dependentFieldsModalBackdrop');
+    const fieldsList = document.getElementById('dependentFieldsModalList');
+    
+    if (!modal || !backdrop || !fieldsList) {
+        console.error('[DEPENDENT-FIELDS-MODAL] Modal elements not found');
+        return;
+    }
+    
+    // Clear existing fields list
+    fieldsList.innerHTML = '';
+    
+    // Get current selections
+    const currentSelections = fieldConfig.dependant_fields || {};
+    
+    // Render all available fields (excluding current field)
+    const otherFields = fieldConfigs.filter(config => config.field_name !== fieldConfig.field_name);
+    
+    if (otherFields.length === 0) {
+        fieldsList.innerHTML = '<div style="padding: 20px; color: #999; text-align: center;">No other fields available</div>';
+    } else {
+        otherFields.forEach(field => {
+            const isSelected = field.field_name in currentSelections;
+            const isBlocking = currentSelections[field.field_name]?.blocking !== false;
+            
+            const fieldRow = document.createElement('div');
+            fieldRow.style.cssText = 'background: #1a3540; padding: 12px; border-radius: 4px; border: 1px solid #404040; display: flex; align-items: center; gap: 12px;';
+            fieldRow.innerHTML = `
+                <div style="flex: 1;">
+                    <input type="checkbox" class="dependent-field-checkbox" data-field-name="${field.field_name}" ${isSelected ? 'checked' : ''} style="accent-color: #5a9fb8; cursor: pointer; margin-right: 8px;">
+                    <label style="color: #ffffff; font-weight: 600; cursor: pointer; margin: 0;">${RewstLib.utils.escapeHtml(field.field_displayname)}</label>
+                    <div style="color: #999; font-size: 12px; margin-top: 4px;">${RewstLib.utils.escapeHtml(field.field_name)}</div>
+                </div>
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <input type="checkbox" class="dependent-field-blocking" data-field-name="${field.field_name}" ${isBlocking ? 'checked' : ''} ${!isSelected ? 'disabled' : ''} style="accent-color: #5a9fb8; cursor: pointer;">
+                    <label style="color: #ccc; font-size: 12px; font-weight: 600; margin: 0; cursor: pointer;">Blocking</label>
+                </div>
+            `;
+            fieldsList.appendChild(fieldRow);
+            
+            // Attach listeners
+            const checkbox = fieldRow.querySelector('.dependent-field-checkbox');
+            const blockingCheckbox = fieldRow.querySelector('.dependent-field-blocking');
+            
+            checkbox.addEventListener('change', (e) => {
+                blockingCheckbox.disabled = !e.target.checked;
+                if (e.target.checked && !blockingCheckbox.checked) {
+                    blockingCheckbox.checked = true;
+                }
+            });
+        });
+    }
+    
+    // Show modal
+    modal.style.display = 'flex';
+    backdrop.style.display = 'block';
+    console.log('[DEPENDENT-FIELDS-MODAL] Opened');
+}
+
+/**
+ * Close Dependent Fields Modal
+ */
+function closeDependentFieldsModal() {
+    const modal = document.getElementById('dependentFieldsModal');
+    const backdrop = document.getElementById('dependentFieldsModalBackdrop');
+    if (modal) modal.style.display = 'none';
+    if (backdrop) backdrop.style.display = 'none';
+    currentDependentFieldConfig = null;
+    console.log('[DEPENDENT-FIELDS-MODAL] Closed');
+}
+
+/**
+ * Save Dependent Fields selections and update fieldConfig
+ */
+function saveDependentFields() {
+    if (!currentDependentFieldConfig) return;
+    
+    const fieldsList = document.getElementById('dependentFieldsModalList');
+    if (!fieldsList) return;
+    
+    const dependentFieldsObj = {};
+    const checkboxes = fieldsList.querySelectorAll('.dependent-field-checkbox:checked');
+    
+    checkboxes.forEach(checkbox => {
+        const fieldName = checkbox.dataset.fieldName;
+        const blockingCheckbox = fieldsList.querySelector(`.dependent-field-blocking[data-field-name="${fieldName}"]`);
+        const isBlocking = blockingCheckbox ? blockingCheckbox.checked : true;
+        
+        dependentFieldsObj[fieldName] = { blocking: isBlocking };
+    });
+    
+    // Update fieldConfig
+    currentDependentFieldConfig.dependant_fields = Object.keys(dependentFieldsObj).length > 0 ? dependentFieldsObj : null;
+    
+    console.log('[DEPENDENT-FIELDS-MODAL] Saved dependent fields:', currentDependentFieldConfig.dependant_fields);
+    
+    // Update button text
+    const editBtn = document.getElementById('editDependentFieldsBtn');
+    if (editBtn) {
+        const count = Object.keys(dependentFieldsObj).length;
+        editBtn.textContent = count > 0 ? `${count} field(s) selected` : 'Select dependent fields...';
+    }
+    
+    // Mark form as modified
+    if (typeof formHasBeenModified !== 'undefined') {
+        formHasBeenModified = true;
+        if (typeof updateElementSettingsSaveButtonVisibility === 'function') {
+            updateElementSettingsSaveButtonVisibility();
+        }
+    }
+    
+    // Update main save button
+    updateSaveButtonState();
+    
+    closeDependentFieldsModal();
 }
 
 // ============================================
