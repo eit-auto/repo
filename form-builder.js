@@ -6333,6 +6333,13 @@ function saveDependentFields() {
     
     console.log('[DEPENDENT-FIELDS-MODAL] Updated currentDependentFieldConfig.dependant_fields:', currentDependentFieldConfig.dependant_fields);
     
+    // UPDATE HIDDEN INPUT with the new value
+    const dependantFieldsInput = document.getElementById('dependant_fields');
+    if (dependantFieldsInput) {
+        dependantFieldsInput.value = Object.keys(dependentFieldsObj).length > 0 ? JSON.stringify(dependentFieldsObj) : '';
+        console.log('[DEPENDENT-FIELDS-MODAL] Updated hidden input value to:', dependantFieldsInput.value);
+    }
+    
     // Update button text
     const editBtn = document.getElementById('editDependentFieldsBtn');
     if (editBtn) {
