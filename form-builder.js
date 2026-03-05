@@ -6171,28 +6171,64 @@ function openDependentFieldsModal(fieldConfig) {
             
             const fieldRow = document.createElement('div');
             fieldRow.style.cssText = 'background: #1a3540; padding: 12px; border-radius: 4px; border: 1px solid #404040; display: flex; align-items: center; gap: 12px;';
-            fieldRow.innerHTML = `
-                <div style="flex: 1;">
-                    <input type="checkbox" class="dependent-field-checkbox" data-field-name="${field.field_name}" ${isSelected ? 'checked' : ''} style="accent-color: #5a9fb8; cursor: pointer; margin-right: 8px;">
-                    <label style="color: #ffffff; font-weight: 600; cursor: pointer; margin: 0;">${RewstLib.utils.escapeHtml(field.field_displayname)}</label>
-                    <div style="color: #999; font-size: 12px; margin-top: 4px;">${RewstLib.utils.escapeHtml(field.field_name)}</div>
-                </div>
-                <div style="display: flex; align-items: center; gap: 8px;">
-                    <input type="checkbox" class="dependent-field-blocking" data-field-name="${field.field_name}" ${isBlocking ? 'checked' : ''} ${!isSelected ? 'disabled' : ''} style="accent-color: #5a9fb8; cursor: pointer;">
-                    <label style="color: #ccc; font-size: 12px; font-weight: 600; margin: 0; cursor: pointer;">Blocking</label>
-                </div>
-            `;
+            
+            // Left side: field info and checkbox
+            const leftDiv = document.createElement('div');
+            leftDiv.style.cssText = 'flex: 1;';
+            
+            const checkboxLabel = document.createElement('label');
+            checkboxLabel.style.cssText = 'display: flex; align-items: center; gap: 8px; cursor: pointer; margin: 0;';
+            
+            const checkbox = document.createElement('input');
+            checkbox.type = 'checkbox';
+            checkbox.className = 'dependent-field-checkbox';
+            checkbox.setAttribute('data-field-name', field.field_name);
+            checkbox.checked = isSelected;
+            checkbox.style.cssText = 'accent-color: #5a9fb8; cursor: pointer;';
+            
+            const labelText = document.createElement('span');
+            labelText.textContent = field.field_displayname;
+            labelText.style.cssText = 'color: #ffffff; font-weight: 600;';
+            
+            checkboxLabel.appendChild(checkbox);
+            checkboxLabel.appendChild(labelText);
+            leftDiv.appendChild(checkboxLabel);
+            
+            const fieldNameDiv = document.createElement('div');
+            fieldNameDiv.textContent = field.field_name;
+            fieldNameDiv.style.cssText = 'color: #999; font-size: 12px; margin-top: 4px;';
+            leftDiv.appendChild(fieldNameDiv);
+            
+            // Right side: blocking checkbox
+            const rightDiv = document.createElement('div');
+            rightDiv.style.cssText = 'display: flex; align-items: center; gap: 8px;';
+            
+            const blockingCheckbox = document.createElement('input');
+            blockingCheckbox.type = 'checkbox';
+            blockingCheckbox.className = 'dependent-field-blocking';
+            blockingCheckbox.setAttribute('data-field-name', field.field_name);
+            blockingCheckbox.checked = isBlocking;
+            blockingCheckbox.disabled = !isSelected;
+            blockingCheckbox.style.cssText = 'accent-color: #5a9fb8; cursor: pointer;';
+            
+            const blockingLabel = document.createElement('label');
+            blockingLabel.textContent = 'Blocking';
+            blockingLabel.style.cssText = 'color: #ccc; font-size: 12px; font-weight: 600; margin: 0; cursor: pointer;';
+            
+            rightDiv.appendChild(blockingCheckbox);
+            rightDiv.appendChild(blockingLabel);
+            
+            fieldRow.appendChild(leftDiv);
+            fieldRow.appendChild(rightDiv);
             fieldsList.appendChild(fieldRow);
             
             // Attach listeners
-            const checkbox = fieldRow.querySelector('.dependent-field-checkbox');
-            const blockingCheckbox = fieldRow.querySelector('.dependent-field-blocking');
-            
             checkbox.addEventListener('change', (e) => {
                 blockingCheckbox.disabled = !e.target.checked;
                 if (e.target.checked && !blockingCheckbox.checked) {
                     blockingCheckbox.checked = true;
                 }
+                console.log('[DEPENDENT-FIELDS-MODAL] Field', field.field_name, 'toggled to:', e.target.checked);
             });
         });
     }
@@ -6228,10 +6264,24 @@ function saveDependentFields() {
     const checkboxes = fieldsList.querySelectorAll('.dependent-field-checkbox:checked');
     
     checkboxes.forEach(checkbox => {
-        const fieldName = checkbox.dataset.fieldName;
+        // Try multiple ways to get the field name
+        let fieldName = checkbox.dataset.fieldName || checkbox.getAttribute('data-field-name');
+        
+        // If still empty, try getting it from the parent or sibling
+        if (!fieldName) {
+            const parent = checkbox.closest('[data-field-name]');
+            fieldName = parent ? parent.getAttribute('data-field-name') : null;
+        }
+        
+        if (!fieldName) {
+            console.warn('[DEPENDENT-FIELDS-MODAL] Could not find field name for checkbox:', checkbox);
+            return;
+        }
+        
         const blockingCheckbox = fieldsList.querySelector(`.dependent-field-blocking[data-field-name="${fieldName}"]`);
         const isBlocking = blockingCheckbox ? blockingCheckbox.checked : true;
         
+        console.log('[DEPENDENT-FIELDS-MODAL] Adding field:', fieldName, '- Blocking:', isBlocking);
         dependentFieldsObj[fieldName] = { blocking: isBlocking };
     });
     
