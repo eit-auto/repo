@@ -6168,10 +6168,11 @@ function openDependentFieldsModal(fieldConfig) {
         otherFields.forEach(field => {
             const isSelected = field.field_name in currentSelections;
             const isBlocking = currentSelections[field.field_name]?.blocking !== false;
+            const blockHidden = currentSelections[field.field_name]?.block_hidden !== false; // Default to true
             const inclHidden = currentSelections[field.field_name]?.incl_hidden !== false; // Default to true
             
             const fieldRow = document.createElement('div');
-            fieldRow.style.cssText = 'background: #1a3540; padding: 12px; border-radius: 4px; border: 1px solid #404040; display: flex; align-items: center; gap: 12px;';
+            fieldRow.style.cssText = 'background: #1a3540; padding: 12px; border-radius: 4px; border: 1px solid #404040; display: flex; align-items: flex-start; gap: 12px;';
             
             // Left side: field info and checkbox
             const leftDiv = document.createElement('div');
@@ -6200,9 +6201,13 @@ function openDependentFieldsModal(fieldConfig) {
             fieldNameDiv.style.cssText = 'color: #999; font-size: 12px; margin-top: 4px;';
             leftDiv.appendChild(fieldNameDiv);
             
-            // Right side: blocking and incl_hidden checkboxes (stacked vertically)
+            // Right side: checkboxes in two rows
             const rightDiv = document.createElement('div');
-            rightDiv.style.cssText = 'display: flex; flex-direction: column; align-items: flex-start; gap: 8px;';
+            rightDiv.style.cssText = 'display: flex; flex-direction: column; gap: 8px;';
+            
+            // Top row: Blocking and Block When Hidden (side by side)
+            const topRow = document.createElement('div');
+            topRow.style.cssText = 'display: flex; gap: 16px; align-items: center;';
             
             // Blocking checkbox
             const blockingCheckbox = document.createElement('input');
@@ -6222,7 +6227,31 @@ function openDependentFieldsModal(fieldConfig) {
             blockingContainer.appendChild(blockingCheckbox);
             blockingContainer.appendChild(blockingLabel);
             
-            // Include if Hidden checkbox
+            // Block When Hidden checkbox
+            const blockHiddenCheckbox = document.createElement('input');
+            blockHiddenCheckbox.type = 'checkbox';
+            blockHiddenCheckbox.className = 'dependent-field-block-hidden';
+            blockHiddenCheckbox.setAttribute('data-field-name', field.field_name);
+            blockHiddenCheckbox.checked = blockHidden;
+            blockHiddenCheckbox.disabled = !isSelected;
+            blockHiddenCheckbox.style.cssText = 'accent-color: #5a9fb8; cursor: pointer;';
+            
+            const blockHiddenLabel = document.createElement('label');
+            blockHiddenLabel.textContent = 'Block When Hidden';
+            blockHiddenLabel.style.cssText = 'color: #ccc; font-size: 12px; font-weight: 600; margin: 0; cursor: pointer;';
+            
+            const blockHiddenContainer = document.createElement('div');
+            blockHiddenContainer.style.cssText = 'display: flex; align-items: center; gap: 6px;';
+            blockHiddenContainer.appendChild(blockHiddenCheckbox);
+            blockHiddenContainer.appendChild(blockHiddenLabel);
+            
+            topRow.appendChild(blockingContainer);
+            topRow.appendChild(blockHiddenContainer);
+            
+            // Bottom row: Include if Hidden
+            const bottomRow = document.createElement('div');
+            bottomRow.style.cssText = 'display: flex; align-items: center; gap: 6px;';
+            
             const inclHiddenCheckbox = document.createElement('input');
             inclHiddenCheckbox.type = 'checkbox';
             inclHiddenCheckbox.className = 'dependent-field-incl-hidden';
@@ -6235,13 +6264,11 @@ function openDependentFieldsModal(fieldConfig) {
             inclHiddenLabel.textContent = 'Incl. Hidden';
             inclHiddenLabel.style.cssText = 'color: #ccc; font-size: 12px; font-weight: 600; margin: 0; cursor: pointer;';
             
-            const inclHiddenContainer = document.createElement('div');
-            inclHiddenContainer.style.cssText = 'display: flex; align-items: center; gap: 6px;';
-            inclHiddenContainer.appendChild(inclHiddenCheckbox);
-            inclHiddenContainer.appendChild(inclHiddenLabel);
+            bottomRow.appendChild(inclHiddenCheckbox);
+            bottomRow.appendChild(inclHiddenLabel);
             
-            rightDiv.appendChild(blockingContainer);
-            rightDiv.appendChild(inclHiddenContainer);
+            rightDiv.appendChild(topRow);
+            rightDiv.appendChild(bottomRow);
             
             fieldRow.appendChild(leftDiv);
             fieldRow.appendChild(rightDiv);
@@ -6250,9 +6277,13 @@ function openDependentFieldsModal(fieldConfig) {
             // Attach listeners
             checkbox.addEventListener('change', (e) => {
                 blockingCheckbox.disabled = !e.target.checked;
+                blockHiddenCheckbox.disabled = !e.target.checked;
                 inclHiddenCheckbox.disabled = !e.target.checked;
                 if (e.target.checked && !blockingCheckbox.checked) {
                     blockingCheckbox.checked = true;
+                }
+                if (e.target.checked && !blockHiddenCheckbox.checked) {
+                    blockHiddenCheckbox.checked = true;
                 }
                 if (e.target.checked && !inclHiddenCheckbox.checked) {
                     inclHiddenCheckbox.checked = true;
@@ -6350,14 +6381,20 @@ function saveDependentFields() {
         const isBlocking = blockingCheckbox ? blockingCheckbox.checked : true;
         console.log(`  [${idx}] isBlocking:`, isBlocking);
         
+        const blockHiddenCheckbox = fieldsList.querySelector(`.dependent-field-block-hidden[data-field-name="${fieldName}"]`);
+        console.log(`  [${idx}] Found block_hidden checkbox for "${fieldName}":`, blockHiddenCheckbox ? 'YES' : 'NO');
+        
+        const blockHidden = blockHiddenCheckbox ? blockHiddenCheckbox.checked : true; // Default to true
+        console.log(`  [${idx}] blockHidden:`, blockHidden);
+        
         const inclHiddenCheckbox = fieldsList.querySelector(`.dependent-field-incl-hidden[data-field-name="${fieldName}"]`);
         console.log(`  [${idx}] Found incl_hidden checkbox for "${fieldName}":`, inclHiddenCheckbox ? 'YES' : 'NO');
         
         const inclHidden = inclHiddenCheckbox ? inclHiddenCheckbox.checked : true; // Default to true
         console.log(`  [${idx}] inclHidden:`, inclHidden);
         
-        console.log(`[DEPENDENT-FIELDS-MODAL] Adding to object: "${fieldName}" = { blocking: ${isBlocking}, incl_hidden: ${inclHidden} }`);
-        dependentFieldsObj[fieldName] = { blocking: isBlocking, incl_hidden: inclHidden };
+        console.log(`[DEPENDENT-FIELDS-MODAL] Adding to object: "${fieldName}" = { blocking: ${isBlocking}, block_hidden: ${blockHidden}, incl_hidden: ${inclHidden} }`);
+        dependentFieldsObj[fieldName] = { blocking: isBlocking, block_hidden: blockHidden, incl_hidden: inclHidden };
     });
     
     console.log('[DEPENDENT-FIELDS-MODAL] Final dependentFieldsObj:', dependentFieldsObj);
