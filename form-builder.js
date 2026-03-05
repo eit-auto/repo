@@ -5813,8 +5813,9 @@ function renderArrayItemRow(container, item, index) {
         <input type="text" class="array-item-display-name" value="${RewstLib.utils.escapeHtml(item.display_name || '')}" placeholder="Display Name" style="padding: 6px; background: #234656; border: 1px solid #555; border-radius: 4px; color: #ffffff; font-size: 12px;">
         <select class="array-item-type" style="padding: 6px; background: #234656; border: 1px solid #555; border-radius: 4px; color: #ffffff; font-size: 12px;">
             <option value="text" ${item.type === 'text' ? 'selected' : ''}>Text</option>
-            <option value="dropdown_graphql" ${item.type === 'dropdown_graphql' ? 'selected' : ''}>GraphQL Dropdown</option>
             <option value="dropdown_static" ${item.type === 'dropdown_static' ? 'selected' : ''}>Static Dropdown</option>
+            <option value="dropdown_graphql" ${item.type === 'dropdown_graphql' ? 'selected' : ''}>GraphQL Dropdown</option>
+            <option value="dropdown_workflow" ${item.type === 'dropdown_workflow' ? 'selected' : ''}>Workflow Dropdown</option>
         </select>
         <div id="arrayItemValueField_${index}" style="width: 100%;"></div>
         <button class="delete-array-item-modal-btn" class="btn btn-red btn-small" title="Delete Item" style="min-width: auto; padding: 6px 10px;">⊘</button>
@@ -5894,6 +5895,26 @@ function renderArrayItemValueField(container, item) {
                 ${optCount} options
             </div>
         `;
+    } else if (item.type === 'dropdown_workflow') {
+        // Workflow dropdown - show workflow selector
+        let workflowOptions = '<option value="">-- Select Workflow --</option>';
+        if (typeof availableWorkflowsOG !== 'undefined' && availableWorkflowsOG.length > 0) {
+            availableWorkflowsOG.forEach(workflow => {
+                const selected = item.workflow_id === workflow.id ? 'selected' : '';
+                workflowOptions += `<option value="${workflow.id}" ${selected}>${workflow.name}</option>`;
+            });
+        }
+        
+        container.innerHTML = `
+            <select class="array-item-workflow-id" style="padding: 6px; background: #234656; border: 1px solid #555; border-radius: 4px; color: #ffffff; font-size: 12px; width: 100%;">
+                ${workflowOptions}
+            </select>
+        `;
+        
+        const workflowSelect = container.querySelector('.array-item-workflow-id');
+        workflowSelect.addEventListener('change', (e) => {
+            item.workflow_id = e.target.value;
+        });
     }
 }
 
@@ -6006,7 +6027,125 @@ function renderArrayItemConfig(container, item) {
         container.querySelector('.array-item-multi-select').addEventListener('change', (e) => {
             item.multi_select = e.target.checked;
         });
+    } else if (item.type === 'dropdown_workflow') {
+        // Workflow dropdown config: Label Name, Value Name, Default Selector, Workflow Input
+        container.style.display = 'block'; // Reset display
+        
+        let configHtml = `
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px;">
+                <div style="display: flex; flex-direction: column; gap: 6px;">
+                    <label style="color: #ccc; font-size: 12px; font-weight: 600;">Label Field</label>
+                    <input type="text" class="array-item-label-name" value="${RewstLib.utils.escapeHtml(item.label_name || '')}" placeholder="e.g., name" style="padding: 6px; background: #234656; border: 1px solid #555; border-radius: 4px; color: #ffffff; font-size: 12px;">
+                </div>
+                <div style="display: flex; flex-direction: column; gap: 6px;">
+                    <label style="color: #ccc; font-size: 12px; font-weight: 600;">Value Field</label>
+                    <input type="text" class="array-item-value-name" value="${RewstLib.utils.escapeHtml(item.value_name || '')}" placeholder="e.g., id" style="padding: 6px; background: #234656; border: 1px solid #555; border-radius: 4px; color: #ffffff; font-size: 12px;">
+                </div>
+            </div>
+            <div style="margin-bottom: 12px;">
+                <label style="color: #ccc; font-size: 12px; font-weight: 600; display: block; margin-bottom: 6px;">Default Selector Name</label>
+                <input type="text" class="array-item-default-selector" value="${RewstLib.utils.escapeHtml(item.default_selector || 'default')}" placeholder="default" style="width: 100%; padding: 6px; background: #234656; border: 1px solid #555; border-radius: 4px; color: #ffffff; font-size: 12px;">
+            </div>
+            <div style="margin-bottom: 12px;">
+                <label style="color: #ffffff; font-weight: 600; font-size: 12px; margin: 0 0 8px 0; display: block;">Workflow Input</label>
+                <div class="workflow-input-list" style="display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px;">
+        `;
+        
+        // Add existing workflow inputs
+        if (item.workflow_input && typeof item.workflow_input === 'object') {
+            Object.entries(item.workflow_input).forEach(([key, value]) => {
+                configHtml += `
+                    <div class="workflow-input-row" style="display: flex; gap: 6px; align-items: center;">
+                        <input type="text" class="workflow-input-key" value="${RewstLib.utils.escapeHtml(key)}" placeholder="Key" style="flex: 1; padding: 4px; background: #234656; border: 1px solid #555; border-radius: 4px; color: #ffffff; font-size: 12px;">
+                        <input type="text" class="workflow-input-value" value="${RewstLib.utils.escapeHtml(typeof value === 'object' ? JSON.stringify(value) : value)}" placeholder="Value" style="flex: 1; padding: 4px; background: #234656; border: 1px solid #555; border-radius: 4px; color: #ffffff; font-size: 12px;">
+                        <button class="delete-workflow-input" style="padding: 4px 8px; background: #b8242f; border: none; border-radius: 4px; color: #ffffff; cursor: pointer; font-size: 12px;">⊘</button>
+                    </div>
+                `;
+            });
+        }
+        
+        configHtml += `
+                </div>
+                <button id="addWorkflowInput" class="btn btn-blue btn-small" style="align-self: flex-start;">+ Add Input</button>
+            </div>
+            <div style="display: flex; align-items: center; gap: 8px;">
+                <input type="checkbox" class="array-item-multi-select" ${item.multi_select ? 'checked' : ''} style="accent-color: #5a9fb8;">
+                <label style="color: #ccc; font-size: 12px; font-weight: 600; margin: 0; cursor: pointer;">Multi-Select</label>
+            </div>
+        `;
+        
+        container.innerHTML = configHtml;
+        
+        // Attach event listeners
+        const labelInput = container.querySelector('.array-item-label-name');
+        const valueInput = container.querySelector('.array-item-value-name');
+        const defaultSelectorInput = container.querySelector('.array-item-default-selector');
+        const multiSelect = container.querySelector('.array-item-multi-select');
+        
+        labelInput.addEventListener('input', (e) => { item.label_name = e.target.value; });
+        valueInput.addEventListener('input', (e) => { item.value_name = e.target.value; });
+        defaultSelectorInput.addEventListener('input', (e) => { item.default_selector = e.target.value; });
+        multiSelect.addEventListener('change', (e) => { item.multi_select = e.target.checked; });
+        
+        // Delete workflow input listeners
+        container.querySelectorAll('.delete-workflow-input').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.preventDefault();
+                btn.closest('.workflow-input-row').remove();
+                updateArrayWorkflowInput(container, item);
+            });
+        });
+        
+        // Add workflow input listener
+        container.querySelector('#addWorkflowInput').addEventListener('click', (e) => {
+            e.preventDefault();
+            const inputList = container.querySelector('.workflow-input-list');
+            const newRow = document.createElement('div');
+            newRow.className = 'workflow-input-row';
+            newRow.style.cssText = 'display: flex; gap: 6px; align-items: center;';
+            newRow.innerHTML = `
+                <input type="text" class="workflow-input-key" placeholder="Key" style="flex: 1; padding: 4px; background: #234656; border: 1px solid #555; border-radius: 4px; color: #ffffff; font-size: 12px;">
+                <input type="text" class="workflow-input-value" placeholder="Value" style="flex: 1; padding: 4px; background: #234656; border: 1px solid #555; border-radius: 4px; color: #ffffff; font-size: 12px;">
+                <button class="delete-workflow-input" style="padding: 4px 8px; background: #b8242f; border: none; border-radius: 4px; color: #ffffff; cursor: pointer; font-size: 12px;">⊘</button>
+            `;
+            inputList.appendChild(newRow);
+            
+            newRow.querySelector('.delete-workflow-input').addEventListener('click', (e) => {
+                e.preventDefault();
+                newRow.remove();
+                updateArrayWorkflowInput(container, item);
+            });
+            
+            newRow.querySelector('.workflow-input-key').addEventListener('input', () => updateArrayWorkflowInput(container, item));
+            newRow.querySelector('.workflow-input-value').addEventListener('input', () => updateArrayWorkflowInput(container, item));
+        });
+        
+        // Listeners for existing inputs
+        container.querySelectorAll('.workflow-input-key, .workflow-input-value').forEach(input => {
+            input.addEventListener('input', () => updateArrayWorkflowInput(container, item));
+        });
     }
+}
+
+/**
+ * Update workflow input in array item from DOM
+ * @param {HTMLElement} container - Config container
+ * @param {object} item - Item object to update
+ */
+function updateArrayWorkflowInput(container, item) {
+    const workflowInput = {};
+    container.querySelectorAll('.workflow-input-row').forEach(row => {
+        const keyInput = row.querySelector('.workflow-input-key');
+        const valueInput = row.querySelector('.workflow-input-value');
+        if (keyInput && valueInput) {
+            const key = keyInput.value.trim();
+            const value = valueInput.value.trim();
+            if (key) {
+                workflowInput[key] = value;
+            }
+        }
+    });
+    item.workflow_input = Object.keys(workflowInput).length > 0 ? workflowInput : null;
 }
 
 /**
@@ -6106,6 +6245,33 @@ function saveArrayItems() {
                 
                 itemData.options = options;
                 itemData.multi_select = multiSelect ? multiSelect.checked : false;
+            } else if (type === 'dropdown_workflow') {
+                const workflowInput = container.querySelector('.array-item-workflow-id');
+                const labelInput = container.querySelector('.array-item-label-name');
+                const valueInput = container.querySelector('.array-item-value-name');
+                const defaultSelectorInput = container.querySelector('.array-item-default-selector');
+                const multiSelect = container.querySelector('.array-item-multi-select');
+                
+                itemData.workflow_id = workflowInput ? workflowInput.value : '';
+                itemData.label_name = labelInput ? labelInput.value : '';
+                itemData.value_name = valueInput ? valueInput.value : '';
+                itemData.default_selector = defaultSelectorInput ? defaultSelectorInput.value : 'default';
+                itemData.multi_select = multiSelect ? multiSelect.checked : false;
+                
+                // Collect workflow inputs
+                const workflowInputObj = {};
+                container.querySelectorAll('.workflow-input-row').forEach(row => {
+                    const keyInput = row.querySelector('.workflow-input-key');
+                    const valueInput = row.querySelector('.workflow-input-value');
+                    if (keyInput && valueInput) {
+                        const key = keyInput.value.trim();
+                        const value = valueInput.value.trim();
+                        if (key) {
+                            workflowInputObj[key] = value;
+                        }
+                    }
+                });
+                itemData.workflow_input = Object.keys(workflowInputObj).length > 0 ? workflowInputObj : null;
             }
             
             items.push(itemData);
