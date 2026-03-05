@@ -502,6 +502,12 @@ const GRAPHQL_OPERATIONS = {
     try {
       // Replace field references with their values from formData
       let expression = conditionString;
+      
+      // Preprocess: Convert 'and' to '&&' and 'or' to '||' for user-friendly syntax
+      // Use word boundaries to avoid replacing substrings
+      expression = expression.replace(/\band\b/g, '&&');
+      expression = expression.replace(/\bor\b/g, '||');
+      
       // Sort keys by length (longest first) to avoid replacing substrings
       const sortedKeys = Object.keys(formData).sort((a, b) => b.length - a.length);
       sortedKeys.forEach(key => {
