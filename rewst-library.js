@@ -1320,6 +1320,17 @@ const GRAPHQL_OPERATIONS = {
       return blockingDeps.every(depFieldName => {
         const depField = allFieldConfigs.find(f => f.field_name === depFieldName);
         if (!depField) return false;
+        
+        // Get dependency definition for this field
+        const depDef = config.dependant_fields[depFieldName];
+        
+        // If block_hidden: false and the dependency field is hidden, don't require it
+        if (depDef.block_hidden === false && depField.hidden === true) {
+          console.log(`[DEPENDENCIES] ${depFieldName} is hidden and block_hidden: false, ignoring`);
+          return true;
+        }
+        
+        // Otherwise, check if field is visible and has a value
         const input = document.querySelector(`input[name="${depFieldName}"], select[name="${depFieldName}"], textarea[name="${depFieldName}"]`);
         if (!input) return false;
         if (input.type === 'checkbox') return input.checked;
@@ -1472,6 +1483,15 @@ const GRAPHQL_OPERATIONS = {
     depFieldNames.forEach(depFieldName => {
       const depField = allFieldConfigs.find(f => f.field_name === depFieldName);
       if (!depField) return;
+      
+      // Get dependency definition for this field (new format only)
+      const depDef = isObjectFormat ? config.dependant_fields[depFieldName] : null;
+      
+      // Skip this field if incl_hidden: false and the field is hidden
+      if (isObjectFormat && depDef.incl_hidden === false && depField.hidden === true) {
+        console.log(`[DEPENDENCIES] Skipping ${depFieldName}: incl_hidden: false and field is hidden`);
+        return;
+      }
       
       const input = document.querySelector(`input[name="${depFieldName}"], select[name="${depFieldName}"], textarea[name="${depFieldName}"]`);
       if (!input) return;
