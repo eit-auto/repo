@@ -5881,6 +5881,7 @@ function renderArrayItemConfig(container, item) {
         container.style.display = 'none';
     } else if (item.type === 'dropdown_graphql') {
         // Secondary config: Label Field, Value Field, Multi-Select
+        container.style.display = 'block'; // Reset display
         container.innerHTML = `
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
                 <div style="display: flex; flex-direction: column; gap: 6px;">
@@ -5906,12 +5907,14 @@ function renderArrayItemConfig(container, item) {
         valueInput.addEventListener('input', (e) => { item.value_name = e.target.value; });
         multiSelect.addEventListener('change', (e) => { item.multi_select = e.target.checked; });
     } else if (item.type === 'dropdown_static') {
+        // Static dropdown config: add label:value pairs
+        container.style.display = 'block'; // Reset display
         const options = item.options || {};
         
         let optionsHtml = `
             <div style="display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px;">
                 <label style="color: #ccc; font-size: 12px; font-weight: 600;">Options</label>
-                <div id="staticOptionsContainer" style="display: flex; flex-direction: column; gap: 6px; max-height: 150px; overflow-y: auto;">
+                <div id="staticOptionsContainer" style="display: flex; flex-direction: column; gap: 6px; max-height: 200px; overflow-y: auto;">
         `;
         
         Object.entries(options).forEach(([key, value]) => {
