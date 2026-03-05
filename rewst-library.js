@@ -1324,9 +1324,13 @@ const GRAPHQL_OPERATIONS = {
         // Get dependency definition for this field
         const depDef = config.dependant_fields[depFieldName];
         
+        // Check actual DOM visibility instead of config property
+        const formGroup = document.querySelector(`[data-field-name="${depFieldName}"]`);
+        const isVisible = formGroup && window.getComputedStyle(formGroup).display !== 'none';
+        
         // If block_hidden: false and the dependency field is hidden, don't require it
-        if (depDef.block_hidden === false && depField.hidden === true) {
-          console.log(`[DEPENDENCIES] ${depFieldName} is hidden and block_hidden: false, ignoring`);
+        if (depDef.block_hidden === false && !isVisible) {
+          console.log(`[DEPENDENCIES] ${depFieldName} is hidden (DOM) and block_hidden: false, ignoring`);
           return true;
         }
         
@@ -1487,9 +1491,13 @@ const GRAPHQL_OPERATIONS = {
       // Get dependency definition for this field (new format only)
       const depDef = isObjectFormat ? config.dependant_fields[depFieldName] : null;
       
-      // Skip this field if incl_hidden: false and the field is hidden
-      if (isObjectFormat && depDef.incl_hidden === false && depField.hidden === true) {
-        console.log(`[DEPENDENCIES] Skipping ${depFieldName}: incl_hidden: false and field is hidden`);
+      // Check actual DOM visibility instead of config property
+      const formGroup = document.querySelector(`[data-field-name="${depFieldName}"]`);
+      const isVisible = formGroup && window.getComputedStyle(formGroup).display !== 'none';
+      
+      // Skip this field if incl_hidden: false and the field is hidden (DOM check)
+      if (isObjectFormat && depDef.incl_hidden === false && !isVisible) {
+        console.log(`[DEPENDENCIES] Skipping ${depFieldName}: incl_hidden: false and field is hidden (DOM)`);
         return;
       }
       
