@@ -2642,12 +2642,19 @@ function showElementSettings(elementUid) {
     if (fieldConfig.dependant_fields) {
         if (typeof fieldConfig.dependant_fields === 'string') {
             // Old format: convert "field1,field2" to object with all properties set to true
-            fieldConfig.dependant_fields.split(',').forEach(f => {
-                currentDependantFieldsObj[f.trim()] = { blocking: true, block_hidden: true, incl_hidden: true };
+            // DEFENSIVE: Filter out "null" string
+            const fields = fieldConfig.dependant_fields.split(',').map(f => f.trim()).filter(f => f && f !== 'null');
+            fields.forEach(f => {
+                currentDependantFieldsObj[f] = { blocking: true, block_hidden: true, incl_hidden: true };
             });
         } else if (typeof fieldConfig.dependant_fields === 'object') {
             // New format: already an object
-            currentDependantFieldsObj = fieldConfig.dependant_fields;
+            // DEFENSIVE: Remove "null" key if it exists
+            currentDependantFieldsObj = { ...fieldConfig.dependant_fields };
+            if ('null' in currentDependantFieldsObj) {
+                console.warn('[ELEMENT-SETTINGS] Found malformed "null" key in dependant_fields, removing it');
+                delete currentDependantFieldsObj['null'];
+            }
         }
     }
     const currentDependantFields = Object.keys(currentDependantFieldsObj);
@@ -2682,7 +2689,7 @@ function showElementSettings(elementUid) {
             <button type="button" id="editDependentFieldsBtn" class="btn btn-blue" style="width: 100%;">
                 ${currentDependantFields.length > 0 ? currentDependantFields.length + ' field(s) selected' : 'Select dependent fields...'}
             </button>
-            <input type="hidden" id="dependant_fields" value="${typeof fieldConfig.dependant_fields === 'object' ? RewstLib.utils.escapeHtml(JSON.stringify(fieldConfig.dependant_fields)) : (fieldConfig.dependant_fields || '')}">
+            <input type="hidden" id="dependant_fields" value="${fieldConfig.dependant_fields && typeof fieldConfig.dependant_fields === 'object' ? RewstLib.utils.escapeHtml(JSON.stringify(fieldConfig.dependant_fields)) : ''}">
         </div>
     `;
     
@@ -3444,23 +3451,43 @@ function saveElementSettings() {
         console.log('[SAVE-SETTINGS] Reading dependant_fields from hidden input:', dependantFieldsValue);
         
         // Parse JSON format, handle null/empty
-        if (dependantFieldsValue) {
+        if (dependantFieldsValue && dependantFieldsValue !== 'null' && dependantFieldsValue.trim() !== '') {
             try {
-                fieldConfig.dependant_fields = JSON.parse(dependantFieldsValue);
+                const parsed = JSON.parse(dependantFieldsValue);
+                
+                // DEFENSIVE: Ensure "null" key never exists
+                if (parsed && typeof parsed === 'object' && 'null' in parsed) {
+                    console.warn('[SAVE-SETTINGS] Found malformed "null" key in dependant_fields, removing it');
+                    delete parsed['null'];
+                    if (Object.keys(parsed).length === 0) {
+                        fieldConfig.dependant_fields = null;
+                    } else {
+                        fieldConfig.dependant_fields = parsed;
+                    }
+                } else {
+                    fieldConfig.dependant_fields = parsed;
+                }
+                
                 console.log('[SAVE-SETTINGS] Parsed dependant_fields from JSON:', fieldConfig.dependant_fields);
                 
                 // Verify all properties are present
-                Object.entries(fieldConfig.dependant_fields).forEach(([fieldName, props]) => {
-                    console.log(`  Field "${fieldName}": blocking=${props.blocking}, block_hidden=${props.block_hidden}, incl_hidden=${props.incl_hidden}`);
-                });
+                if (fieldConfig.dependant_fields && typeof fieldConfig.dependant_fields === 'object') {
+                    Object.entries(fieldConfig.dependant_fields).forEach(([fieldName, props]) => {
+                        console.log(`  Field "${fieldName}": blocking=${props.blocking}, block_hidden=${props.block_hidden}, incl_hidden=${props.incl_hidden}`);
+                    });
+                }
             } catch (e) {
                 console.warn('[SAVE-SETTINGS] Failed to parse JSON, falling back to comma-separated format:', e.message);
                 // If not valid JSON, assume it's old comma-separated format
-                const fields = dependantFieldsValue.split(',').map(f => f.trim()).filter(f => f);
-                fieldConfig.dependant_fields = {};
-                fields.forEach(f => {
-                    fieldConfig.dependant_fields[f] = { blocking: true, block_hidden: true, incl_hidden: true };
-                });
+                const fields = dependantFieldsValue.split(',').map(f => f.trim()).filter(f => f && f !== 'null');
+                if (fields.length > 0) {
+                    fieldConfig.dependant_fields = {};
+                    fields.forEach(f => {
+                        fieldConfig.dependant_fields[f] = { blocking: true, block_hidden: true, incl_hidden: true };
+                    });
+                } else {
+                    fieldConfig.dependant_fields = null;
+                }
             }
         } else {
             fieldConfig.dependant_fields = null;
