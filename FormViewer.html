@@ -1407,10 +1407,17 @@
             window.currentFormWorkflowId = workflowId;
         }
         
-        function loadFieldOptions(config, allFieldConfigs, formConfig) {
+        function loadFieldOptions(config, allFieldConfigs = [], formConfig = {}) {
             console.log(`>>> loadFieldOptions called for: ${config.field_name}`);
             const formGroup = document.querySelector(`[data-field-name="${config.field_name}"]`);
             console.log(`>>> formGroup found?`, !!formGroup);
+            
+            // Skip loading options if the field is hidden
+            // Use offsetParent check - if null, element is hidden via CSS or display:none
+            if (formGroup && (formGroup.offsetParent === null || window.getComputedStyle(formGroup).display === 'none')) {
+                console.log(`>>> Field ${config.field_name} is hidden, skipping loadFieldOptions`);
+                return Promise.resolve();
+            }
             if (formGroup && config.type !== 'form_extend') {
                 RewstLib.utils.hideWaitingMessage(formGroup, config);
                 
@@ -1481,6 +1488,22 @@
             if (config.dependant_fields) {
                 const depValues = RewstLib.utils.getDependencyValues(config, allFieldConfigs);
                 Object.assign(workflowInput, depValues);
+                
+                // Ensure dependencies with incl_hidden:true are in payload, even if blank
+                Object.keys(config.dependant_fields).forEach(depFieldName => {
+                    const depConfig = config.dependant_fields[depFieldName];
+                    if (depConfig.incl_hidden && !(depFieldName in workflowInput)) {
+                        // Field should be included but isn't in the payload yet
+                        // Try to get its value, use blank if not found
+                        const input = document.querySelector(`input[name="${depFieldName}"], select[name="${depFieldName}"], textarea[name="${depFieldName}"]`);
+                        let value = '';
+                        if (input) {
+                            value = input.type === 'checkbox' ? input.checked : (input.value || '');
+                        }
+                        workflowInput[depFieldName] = value;
+                        console.log(`[WORKFLOW] Including incl_hidden dependency ${depFieldName} = "${value}"`);
+                    }
+                });
             }
             
             console.log(`Executing workflow ${config.workflow_id} for field ${config.field_name}`, workflowInput);
@@ -1804,47 +1827,14 @@
             }
             
             // Only execute workflow for fields that are not form_extend
-            if (config.type !== 'form_extend') {
-                return RewstLib.workflows.execute(config.workflow_id, workflowInput, options).then(result => {
-                console.log(`Workflow result for ${config.field_name}:`, result);
-                if (formGroup) RewstLib.utils.hideLoadingMessage(formGroup, config);
-                
-                const input = document.querySelector(`select[name="${config.field_name}"]`);
-                if (input && result.conductor && result.conductor.output && result.conductor.output.options) {
-                    const options = result.conductor.output.options;
-                    
-                    if (options.length > 0) {
-                        // Has results
-                        // If multi-select, initialize the component with loaded options
-                        if (config.multi_select) {
-                            const msOptions = RewstLib.utils.mapResultsToOptions(options, config.value_name, config.label_name);
-                            RewstLib.utils.initializeDropdownMultiSelect(config.field_name, msOptions);
-                        } else {
-                            // Single select - populate options normally
-                            input.innerHTML = `<option value="">${RewstLib.utils.getGrammaticalPhrase(config.field_displayname)}</option>`;
-                            options.forEach(option => {
-                                const value = option[config.value_name] || option.id || option.Id;
-                                const label = option[config.label_name] || option.name || option.Name;
-                                if (value && label) {
-                                    const opt = document.createElement('option');
-                                    opt.value = value;
-                                    opt.textContent = label;
-                                    input.appendChild(opt);
-                                }
-                            });
-                        }
-                    } else {
-                        // No results - show "None Found"
-                        input.innerHTML = `<option value="">${RewstLib.utils.getGrammaticalPhrase(config.field_displayname, 'Select', {noResults: true})}</option>`;
-                        console.log(`[DROPDOWN] No workflow results for ${config.field_name}, showing "None Found"`);
-                    }
-                }
-            }).catch(error => {
-                console.error(`Error executing workflow for ${config.field_name}:`, error);
-                if (formGroup) RewstLib.utils.hideLoadingMessage(formGroup, config);
-                const input = document.querySelector(`select[name="${config.field_name}"]`);
-                if (input) input.innerHTML = `<option value="">-- Error loading options --</option>`;
-            });
+            if (config.type !== 'form_extend' && config.workflow_id) {
+                // Use cached workflow execution, passing the already-prepared workflowInput with dependencies
+                return getOrExecuteWorkflow(config, workflowInput, allFieldConfigs, formConfig).catch(error => {
+                    console.error(`Error executing workflow for ${config.field_name}:`, error);
+                    if (formGroup) RewstLib.utils.hideLoadingMessage(formGroup, config);
+                    const input = document.querySelector(`select[name="${config.field_name}"]`);
+                    if (input) input.innerHTML = `<option value="">-- Error loading options --</option>`;
+                });
             }
         }
         
@@ -2007,7 +1997,8 @@
                             workflow_id: itemConfig.workflow_id,
                             label_name: itemConfig.label_name,
                             value_name: itemConfig.value_name,
-                            workflow_input: itemConfig.workflow_input || {}
+                            workflow_input: itemConfig.workflow_input || {},
+                            dependant_fields: itemConfig.dependant_fields  // Include if defined
                         };
                         
                         // Load the workflow options
@@ -2016,6 +2007,131 @@
                     });
                 });
             });
+        }
+
+        // ============================================
+        // WORKFLOW RESULT CACHING
+        // ============================================
+        const workflowCache = {
+            results: {},      // Cached workflow results
+            inFlight: {}      // In-flight workflow promises
+        };
+        
+        function getWorkflowCacheKey(workflowId, workflowInput) {
+            // Create a consistent cache key by sorting object keys
+            // This ensures {a:1, b:2} and {b:2, a:1} produce the same key
+            const sortedInput = {};
+            const keys = Object.keys(workflowInput).sort();
+            keys.forEach(key => {
+                sortedInput[key] = workflowInput[key];
+            });
+            return `${workflowId}_${JSON.stringify(sortedInput)}`;
+        }
+        
+        async function getOrExecuteWorkflow(config, workflowInput, allFieldConfigs = [], formConfig = {}) {
+            // Only apply caching to workflows (not GraphQL)
+            if (config.type === 'dropdown_graphql') {
+                return loadFieldOptions(config, allFieldConfigs, formConfig);
+            }
+            
+            if (!config.workflow_id) {
+                return loadFieldOptions(config, allFieldConfigs, formConfig);
+            }
+            
+            const cacheKey = getWorkflowCacheKey(config.workflow_id, workflowInput);
+            console.log(`[WORKFLOW CACHE] Cache key for ${config.field_name}: ${cacheKey}`);
+            console.log(`[WORKFLOW CACHE] Payload for ${config.field_name}:`, JSON.stringify(workflowInput));
+            
+            // Check if results are already cached
+            if (workflowCache.results[cacheKey]) {
+                console.log(`[WORKFLOW CACHE] Found cached results for ${config.field_name}, using cache`);
+                // Use cached results directly
+                const cachedData = workflowCache.results[cacheKey];
+                return populateFieldFromCachedResults(config, cachedData);
+            }
+            
+            // Check if this workflow is currently executing (in-flight)
+            if (workflowCache.inFlight[cacheKey]) {
+                console.log(`[WORKFLOW CACHE] Workflow for ${config.field_name} is in-flight, waiting... (key: ${cacheKey})`);
+                // Wait for the in-flight promise to complete
+                try {
+                    const cachedData = await workflowCache.inFlight[cacheKey];
+                    console.log(`[WORKFLOW CACHE] In-flight workflow completed for ${config.field_name}, using results`);
+                    return populateFieldFromCachedResults(config, cachedData);
+                } catch (error) {
+                    console.error(`[WORKFLOW CACHE] In-flight workflow failed for ${config.field_name}:`, error);
+                    throw error;
+                }
+            }
+            
+            // Workflow not cached and not in-flight, execute it
+            console.log(`[WORKFLOW CACHE] Executing workflow for ${config.field_name} with cache key: ${cacheKey}`);
+            
+            // Create a promise for this workflow execution and store it as in-flight
+            const executionPromise = (async () => {
+                try {
+                    const result = await RewstLib.workflows.execute(config.workflow_id, workflowInput, { skip_cache: true });
+                    const options = result.conductor?.output?.options || [];
+                    
+                    // Cache the results
+                    workflowCache.results[cacheKey] = {
+                        options: options,
+                        conductor: result.conductor
+                    };
+                    
+                    console.log(`[WORKFLOW CACHE] Cached results for ${config.field_name} (${options.length} options)`);
+                    
+                    return workflowCache.results[cacheKey];
+                } catch (error) {
+                    // Don't cache errors, remove from in-flight so retry can happen
+                    delete workflowCache.inFlight[cacheKey];
+                    throw error;
+                }
+            })();
+            
+            workflowCache.inFlight[cacheKey] = executionPromise;
+            
+            try {
+                const cachedData = await executionPromise;
+                return populateFieldFromCachedResults(config, cachedData);
+            } finally {
+                // Remove from in-flight after completion
+                delete workflowCache.inFlight[cacheKey];
+            }
+        }
+        
+        function populateFieldFromCachedResults(config, cachedData) {
+            const formGroup = document.querySelector(`[data-field-name="${config.field_name}"]`);
+            const input = document.querySelector(`select[name="${config.field_name}"]`);
+            
+            if (!input) return;
+            
+            const options = cachedData.options || [];
+            
+            if (options.length > 0) {
+                if (config.multi_select) {
+                    const msOptions = RewstLib.utils.mapResultsToOptions(options, config.value_name, config.label_name);
+                    RewstLib.utils.initializeDropdownMultiSelect(config.field_name, msOptions);
+                } else {
+                    input.innerHTML = `<option value="">${RewstLib.utils.getGrammaticalPhrase(config.field_displayname)}</option>`;
+                    options.forEach(option => {
+                        const value = option[config.value_name] || option.id || option.Id;
+                        const label = option[config.label_name] || option.name || option.Name;
+                        if (value && label) {
+                            const opt = document.createElement('option');
+                            opt.value = value;
+                            opt.textContent = label;
+                            input.appendChild(opt);
+                        }
+                    });
+                }
+            } else {
+                input.innerHTML = `<option value="">${RewstLib.utils.getGrammaticalPhrase(config.field_displayname, 'Select', {noResults: true})}</option>`;
+            }
+            
+            if (formGroup) {
+                RewstLib.utils.hideLoadingMessage(formGroup, config);
+            }
         }
 
         function setupRefreshButtonHandlers(fieldConfigs, formConfig) {
