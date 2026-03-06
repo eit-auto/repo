@@ -1355,6 +1355,9 @@
                                 }
                             }
                         });
+                        
+                        // Reload array workflow dropdowns when dependencies change
+                        reloadArrayWorkflowDropdowns(fieldConfigs, formConfig);
                     };
                     
                     input.addEventListener('change', changeHandler);
@@ -1377,7 +1380,7 @@
             setupRefreshButtonHandlers(fieldConfigs, formConfig);
             
             // Setup array field handlers
-            setupArrayFieldHandlers(fieldConfigs);
+            setupArrayFieldHandlers(fieldConfigs, formConfig);
             
             // Initialize field UI states - show waiting for dependent fields
             RewstLib.utils.initializeDependentFields(fieldConfigs);
@@ -1857,7 +1860,7 @@
             console.log(`[REFRESH] Button state for ${fieldName}: disabled=${btn.disabled} (depsMet=${depsMet})`);
         }
 
-        function setupArrayFieldHandlers(fieldConfigs) {
+        function setupArrayFieldHandlers(fieldConfigs, formConfig) {
             const arrayConfigs = fieldConfigs.filter(f => f.type === 'array');
             
             arrayConfigs.forEach(config => {
@@ -1885,12 +1888,50 @@
                     e.preventDefault();
                     console.log(`[ARRAY] Add button clicked for ${config.field_name}`);
                     
-                    const itemsConfig = config.items || {};
+                    const itemsArray = Array.isArray(config.items) ? config.items : [];
+                    
+                    // Calculate the index for the new instance
                     const instanceIndex = arrayContainer.children.length;
                     
-                    const itemsHtml = Object.entries(itemsConfig).map(([label, fieldName]) =>
-                        `<div class="array-instance-field"><label>${escapeHtml(label)}</label><input type="text" name="${config.field_name}_${fieldName}_${instanceIndex}" placeholder="${escapeHtml(label)}"></div>`
-                    ).join('');
+                    // Render each field in the array item based on its type
+                    const itemsHtml = itemsArray.map(itemConfig => {
+                        const fieldName = itemConfig.name;
+                        const displayName = itemConfig.display_name || fieldName;
+                        const fieldId = `${config.field_name}_${fieldName}_${instanceIndex}`;
+                        
+                        console.log(`[ARRAY] Rendering field: ${fieldName}, type: ${itemConfig.type}`);
+                        
+                        let fieldHtml = '';
+                        
+                        if (itemConfig.type === 'dropdown_static') {
+                            // Static dropdown with predefined options
+                            const options = itemConfig.options || {};
+                            const optionsHtml = Object.entries(options)
+                                .map(([label, value]) => `<option value="${escapeHtml(String(value))}">${escapeHtml(label)}</option>`)
+                                .join('');
+                            fieldHtml = `<select name="${fieldId}" id="${fieldId}" data-array-field="${fieldName}"><option value="">-- Select --</option>${optionsHtml}</select>`;
+                        } 
+                        else if (itemConfig.type === 'dropdown_workflow') {
+                            // Workflow dropdown - will load options asynchronously
+                            fieldHtml = `<div style="display: flex; gap: 8px; align-items: center;">
+                                <select name="${fieldId}" id="${fieldId}" data-array-field="${fieldName}" style="flex: 1;"><option value="">Loading options...</option></select>
+                                <button type="button" class="btn btn-small dropdown-refresh-btn" data-field-name="${fieldId}" style="width: auto; padding: 0.4rem 0.8rem;">↻</button>
+                            </div>`;
+                        }
+                        else if (itemConfig.type === 'dropdown_graphql') {
+                            // GraphQL dropdown - will load options asynchronously
+                            fieldHtml = `<div style="display: flex; gap: 8px; align-items: center;">
+                                <select name="${fieldId}" id="${fieldId}" data-array-field="${fieldName}" style="flex: 1;"><option value="">Loading options...</option></select>
+                                <button type="button" class="btn btn-small dropdown-refresh-btn" data-field-name="${fieldId}" style="width: auto; padding: 0.4rem 0.8rem;">↻</button>
+                            </div>`;
+                        }
+                        else {
+                            // Default to text input for unknown types
+                            fieldHtml = `<input type="text" name="${fieldId}" id="${fieldId}" data-array-field="${fieldName}" placeholder="${escapeHtml(displayName)}">`;
+                        }
+                        
+                        return `<div class="array-instance-field" data-field-name="${fieldId}"><label>${escapeHtml(displayName)}</label>${fieldHtml}</div>`;
+                    }).join('');
                     
                     const instanceHtml = `<div class="array-instance" data-instance-index="${instanceIndex}"><div class="array-instance-fields">${itemsHtml}</div><button type="button" class="array-instance-delete" title="Delete this row">×</button></div>`;
                     
@@ -1902,6 +1943,12 @@
                     deleteBtn.addEventListener('click', () => {
                         newInstance.remove();
                     });
+                    
+                    // Attach refresh button handlers for new instance
+                    setupRefreshButtonHandlers(fieldConfigs, formConfig);
+                    
+                    // Load workflow options for dropdown_workflow fields in the new instance
+                    reloadArrayWorkflowDropdowns(fieldConfigs, formConfig);
                 });
                 
                 // Attach delete handlers to existing instances
@@ -1910,14 +1957,108 @@
                         deleteBtn.closest('.array-instance').remove();
                     });
                 });
+                
+                // Attach refresh button handlers to all array instances (initial and existing)
+                setupRefreshButtonHandlers(fieldConfigs, formConfig);
+            });
+        }
+
+        function reloadArrayWorkflowDropdowns(fieldConfigs, formConfig) {
+            console.log(`[ARRAY WORKFLOW] Checking which array workflows need to reload`);
+            
+            fieldConfigs.forEach(arrayConfig => {
+                if (arrayConfig.type !== 'array') return;
+                
+                // Check if array is hidden
+                const arrayContainer = document.querySelector(`.array-instances[data-array-name="${arrayConfig.field_name}"]`);
+                if (!arrayContainer) return;
+                
+                const arrayFieldContainer = arrayContainer.closest('.array-field-container');
+                if (!arrayFieldContainer) return;
+                
+                // Check if element is actually hidden (via inline styles, CSS classes, or parent visibility)
+                // Use offsetParent check - if it's null, the element is hidden
+                const isHidden = arrayFieldContainer.offsetParent === null || window.getComputedStyle(arrayFieldContainer).display === 'none';
+                
+                if (isHidden) {
+                    console.log(`[ARRAY WORKFLOW] Array ${arrayConfig.field_name} is hidden, skipping`);
+                    return;
+                }
+                
+                // Check each array item for workflow dropdowns
+                const itemsArray = Array.isArray(arrayConfig.items) ? arrayConfig.items : [];
+                itemsArray.forEach(itemConfig => {
+                    if (itemConfig.type !== 'dropdown_workflow') return;
+                    
+                    const fieldName = itemConfig.name;
+                    
+                    console.log(`[ARRAY WORKFLOW] Executing workflow for ${arrayConfig.field_name}.${fieldName}`);
+                    
+                    // Reload for all instances
+                    arrayContainer.querySelectorAll('.array-instance').forEach(instance => {
+                        const instanceIndex = instance.getAttribute('data-instance-index');
+                        const fieldId = `${arrayConfig.field_name}_${fieldName}_${instanceIndex}`;
+                        
+                        // Create a pseudo-config that looks like a regular dropdown
+                        const pseudoConfig = {
+                            field_name: fieldId,
+                            field_displayname: itemConfig.display_name || fieldName,
+                            type: 'dropdown',
+                            workflow_id: itemConfig.workflow_id,
+                            label_name: itemConfig.label_name,
+                            value_name: itemConfig.value_name,
+                            workflow_input: itemConfig.workflow_input || {}
+                        };
+                        
+                        // Load the workflow options
+                        // loadFieldOptions will find the element with data-field-name="${fieldId}" and show/hide loading messages
+                        loadFieldOptions(pseudoConfig, fieldConfigs, formConfig);
+                    });
+                });
             });
         }
 
         function setupRefreshButtonHandlers(fieldConfigs, formConfig) {
             const refreshButtons = document.querySelectorAll('.dropdown-refresh-btn');
             refreshButtons.forEach(btn => {
+                // Skip if handler already attached
+                if (btn.hasAttribute('data-handler-attached')) {
+                    return;
+                }
+                
                 const fieldName = btn.getAttribute('data-field-name');
-                const config = fieldConfigs.find(c => c.field_name === fieldName);
+                let config = fieldConfigs.find(c => c.field_name === fieldName);
+                
+                // If config not found, check if this is an array field (e.g., prod_pc_replace_0)
+                if (!config) {
+                    const fieldNameParts = fieldName.split('_');
+                    const instanceIndex = fieldNameParts[fieldNameParts.length - 1];
+                    const arrayName = fieldNameParts.slice(0, -2).join('_');
+                    const itemFieldName = fieldNameParts[fieldNameParts.length - 2];
+                    
+                    const arrayConfig = fieldConfigs.find(c => c.field_name === arrayName && c.type === 'array');
+                    if (arrayConfig) {
+                        const itemsArray = Array.isArray(arrayConfig.items) ? arrayConfig.items : [];
+                        const itemConfig = itemsArray.find(i => i.name === itemFieldName);
+                        
+                        if (itemConfig && (itemConfig.type === 'dropdown_workflow' || itemConfig.type === 'dropdown_graphql')) {
+                            // Create pseudo-config for array dropdown field
+                            config = {
+                                field_name: fieldName,
+                                field_displayname: itemConfig.display_name || itemFieldName,
+                                type: itemConfig.type === 'dropdown_workflow' ? 'dropdown' : itemConfig.type,
+                                workflow_id: itemConfig.workflow_id,
+                                graphql_query: itemConfig.graphql_query,
+                                graphql_root_node: itemConfig.graphql_root_node,
+                                label_name: itemConfig.label_name,
+                                value_name: itemConfig.value_name,
+                                workflow_input: itemConfig.workflow_input || {},
+                                skip_cache: false
+                            };
+                        }
+                    }
+                }
+                
                 if (!config) {
                     console.error(`[REFRESH] Could not find config for field: ${fieldName}`);
                     return;
@@ -1951,6 +2092,9 @@
                         updateRefreshButtonState(fieldName, config, fieldConfigs);
                     });
                 });
+                
+                // Mark that handler has been attached
+                btn.setAttribute('data-handler-attached', 'true');
                 
                 // Set initial button state
                 updateRefreshButtonState(fieldName, config, fieldConfigs);
@@ -2136,12 +2280,45 @@
             } else if (config.type === 'array') {
                 // Array field with add/remove functionality
                 const arrayId = `array_${config.field_name}_${Math.random().toString(36).substr(2, 5)}`;
-                const itemsConfig = config.items || {};
+                const itemsArray = Array.isArray(config.items) ? config.items : [];
                 
-                // Generate default instance - compact template to avoid whitespace rendering
-                const itemsHtml = Object.entries(itemsConfig).map(([label, fieldName]) => 
-                    `<div class="array-instance-field"><label>${escapeHtml(label)}</label><input type="text" name="${config.field_name}_${fieldName}_0" placeholder="${escapeHtml(label)}"></div>`
-                ).join('');
+                // Generate default instance - render each field based on its type
+                const itemsHtml = itemsArray.map((itemConfig) => {
+                    const fieldName = itemConfig.name;
+                    const displayName = itemConfig.display_name || fieldName;
+                    const fieldId = `${config.field_name}_${fieldName}_0`;
+                    
+                    let fieldHtml = '';
+                    
+                    if (itemConfig.type === 'dropdown_static') {
+                        // Static dropdown with predefined options
+                        const options = itemConfig.options || {};
+                        const optionsHtml = Object.entries(options)
+                            .map(([label, value]) => `<option value="${escapeHtml(String(value))}">${escapeHtml(label)}</option>`)
+                            .join('');
+                        fieldHtml = `<select name="${fieldId}" id="${fieldId}" data-array-field="${fieldName}"><option value="">-- Select --</option>${optionsHtml}</select>`;
+                    } 
+                    else if (itemConfig.type === 'dropdown_workflow') {
+                        // Workflow dropdown - will load options asynchronously
+                        fieldHtml = `<div style="display: flex; gap: 8px; align-items: center;">
+                            <select name="${fieldId}" id="${fieldId}" data-array-field="${fieldName}" style="flex: 1;"><option value="">Loading options...</option></select>
+                            <button type="button" class="btn btn-small dropdown-refresh-btn" data-field-name="${fieldId}" style="width: auto; padding: 0.4rem 0.8rem;">↻</button>
+                        </div>`;
+                    }
+                    else if (itemConfig.type === 'dropdown_graphql') {
+                        // GraphQL dropdown - will load options asynchronously
+                        fieldHtml = `<div style="display: flex; gap: 8px; align-items: center;">
+                            <select name="${fieldId}" id="${fieldId}" data-array-field="${fieldName}" style="flex: 1;"><option value="">Loading options...</option></select>
+                            <button type="button" class="btn btn-small dropdown-refresh-btn" data-field-name="${fieldId}" style="width: auto; padding: 0.4rem 0.8rem;">↻</button>
+                        </div>`;
+                    }
+                    else {
+                        // Default to text input for unknown types
+                        fieldHtml = `<input type="text" name="${fieldId}" id="${fieldId}" data-array-field="${fieldName}" placeholder="${escapeHtml(displayName)}">`;
+                    }
+                    
+                    return `<div class="array-instance-field" data-field-name="${fieldId}"><label>${escapeHtml(displayName)}</label>${fieldHtml}</div>`;
+                }).join('');
                 
                 const defaultInstanceHtml = `<div class="array-instance" data-instance-index="0"><div class="array-instance-fields">${itemsHtml}</div><button type="button" class="array-instance-delete" title="Delete this row">×</button></div>`;
                 
@@ -2304,19 +2481,45 @@
                                     const instanceIndex = instance.getAttribute('data-instance-index');
                                     console.log(`[SUBMIT DEBUG] Processing instance ${instanceIndex}`);
                                     
-                                    Object.entries(config.items || {}).forEach(([label, fieldName]) => {
-                                        // Query by actual name attribute instead of index position
-                                        const inputName = `${config.field_name}_${fieldName}_${instanceIndex}`;
-                                        const input = instance.querySelector(`input[name="${inputName}"]`);
-                                        console.log(`[SUBMIT DEBUG] Looking for input[name="${inputName}"], found:`, !!input, input?.value);
+                                    // Handle array items which are now an array instead of an object
+                                    const itemsArray = Array.isArray(config.items) ? config.items : [];
+                                    
+                                    itemsArray.forEach(itemConfig => {
+                                        const fieldName = itemConfig.name;
+                                        const fieldId = `${config.field_name}_${fieldName}_${instanceIndex}`;
                                         
-                                        if (input) {
-                                            instanceData[fieldName] = input.value;
+                                        // Look for any field type (input, select, textarea) using the ID
+                                        const field = instance.querySelector(`#${fieldId}`);
+                                        console.log(`[SUBMIT DEBUG] Looking for field #${fieldId} (type: ${itemConfig.type}), found:`, !!field);
+                                        
+                                        if (field) {
+                                            let value = '';
+                                            if (field.tagName === 'SELECT') {
+                                                value = field.value;
+                                            } else if (field.tagName === 'INPUT') {
+                                                if (field.type === 'checkbox') {
+                                                    value = field.checked;
+                                                } else if (field.type === 'radio') {
+                                                    value = field.checked ? field.value : '';
+                                                } else {
+                                                    value = field.value;
+                                                }
+                                            } else if (field.tagName === 'TEXTAREA') {
+                                                value = field.value;
+                                            }
+                                            
+                                            instanceData[fieldName] = value;
+                                            console.log(`[SUBMIT DEBUG] Field ${fieldName} = ${value}`);
                                         }
                                     });
                                     
                                     // Check if at least one field has a value
-                                    const hasAtLeastOneValue = Object.values(instanceData).some(value => value && value.trim && value.trim() !== '');
+                                    const hasAtLeastOneValue = Object.values(instanceData).some(value => {
+                                        if (typeof value === 'string') {
+                                            return value && value.trim() !== '';
+                                        }
+                                        return value !== '' && value !== false;
+                                    });
                                     
                                     if (hasAtLeastOneValue) {
                                         instances.push(instanceData);
