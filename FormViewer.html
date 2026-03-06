@@ -134,6 +134,7 @@
             flex: 1;
             min-width: 150px;
             margin: 0;
+            position: relative;
         }
 
         .array-instance-field label {
@@ -157,6 +158,39 @@
             outline: none;
             border-color: #5a9fb8;
             box-shadow: 0 0 0 3px rgba(90, 159, 184, 0.1);
+        }
+
+        /* Loading message styling for array fields - ensure it doesn't break flex layout */
+        .array-instance-field .field-loading-message {
+            width: 100%;
+            position: absolute;
+            left: 0;
+            right: 0;
+            bottom: 0;
+        }
+
+        /* Hide the wrapper when loading message is shown in the same array field */
+        .array-instance-field .field-loading-message ~ .array-field-input-wrapper {
+            visibility: hidden;
+        }
+
+        /* Spinner styling in array fields */
+        .array-instance-field .spinner {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+        }
+
+        /* Array field input wrapper - ensures loading messages stay inline */
+        .array-field-input-wrapper {
+            flex: 1;
+            display: flex;
+            align-items: center;
+        }
+
+        .array-field-input-wrapper select {
+            flex: 1;
+            width: 100%;
         }
 
         .array-instance-delete {
@@ -1406,7 +1440,6 @@
             window.currentFormConfig = formConfig;
             window.currentFormWorkflowId = workflowId;
         }
-        
         function loadFieldOptions(config, allFieldConfigs = [], formConfig = {}) {
             console.log(`>>> loadFieldOptions called for: ${config.field_name}`);
             const formGroup = document.querySelector(`[data-field-name="${config.field_name}"]`);
@@ -1899,20 +1932,20 @@
                             const optionsHtml = Object.entries(options)
                                 .map(([label, value]) => `<option value="${escapeHtml(String(value))}">${escapeHtml(label)}</option>`)
                                 .join('');
-                            fieldHtml = `<select name="${fieldId}" id="${fieldId}" data-array-field="${fieldName}"><option value="">-- Select --</option>${optionsHtml}</select>`;
+                            fieldHtml = `<div class="array-field-input-wrapper"><select name="${fieldId}" id="${fieldId}" data-array-field="${fieldName}"><option value="">-- Select --</option>${optionsHtml}</select></div>`;
                         } 
                         else if (itemConfig.type === 'dropdown_workflow') {
                             // Workflow dropdown - will load options asynchronously
-                            fieldHtml = `<div style="display: flex; gap: 8px; align-items: center;">
+                            fieldHtml = `<div class="array-field-input-wrapper" style="display: flex; gap: 8px; align-items: center;">
                                 <select name="${fieldId}" id="${fieldId}" data-array-field="${fieldName}" style="flex: 1;"><option value="">Loading options...</option></select>
-                                <button type="button" class="btn btn-small dropdown-refresh-btn" data-field-name="${fieldId}" style="width: auto; padding: 0.4rem 0.8rem;">↻</button>
+                                <button type="button" class="btn btn-small dropdown-refresh-btn" data-field-name="${fieldId}" style="width: auto; padding: 0.2rem 0.15rem;">↻</button>
                             </div>`;
                         }
                         else if (itemConfig.type === 'dropdown_graphql') {
                             // GraphQL dropdown - will load options asynchronously
-                            fieldHtml = `<div style="display: flex; gap: 8px; align-items: center;">
+                            fieldHtml = `<div class="array-field-input-wrapper" style="display: flex; gap: 8px; align-items: center;">
                                 <select name="${fieldId}" id="${fieldId}" data-array-field="${fieldName}" style="flex: 1;"><option value="">Loading options...</option></select>
-                                <button type="button" class="btn btn-small dropdown-refresh-btn" data-field-name="${fieldId}" style="width: auto; padding: 0.4rem 0.8rem;">↻</button>
+                                <button type="button" class="btn btn-small dropdown-refresh-btn" data-field-name="${fieldId}" style="width: auto; padding: 0.2rem 0.15rem;">↻</button>
                             </div>`;
                         }
                         else {
@@ -1952,6 +1985,7 @@
                 setupRefreshButtonHandlers(fieldConfigs, formConfig);
             });
         }
+
 
         function reloadArrayWorkflowDropdowns(fieldConfigs, formConfig) {
             console.log(`[ARRAY WORKFLOW] Checking which array workflows need to reload`);
@@ -2042,25 +2076,30 @@
             console.log(`[WORKFLOW CACHE] Cache key for ${config.field_name}: ${cacheKey}`);
             console.log(`[WORKFLOW CACHE] Payload for ${config.field_name}:`, JSON.stringify(workflowInput));
             
-            // Check if results are already cached
-            if (workflowCache.results[cacheKey]) {
-                console.log(`[WORKFLOW CACHE] Found cached results for ${config.field_name}, using cache`);
-                // Use cached results directly
-                const cachedData = workflowCache.results[cacheKey];
-                return populateFieldFromCachedResults(config, cachedData);
-            }
-            
-            // Check if this workflow is currently executing (in-flight)
-            if (workflowCache.inFlight[cacheKey]) {
-                console.log(`[WORKFLOW CACHE] Workflow for ${config.field_name} is in-flight, waiting... (key: ${cacheKey})`);
-                // Wait for the in-flight promise to complete
-                try {
-                    const cachedData = await workflowCache.inFlight[cacheKey];
-                    console.log(`[WORKFLOW CACHE] In-flight workflow completed for ${config.field_name}, using results`);
+            // Skip cache if explicitly requested (e.g., refresh button)
+            if (config.skip_cache) {
+                console.log(`[WORKFLOW CACHE] Skipping cache for ${config.field_name} (skip_cache=true)`);
+            } else {
+                // Check if results are already cached
+                if (workflowCache.results[cacheKey]) {
+                    console.log(`[WORKFLOW CACHE] Found cached results for ${config.field_name}, using cache`);
+                    // Use cached results directly
+                    const cachedData = workflowCache.results[cacheKey];
                     return populateFieldFromCachedResults(config, cachedData);
-                } catch (error) {
-                    console.error(`[WORKFLOW CACHE] In-flight workflow failed for ${config.field_name}:`, error);
-                    throw error;
+                }
+                
+                // Check if this workflow is currently executing (in-flight)
+                if (workflowCache.inFlight[cacheKey]) {
+                    console.log(`[WORKFLOW CACHE] Workflow for ${config.field_name} is in-flight, waiting... (key: ${cacheKey})`);
+                    // Wait for the in-flight promise to complete
+                    try {
+                        const cachedData = await workflowCache.inFlight[cacheKey];
+                        console.log(`[WORKFLOW CACHE] In-flight workflow completed for ${config.field_name}, using results`);
+                        return populateFieldFromCachedResults(config, cachedData);
+                    } catch (error) {
+                        console.error(`[WORKFLOW CACHE] In-flight workflow failed for ${config.field_name}:`, error);
+                        throw error;
+                    }
                 }
             }
             
@@ -2418,14 +2457,14 @@
                         // Workflow dropdown - will load options asynchronously
                         fieldHtml = `<div style="display: flex; gap: 8px; align-items: center;">
                             <select name="${fieldId}" id="${fieldId}" data-array-field="${fieldName}" style="flex: 1;"><option value="">Loading options...</option></select>
-                            <button type="button" class="btn btn-small dropdown-refresh-btn" data-field-name="${fieldId}" style="width: auto; padding: 0.4rem 0.8rem;">↻</button>
+                            <button type="button" class="btn btn-small dropdown-refresh-btn" data-field-name="${fieldId}" style="width: auto; padding: 0.2rem 0.15rem;">↻</button>
                         </div>`;
                     }
                     else if (itemConfig.type === 'dropdown_graphql') {
                         // GraphQL dropdown - will load options asynchronously
                         fieldHtml = `<div style="display: flex; gap: 8px; align-items: center;">
                             <select name="${fieldId}" id="${fieldId}" data-array-field="${fieldName}" style="flex: 1;"><option value="">Loading options...</option></select>
-                            <button type="button" class="btn btn-small dropdown-refresh-btn" data-field-name="${fieldId}" style="width: auto; padding: 0.4rem 0.8rem;">↻</button>
+                            <button type="button" class="btn btn-small dropdown-refresh-btn" data-field-name="${fieldId}" style="width: auto; padding: 0.2rem 0.15rem;">↻</button>
                         </div>`;
                     }
                     else {
