@@ -5807,8 +5807,10 @@ function renderArrayItemRow(container, item, index) {
     
     // Main row with name, display_name, type, value field
     const mainRow = document.createElement('div');
-    mainRow.style.cssText = 'display: grid; grid-template-columns: 1fr 1fr 0.8fr 1fr auto auto auto auto; gap: 8px; align-items: center; margin-bottom: 12px;';
+    mainRow.style.cssText = 'display: grid; grid-template-columns: auto auto 1fr 1fr 0.8fr 1fr auto; gap: 8px; align-items: center; margin-bottom: 12px;';
     mainRow.innerHTML = `
+        <button class="array-item-move-up-btn" title="Move Up" style="min-width: auto; padding: 6px 8px; background: #5a9fb8; border: none; border-radius: 4px; color: #ffffff; cursor: pointer; font-size: 12px; font-weight: 600;">↑</button>
+        <button class="array-item-move-down-btn" title="Move Down" style="min-width: auto; padding: 6px 8px; background: #5a9fb8; border: none; border-radius: 4px; color: #ffffff; cursor: pointer; font-size: 12px; font-weight: 600;">↓</button>
         <input type="text" class="array-item-name" value="${RewstLib.utils.escapeHtml(item.name || '')}" placeholder="Field Name" style="padding: 6px; background: #234656; border: 1px solid #555; border-radius: 4px; color: #ffffff; font-size: 12px;">
         <input type="text" class="array-item-display-name" value="${RewstLib.utils.escapeHtml(item.display_name || '')}" placeholder="Display Name" style="padding: 6px; background: #234656; border: 1px solid #555; border-radius: 4px; color: #ffffff; font-size: 12px;">
         <select class="array-item-type" style="padding: 6px; background: #234656; border: 1px solid #555; border-radius: 4px; color: #ffffff; font-size: 12px;">
@@ -5819,8 +5821,6 @@ function renderArrayItemRow(container, item, index) {
         </select>
         <div id="arrayItemValueField_${index}" style="width: 100%;"></div>
         <button class="delete-array-item-modal-btn" title="Delete Item" style="min-width: auto; padding: 6px 10px; background: #b8242f; border: none; border-radius: 4px; color: #ffffff; cursor: pointer; font-size: 14px; font-weight: 600;">×</button>
-        <button class="array-item-move-up-btn" title="Move Up" style="min-width: auto; padding: 6px 8px; background: #5a9fb8; border: none; border-radius: 4px; color: #ffffff; cursor: pointer; font-size: 12px; font-weight: 600;">↑</button>
-        <button class="array-item-move-down-btn" title="Move Down" style="min-width: auto; padding: 6px 8px; background: #5a9fb8; border: none; border-radius: 4px; color: #ffffff; cursor: pointer; font-size: 12px; font-weight: 600;">↓</button>
     `;
     rowContainer.appendChild(mainRow);
     
