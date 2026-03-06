@@ -5807,7 +5807,7 @@ function renderArrayItemRow(container, item, index) {
     
     // Main row with name, display_name, type, value field
     const mainRow = document.createElement('div');
-    mainRow.style.cssText = 'display: grid; grid-template-columns: 1fr 1fr 0.8fr 1fr auto; gap: 8px; align-items: center; margin-bottom: 12px;';
+    mainRow.style.cssText = 'display: grid; grid-template-columns: 1fr 1fr 0.8fr 1fr auto auto auto auto; gap: 8px; align-items: center; margin-bottom: 12px;';
     mainRow.innerHTML = `
         <input type="text" class="array-item-name" value="${RewstLib.utils.escapeHtml(item.name || '')}" placeholder="Field Name" style="padding: 6px; background: #234656; border: 1px solid #555; border-radius: 4px; color: #ffffff; font-size: 12px;">
         <input type="text" class="array-item-display-name" value="${RewstLib.utils.escapeHtml(item.display_name || '')}" placeholder="Display Name" style="padding: 6px; background: #234656; border: 1px solid #555; border-radius: 4px; color: #ffffff; font-size: 12px;">
@@ -5818,6 +5818,8 @@ function renderArrayItemRow(container, item, index) {
             <option value="dropdown_workflow" ${item.type === 'dropdown_workflow' ? 'selected' : ''}>Workflow Dropdown</option>
         </select>
         <div id="arrayItemValueField_${index}" style="width: 100%;"></div>
+        <button class="array-item-move-up-btn" title="Move Up" style="min-width: auto; padding: 6px 8px; background: #5a9fb8; border: none; border-radius: 4px; color: #ffffff; cursor: pointer; font-size: 12px; font-weight: 600;">↑</button>
+        <button class="array-item-move-down-btn" title="Move Down" style="min-width: auto; padding: 6px 8px; background: #5a9fb8; border: none; border-radius: 4px; color: #ffffff; cursor: pointer; font-size: 12px; font-weight: 600;">↓</button>
         <button class="delete-array-item-modal-btn" class="btn btn-red btn-small" title="Delete Item" style="min-width: auto; padding: 6px 10px;">⊘</button>
     `;
     rowContainer.appendChild(mainRow);
@@ -5846,7 +5848,23 @@ function renderArrayItemRow(container, item, index) {
         console.log('[ARRAY-MODAL] Changed item type to:', e.target.value);
     });
     
+    const upBtn = mainRow.querySelector('.array-item-move-up-btn');
+    const downBtn = mainRow.querySelector('.array-item-move-down-btn');
+    
+    upBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        moveArrayItem(rowContainer, 'up');
+    });
+    
+    downBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        moveArrayItem(rowContainer, 'down');
+    });
+    
     attachDeleteArrayItemModalListener(mainRow.querySelector('.delete-array-item-modal-btn'), rowContainer);
+    
+    // Update button states
+    updateArrayItemButtonStates();
 }
 
 /**
@@ -6293,6 +6311,59 @@ function saveArrayItems() {
 }
 
 /**
+ * Move an array item up or down
+ * @param {HTMLElement} rowContainer - The row container to move
+ * @param {string} direction - 'up' or 'down'
+ */
+function moveArrayItem(rowContainer, direction) {
+    const arrayItemsModalList = document.getElementById('arrayItemsModalList');
+    if (!arrayItemsModalList) return;
+    
+    const rows = Array.from(arrayItemsModalList.querySelectorAll('.array-item-row-container'));
+    const currentIndex = rows.indexOf(rowContainer);
+    
+    if (direction === 'up' && currentIndex > 0) {
+        // Move up: swap with previous
+        arrayItemsModalList.insertBefore(rowContainer, rows[currentIndex - 1]);
+        updateArrayItemButtonStates();
+        console.log('[ARRAY-MODAL] Moved item up from index', currentIndex, 'to', currentIndex - 1);
+    } else if (direction === 'down' && currentIndex < rows.length - 1) {
+        // Move down: swap with next
+        arrayItemsModalList.insertBefore(rows[currentIndex + 1], rowContainer);
+        updateArrayItemButtonStates();
+        console.log('[ARRAY-MODAL] Moved item down from index', currentIndex, 'to', currentIndex + 1);
+    }
+}
+
+/**
+ * Update disabled state of array item up/down buttons
+ */
+function updateArrayItemButtonStates() {
+    const arrayItemsModalList = document.getElementById('arrayItemsModalList');
+    if (!arrayItemsModalList) return;
+    
+    const rows = arrayItemsModalList.querySelectorAll('.array-item-row-container');
+    rows.forEach((row, index) => {
+        const upBtn = row.querySelector('.array-item-move-up-btn');
+        const downBtn = row.querySelector('.array-item-move-down-btn');
+        
+        // Disable up button if at top
+        if (upBtn) {
+            upBtn.disabled = index === 0;
+            upBtn.style.opacity = index === 0 ? '0.5' : '1';
+            upBtn.style.cursor = index === 0 ? 'not-allowed' : 'pointer';
+        }
+        
+        // Disable down button if at bottom
+        if (downBtn) {
+            downBtn.disabled = index === rows.length - 1;
+            downBtn.style.opacity = index === rows.length - 1 ? '0.5' : '1';
+            downBtn.style.cursor = index === rows.length - 1 ? 'not-allowed' : 'pointer';
+        }
+    });
+}
+
+/**
  * Attach delete listener to array item delete button in modal
  * @param {HTMLElement} btn - Delete button element
  * @param {HTMLElement} rowContainer - Row container element to remove
@@ -6309,6 +6380,7 @@ function attachDeleteArrayItemModalListener(btn, rowContainer) {
                 row.remove();
             }
         }
+        updateArrayItemButtonStates();
     });
 }
 
