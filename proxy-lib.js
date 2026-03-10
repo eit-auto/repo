@@ -55,16 +55,24 @@ const ProxyLib = (() => {
             
             console.log('[ProxyLib] Authenticating user:', user);
             
+            const authPayload = {
+                origin: origin,
+                user: user
+            };
+            
+            console.log('[ProxyLib] Auth request payload:', authPayload);
+            console.log('[ProxyLib] Auth request headers:', {
+                'Content-Type': 'application/json',
+                'X-Proxy-Token': apiKey ? `${apiKey.substring(0, 20)}...` : 'MISSING'
+            });
+            
             const response = await fetch(`${PROXY_URL}/auth`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                     'X-Proxy-Token': apiKey
                 },
-                body: JSON.stringify({
-                    origin: origin,
-                    user: user
-                })
+                body: JSON.stringify(authPayload)
             });
             
             const data = await response.json();
