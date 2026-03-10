@@ -1,0 +1,129 @@
+[2026-03-09T17:27:40.342Z] Starting MeshCentral WebSocket Proxy
+[2026-03-09T17:27:40.344Z] MeshCentral: 192.168.141.40:1138
+[2026-03-09T17:27:40.344Z] Proxy listening: 0.0.0.0:1139
+[2026-03-09T17:27:40.344Z] SSL certificates loaded (llink.equinoxits.com)
+[2026-03-09T17:27:41.446Z] Starting MeshCentral WebSocket Proxy
+[2026-03-09T17:27:41.448Z] MeshCentral: 192.168.141.40:1138
+[2026-03-09T17:27:41.448Z] Proxy listening: 0.0.0.0:1139
+[2026-03-09T17:27:41.449Z] SSL certificates loaded (llink.equinoxits.com)
+[2026-03-09T17:27:42.804Z] Starting MeshCentral WebSocket Proxy
+[2026-03-09T17:27:42.806Z] MeshCentral: 192.168.141.40:1138
+[2026-03-09T17:27:42.806Z] Proxy listening: 0.0.0.0:1139
+[2026-03-09T17:27:42.806Z] SSL certificates loaded (llink.equinoxits.com)
+[2026-03-09T18:06:50.058Z] Starting MeshCentral WebSocket Proxy
+[2026-03-09T18:06:50.060Z] MeshCentral: 192.168.141.40:1138
+[2026-03-09T18:06:50.060Z] Proxy listening: 0.0.0.0:1139
+[2026-03-09T18:06:50.061Z] SSL certificates loaded (llink.equinoxits.com)
+[2026-03-09T18:06:51.200Z] Starting MeshCentral WebSocket Proxy
+[2026-03-09T18:06:51.202Z] MeshCentral: 192.168.141.40:1138
+[2026-03-09T18:06:51.202Z] Proxy listening: 0.0.0.0:1139
+[2026-03-09T18:06:51.203Z] SSL certificates loaded (llink.equinoxits.com)
+[2026-03-09T18:06:52.557Z] Starting MeshCentral WebSocket Proxy
+[2026-03-09T18:06:52.559Z] MeshCentral: 192.168.141.40:1138
+[2026-03-09T18:06:52.559Z] Proxy listening: 0.0.0.0:1139
+[2026-03-09T18:06:52.559Z] SSL certificates loaded (llink.equinoxits.com)
+[2026-03-09T18:12:34.614Z] Starting MeshCentral WebSocket Proxy
+[2026-03-09T18:12:34.616Z] MeshCentral: 192.168.141.40:1138
+[2026-03-09T18:12:34.616Z] Proxy listening: 0.0.0.0:1139
+[2026-03-09T18:12:34.616Z] SSL certificates loaded (llink.equinoxits.com)
+[2026-03-09T18:12:34.637Z] Proxy server listening on HTTPS://0.0.0.0:1139
+[2026-03-09T18:12:39.177Z] TLS connection established from 192.168.141.140:65403
+[2026-03-09T18:12:39.179Z] *** REQUEST HANDLER CALLED: OPTIONS /nodes ***
+[2026-03-09T18:12:39.179Z] OPTIONS /nodes
+[2026-03-09T18:12:39.180Z] Data received: 617 bytes
+[2026-03-09T18:12:39.180Z] Data: OPTIONS /nodes HTTP/1.1
+Host: llink.equinoxits.com:1139
+Connection: keep-alive
+Pragma: no-cache
+
+[2026-03-09T18:12:39.182Z] *** REQUEST HANDLER CALLED: GET /nodes ***
+[2026-03-09T18:12:39.182Z] GET /nodes
+[2026-03-09T18:12:39.182Z] Nodes request from: 192.168.141.140
+[2026-03-09T18:12:39.182Z] Creating new WebSocket connection for nodes request...
+[2026-03-09T18:12:39.182Z] Authenticating via HTTP to get session cookie...
+[2026-03-09T18:12:39.185Z] Data received: 735 bytes
+[2026-03-09T18:12:39.185Z] Data: GET /nodes HTTP/1.1
+Host: llink.equinoxits.com:1139
+Connection: keep-alive
+Pragma: no-cache
+Cach
+[2026-03-09T18:12:42.782Z] HTTP Login Response Status: 200
+[2026-03-09T18:12:42.782Z] Set-Cookie headers: [
+  'xid=e30=; path=/; samesite=lax; secure; httponly',
+  'xid.sig=9X4clhO8MCFoN3cro1JtHP6nJ_4jGOkZ0azlG04Hc7X8vJ4_OuOGxYsSbkkSEz3a; path=/; samesite=lax; secure; httponly'
+]
+[2026-03-09T18:12:42.783Z] Login response: <!DOCTYPE html>
+<html dir="ltr" xmlns="http://www.w3.org/1999/xhtml">
+<head lang="en">
+    <meta 
+[2026-03-09T18:12:42.784Z] Cookie values: xid=e30=; xid.sig=9X4clhO8MCFoN3cro1JtHP6nJ_4jGOkZ0azlG04Hc7X8vJ4_OuOGxYsSbkkSEz3a
+[2026-03-09T18:12:42.784Z] Connecting to MeshCentral WebSocket with session cookie...
+[2026-03-09T18:12:42.792Z] WebSocket connected to MeshCentral
+[2026-03-09T18:12:42.792Z] Sending nodes request: { responseid: 'nodes_1773079962792_aqbnbp6w8' }
+[2026-03-09T18:12:42.793Z] Received: {"action":"close","cause":"noauth","msg":"noauth"}
+[2026-03-09T18:12:48.799Z] TLS socket closed
+[2026-03-09T18:13:12.794Z] WebSocket disconnected from MeshCentral
+[2026-03-09T18:13:12.794Z] WebSocket closed
+[2026-03-09T18:14:38.069Z] Starting MeshCentral WebSocket Proxy
+[2026-03-09T18:14:38.072Z] MeshCentral: localhost:1138
+[2026-03-09T18:14:38.072Z] Proxy listening: 0.0.0.0:1139
+[2026-03-09T18:14:39.157Z] Starting MeshCentral WebSocket Proxy
+[2026-03-09T18:14:39.160Z] MeshCentral: localhost:1138
+[2026-03-09T18:14:39.160Z] Proxy listening: 0.0.0.0:1139
+[2026-03-09T18:14:40.504Z] Starting MeshCentral WebSocket Proxy
+[2026-03-09T18:14:40.507Z] MeshCentral: localhost:1138
+[2026-03-09T18:14:40.507Z] Proxy listening: 0.0.0.0:1139
+[2026-03-09T18:17:56.332Z] Starting MeshCentral WebSocket Proxy
+[2026-03-09T18:17:56.335Z] MeshCentral: localhost:1138
+[2026-03-09T18:17:56.335Z] Proxy listening: 0.0.0.0:1139
+[2026-03-09T18:17:57.418Z] Starting MeshCentral WebSocket Proxy
+[2026-03-09T18:17:57.421Z] MeshCentral: localhost:1138
+[2026-03-09T18:17:57.421Z] Proxy listening: 0.0.0.0:1139
+[2026-03-09T18:17:58.753Z] Starting MeshCentral WebSocket Proxy
+[2026-03-09T18:17:58.756Z] MeshCentral: localhost:1138
+[2026-03-09T18:17:58.756Z] Proxy listening: 0.0.0.0:1139
+[2026-03-09T18:21:36.024Z] Starting MeshCentral WebSocket Proxy
+[2026-03-09T18:21:36.026Z] MeshCentral: 192.168.141.40:1138
+[2026-03-09T18:21:36.026Z] Proxy listening: 0.0.0.0:1139
+[2026-03-09T18:21:36.026Z] SSL certificates loaded (llink.equinoxits.com)
+[2026-03-09T18:21:36.047Z] Proxy server listening on HTTPS://0.0.0.0:1139
+[2026-03-09T18:21:40.123Z] TLS connection established from 192.168.141.140:54164
+[2026-03-09T18:21:40.124Z] *** REQUEST HANDLER CALLED: OPTIONS /nodes ***
+[2026-03-09T18:21:40.124Z] OPTIONS /nodes
+[2026-03-09T18:21:40.126Z] Data received: 617 bytes
+[2026-03-09T18:21:40.126Z] Data: OPTIONS /nodes HTTP/1.1
+Host: llink.equinoxits.com:1139
+Connection: keep-alive
+Pragma: no-cache
+
+[2026-03-09T18:21:40.128Z] *** REQUEST HANDLER CALLED: GET /nodes ***
+[2026-03-09T18:21:40.128Z] GET /nodes
+[2026-03-09T18:21:40.128Z] Nodes request from: 192.168.141.140
+[2026-03-09T18:21:40.128Z] Creating new WebSocket connection for nodes request...
+[2026-03-09T18:21:40.128Z] Authenticating via HTTP to get session cookie...
+[2026-03-09T18:21:40.130Z] Data received: 739 bytes
+[2026-03-09T18:21:40.131Z] Data: GET /nodes HTTP/1.1
+Host: llink.equinoxits.com:1139
+Connection: keep-alive
+Pragma: no-cache
+Cach
+[2026-03-09T18:21:40.239Z] HTTP Login Response Status: 200
+[2026-03-09T18:21:40.239Z] Set-Cookie headers: [
+  'xid=eyJ1c2VyaWQiOiJ1c2VyLy9icmFkZiIsImlwIjoiMTkyLjE2OC4xNDEuNDgiLCJ4IjoicG1rK0UwdXkiLCJsb2dpblRva2VuIjoifnQ6SG5GQ1BORnVhRmYzV3I1NSJ9; path=/; samesite=lax; secure; httponly',
+  'xid.sig=nkSWVQ2MY-aQ5wx4MR8Q5-k3ZF1qWm4AVpZTXqeNLSa0_lT2C92UcR4mOntYCOHA; path=/; samesite=lax; secure; httponly'
+]
+[2026-03-09T18:21:40.266Z] Login response: <!DOCTYPE html>
+<html lang="en" dir="ltr" xmlns="http://www.w3.org/1999/xhtml">
+<head>
+    <meta 
+[2026-03-09T18:21:40.267Z] Cookie values: xid=eyJ1c2VyaWQiOiJ1c2VyLy9icmFkZiIsImlwIjoiMTkyLjE2OC4xNDEuNDgiLCJ4IjoicG1rK0UwdXkiLCJsb2dpblRva2VuIjoifnQ6SG5GQ1BORnVhRmYzV3I1NSJ9; xid.sig=nkSWVQ2MY-aQ5wx4MR8Q5-k3ZF1qWm4AVpZTXqeNLSa0_lT2C92UcR4mOntYCOHA
+[2026-03-09T18:21:40.268Z] Connecting to MeshCentral WebSocket with session cookie...
+[2026-03-09T18:21:40.275Z] WebSocket connected to MeshCentral
+[2026-03-09T18:21:40.276Z] Sending nodes request: { responseid: 'nodes_1773080500276_n6lni44g7' }
+[2026-03-09T18:21:40.277Z] Received: {"action":"serverinfo","serverinfo":{"domain":"","name":"llink.equinoxits.com","mpsname":"llink.equinoxits.com","mpsport":4433,"port":1138,"emailcheck":false,"domainauth":false,"serverTime":1773080500255,"features":2148667904,"features2":385,"features3":0,"languages":["en","ar","bs","ca","cs","da","
+[2026-03-09T18:21:40.277Z] Received: {"action":"userinfo","userinfo":{"_id":"user//bradf","name":"bradf","email":"bradf@equinoxits.com","creation":1772210877,"login":1773080500,"access":1773080500,"siteadmin":4294967295,"links":{"mesh//vJrtugc1GFTsZ@ugj6AGNeLQxPhYt0aDOZe$4iCDGhuCndnlAc2M8o8ybVFrKELy":{"rights":4294967295}},"pastlogin":
+[2026-03-09T18:21:40.277Z] Received: {"action":"traceinfo","traceSources":null}
+[2026-03-09T18:21:40.277Z] Received: {"action":"nodes","responseid":"nodes_1773080500276_n6lni44g7","nodes":{"mesh//vJrtugc1GFTsZ@ugj6AGNeLQxPhYt0aDOZe$4iCDGhuCndnlAc2M8o8ybVFrKELy":[{"type":"node","mtype":2,"_id":"node//XxcVMSJ3nOOnOEKdR8RFAWEJCk1QcaGsk@OuLXGjIVTKFTUElWJxoXmqbV@oBtdn","icon":8,"name":"CHEC-DC1","rname":"CHEC-DC1","dom
+[2026-03-09T18:21:40.277Z] Routing response to request: nodes_1773080500276_n6lni44g7
+[2026-03-09T18:21:43.880Z] Received: {"action":"event","event":{"action":"servertimelinestats","data":{"time":"2026-03-09T18:21:43.858Z","expire":"2026-03-10T18:21:43.858Z","mem":{"rss":113569792,"heapTotal":54890496,"heapUsed":42424800,"external":41104495,"arrayBuffers":38738735},"conn":{"ca":1,"cu":1,"us":1,"rs":0,"am":0,"amc":0},"tr
+[2026-03-09T18:21:46.285Z] TLS socket closed

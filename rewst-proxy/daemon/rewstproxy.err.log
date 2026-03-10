@@ -1,0 +1,97 @@
+[2026-03-09T17:27:40.365Z] Server error: Error: listen EADDRINUSE: address already in use 0.0.0.0:1139
+    at Server.setupListenHandle [as _listen2] (node:net:1940:16)
+    at listenInCluster (node:net:1997:12)
+    at node:net:2206:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:89:21) {
+  code: 'EADDRINUSE',
+  errno: -4091,
+  syscall: 'listen',
+  address: '0.0.0.0',
+  port: 1139
+}
+[2026-03-09T17:27:41.468Z] Server error: Error: listen EADDRINUSE: address already in use 0.0.0.0:1139
+    at Server.setupListenHandle [as _listen2] (node:net:1940:16)
+    at listenInCluster (node:net:1997:12)
+    at node:net:2206:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:89:21) {
+  code: 'EADDRINUSE',
+  errno: -4091,
+  syscall: 'listen',
+  address: '0.0.0.0',
+  port: 1139
+}
+[2026-03-09T17:27:42.828Z] Server error: Error: listen EADDRINUSE: address already in use 0.0.0.0:1139
+    at Server.setupListenHandle [as _listen2] (node:net:1940:16)
+    at listenInCluster (node:net:1997:12)
+    at node:net:2206:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:89:21) {
+  code: 'EADDRINUSE',
+  errno: -4091,
+  syscall: 'listen',
+  address: '0.0.0.0',
+  port: 1139
+}
+[2026-03-09T18:06:50.081Z] Server error: Error: listen EADDRINUSE: address already in use 0.0.0.0:1139
+    at Server.setupListenHandle [as _listen2] (node:net:1940:16)
+    at listenInCluster (node:net:1997:12)
+    at node:net:2206:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:89:21) {
+  code: 'EADDRINUSE',
+  errno: -4091,
+  syscall: 'listen',
+  address: '0.0.0.0',
+  port: 1139
+}
+[2026-03-09T18:06:51.223Z] Server error: Error: listen EADDRINUSE: address already in use 0.0.0.0:1139
+    at Server.setupListenHandle [as _listen2] (node:net:1940:16)
+    at listenInCluster (node:net:1997:12)
+    at node:net:2206:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:89:21) {
+  code: 'EADDRINUSE',
+  errno: -4091,
+  syscall: 'listen',
+  address: '0.0.0.0',
+  port: 1139
+}
+[2026-03-09T18:06:52.579Z] Server error: Error: listen EADDRINUSE: address already in use 0.0.0.0:1139
+    at Server.setupListenHandle [as _listen2] (node:net:1940:16)
+    at listenInCluster (node:net:1997:12)
+    at node:net:2206:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:89:21) {
+  code: 'EADDRINUSE',
+  errno: -4091,
+  syscall: 'listen',
+  address: '0.0.0.0',
+  port: 1139
+}
+[2026-03-09T18:12:42.793Z] Authentication failed: noauth
+[2026-03-09T18:12:42.794Z] Nodes request error: Authentication failed: noauth
+[2026-03-09T18:12:42.794Z] Error stack: Error: Authentication failed: noauth
+    at WebSocket.<anonymous> (C:\rewst-proxy\proxy.js:248:25)
+    at WebSocket.emit (node:events:508:28)
+    at Receiver.receiverOnMessage (C:\rewst-proxy\node_modules\ws\lib\websocket.js:1225:20)
+    at Receiver.emit (node:events:508:28)
+    at Receiver.dataMessage (C:\rewst-proxy\node_modules\ws\lib\receiver.js:596:14)
+    at Receiver.getData (C:\rewst-proxy\node_modules\ws\lib\receiver.js:496:10)
+    at Receiver.startLoop (C:\rewst-proxy\node_modules\ws\lib\receiver.js:167:16)
+    at Receiver._write (C:\rewst-proxy\node_modules\ws\lib\receiver.js:94:10)
+    at writeOrBuffer (node:internal/streams/writable:570:12)
+    at _write (node:internal/streams/writable:499:10)
+[2026-03-09T18:14:38.072Z] ERROR: Could not load SSL certificates: ENOENT: no such file or directory, open 'C:\MeshCentral\meshcentral-data\cert.pem'
+[2026-03-09T18:14:38.072Z] Cert path: C:\MeshCentral\meshcentral-data\cert.pem
+[2026-03-09T18:14:38.072Z] Key path: C:\MeshCentral\meshcentral-data\key.pem
+[2026-03-09T18:14:39.160Z] ERROR: Could not load SSL certificates: ENOENT: no such file or directory, open 'C:\MeshCentral\meshcentral-data\cert.pem'
+[2026-03-09T18:14:39.160Z] Cert path: C:\MeshCentral\meshcentral-data\cert.pem
+[2026-03-09T18:14:39.160Z] Key path: C:\MeshCentral\meshcentral-data\key.pem
+[2026-03-09T18:14:40.507Z] ERROR: Could not load SSL certificates: ENOENT: no such file or directory, open 'C:\MeshCentral\meshcentral-data\cert.pem'
+[2026-03-09T18:14:40.507Z] Cert path: C:\MeshCentral\meshcentral-data\cert.pem
+[2026-03-09T18:14:40.507Z] Key path: C:\MeshCentral\meshcentral-data\key.pem
+[2026-03-09T18:17:56.335Z] ERROR: Could not load SSL certificates: ENOENT: no such file or directory, open 'C:\MeshCentral\meshcentral-data\cert.pem'
+[2026-03-09T18:17:56.335Z] Cert path: C:\MeshCentral\meshcentral-data\cert.pem
+[2026-03-09T18:17:56.335Z] Key path: C:\MeshCentral\meshcentral-data\key.pem
+[2026-03-09T18:17:57.422Z] ERROR: Could not load SSL certificates: ENOENT: no such file or directory, open 'C:\MeshCentral\meshcentral-data\cert.pem'
+[2026-03-09T18:17:57.422Z] Cert path: C:\MeshCentral\meshcentral-data\cert.pem
+[2026-03-09T18:17:57.422Z] Key path: C:\MeshCentral\meshcentral-data\key.pem
+[2026-03-09T18:17:58.756Z] ERROR: Could not load SSL certificates: ENOENT: no such file or directory, open 'C:\MeshCentral\meshcentral-data\cert.pem'
+[2026-03-09T18:17:58.756Z] Cert path: C:\MeshCentral\meshcentral-data\cert.pem
+[2026-03-09T18:17:58.756Z] Key path: C:\MeshCentral\meshcentral-data\key.pem

@@ -1,0 +1,40 @@
+2026-03-09 11:27:40 - Starting C:\Program Files\nodejs\node.exe  --max-old-space-size=512 C:\rewst-proxy\node_modules\node-windows\lib\wrapper.js --file C:\rewst-proxy\proxy.js --scriptoptions= --log "RewstProxy wrapper" --grow 0.25 --wait 1 --maxrestarts 3 --abortonerror n --stopparentfirst undefined
+2026-03-09 11:27:40 - Started 8096
+2026-03-09 12:06:49 - Starting C:\Program Files\nodejs\node.exe  --max-old-space-size=512 C:\rewst-proxy\node_modules\node-windows\lib\wrapper.js --file C:\rewst-proxy\proxy.js --scriptoptions= --log "RewstProxy wrapper" --grow 0.25 --wait 1 --maxrestarts 3 --abortonerror n --stopparentfirst undefined
+2026-03-09 12:06:49 - Started 5748
+2026-03-09 12:12:34 - Starting C:\Program Files\nodejs\node.exe  --max-old-space-size=512 C:\rewst-proxy\node_modules\node-windows\lib\wrapper.js --file C:\rewst-proxy\proxy.js --scriptoptions= --log "RewstProxy wrapper" --grow 0.25 --wait 1 --maxrestarts 3 --abortonerror n --stopparentfirst undefined
+2026-03-09 12:12:34 - Started 10036
+2026-03-09 12:14:36 - Stopping rewstproxy.exe
+2026-03-09 12:14:36 - ProcessKill 10036
+2026-03-09 12:14:36 - Found child process: 13980 Name: conhost.exe
+2026-03-09 12:14:36 - Found child process: 6508 Name: node.exe
+2026-03-09 12:14:36 - Stopping process 13980
+2026-03-09 12:14:36 - Send SIGINT 13980
+2026-03-09 12:14:36 - SIGINT to 13980 failed - Killing as fallback
+2026-03-09 12:14:36 - Stopping process 6508
+2026-03-09 12:14:36 - Send SIGINT 6508
+2026-03-09 12:14:36 - SIGINT to 6508 failed - Killing as fallback
+2026-03-09 12:14:36 - Stopping process 10036
+2026-03-09 12:14:36 - Send SIGINT 10036
+2026-03-09 12:14:36 - SIGINT to 10036 failed - Killing as fallback
+2026-03-09 12:14:36 - Finished rewstproxy.exe
+2026-03-09 12:14:37 - Starting C:\Program Files\nodejs\node.exe  --max-old-space-size=512 C:\rewst-proxy\node_modules\node-windows\lib\wrapper.js --file C:\rewst-proxy\proxy.js --scriptoptions= --log "RewstProxy wrapper" --grow 0.25 --wait 1 --maxrestarts 3 --abortonerror n --stopparentfirst undefined
+2026-03-09 12:14:37 - Started 2228
+2026-03-09 12:17:56 - Starting C:\Program Files\nodejs\node.exe  --max-old-space-size=512 C:\rewst-proxy\node_modules\node-windows\lib\wrapper.js --file C:\rewst-proxy\proxy.js --scriptoptions= --log "RewstProxy wrapper" --grow 0.25 --wait 1 --maxrestarts 3 --abortonerror n --stopparentfirst undefined
+2026-03-09 12:17:56 - Started 8680
+2026-03-09 12:21:35 - Starting C:\Program Files\nodejs\node.exe  --max-old-space-size=512 C:\rewst-proxy\node_modules\node-windows\lib\wrapper.js --file C:\rewst-proxy\proxy.js --scriptoptions= --log "RewstProxy wrapper" --grow 0.25 --wait 1 --maxrestarts 3 --abortonerror n --stopparentfirst undefined
+2026-03-09 12:21:35 - Started 14264
+2026-03-09 12:25:22 - Stopping rewstproxy.exe
+2026-03-09 12:25:22 - ProcessKill 14264
+2026-03-09 12:25:23 - Found child process: 7240 Name: conhost.exe
+2026-03-09 12:25:23 - Found child process: 8564 Name: node.exe
+2026-03-09 12:25:23 - Stopping process 7240
+2026-03-09 12:25:23 - Send SIGINT 7240
+2026-03-09 12:25:23 - SIGINT to 7240 failed - Killing as fallback
+2026-03-09 12:25:23 - Stopping process 8564
+2026-03-09 12:25:23 - Send SIGINT 8564
+2026-03-09 12:25:23 - SIGINT to 8564 failed - Killing as fallback
+2026-03-09 12:25:23 - Stopping process 14264
+2026-03-09 12:25:23 - Send SIGINT 14264
+2026-03-09 12:25:23 - SIGINT to 14264 failed - Killing as fallback
+2026-03-09 12:25:23 - Finished rewstproxy.exe
