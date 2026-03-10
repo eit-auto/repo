@@ -9,17 +9,22 @@ const ProxyLib = (() => {
     
     /**
      * Retrieve API key from org variables
+     * @param {string} keyName - Org variable name (required)
      * @returns {Promise<string>} API key value
      */
-    async function getApiKey() {
+    async function getApiKey(keyName) {
         try {
-            const apiKeyVar = await RewstLib.orgVariables.get('proxy_api_meshcentral');
-            
-            if (!apiKeyVar || !apiKeyVar.value) {
-                throw new Error('proxy_api_meshcentral not found in org variables');
+            if (!keyName) {
+                throw new Error('keyName is required');
             }
             
-            console.log('[ProxyLib] API key retrieved');
+            const apiKeyVar = await RewstLib.orgVariables.get(keyName);
+            
+            if (!apiKeyVar || !apiKeyVar.value) {
+                throw new Error(`${keyName} not found in org variables`);
+            }
+            
+            console.log('[ProxyLib] API key retrieved:', keyName);
             return apiKeyVar.value;
         } catch (error) {
             console.error('[ProxyLib] getApiKey error:', error);
@@ -31,7 +36,7 @@ const ProxyLib = (() => {
      * Authenticate with proxy to get session token
      * @param {string} user - Username (e.g., bradf@equinoxits.com)
      * @param {string} origin - Origin URL (e.g., https://equinoxits-tools.rew.st)
-     * @param {object} options - Optional config (apiKey, etc)
+     * @param {object} options - Required: keyName OR apiKey (apiKey takes precedence)
      * @returns {Promise<{status, sessionToken, credentialName, expiresIn}>}
      */
     async function authenticate(user, origin, options = {}) {
@@ -42,7 +47,10 @@ const ProxyLib = (() => {
             
             let apiKey = options.apiKey;
             if (!apiKey) {
-                apiKey = await getApiKey();
+                if (!options.keyName) {
+                    throw new Error('keyName is required (or provide apiKey directly)');
+                }
+                apiKey = await getApiKey(options.keyName);
             }
             
             console.log('[ProxyLib] Authenticating user:', user);
