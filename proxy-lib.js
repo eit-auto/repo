@@ -41,8 +41,20 @@ const ProxyLib = (() => {
      */
     async function authenticate(user, origin, options = {}) {
         try {
-            if (!user || !origin) {
-                throw new Error('user and origin are required');
+            if (!user) {
+                throw new Error('user is required');
+            }
+            
+            // Handle origin - if null or invalid, use parent window origin
+            let authOrigin = origin;
+            if (!authOrigin || authOrigin === 'null') {
+                try {
+                    authOrigin = window.parent.location.origin;
+                    console.log('[ProxyLib] Origin was null/invalid, using parent origin:', authOrigin);
+                } catch (e) {
+                    console.warn('[ProxyLib] Could not access parent origin:', e.message);
+                    throw new Error('origin is required and could not be auto-detected');
+                }
             }
             
             let apiKey = options.apiKey;
@@ -56,7 +68,7 @@ const ProxyLib = (() => {
             console.log('[ProxyLib] Authenticating user:', user);
             
             const authPayload = {
-                origin: origin,
+                origin: authOrigin,
                 user: user
             };
             
