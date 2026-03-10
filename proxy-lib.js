@@ -297,14 +297,117 @@ const ProxyLib = (() => {
         }
     }
     
+    /**
+     * Authenticate with UI handling
+     * Convenience wrapper that handles authentication and updates UI elements
+     * @param {string} user - Username
+     * @param {string} origin - Origin URL
+     * @param {string} keyName - Org variable name for API key
+     * @param {object} uiElements - UI elements {authStatusBox, inputElement, buttonElement}
+     * @returns {Promise<string>} Session token on success
+     * @throws {Error} On authentication failure
+     */
+    async function authenticateWithKeyName(user, origin, keyName, uiElements = {}) {
+        const authBox = uiElements.authStatusBox;
+        const inputElement = uiElements.inputElement;
+        const buttonElement = uiElements.buttonElement;
+        
+        try {
+            console.log('[ProxyLib] Authenticating with keyName:', keyName);
+            
+            // Use main authenticate function
+            const authResult = await authenticate(user, origin, { keyName });
+            const sessionToken = authResult.sessionToken;
+            
+            // Update UI if provided
+            if (authBox) {
+                authBox.className = 'status-box success';
+                authBox.textContent = `✓ Authenticated (${authResult.credentialName}) - Ready to execute`;
+                authBox.style.display = 'block';
+            }
+            
+            // Enable inputs if provided
+            if (inputElement) inputElement.disabled = false;
+            if (buttonElement) buttonElement.disabled = false;
+            
+            console.log('[ProxyLib] Authentication with UI handling successful');
+            return sessionToken;
+            
+        } catch (error) {
+            console.error('[ProxyLib] Authentication error:', error);
+            
+            // Update UI on error
+            if (authBox) {
+                authBox.className = 'status-box error';
+                authBox.textContent = `✗ Auth Error: ${error.message}`;
+                authBox.style.display = 'block';
+            }
+            
+            // Disable inputs on error
+            if (inputElement) inputElement.disabled = true;
+            if (buttonElement) buttonElement.disabled = true;
+            
+            throw error;
+        }
+    }
+    
+    /**
+     * Escape HTML special characters to prevent XSS
+     * @param {string} text - Text to escape
+     * @returns {string} Escaped text safe for innerHTML
+     */
+    function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+    
+    /**
+     * Build HTML table from array of objects
+     * @param {array} rows - Array of objects (each object is a row)
+     * @param {array} columns - Optional: array of column names
+     * @returns {string} HTML table string
+     */
+    function buildTable(rows, columns = null) {
+        if (!rows || rows.length === 0) {
+            return '';
+        }
+        
+        // Get columns from first row if not provided
+        const cols = columns || Object.keys(rows[0]);
+        
+        // Build table
+        let html = '<div class="table-wrapper"><table><thead><tr>';
+        cols.forEach(col => {
+            html += `<th>${escapeHtml(col)}</th>`;
+        });
+        html += '</tr></thead><tbody>';
+        
+        rows.forEach(row => {
+            html += '<tr>';
+            cols.forEach(col => {
+                const value = row[col];
+                const displayValue = value === null ? '(null)' : escapeHtml(String(value));
+                html += `<td>${displayValue}</td>`;
+            });
+            html += '</tr>';
+        });
+        
+        html += '</tbody></table></div>';
+        return html;
+    }
+    
     // Public API
     return {
         getApiKey,
         authenticate,
+        authenticateWithKeyName,
         validateSession,
         executeCommand,
         executeQuery,
         getNodes,
-        getStatus
+        getStatus,
+        escapeHtml,
+        buildTable
     };
 })();
