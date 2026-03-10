@@ -1966,6 +1966,12 @@ const batchSaveBackdrop = document.getElementById('batchSaveBackdrop');
                     try {
                         let payload = { ...update_vars };
                         
+                        // For workflow-based operations (not SQL), add action parameter
+                        if (!datatableConfig.use_sql) {
+                            payload.action = 'delete';
+                            console.log('[DELETE] Added action: "delete" for workflow-based datatable');
+                        }
+                        
                         // If sql_query is "Dynamic", generate DELETE query
                         if (payload.sql_query === 'Dynamic') {
                             payload.sql_query = generateDynamicSQL('DELETE', recordToDelete, col_display_edit);
@@ -2070,6 +2076,12 @@ const batchSaveBackdrop = document.getElementById('batchSaveBackdrop');
                 if (update_workflow) {
                     try {
                         let payload = { ...update_vars };
+                        
+                        // For workflow-based operations (not SQL), add action parameter
+                        if (!datatableConfig.use_sql) {
+                            payload.action = 'edit';
+                            console.log('[UPDATE] Added action: "edit" for workflow-based datatable');
+                        }
                         
                         // Helper function to substitute [[variable]] with actual values
                         function substituteVariables(str) {
@@ -2218,6 +2230,12 @@ const batchSaveBackdrop = document.getElementById('batchSaveBackdrop');
             if (update_workflow) {
                 try {
                     let payload = { ...update_vars };
+                    
+                    // For workflow-based operations (not SQL), add action parameter
+                    if (!datatableConfig.use_sql) {
+                        payload.action = 'add';
+                        console.log('[INSERT] Added action: "add" for workflow-based datatable');
+                    }
                     
                     // If sql_query is "Dynamic", generate INSERT query
                     if (payload.sql_query === 'Dynamic') {
@@ -2527,7 +2545,7 @@ async function renderInputVarDropdowns() {
             const orderedVars = getInputVarsInDependencyOrder();
             console.log('[INPUT_VAR] Vars in order:', orderedVars.map(v => v.name));
 
-            // First pass: Set static vars and URL params
+            // First pass: Set static vars and URL params (for non-dataset vars)
             const staticAndUrlVars = orderedVars.filter(v => !v.from_dataset);
             for (const varConfig of staticAndUrlVars) {
                 const urlValue = RewstLib.forms.getUrlParameter(varConfig.name);
@@ -2540,12 +2558,36 @@ async function renderInputVarDropdowns() {
                 }
             }
 
-            // Check which input_var_config entries have datatable_var: true
+            // Second pass: Find variables that need dropdowns
+            // A variable needs a dropdown if:
+            // 1. from_dataset: true AND (from_url is false OR no URL value provided) OR
+            // 2. It's a dependency of a datatable_var with unexpanded placeholders
+            const neededDropdowns = [];
+            
+            // Check all from_dataset vars directly
+            for (const varConfig of orderedVars) {
+                if (varConfig.from_dataset === true) {
+                    const urlValue = RewstLib.forms.getUrlParameter(varConfig.name);
+                    const hasUrlValue = varConfig.from_url && urlValue;
+                    
+                    if (!hasUrlValue) {
+                        // No URL value provided, need a dropdown
+                        if (!neededDropdowns.includes(varConfig.name)) {
+                            neededDropdowns.push(varConfig.name);
+                            console.log('[INPUT_VAR] Need dropdown for from_dataset var:', varConfig.name);
+                        }
+                    } else {
+                        // URL value provided, set it
+                        setInputVarValue(varConfig.name, urlValue);
+                        console.log('[INPUT_VAR] Populated from_dataset var from URL:', varConfig.name, '=', urlValue);
+                    }
+                }
+            }
+
+            // Also check dependencies within datatable_vars (for SQL template expansion)
             const datatable_vars = orderedVars.filter(v => v.datatable_var === true);
             console.log('[INPUT_VAR] datatable_var configs:', datatable_vars.map(v => v.name));
 
-            // Find all unexpanded variables in datatable_var inputs (transitive)
-            const neededDropdowns = [];
             const checked = new Set();
             
             function findNeededDropdowns(varName) {
@@ -2557,7 +2599,7 @@ async function renderInputVarDropdowns() {
                 
                 // Get the actual value from input_vars or input_var property
                 let checkValue = varConfig.input_var || input_vars[varConfig.name];
-                console.log('[INPUT_VAR] Checking', varName, '- value:', checkValue);
+                console.log('[INPUT_VAR] Checking datatable_var', varName, '- value:', checkValue);
                 
                 if (checkValue) {
                     const { dependencies } = parseInputVar(checkValue);
@@ -2571,7 +2613,7 @@ async function renderInputVarDropdowns() {
                             const depConfig = inputVarConfig.find(v => v.name === dep);
                             if (depConfig && depConfig.from_dataset === true && !neededDropdowns.includes(dep)) {
                                 neededDropdowns.push(dep);
-                                console.log('[INPUT_VAR] Need dropdown for dependency:', dep);
+                                console.log('[INPUT_VAR] Need dropdown for datatable_var dependency:', dep);
                                 
                                 // Recursively check this dependency's dependencies
                                 findNeededDropdowns(dep);
@@ -2581,7 +2623,7 @@ async function renderInputVarDropdowns() {
                 }
             }
             
-            // Start from all datatable_vars
+            // Check dependencies of all datatable_vars
             for (const varConfig of datatable_vars) {
                 findNeededDropdowns(varConfig.name);
             }
@@ -2877,6 +2919,13 @@ async function loadDataTable() {
                 
                 // Process input_vars from config - this may use values from input_var_config above
                 Object.keys(input_vars).forEach(key => {
+                    // Skip datatable_var entries - they get values from dropdown selections, not from input_vars
+                    const varConfig = inputVarConfig.find(v => v.name === key);
+                    if (varConfig && varConfig.datatable_var === true) {
+                        console.log('[LOAD_TABLE] Skipping datatable_var:', key, '- using dropdown value:', payload[key]);
+                        return; // Skip this variable, keep the dropdown value from first pass
+                    }
+                    
                     const value = input_vars[key];
                     // Substitute any [[variable]] patterns using values now in payload
                     payload[key] = substituteVariables(value);
@@ -2912,6 +2961,12 @@ async function loadDataTable() {
                     messageDiv.style.display = 'block';
                     tableContainer.classList.add('active');
                     return;
+                }
+                
+                // For workflow-based operations (not SQL), add action parameter
+                if (!datatableConfig.use_sql) {
+                    payload.action = 'get';
+                    console.log('[LOAD_TABLE] Added action: "get" for workflow-based datatable');
                 }
                 
                 const result = await rewst.runWorkflowSmart(data_workflow, payload, {
