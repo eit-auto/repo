@@ -863,6 +863,24 @@ const GRAPHQL_OPERATIONS = {
    */
   function parseURLParams() {
     const params = {};
+    
+    // In iframe context, try parent window first
+    if (window.parent !== window) {
+      try {
+        const parentParams = new URLSearchParams(window.parent.location.search);
+        parentParams.forEach((value, key) => {
+          params[key] = value;
+        });
+        // If we got params from parent, return them
+        if (Object.keys(params).length > 0) {
+          return params;
+        }
+      } catch (e) {
+        // If parent is cross-origin or inaccessible, fall through to current window
+      }
+    }
+    
+    // Fall back to current window's parameters
     const searchParams = new URLSearchParams(window.location.search);
     searchParams.forEach((value, key) => {
       params[key] = value;
