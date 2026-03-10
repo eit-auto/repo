@@ -243,12 +243,59 @@ const ProxyLib = (() => {
         }
     }
     
+    /**
+     * Execute MySQL query
+     * @param {string} sessionToken - Session token (from authenticate)
+     * @param {string} user - Username
+     * @param {string} query - SQL query to execute
+     * @param {object} options - Optional config
+     * @returns {Promise<{success, result, rowCount}>}
+     */
+    async function executeQuery(sessionToken, user, query, options = {}) {
+        try {
+            if (!sessionToken || !user || !query) {
+                throw new Error('sessionToken, user, and query are required');
+            }
+            
+            console.log('[ProxyLib] Executing query');
+            
+            const response = await fetch(`${PROXY_URL}/query`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Session-Token': sessionToken
+                },
+                body: JSON.stringify({
+                    query: query,
+                    user: user
+                })
+            });
+            
+            const data = await response.json();
+            
+            if (!response.ok) {
+                throw new Error(data.error || `HTTP ${response.status}`);
+            }
+            
+            if (!data.success) {
+                throw new Error(data.errors || 'Query execution failed');
+            }
+            
+            console.log('[ProxyLib] Query executed successfully, returned', data.rowCount, 'rows');
+            return data;
+        } catch (error) {
+            console.error('[ProxyLib] executeQuery error:', error);
+            throw error;
+        }
+    }
+    
     // Public API
     return {
         getApiKey,
         authenticate,
         validateSession,
         executeCommand,
+        executeQuery,
         getNodes,
         getStatus
     };
