@@ -654,7 +654,7 @@
     --form-accent-color: #5a9fb8;
   }
   .form-group {
-    margin-bottom: 1.125rem;
+    margin-bottom: 0.75rem;
     display: flex;
     flex-direction: column;
     position: relative;
@@ -1094,7 +1094,7 @@
     flex: 1;
   }
   .form-group {
-    margin-bottom: 25px;
+    margin-bottom: 0.75rem;
     position: relative;
   }
   .form-group-with-status {
