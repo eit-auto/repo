@@ -265,6 +265,22 @@ const ProxyLib = (() => {
                 throw new Error(data.error || 'Failed to retrieve nodes');
             }
             
+            // Process nodes to strip "node//" prefix from _id fields
+            if (data.result && typeof data.result === 'object') {
+                Object.values(data.result).forEach(meshGroup => {
+                    if (Array.isArray(meshGroup)) {
+                        meshGroup.forEach(node => {
+                            if (node && node._id && typeof node._id === 'string') {
+                                // Strip "node//" prefix if present
+                                if (node._id.startsWith('node//')) {
+                                    node._id = node._id.substring(7); // Remove "node//"
+                                }
+                            }
+                        });
+                    }
+                });
+            }
+            
             const meshGroupCount = Object.keys(data.result || {}).length;
             console.log('[ProxyLib] Retrieved nodes:', meshGroupCount, 'mesh groups');
             return data;
