@@ -687,13 +687,23 @@
     border: 2px solid var(--form-border-color);
     border-radius: 4px;
     background: var(--form-bg-color);
-    color: inherit;
+    color: var(--form-text-color);
     font-size: 0.95rem;
     line-height: 1.0;
     transition: all 0.2s ease;
     font-family: inherit;
     height: 37px;
     box-sizing: border-box;
+  }
+  
+  /* Override webkit autofill styling */
+  .form-group input[type="text"]:-webkit-autofill,
+  .form-group input[type="email"]:-webkit-autofill,
+  .form-group input[type="date"]:-webkit-autofill,
+  .form-group input[type="datetime-local"]:-webkit-autofill,
+  .form-group input[type="number"]:-webkit-autofill {
+    -webkit-box-shadow: 0 0 0 1000px var(--form-bg-color) inset !important;
+    -webkit-text-fill-color: var(--form-text-color) !important;
   }
   .form-group input[type="date"]::-webkit-calendar-picker-indicator,
   .form-group input[type="datetime-local"]::-webkit-calendar-picker-indicator {
@@ -705,7 +715,7 @@
     border: 2px solid var(--form-border-color);
     border-radius: 4px;
     background: var(--form-bg-color);
-    color: inherit;
+    color: var(--form-text-color);
     font-size: 0.95rem;
     line-height: 1.0;
     transition: all 0.2s ease;
@@ -771,7 +781,7 @@
     border: 2px solid var(--form-border-color);
     border-radius: 4px;
     background: var(--form-bg-color);
-    color: inherit;
+    color: var(--form-text-color);
     font-size: 0.95rem;
     line-height: 1.0;
     transition: all 0.2s ease;
@@ -785,13 +795,19 @@
     border: 2px solid var(--form-border-color);
     border-radius: 4px;
     background: var(--form-bg-color);
-    color: inherit;
+    color: var(--form-text-color);
     font-size: 0.95rem;
     line-height: 1.4;
     transition: all 0.2s ease;
     font-family: inherit;
     resize: vertical;
     min-height: 100px;
+  }
+  
+  /* Override webkit autofill styling for textarea */
+  .form-group textarea:-webkit-autofill {
+    -webkit-box-shadow: 0 0 0 1000px var(--form-bg-color) inset !important;
+    -webkit-text-fill-color: var(--form-text-color) !important;
   }
   .form-group input[type="text"]:focus,
   .form-group input[type="email"]:focus,
