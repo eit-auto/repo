@@ -271,9 +271,9 @@ const ProxyLib = (() => {
                     if (Array.isArray(meshGroup)) {
                         meshGroup.forEach(node => {
                             if (node && node._id && typeof node._id === 'string') {
-                                // Strip "node//" prefix if present
+                                // Strip "node//" prefix if present (6 characters: n-o-d-e-/-/)
                                 if (node._id.startsWith('node//')) {
-                                    node._id = node._id.substring(7); // Remove "node//"
+                                    node._id = node._id.substring(6); // Remove "node//"
                                 }
                             }
                         });
