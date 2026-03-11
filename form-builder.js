@@ -2732,11 +2732,6 @@ function showElementSettings(elementUid) {
                 <div style='color: #999; font-size: 12px; margin-top: 6px;'>MeshCentral node ID, supports [[field_name]] placeholders</div>
             </div>
             <div style='margin-bottom: 15px;'>
-                <label style='display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;'>Command/Script</label>
-                <textarea id='mesh_command' style='width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box; font-family: monospace; font-size: 13px; min-height: 120px;'>${fieldConfig.command || ''}</textarea>
-                <div style='color: #999; font-size: 12px; margin-top: 6px;'>PowerShell/cmd script, supports [[field_name]] placeholders. Command must output JSON array.</div>
-            </div>
-            <div style='margin-bottom: 15px;'>
                 <label style='display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;'>Command Type</label>
                 <div style='display: flex; gap: 20px;'>
                     <label style='display: flex; align-items: center; gap: 8px; cursor: pointer; color: #ffffff;'>
@@ -2748,6 +2743,11 @@ function showElementSettings(elementUid) {
                         <span>PowerShell</span>
                     </label>
                 </div>
+            </div>
+            <div style='margin-bottom: 15px;'>
+                <label style='display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;'>Command/Script</label>
+                <textarea id='mesh_command' style='width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box; font-family: monospace; font-size: 13px; min-height: 120px;'>${fieldConfig.command || ''}</textarea>
+                <div style='color: #999; font-size: 12px; margin-top: 6px;'>PowerShell/cmd script, supports [[field_name]] placeholders. Command must output JSON array.</div>
             </div>
             <div style='margin-bottom: 15px;'>
                 <label style='display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;'>Label Field (JSON Key)</label>
