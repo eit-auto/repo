@@ -205,6 +205,10 @@ const ProxyLib = (() => {
      * @param {string} sessionToken - Session token (from authenticate)
      * @param {string} user - Username
      * @param {object} options - Optional config {query, ...}
+     * Query syntax: Use node.* and mesh.* prefixes
+     *   Example: node.tags CONTAINS "production" AND mesh.name EQUALS "llink-servers"
+     *   Operators: CONTAINS, NOT_CONTAINS, EQUALS, STARTS_WITH, ENDS_WITH
+     *   Logic: AND, OR with parentheses for grouping
      * @returns {Promise<{success, result}>} result is object with mesh groups as keys
      */
     async function getNodes(sessionToken, user, options = {}) {
