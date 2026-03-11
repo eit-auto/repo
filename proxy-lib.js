@@ -205,13 +205,28 @@ const ProxyLib = (() => {
      * @param {string} sessionToken - Session token (from authenticate)
      * @param {string} user - Username
      * @param {object} options - Optional config {query, ...}
-     * Query syntax: Use node.* and mesh.* prefixes
-     *   Node properties: name, tags, host, ip, osdesc, conn, users, etc.
-     *   Mesh properties: name, notes, meshid, description, etc.
-     *   Example: node.tags CONTAINS "primary_dc" AND mesh.notes CONTAINS "org-uuid"
+     * 
+     * Query syntax: Use node.* and mesh.* prefixes to query specific properties
      *   Operators: CONTAINS, NOT_CONTAINS, EQUALS, STARTS_WITH, ENDS_WITH
      *   Logic: AND, OR with parentheses for grouping
-     * @returns {Promise<{success, result}>} result is object with mesh groups as keys
+     *   Example: node.tags CONTAINS "primary_dc" AND mesh.desc CONTAINS "org-uuid"
+     * 
+     * NODE FIELDS (accessible via node.fieldname):
+     *   - type, mtype, _id, icon, name, rname
+     *   - domain, agent (object with ver, id, caps, core, root)
+     *   - host, ip, firstconnect, lastbootuptime (timestamps in ms)
+     *   - osdesc (OS description), av (antivirus array), defender (object)
+     *   - idletime, users, lusers, upnusers (counts)
+     *   - tags (array of strings), conn, pwr, agct
+     *   - mesh (object - see MESH FIELDS below)
+     * 
+     * MESH FIELDS (accessible via mesh.fieldname):
+     *   - type, _id, name, mtype
+     *   - desc (description), domain
+     *   - links (permissions object)
+     *   - creation (timestamp in ms), creatorid, creatorname
+     * 
+     * @returns {Promise<{success, result}>} result is object with mesh groups as keys, each containing array of nodes
      */
     async function getNodes(sessionToken, user, options = {}) {
         try {
