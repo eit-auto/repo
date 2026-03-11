@@ -2741,7 +2741,7 @@ function showElementSettings(elementUid) {
                 <div style='display: flex; gap: 20px;'>
                     <label style='display: flex; align-items: center; gap: 8px; cursor: pointer; color: #ffffff;'>
                         <input type='radio' name='mesh_command_type' value='1' ${fieldConfig.command_type === 1 ? 'checked' : ''} style='cursor: pointer;'>
-                        <span>Command (cmd)</span>
+                        <span>CMD</span>
                     </label>
                     <label style='display: flex; align-items: center; gap: 8px; cursor: pointer; color: #ffffff;'>
                         <input type='radio' name='mesh_command_type' value='2' ${fieldConfig.command_type === 2 ? 'checked' : ''} style='cursor: pointer;'>
