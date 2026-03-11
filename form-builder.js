@@ -400,9 +400,10 @@ const ELEMENT_TYPE_DEFAULTS = {
         default_value: null
     },
     'dropdown_mesh': {
-        node_id: '',
-        command: '',
-        command_type: 2,
+        mode: 'powershell',         // 'cmd' | 'powershell' | 'nodes'
+        node_id: '',                // For cmd/powershell modes
+        command: '',                // For cmd/powershell modes
+        node_query: '',             // For nodes mode (optional filter)
         label_field: '',
         value_field: '',
         multi_select: false,
@@ -932,15 +933,26 @@ function saveTypeSpecificFields(fieldConfig) {
             fieldConfig.value_field = document.getElementById('mysql_value_field')?.value || '';
             fieldConfig.multi_select = document.getElementById('multi_select')?.checked || false;
         } else if (elementType === 'dropdown_mesh') {
-            fieldConfig.node_id = document.getElementById('mesh_node_id')?.value || '';
-            fieldConfig.command = document.getElementById('mesh_command')?.value || '';
+            // Save mode from dropdown
+            fieldConfig.mode = document.getElementById('mesh_mode')?.value || 'powershell';
+            
+            // Conditional field saving based on mode
+            if (fieldConfig.mode === 'cmd' || fieldConfig.mode === 'powershell') {
+                fieldConfig.node_id = document.getElementById('mesh_node_id')?.value || '';
+                fieldConfig.command = document.getElementById('mesh_command')?.value || '';
+                // Clear nodes mode fields
+                fieldConfig.node_query = '';
+            } else if (fieldConfig.mode === 'nodes') {
+                fieldConfig.node_query = document.getElementById('mesh_node_query')?.value || '';
+                // Clear command mode fields
+                fieldConfig.node_id = '';
+                fieldConfig.command = '';
+            }
+            
+            // Common fields for all modes
             fieldConfig.label_field = document.getElementById('mesh_label_field')?.value || '';
             fieldConfig.value_field = document.getElementById('mesh_value_field')?.value || '';
             fieldConfig.multi_select = document.getElementById('multi_select')?.checked || false;
-            
-            // Get selected command type radio button
-            const selectedCommandType = document.querySelector('input[name="mesh_command_type"]:checked');
-            fieldConfig.command_type = selectedCommandType ? parseInt(selectedCommandType.value) : 2;
         } else if (elementType === 'form_extend') {
             fieldConfig.extend_var = document.getElementById('extend_var')?.value || null;
             
@@ -2727,28 +2739,42 @@ function showElementSettings(elementUid) {
     } else if (fieldConfig.type === 'dropdown_mesh') {
         formHTML += `
             <div style='margin-bottom: 15px;'>
-                <label style='display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;'>Node ID</label>
-                <input type='text' id='mesh_node_id' value='${fieldConfig.node_id || ''}' placeholder='e.g., node123 or [[node_field]]' style='width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box;'>
-                <div style='color: #999; font-size: 12px; margin-top: 6px;'>MeshCentral node ID, supports [[field_name]] placeholders</div>
+                <label style='display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;'>Mode</label>
+                <select id='mesh_mode' style='width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box;'>
+                    <option value='cmd' ${fieldConfig.mode === 'cmd' ? 'selected' : ''}>CMD Command</option>
+                    <option value='powershell' ${fieldConfig.mode === 'powershell' ? 'selected' : ''}>PowerShell Command</option>
+                    <option value='nodes' ${fieldConfig.mode === 'nodes' ? 'selected' : ''}>Get Nodes</option>
+                </select>
             </div>
-            <div style='margin-bottom: 15px;'>
-                <label style='display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;'>Command Type</label>
-                <div style='display: flex; gap: 20px;'>
-                    <label style='display: flex; align-items: center; gap: 8px; cursor: pointer; color: #ffffff;'>
-                        <input type='radio' name='mesh_command_type' value='1' ${fieldConfig.command_type === 1 ? 'checked' : ''} style='cursor: pointer;'>
-                        <span>CMD</span>
-                    </label>
-                    <label style='display: flex; align-items: center; gap: 8px; cursor: pointer; color: #ffffff;'>
-                        <input type='radio' name='mesh_command_type' value='2' ${fieldConfig.command_type === 2 ? 'checked' : ''} style='cursor: pointer;'>
-                        <span>PowerShell</span>
-                    </label>
+        `;
+        
+        // Conditional fields based on mode
+        if (fieldConfig.mode === 'cmd' || fieldConfig.mode === 'powershell') {
+            formHTML += `
+                <div style='margin-bottom: 15px;'>
+                    <label style='display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;'>Node ID</label>
+                    <input type='text' id='mesh_node_id' value='${fieldConfig.node_id || ''}' placeholder='e.g., node123 or [[node_field]]' style='width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box;'>
+                    <div style='color: #999; font-size: 12px; margin-top: 6px;'>MeshCentral node ID, supports [[field_name]] placeholders</div>
                 </div>
-            </div>
-            <div style='margin-bottom: 15px;'>
-                <label style='display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;'>Command/Script</label>
-                <textarea id='mesh_command' style='width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box; font-family: monospace; font-size: 13px; min-height: 120px;'>${fieldConfig.command || ''}</textarea>
-                <div style='color: #999; font-size: 12px; margin-top: 6px;'>PowerShell/cmd script, supports [[field_name]] placeholders. Command must output JSON array.</div>
-            </div>
+                <div style='margin-bottom: 15px;'>
+                    <label style='display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;'>Command/Script</label>
+                    <textarea id='mesh_command' style='width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box; font-family: monospace; font-size: 13px; min-height: 120px;'>${fieldConfig.command || ''}</textarea>
+                    <div style='color: #999; font-size: 12px; margin-top: 6px;'>Script/command, supports [[field_name]] placeholders. Command must output JSON array.</div>
+                </div>
+            `;
+        } else if (fieldConfig.mode === 'nodes') {
+            formHTML += `
+                <div style='margin-bottom: 15px;'>
+                    <label style='display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;'>Node Query Filter (Optional)</label>
+                    <textarea id='mesh_node_query' style='width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box; font-family: monospace; font-size: 13px; min-height: 100px;'>${fieldConfig.node_query || ''}</textarea>
+                    <div style='color: #999; font-size: 12px; margin-top: 6px;'>Optional: Filter nodes by query. Leave empty to get all nodes.<br>
+                    Examples: node.name CONTAINS "primary" | node.tags CONTAINS "org-123" AND mesh.desc CONTAINS "prod"</div>
+                </div>
+            `;
+        }
+        
+        // Common fields for all modes
+        formHTML += `
             <div style='margin-bottom: 15px;'>
                 <label style='display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;'>Label Field (JSON Key)</label>
                 <input type='text' id='mesh_label_field' value='${fieldConfig.label_field || ''}' placeholder='e.g., name' style='width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box;'>
@@ -3313,26 +3339,32 @@ function showElementSettings(elementUid) {
     
     // Add listeners for dropdown_mesh
     if (fieldConfig.type === 'dropdown_mesh') {
+        const meshModeSelect = document.getElementById('mesh_mode');
         const meshNodeIdInput = document.getElementById('mesh_node_id');
         const meshCommandInput = document.getElementById('mesh_command');
+        const meshNodeQueryInput = document.getElementById('mesh_node_query');
         const meshLabelFieldInput = document.getElementById('mesh_label_field');
         const meshValueFieldInput = document.getElementById('mesh_value_field');
-        const meshCommandTypeRadios = document.querySelectorAll('input[name="mesh_command_type"]');
         
-        [meshNodeIdInput, meshCommandInput, meshLabelFieldInput, meshValueFieldInput].forEach(input => {
+        // Mode dropdown listener - rebuild form on mode change
+        if (meshModeSelect) {
+            meshModeSelect.addEventListener('change', (e) => {
+                fieldConfig.mode = e.target.value;
+                formHasBeenModified = true;
+                updateElementSettingsSaveButtonVisibility();
+                // Rebuild form to show/hide conditional fields
+                showElementSettings(elementUid);
+            });
+        }
+        
+        // Input listeners for conditional fields
+        [meshNodeIdInput, meshCommandInput, meshNodeQueryInput, meshLabelFieldInput, meshValueFieldInput].forEach(input => {
             if (input) {
                 input.addEventListener('input', () => {
                     formHasBeenModified = true;
                     updateElementSettingsSaveButtonVisibility();
                 });
             }
-        });
-        
-        meshCommandTypeRadios.forEach(radio => {
-            radio.addEventListener('change', () => {
-                formHasBeenModified = true;
-                updateElementSettingsSaveButtonVisibility();
-            });
         });
     }
     
@@ -4011,7 +4043,13 @@ function updateSaveButtonState() {
             } else if (f.type === 'dropdown_mysql') {
                 return !f.query || f.query === '' || !f.label_field || f.label_field === '' || !f.value_field || f.value_field === '';
             } else if (f.type === 'dropdown_mesh') {
-                return !f.node_id || f.node_id === '' || !f.command || f.command === '' || !f.label_field || f.label_field === '' || !f.value_field || f.value_field === '';
+                // Check based on mode
+                if (f.mode === 'cmd' || f.mode === 'powershell') {
+                    return !f.node_id || f.node_id === '' || !f.command || f.command === '' || !f.label_field || f.label_field === '' || !f.value_field || f.value_field === '';
+                } else if (f.mode === 'nodes') {
+                    return !f.label_field || f.label_field === '' || !f.value_field || f.value_field === '';
+                }
+                return false;
             }
             return false;
         });
@@ -4066,7 +4104,13 @@ function updateSaveButtonState() {
                 } else if (f.type === 'dropdown_mysql') {
                     return !f.query || f.query === '' || !f.label_field || f.label_field === '' || !f.value_field || f.value_field === '';
                 } else if (f.type === 'dropdown_mesh') {
-                    return !f.node_id || f.node_id === '' || !f.command || f.command === '' || !f.label_field || f.label_field === '' || !f.value_field || f.value_field === '';
+                    // Check based on mode
+                    if (f.mode === 'cmd' || f.mode === 'powershell') {
+                        return !f.node_id || f.node_id === '' || !f.command || f.command === '' || !f.label_field || f.label_field === '' || !f.value_field || f.value_field === '';
+                    } else if (f.mode === 'nodes') {
+                        return !f.label_field || f.label_field === '' || !f.value_field || f.value_field === '';
+                    }
+                    return false;
                 }
                 return false;
             });
@@ -4079,7 +4123,11 @@ function updateSaveButtonState() {
                 } else if (dropdown.type === 'dropdown_mysql') {
                     missingLabel = 'Query/Fields';
                 } else if (dropdown.type === 'dropdown_mesh') {
-                    missingLabel = 'Command/Fields';
+                    if (dropdown.mode === 'cmd' || dropdown.mode === 'powershell') {
+                        missingLabel = 'Command/Fields';
+                    } else if (dropdown.mode === 'nodes') {
+                        missingLabel = 'Fields';
+                    }
                 }
                 items.push({
                     label: `${dropdown.field_name} ${missingLabel}`,
