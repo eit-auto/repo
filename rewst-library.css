@@ -661,6 +661,9 @@
     position: relative;
     z-index: auto;
   }
+  .form-group > * {
+    align-self: stretch;
+  }
   .form-group-vert {
     display: flex;
     flex-direction: column;
