@@ -2373,7 +2373,7 @@ function showElementSettings(elementUid) {
     let formHTML = ``;
     
     // Add Dropdown Type selector for dropdown elements
-    if (['dropdown', 'dropdown_static', 'dropdown_graphql'].includes(fieldConfig.type)) {
+    if (['dropdown', 'dropdown_static', 'dropdown_graphql', 'dropdown_mysql', 'dropdown_mesh'].includes(fieldConfig.type)) {
         formHTML += `
             <div class="mb-15">
                 <label class="form-label">Dropdown Type</label>
