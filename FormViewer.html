@@ -110,7 +110,7 @@
 
         .array-instance {
             display: flex;
-            align-items: flex-end;
+            align-items: flex-start;
             gap: 0.375rem;
             padding: 0.5rem;
             background: #2a2a2a;
@@ -119,20 +119,29 @@
         }
 
         .array-instance-fields {
-            display: flex;
-            flex: 1;
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
             gap: 0.375rem;
-            align-items: flex-end;
-            flex-wrap: wrap;
             margin: 0;
+            flex: 1;
+        }
+
+        .array-instance-fields[data-cols="1"] {
+            grid-template-columns: repeat(1, 1fr);
+        }
+
+        .array-instance-fields[data-cols="2"] {
+            grid-template-columns: repeat(2, 1fr);
+        }
+
+        .array-instance-fields[data-cols="3"] {
+            grid-template-columns: repeat(3, 1fr);
         }
 
         .array-instance-field {
             display: flex;
             flex-direction: column;
             gap: 0.25rem;
-            flex: 1;
-            min-width: 150px;
             margin: 0;
             position: relative;
         }
@@ -1433,6 +1442,9 @@
                 }
             });
             
+            // Load array field dropdowns (workflow and GraphQL)
+            reloadArrayWorkflowDropdowns(fieldConfigs, formConfig);
+            
             // Show buttons and set up form submission
             formButtonsContainer.style.display = 'flex';
             
@@ -1440,6 +1452,200 @@
             window.currentFormConfig = formConfig;
             window.currentFormWorkflowId = workflowId;
         }
+
+        // ========================================
+        // UTILITY FUNCTIONS FOR FORM HANDLING
+        // ========================================
+
+        /**
+         * Show "Loading..." message in a form group
+         */
+        function showLoadingMessage(formGroup, config) {
+            if (!formGroup) return;
+            const msg = formGroup.querySelector('.field-loading-message');
+            if (msg) msg.style.display = 'flex';
+        }
+
+        /**
+         * Hide "Loading..." message in a form group
+         */
+        function hideLoadingMessage(formGroup, config) {
+            if (!formGroup) return;
+            const msg = formGroup.querySelector('.field-loading-message');
+            if (msg) msg.style.display = 'none';
+        }
+
+        /**
+         * Show "Waiting for..." message in a form group
+         */
+        function showWaitingMessage(formGroup, config, allFieldConfigs) {
+            if (!formGroup) return;
+            const msg = formGroup.querySelector('.field-waiting-message');
+            if (msg) msg.style.display = 'flex';
+        }
+
+        /**
+         * Hide "Waiting for..." message in a form group
+         */
+        function hideWaitingMessage(formGroup, config) {
+            if (!formGroup) return;
+            const msg = formGroup.querySelector('.field-waiting-message');
+            if (msg) msg.style.display = 'none';
+        }
+
+        /**
+         * Check if all dependencies for a field are met
+         */
+        function areDependenciesMet(config, allFieldConfigs) {
+            if (!config.dependant_fields) return true;
+            
+            for (const depFieldName of Object.keys(config.dependant_fields)) {
+                const depConfig = config.dependant_fields[depFieldName];
+                const input = document.querySelector(`input[name="${depFieldName}"], select[name="${depFieldName}"], textarea[name="${depFieldName}"]`);
+                
+                if (!input) continue;
+                
+                let value = '';
+                if (input.type === 'checkbox') {
+                    value = input.checked;
+                } else if (input.type === 'radio') {
+                    const checked = document.querySelector(`input[name="${depFieldName}"]:checked`);
+                    value = checked ? checked.value : null;
+                } else {
+                    value = input.value;
+                }
+                
+                // If blocking is true and value is empty, dependencies not met
+                if (depConfig.blocking && (value === '' || value === null)) {
+                    return false;
+                }
+            }
+            
+            return true;
+        }
+
+        /**
+         * Get values from all dependency fields
+         */
+        function getDependencyValues(config, allFieldConfigs) {
+            const values = {};
+            
+            if (!config.dependant_fields) return values;
+            
+            Object.keys(config.dependant_fields).forEach(depFieldName => {
+                const input = document.querySelector(`input[name="${depFieldName}"], select[name="${depFieldName}"], textarea[name="${depFieldName}"]`);
+                if (!input) return;
+                
+                let value = '';
+                if (input.type === 'checkbox') {
+                    value = input.checked;
+                } else if (input.type === 'radio') {
+                    const checked = document.querySelector(`input[name="${depFieldName}"]:checked`);
+                    value = checked ? checked.value : null;
+                } else {
+                    value = input.value;
+                }
+                
+                values[depFieldName] = value;
+            });
+            
+            return values;
+        }
+
+        /**
+         * Initialize dependent fields display state
+         */
+        function initializeDependentFields(fieldConfigs) {
+            fieldConfigs.forEach(config => {
+                if (config.dependant_fields) {
+                    const formGroup = document.querySelector(`[data-field-name="${config.field_name}"]`);
+                    if (formGroup) {
+                        const allDepsMet = areDependenciesMet(config, fieldConfigs);
+                        if (!allDepsMet) {
+                            showWaitingMessage(formGroup, config, fieldConfigs);
+                        }
+                    }
+                }
+            });
+        }
+
+        /**
+         * Update dependent field display and reload options when parent field changes
+         * @param {string} changedFieldName - The field that changed
+         * @param {Array} fieldConfigs - All field configurations
+         * @param {object} formConfig - Form configuration  
+         * @param {function} loadFieldOptionsFn - Function to load field options
+         */
+        function updateDependentFields(changedFieldName, fieldConfigs, formConfig, loadFieldOptionsFn) {
+            if (!Array.isArray(fieldConfigs) || typeof changedFieldName !== 'string') {
+                console.warn('[UPDATE_DEPS] Invalid parameters to updateDependentFields');
+                return;
+            }
+            
+            console.log(`[UPDATE_DEPS] Field ${changedFieldName} changed, checking dependent fields`);
+            
+            // Find all fields that depend on the changed field
+            fieldConfigs.forEach(config => {
+                if (!config.dependant_fields) return;
+                
+                // Check if this field depends on the changed field
+                const isDependentOnChanged = 
+                    (typeof config.dependant_fields === 'object' && changedFieldName in config.dependant_fields) ||
+                    (Array.isArray(config.dependant_fields) && config.dependant_fields.includes(changedFieldName));
+                
+                if (!isDependentOnChanged) return;
+                
+                console.log(`[UPDATE_DEPS] Field ${config.field_name} depends on ${changedFieldName}, reloading`);
+                
+                // Reload options for dropdown fields
+                if ((config.type === 'dropdown' && config.workflow_id) || config.type === 'dropdown_graphql') {
+                    if (loadFieldOptionsFn) {
+                        loadFieldOptionsFn(config, fieldConfigs, formConfig);
+                    }
+                }
+            });
+        }
+
+        /**
+         * Initialize multi-select dropdown
+         */
+        function initializeDropdownMultiSelect(fieldName, options) {
+            // Placeholder - multi-select not fully implemented yet
+            console.log(`[MULTISELECT] Initializing multi-select for ${fieldName}`);
+        }
+
+        /**
+         * Map results to options for dropdown
+         */
+        function mapResultsToOptions(results, valueName, labelName) {
+            if (!Array.isArray(results)) return [];
+            return results.map(item => ({
+                value: item[valueName] || item.id,
+                label: item[labelName] || item.name
+            }));
+        }
+
+        /**
+         * Render multi-select container (placeholder)
+         */
+        function renderMultiSelectContainer(config) {
+            // Placeholder implementation
+            return '';
+        }
+
+        // Extend RewstLib.utils with form-specific utilities
+        RewstLib.utils.showLoadingMessage = showLoadingMessage;
+        RewstLib.utils.hideLoadingMessage = hideLoadingMessage;
+        RewstLib.utils.showWaitingMessage = showWaitingMessage;
+        RewstLib.utils.hideWaitingMessage = hideWaitingMessage;
+        RewstLib.utils.areDependenciesMet = areDependenciesMet;
+        RewstLib.utils.getDependencyValues = getDependencyValues;
+        RewstLib.utils.initializeDependentFields = initializeDependentFields;
+        RewstLib.utils.updateDependentFields = updateDependentFields;
+        RewstLib.utils.initializeDropdownMultiSelect = initializeDropdownMultiSelect;
+        RewstLib.utils.mapResultsToOptions = mapResultsToOptions;
+        RewstLib.utils.renderMultiSelectContainer = renderMultiSelectContainer;
+
         function loadFieldOptions(config, allFieldConfigs = [], formConfig = {}) {
             console.log(`>>> loadFieldOptions called for: ${config.field_name}`);
             const formGroup = document.querySelector(`[data-field-name="${config.field_name}"]`);
@@ -1555,17 +1761,15 @@
             const skipCache = config.skip_cache === true || (config.dependant_fields && Object.values(config.dependant_fields).some(dep => dep.blocking === true));
             const options = skipCache ? { skip_cache: true } : {};
             
-            // Handle dropdown_graphql separately
+            // Handle dropdown_graphql separately with caching
             if (config.type === 'dropdown_graphql') {
                 console.log(`Loading GraphQL options for ${config.field_name} using operation: ${config.graphql_op}`);
                 
-                // Use library's GraphQL dropdown loader
-                const graphqlPromise = RewstLib.utils.loadGraphQLDropdownOptions(config, formConfig);
+                // Create cache key based on operation + variables
+                const cacheKey = getGraphQLCacheKey(config.graphql_op, config.graphql_op_variables || {});
                 
-                return graphqlPromise.then(data => {
-                    console.log(`GraphQL result for ${config.field_name}:`, data);
-                    if (formGroup) RewstLib.utils.hideLoadingMessage(formGroup, config);
-                    
+                // Helper function to populate dropdown with data
+                const populateDropdownWithData = (data) => {
                     const input = document.querySelector(`select[name="${config.field_name}"]`);
                     if (input) {
                         // Handle both array results (list_orgs) and single object results (get_org_var)
@@ -1595,9 +1799,59 @@
                             console.log(`[DROPDOWN] No results for ${config.field_name}, showing "None Found"`);
                         }
                     }
+                };
+                
+                // Check cache if not skipping
+                if (!skipCache && graphqlCache.results[cacheKey]) {
+                    console.log(`[GRAPHQL CACHE] Using cached results for: ${cacheKey}`);
+                    const cachedData = graphqlCache.results[cacheKey];
+                    if (formGroup) RewstLib.utils.hideLoadingMessage(formGroup, config);
+                    populateDropdownWithData(cachedData);
+                    return Promise.resolve();
+                }
+                
+                // Check if already in-flight
+                if (!skipCache && graphqlCache.inFlight[cacheKey]) {
+                    console.log(`[GRAPHQL CACHE] Waiting for in-flight GraphQL request: ${cacheKey}`);
+                    return graphqlCache.inFlight[cacheKey].then(data => {
+                        if (formGroup) RewstLib.utils.hideLoadingMessage(formGroup, config);
+                        populateDropdownWithData(data);
+                    }).catch(error => {
+                        console.error(`Error loading GraphQL options for ${config.field_name}:`, error);
+                        if (formGroup) RewstLib.utils.hideLoadingMessage(formGroup, config);
+                        const input = document.querySelector(`select[name="${config.field_name}"]`);
+                        if (input) input.innerHTML = `<option value="">-- Error loading options --</option>`;
+                    });
+                }
+                
+                // Execute GraphQL query
+                const graphqlPromise = RewstLib.utils.loadGraphQLDropdownOptions(config, formConfig);
+                
+                // Store in-flight promise
+                if (!skipCache) {
+                    graphqlCache.inFlight[cacheKey] = graphqlPromise;
+                }
+                
+                return graphqlPromise.then(data => {
+                    console.log(`GraphQL result for ${config.field_name}:`, data);
+                    if (formGroup) RewstLib.utils.hideLoadingMessage(formGroup, config);
+                    
+                    // Cache the result
+                    if (!skipCache) {
+                        graphqlCache.results[cacheKey] = data;
+                        delete graphqlCache.inFlight[cacheKey];
+                    }
+                    
+                    populateDropdownWithData(data);
                 }).catch(error => {
                     console.error(`Error loading GraphQL options for ${config.field_name}:`, error);
                     if (formGroup) RewstLib.utils.hideLoadingMessage(formGroup, config);
+                    
+                    // Remove from in-flight on error
+                    if (!skipCache) {
+                        delete graphqlCache.inFlight[cacheKey];
+                    }
+                    
                     const input = document.querySelector(`select[name="${config.field_name}"]`);
                     if (input) input.innerHTML = `<option value="">-- Error loading options --</option>`;
                 });
@@ -1956,7 +2210,15 @@
                         return `<div class="array-instance-field" data-field-name="${fieldId}"><label>${escapeHtml(displayName)}</label>${fieldHtml}</div>`;
                     }).join('');
                     
-                    const instanceHtml = `<div class="array-instance" data-instance-index="${instanceIndex}"><div class="array-instance-fields">${itemsHtml}</div><button type="button" class="array-instance-delete" title="Delete this row">×</button></div>`;
+                    // Calculate grid layout: determine rows, then columns for even distribution
+                    const itemCount = itemsArray.length;
+                    let numRows = 1;
+                    if (itemCount > 6) numRows = 3;
+                    else if (itemCount > 3) numRows = 2;
+                    
+                    const numCols = Math.ceil(itemCount / numRows);
+                    
+                    const instanceHtml = `<div class="array-instance" data-instance-index="${instanceIndex}"><div class="array-instance-fields" data-cols="${numCols}">${itemsHtml}</div><button type="button" class="array-instance-delete" title="Delete this row">×</button></div>`;
                     
                     arrayContainer.insertAdjacentHTML('beforeend', instanceHtml);
                     
@@ -2009,14 +2271,14 @@
                     return;
                 }
                 
-                // Check each array item for workflow dropdowns
+                // Check each array item for workflow and GraphQL dropdowns
                 const itemsArray = Array.isArray(arrayConfig.items) ? arrayConfig.items : [];
                 itemsArray.forEach(itemConfig => {
-                    if (itemConfig.type !== 'dropdown_workflow') return;
+                    if (itemConfig.type !== 'dropdown_workflow' && itemConfig.type !== 'dropdown_graphql') return;
                     
                     const fieldName = itemConfig.name;
                     
-                    console.log(`[ARRAY WORKFLOW] Executing workflow for ${arrayConfig.field_name}.${fieldName}`);
+                    console.log(`[ARRAY DROPDOWN] Loading ${itemConfig.type} for ${arrayConfig.field_name}.${fieldName}`);
                     
                     // Reload for all instances
                     arrayContainer.querySelectorAll('.array-instance').forEach(instance => {
@@ -2027,15 +2289,17 @@
                         const pseudoConfig = {
                             field_name: fieldId,
                             field_displayname: itemConfig.display_name || fieldName,
-                            type: 'dropdown',
+                            type: itemConfig.type === 'dropdown_graphql' ? 'dropdown_graphql' : 'dropdown',
                             workflow_id: itemConfig.workflow_id,
                             label_name: itemConfig.label_name,
                             value_name: itemConfig.value_name,
                             workflow_input: itemConfig.workflow_input || {},
+                            graphql_op: itemConfig.graphql_op,
+                            graphql_op_variables: itemConfig.graphql_op_variables || {},
                             dependant_fields: itemConfig.dependant_fields  // Include if defined
                         };
                         
-                        // Load the workflow options
+                        // Load the workflow/GraphQL options
                         // loadFieldOptions will find the element with data-field-name="${fieldId}" and show/hide loading messages
                         loadFieldOptions(pseudoConfig, fieldConfigs, formConfig);
                     });
@@ -2051,6 +2315,11 @@
             inFlight: {}      // In-flight workflow promises
         };
         
+        const graphqlCache = {
+            results: {},      // Cached GraphQL results
+            inFlight: {}      // In-flight GraphQL promises
+        };
+        
         function getWorkflowCacheKey(workflowId, workflowInput) {
             // Create a consistent cache key by sorting object keys
             // This ensures {a:1, b:2} and {b:2, a:1} produce the same key
@@ -2060,6 +2329,16 @@
                 sortedInput[key] = workflowInput[key];
             });
             return `${workflowId}_${JSON.stringify(sortedInput)}`;
+        }
+        
+        function getGraphQLCacheKey(operation, variables = {}) {
+            // Create a consistent cache key by sorting variable keys
+            const sortedVars = {};
+            const keys = Object.keys(variables).sort();
+            keys.forEach(key => {
+                sortedVars[key] = variables[key];
+            });
+            return `${operation}_${JSON.stringify(sortedVars)}`;
         }
         
         async function getOrExecuteWorkflow(config, workflowInput, allFieldConfigs = [], formConfig = {}) {
@@ -2201,10 +2480,10 @@
                             config = {
                                 field_name: fieldName,
                                 field_displayname: itemConfig.display_name || itemFieldName,
-                                type: itemConfig.type === 'dropdown_workflow' ? 'dropdown' : itemConfig.type,
+                                type: itemConfig.type === 'dropdown_graphql' ? 'dropdown_graphql' : 'dropdown',
                                 workflow_id: itemConfig.workflow_id,
-                                graphql_query: itemConfig.graphql_query,
-                                graphql_root_node: itemConfig.graphql_root_node,
+                                graphql_op: itemConfig.graphql_op,
+                                graphql_op_variables: itemConfig.graphql_op_variables || {},
                                 label_name: itemConfig.label_name,
                                 value_name: itemConfig.value_name,
                                 workflow_input: itemConfig.workflow_input || {},
@@ -2475,7 +2754,15 @@
                     return `<div class="array-instance-field" data-field-name="${fieldId}"><label>${escapeHtml(displayName)}</label>${fieldHtml}</div>`;
                 }).join('');
                 
-                const defaultInstanceHtml = `<div class="array-instance" data-instance-index="0"><div class="array-instance-fields">${itemsHtml}</div><button type="button" class="array-instance-delete" title="Delete this row">×</button></div>`;
+                // Calculate grid layout for default instance
+                const itemCount = itemsArray.length;
+                let numRows = 1;
+                if (itemCount > 6) numRows = 3;
+                else if (itemCount > 3) numRows = 2;
+                
+                const numCols = Math.ceil(itemCount / numRows);
+                
+                const defaultInstanceHtml = `<div class="array-instance" data-instance-index="0"><div class="array-instance-fields" data-cols="${numCols}">${itemsHtml}</div><button type="button" class="array-instance-delete" title="Delete this row">×</button></div>`;
                 
                 html += `
                     <div class="array-field-container">
@@ -2716,8 +3003,22 @@
                 // Also collect from extended fields (from form_extend)
                 // Find all form-groups that are NOT in the main config (these are extended fields)
                 const baseFieldNames = new Set(formConfig && formConfig.field_configs ? formConfig.field_configs.map(f => f.field_name) : []);
+                const arrayInstancePattern = /_\w+_\d+$/; // Pattern for array instance fields (e.g., m365_errors_client_0)
+                
                 document.querySelectorAll('[data-field-name]').forEach(formGroup => {
                     const fieldName = formGroup.getAttribute('data-field-name');
+                    
+                    // Skip array instance fields and hidden fields
+                    if (arrayInstancePattern.test(fieldName)) {
+                        console.log(`[SUBMIT] Skipping array instance field: ${fieldName}`);
+                        return;
+                    }
+                    
+                    if (formGroup.offsetParent === null || window.getComputedStyle(formGroup).display === 'none') {
+                        console.log(`[SUBMIT] Skipping hidden field: ${fieldName}`);
+                        return;
+                    }
+                    
                     if (!baseFieldNames.has(fieldName) && !formData.hasOwnProperty(fieldName)) {
                         const input = formGroup.querySelector('input[type="text"], input[type="email"], input[type="date"], input[type="datetime-local"], select, textarea');
                         const checkboxInput = formGroup.querySelector('input[type="checkbox"]');
@@ -2755,6 +3056,17 @@
                 const extendedFieldConfigs = [];
                 document.querySelectorAll('[data-field-name]').forEach(formGroup => {
                     const fieldName = formGroup.getAttribute('data-field-name');
+                    
+                    // Skip array instance fields
+                    if (arrayInstancePattern.test(fieldName)) {
+                        return;
+                    }
+                    
+                    // Skip hidden fields
+                    if (formGroup.offsetParent === null || window.getComputedStyle(formGroup).display === 'none') {
+                        return;
+                    }
+                    
                     if (!baseFieldNames.has(fieldName)) {
                         // This is an extended field - check if it's required by looking for required indicators
                         const label = formGroup.querySelector('label');
