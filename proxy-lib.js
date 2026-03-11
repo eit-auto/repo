@@ -206,7 +206,9 @@ const ProxyLib = (() => {
      * @param {string} user - Username
      * @param {object} options - Optional config {query, ...}
      * Query syntax: Use node.* and mesh.* prefixes
-     *   Example: node.tags CONTAINS "production" AND mesh.name EQUALS "llink-servers"
+     *   Node properties: name, tags, host, ip, osdesc, conn, users, etc.
+     *   Mesh properties: name, notes, meshid, description, etc.
+     *   Example: node.tags CONTAINS "primary_dc" AND mesh.notes CONTAINS "org-uuid"
      *   Operators: CONTAINS, NOT_CONTAINS, EQUALS, STARTS_WITH, ENDS_WITH
      *   Logic: AND, OR with parentheses for grouping
      * @returns {Promise<{success, result}>} result is object with mesh groups as keys
