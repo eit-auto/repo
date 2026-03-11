@@ -391,6 +391,13 @@ const ELEMENT_TYPE_DEFAULTS = {
         label_name: 'name',
         value_name: 'id',
         multi_select: false
+    },
+    'dropdown_mysql': {
+        query: '',
+        label_field: '',
+        value_field: '',
+        multi_select: false,
+        default_value: null
     }
 };
 
@@ -742,9 +749,9 @@ function saveTypeSpecificFields(fieldConfig) {
     
     try {
         // For dropdowns, clean up fields that don't belong to the selected type
-        if (['dropdown', 'dropdown_static', 'dropdown_graphql'].includes(elementType)) {
+        if (['dropdown', 'dropdown_static', 'dropdown_graphql', 'dropdown_mysql'].includes(elementType)) {
             if (elementType === 'dropdown_static') {
-                // Static: clear workflow and graphql fields
+                // Static: clear workflow, graphql, and mysql fields
                 delete fieldConfig.workflow_id;
                 delete fieldConfig.label_name;
                 delete fieldConfig.value_name;
@@ -752,19 +759,38 @@ function saveTypeSpecificFields(fieldConfig) {
                 delete fieldConfig.workflow_input;
                 delete fieldConfig.graphql_op;
                 delete fieldConfig.graphql_op_variables;
+                delete fieldConfig.query;
+                delete fieldConfig.label_field;
+                delete fieldConfig.value_field;
             } else if (elementType === 'dropdown') {
-                // Workflow: clear static and graphql fields
+                // Workflow: clear static, graphql, and mysql fields
                 delete fieldConfig.options;
                 delete fieldConfig.graphql_op;
                 delete fieldConfig.graphql_op_variables;
+                delete fieldConfig.query;
+                delete fieldConfig.label_field;
+                delete fieldConfig.value_field;
             } else if (elementType === 'dropdown_graphql') {
-                // GraphQL: clear static and workflow fields
+                // GraphQL: clear static, workflow, and mysql fields
                 delete fieldConfig.options;
                 delete fieldConfig.workflow_id;
                 delete fieldConfig.label_name;
                 delete fieldConfig.value_name;
                 delete fieldConfig.default_selector;
                 delete fieldConfig.workflow_input;
+                delete fieldConfig.query;
+                delete fieldConfig.label_field;
+                delete fieldConfig.value_field;
+            } else if (elementType === 'dropdown_mysql') {
+                // MySQL: clear static, workflow, and graphql fields
+                delete fieldConfig.options;
+                delete fieldConfig.workflow_id;
+                delete fieldConfig.label_name;
+                delete fieldConfig.value_name;
+                delete fieldConfig.default_selector;
+                delete fieldConfig.workflow_input;
+                delete fieldConfig.graphql_op;
+                delete fieldConfig.graphql_op_variables;
             }
         }
         
@@ -868,6 +894,11 @@ function saveTypeSpecificFields(fieldConfig) {
                     });
                 }
             }
+        } else if (elementType === 'dropdown_mysql') {
+            fieldConfig.query = document.getElementById('mysql_query')?.value || '';
+            fieldConfig.label_field = document.getElementById('mysql_label_field')?.value || '';
+            fieldConfig.value_field = document.getElementById('mysql_value_field')?.value || '';
+            fieldConfig.multi_select = document.getElementById('multi_select')?.checked || false;
         } else if (elementType === 'form_extend') {
             fieldConfig.extend_var = document.getElementById('extend_var')?.value || null;
             
@@ -2308,6 +2339,7 @@ function showElementSettings(elementUid) {
                     <option value="dropdown" ${fieldConfig.type === 'dropdown' ? 'selected' : ''}>Workflow</option>
                     <option value="dropdown_static" ${fieldConfig.type === 'dropdown_static' ? 'selected' : ''}>Static</option>
                     <option value="dropdown_graphql" ${fieldConfig.type === 'dropdown_graphql' ? 'selected' : ''}>GraphQL</option>
+                    <option value="dropdown_mysql" ${fieldConfig.type === 'dropdown_mysql' ? 'selected' : ''}>MySQL Query</option>
                 </select>
             </div>
             
@@ -2633,6 +2665,22 @@ function showElementSettings(elementUid) {
                 <input type='text' id='value_name' value='${fieldConfig.value_name || ''}' style='width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box;'>
             </div>
         `;
+    } else if (fieldConfig.type === 'dropdown_mysql') {
+        formHTML += `
+            <div style='margin-bottom: 15px;'>
+                <label style='display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;'>SQL Query</label>
+                <textarea id='mysql_query' style='width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box; font-family: monospace; font-size: 13px; min-height: 120px;'>${fieldConfig.query || ''}</textarea>
+                <div style='color: #999; font-size: 12px; margin-top: 6px;'>Use [[field_name]] for form field placeholders, e.g.: SELECT id, name FROM table WHERE org = [[org_field]]</div>
+            </div>
+            <div style='margin-bottom: 15px;'>
+                <label style='display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;'>Label Field (Column Name)</label>
+                <input type='text' id='mysql_label_field' value='${fieldConfig.label_field || ''}' placeholder='e.g., name' style='width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box;'>
+            </div>
+            <div style='margin-bottom: 15px;'>
+                <label style='display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;'>Value Field (Column Name)</label>
+                <input type='text' id='mysql_value_field' value='${fieldConfig.value_field || ''}' placeholder='e.g., id' style='width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box;'>
+            </div>
+        `;
     }
     let dependantFieldsHTML = '';
     
@@ -2746,7 +2794,7 @@ function showElementSettings(elementUid) {
             
             // Clear fields that don't belong to the new type
             if (newType === 'dropdown_static') {
-                // Static dropdown: keep options, clear workflow and graphql fields
+                // Static dropdown: keep options, clear workflow, graphql, and mysql fields
                 delete fieldConfig.workflow_id;
                 delete fieldConfig.label_name;
                 delete fieldConfig.value_name;
@@ -2754,19 +2802,38 @@ function showElementSettings(elementUid) {
                 delete fieldConfig.workflow_input;
                 delete fieldConfig.graphql_op;
                 delete fieldConfig.graphql_op_variables;
+                delete fieldConfig.query;
+                delete fieldConfig.label_field;
+                delete fieldConfig.value_field;
             } else if (newType === 'dropdown') {
-                // Workflow dropdown: keep workflow fields, clear static options and graphql fields
+                // Workflow dropdown: keep workflow fields, clear static, graphql, and mysql fields
                 delete fieldConfig.options;
                 delete fieldConfig.graphql_op;
                 delete fieldConfig.graphql_op_variables;
+                delete fieldConfig.query;
+                delete fieldConfig.label_field;
+                delete fieldConfig.value_field;
             } else if (newType === 'dropdown_graphql') {
-                // GraphQL dropdown: keep graphql fields, clear static options and workflow fields
+                // GraphQL dropdown: keep graphql fields, clear static, workflow, and mysql fields
                 delete fieldConfig.options;
                 delete fieldConfig.workflow_id;
                 delete fieldConfig.label_name;
                 delete fieldConfig.value_name;
                 delete fieldConfig.default_selector;
                 delete fieldConfig.workflow_input;
+                delete fieldConfig.query;
+                delete fieldConfig.label_field;
+                delete fieldConfig.value_field;
+            } else if (newType === 'dropdown_mysql') {
+                // MySQL dropdown: keep mysql fields, clear static, workflow, and graphql fields
+                delete fieldConfig.options;
+                delete fieldConfig.workflow_id;
+                delete fieldConfig.label_name;
+                delete fieldConfig.value_name;
+                delete fieldConfig.default_selector;
+                delete fieldConfig.workflow_input;
+                delete fieldConfig.graphql_op;
+                delete fieldConfig.graphql_op_variables;
             }
             
             fieldConfig.type = newType;
@@ -3126,6 +3193,22 @@ function showElementSettings(elementUid) {
                 });
             });
         }
+    }
+    
+    // Add listeners for dropdown_mysql
+    if (fieldConfig.type === 'dropdown_mysql') {
+        const mysqlQueryInput = document.getElementById('mysql_query');
+        const mysqlLabelFieldInput = document.getElementById('mysql_label_field');
+        const mysqlValueFieldInput = document.getElementById('mysql_value_field');
+        
+        [mysqlQueryInput, mysqlLabelFieldInput, mysqlValueFieldInput].forEach(input => {
+            if (input) {
+                input.addEventListener('input', () => {
+                    formHasBeenModified = true;
+                    updateElementSettingsSaveButtonVisibility();
+                });
+            }
+        });
     }
     
     // Add listeners for array items
@@ -3794,11 +3877,18 @@ function updateSaveButtonState() {
         const graphqlOpElement = document.getElementById('hidden_graphql_submit_op');
         const graphqlOperation = graphqlOpElement ? graphqlOpElement.value : '';
         
-        // Check if all dropdowns have workflows
-        const dropdownsWithoutWorkflow = fieldConfigs.filter(f => 
-            f.type === 'dropdown' && (!f.workflow_id || f.workflow_id === '')
-        );
-        const allDropdownsHaveWorkflows = dropdownsWithoutWorkflow.length === 0;
+        // Check if all dropdowns have proper configuration
+        const dropdownsWithoutConfig = fieldConfigs.filter(f => {
+            if (f.type === 'dropdown') {
+                return !f.workflow_id || f.workflow_id === '';
+            } else if (f.type === 'dropdown_graphql') {
+                return !f.graphql_op || f.graphql_op === '';
+            } else if (f.type === 'dropdown_mysql') {
+                return !f.query || f.query === '' || !f.label_field || f.label_field === '' || !f.value_field || f.value_field === '';
+            }
+            return false;
+        });
+        const allDropdownsConfigured = dropdownsWithoutConfig.length === 0;
         
         // Determine if submit requirements are met based on submit_type
         let submitIsValid = false;
@@ -3808,7 +3898,7 @@ function updateSaveButtonState() {
             submitIsValid = graphqlOperation !== '';
         }
         
-        canSave = formName !== '' && submitIsValid && hasElements && allDropdownsHaveWorkflows && allFormExtendsHaveDependants;
+        canSave = formName !== '' && submitIsValid && hasElements && allDropdownsConfigured && allFormExtendsHaveDependants;
     }
     
     saveFormBtn.disabled = !canSave;
@@ -3840,13 +3930,28 @@ function updateSaveButtonState() {
             
             items.push({ label: 'Form Elements', valid: hasElements });
             
-            // Add validation for each dropdown without a workflow
-            const dropdownsWithoutWorkflow = fieldConfigs.filter(f => 
-                f.type === 'dropdown' && (!f.workflow_id || f.workflow_id === '')
-            );
-            dropdownsWithoutWorkflow.forEach(dropdown => {
+            // Add validation for each dropdown without proper configuration
+            const dropdownsWithoutConfig = fieldConfigs.filter(f => {
+                if (f.type === 'dropdown') {
+                    return !f.workflow_id || f.workflow_id === '';
+                } else if (f.type === 'dropdown_graphql') {
+                    return !f.graphql_op || f.graphql_op === '';
+                } else if (f.type === 'dropdown_mysql') {
+                    return !f.query || f.query === '' || !f.label_field || f.label_field === '' || !f.value_field || f.value_field === '';
+                }
+                return false;
+            });
+            dropdownsWithoutConfig.forEach(dropdown => {
+                let missingLabel = 'Configuration';
+                if (dropdown.type === 'dropdown') {
+                    missingLabel = 'Workflow';
+                } else if (dropdown.type === 'dropdown_graphql') {
+                    missingLabel = 'GraphQL Operation';
+                } else if (dropdown.type === 'dropdown_mysql') {
+                    missingLabel = 'Query/Fields';
+                }
                 items.push({
-                    label: `${dropdown.field_name} Workflow`,
+                    label: `${dropdown.field_name} ${missingLabel}`,
                     valid: false
                 });
             });
@@ -5247,6 +5352,22 @@ function renderFieldHTML(config, allFieldConfigs) {
             ${config.description ? `<div class="field-description">${RewstLib.utils.escapeHtml(config.description)}</div>` : ''}
             <select disabled>
                 <option value="">-- Select a ${config.field_displayname.toLowerCase()} --</option>
+            </select>
+        `;
+    } else if (config.type === 'dropdown_graphql') {
+        html += `
+            <label>${config.field_displayname}</label>
+            ${config.description ? `<div class="field-description">${RewstLib.utils.escapeHtml(config.description)}</div>` : ''}
+            <select disabled>
+                <option value="">-- Select a ${config.field_displayname.toLowerCase()} (GraphQL) --</option>
+            </select>
+        `;
+    } else if (config.type === 'dropdown_mysql') {
+        html += `
+            <label>${config.field_displayname}</label>
+            ${config.description ? `<div class="field-description">${RewstLib.utils.escapeHtml(config.description)}</div>` : ''}
+            <select disabled>
+                <option value="">-- Select a ${config.field_displayname.toLowerCase()} (MySQL) --</option>
             </select>
         `;
     }
