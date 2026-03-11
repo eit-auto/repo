@@ -398,6 +398,15 @@ const ELEMENT_TYPE_DEFAULTS = {
         value_field: '',
         multi_select: false,
         default_value: null
+    },
+    'dropdown_mesh': {
+        node_id: '',
+        command: '',
+        command_type: 2,
+        label_field: '',
+        value_field: '',
+        multi_select: false,
+        default_value: null
     }
 };
 
@@ -749,9 +758,9 @@ function saveTypeSpecificFields(fieldConfig) {
     
     try {
         // For dropdowns, clean up fields that don't belong to the selected type
-        if (['dropdown', 'dropdown_static', 'dropdown_graphql', 'dropdown_mysql'].includes(elementType)) {
+        if (['dropdown', 'dropdown_static', 'dropdown_graphql', 'dropdown_mysql', 'dropdown_mesh'].includes(elementType)) {
             if (elementType === 'dropdown_static') {
-                // Static: clear workflow, graphql, and mysql fields
+                // Static: clear workflow, graphql, mysql, and mesh fields
                 delete fieldConfig.workflow_id;
                 delete fieldConfig.label_name;
                 delete fieldConfig.value_name;
@@ -762,16 +771,22 @@ function saveTypeSpecificFields(fieldConfig) {
                 delete fieldConfig.query;
                 delete fieldConfig.label_field;
                 delete fieldConfig.value_field;
+                delete fieldConfig.node_id;
+                delete fieldConfig.command;
+                delete fieldConfig.command_type;
             } else if (elementType === 'dropdown') {
-                // Workflow: clear static, graphql, and mysql fields
+                // Workflow: clear static, graphql, mysql, and mesh fields
                 delete fieldConfig.options;
                 delete fieldConfig.graphql_op;
                 delete fieldConfig.graphql_op_variables;
                 delete fieldConfig.query;
                 delete fieldConfig.label_field;
                 delete fieldConfig.value_field;
+                delete fieldConfig.node_id;
+                delete fieldConfig.command;
+                delete fieldConfig.command_type;
             } else if (elementType === 'dropdown_graphql') {
-                // GraphQL: clear static, workflow, and mysql fields
+                // GraphQL: clear static, workflow, mysql, and mesh fields
                 delete fieldConfig.options;
                 delete fieldConfig.workflow_id;
                 delete fieldConfig.label_name;
@@ -781,8 +796,11 @@ function saveTypeSpecificFields(fieldConfig) {
                 delete fieldConfig.query;
                 delete fieldConfig.label_field;
                 delete fieldConfig.value_field;
+                delete fieldConfig.node_id;
+                delete fieldConfig.command;
+                delete fieldConfig.command_type;
             } else if (elementType === 'dropdown_mysql') {
-                // MySQL: clear static, workflow, and graphql fields
+                // MySQL: clear static, workflow, graphql, and mesh fields
                 delete fieldConfig.options;
                 delete fieldConfig.workflow_id;
                 delete fieldConfig.label_name;
@@ -791,6 +809,20 @@ function saveTypeSpecificFields(fieldConfig) {
                 delete fieldConfig.workflow_input;
                 delete fieldConfig.graphql_op;
                 delete fieldConfig.graphql_op_variables;
+                delete fieldConfig.node_id;
+                delete fieldConfig.command;
+                delete fieldConfig.command_type;
+            } else if (elementType === 'dropdown_mesh') {
+                // MeshCentral: clear static, workflow, graphql, and mysql fields
+                delete fieldConfig.options;
+                delete fieldConfig.workflow_id;
+                delete fieldConfig.label_name;
+                delete fieldConfig.value_name;
+                delete fieldConfig.default_selector;
+                delete fieldConfig.workflow_input;
+                delete fieldConfig.graphql_op;
+                delete fieldConfig.graphql_op_variables;
+                delete fieldConfig.query;
             }
         }
         
@@ -899,6 +931,16 @@ function saveTypeSpecificFields(fieldConfig) {
             fieldConfig.label_field = document.getElementById('mysql_label_field')?.value || '';
             fieldConfig.value_field = document.getElementById('mysql_value_field')?.value || '';
             fieldConfig.multi_select = document.getElementById('multi_select')?.checked || false;
+        } else if (elementType === 'dropdown_mesh') {
+            fieldConfig.node_id = document.getElementById('mesh_node_id')?.value || '';
+            fieldConfig.command = document.getElementById('mesh_command')?.value || '';
+            fieldConfig.label_field = document.getElementById('mesh_label_field')?.value || '';
+            fieldConfig.value_field = document.getElementById('mesh_value_field')?.value || '';
+            fieldConfig.multi_select = document.getElementById('multi_select')?.checked || false;
+            
+            // Get selected command type radio button
+            const selectedCommandType = document.querySelector('input[name="mesh_command_type"]:checked');
+            fieldConfig.command_type = selectedCommandType ? parseInt(selectedCommandType.value) : 2;
         } else if (elementType === 'form_extend') {
             fieldConfig.extend_var = document.getElementById('extend_var')?.value || null;
             
@@ -2340,6 +2382,7 @@ function showElementSettings(elementUid) {
                     <option value="dropdown_static" ${fieldConfig.type === 'dropdown_static' ? 'selected' : ''}>Static</option>
                     <option value="dropdown_graphql" ${fieldConfig.type === 'dropdown_graphql' ? 'selected' : ''}>GraphQL</option>
                     <option value="dropdown_mysql" ${fieldConfig.type === 'dropdown_mysql' ? 'selected' : ''}>MySQL Query</option>
+                    <option value="dropdown_mesh" ${fieldConfig.type === 'dropdown_mesh' ? 'selected' : ''}>MeshCentral Command</option>
                 </select>
             </div>
             
@@ -2681,6 +2724,40 @@ function showElementSettings(elementUid) {
                 <input type='text' id='mysql_value_field' value='${fieldConfig.value_field || ''}' placeholder='e.g., id' style='width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box;'>
             </div>
         `;
+    } else if (fieldConfig.type === 'dropdown_mesh') {
+        formHTML += `
+            <div style='margin-bottom: 15px;'>
+                <label style='display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;'>Node ID</label>
+                <input type='text' id='mesh_node_id' value='${fieldConfig.node_id || ''}' placeholder='e.g., node123 or [[node_field]]' style='width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box;'>
+                <div style='color: #999; font-size: 12px; margin-top: 6px;'>MeshCentral node ID, supports [[field_name]] placeholders</div>
+            </div>
+            <div style='margin-bottom: 15px;'>
+                <label style='display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;'>Command/Script</label>
+                <textarea id='mesh_command' style='width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box; font-family: monospace; font-size: 13px; min-height: 120px;'>${fieldConfig.command || ''}</textarea>
+                <div style='color: #999; font-size: 12px; margin-top: 6px;'>PowerShell/cmd script, supports [[field_name]] placeholders. Command must output JSON array.</div>
+            </div>
+            <div style='margin-bottom: 15px;'>
+                <label style='display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;'>Command Type</label>
+                <div style='display: flex; gap: 20px;'>
+                    <label style='display: flex; align-items: center; gap: 8px; cursor: pointer; color: #ffffff;'>
+                        <input type='radio' name='mesh_command_type' value='1' ${fieldConfig.command_type === 1 ? 'checked' : ''} style='cursor: pointer;'>
+                        <span>Command (cmd)</span>
+                    </label>
+                    <label style='display: flex; align-items: center; gap: 8px; cursor: pointer; color: #ffffff;'>
+                        <input type='radio' name='mesh_command_type' value='2' ${fieldConfig.command_type === 2 ? 'checked' : ''} style='cursor: pointer;'>
+                        <span>PowerShell</span>
+                    </label>
+                </div>
+            </div>
+            <div style='margin-bottom: 15px;'>
+                <label style='display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;'>Label Field (JSON Key)</label>
+                <input type='text' id='mesh_label_field' value='${fieldConfig.label_field || ''}' placeholder='e.g., name' style='width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box;'>
+            </div>
+            <div style='margin-bottom: 15px;'>
+                <label style='display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;'>Value Field (JSON Key)</label>
+                <input type='text' id='mesh_value_field' value='${fieldConfig.value_field || ''}' placeholder='e.g., id' style='width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box;'>
+            </div>
+        `;
     }
     let dependantFieldsHTML = '';
     
@@ -2794,7 +2871,7 @@ function showElementSettings(elementUid) {
             
             // Clear fields that don't belong to the new type
             if (newType === 'dropdown_static') {
-                // Static dropdown: keep options, clear workflow, graphql, and mysql fields
+                // Static dropdown: keep options, clear workflow, graphql, mysql, and mesh fields
                 delete fieldConfig.workflow_id;
                 delete fieldConfig.label_name;
                 delete fieldConfig.value_name;
@@ -2805,16 +2882,22 @@ function showElementSettings(elementUid) {
                 delete fieldConfig.query;
                 delete fieldConfig.label_field;
                 delete fieldConfig.value_field;
+                delete fieldConfig.node_id;
+                delete fieldConfig.command;
+                delete fieldConfig.command_type;
             } else if (newType === 'dropdown') {
-                // Workflow dropdown: keep workflow fields, clear static, graphql, and mysql fields
+                // Workflow dropdown: keep workflow fields, clear static, graphql, mysql, and mesh fields
                 delete fieldConfig.options;
                 delete fieldConfig.graphql_op;
                 delete fieldConfig.graphql_op_variables;
                 delete fieldConfig.query;
                 delete fieldConfig.label_field;
                 delete fieldConfig.value_field;
+                delete fieldConfig.node_id;
+                delete fieldConfig.command;
+                delete fieldConfig.command_type;
             } else if (newType === 'dropdown_graphql') {
-                // GraphQL dropdown: keep graphql fields, clear static, workflow, and mysql fields
+                // GraphQL dropdown: keep graphql fields, clear static, workflow, mysql, and mesh fields
                 delete fieldConfig.options;
                 delete fieldConfig.workflow_id;
                 delete fieldConfig.label_name;
@@ -2824,8 +2907,11 @@ function showElementSettings(elementUid) {
                 delete fieldConfig.query;
                 delete fieldConfig.label_field;
                 delete fieldConfig.value_field;
+                delete fieldConfig.node_id;
+                delete fieldConfig.command;
+                delete fieldConfig.command_type;
             } else if (newType === 'dropdown_mysql') {
-                // MySQL dropdown: keep mysql fields, clear static, workflow, and graphql fields
+                // MySQL dropdown: keep mysql fields, clear static, workflow, graphql, and mesh fields
                 delete fieldConfig.options;
                 delete fieldConfig.workflow_id;
                 delete fieldConfig.label_name;
@@ -2834,6 +2920,20 @@ function showElementSettings(elementUid) {
                 delete fieldConfig.workflow_input;
                 delete fieldConfig.graphql_op;
                 delete fieldConfig.graphql_op_variables;
+                delete fieldConfig.node_id;
+                delete fieldConfig.command;
+                delete fieldConfig.command_type;
+            } else if (newType === 'dropdown_mesh') {
+                // MeshCentral dropdown: keep mesh fields, clear static, workflow, graphql, and mysql fields
+                delete fieldConfig.options;
+                delete fieldConfig.workflow_id;
+                delete fieldConfig.label_name;
+                delete fieldConfig.value_name;
+                delete fieldConfig.default_selector;
+                delete fieldConfig.workflow_input;
+                delete fieldConfig.graphql_op;
+                delete fieldConfig.graphql_op_variables;
+                delete fieldConfig.query;
             }
             
             fieldConfig.type = newType;
@@ -3208,6 +3308,31 @@ function showElementSettings(elementUid) {
                     updateElementSettingsSaveButtonVisibility();
                 });
             }
+        });
+    }
+    
+    // Add listeners for dropdown_mesh
+    if (fieldConfig.type === 'dropdown_mesh') {
+        const meshNodeIdInput = document.getElementById('mesh_node_id');
+        const meshCommandInput = document.getElementById('mesh_command');
+        const meshLabelFieldInput = document.getElementById('mesh_label_field');
+        const meshValueFieldInput = document.getElementById('mesh_value_field');
+        const meshCommandTypeRadios = document.querySelectorAll('input[name="mesh_command_type"]');
+        
+        [meshNodeIdInput, meshCommandInput, meshLabelFieldInput, meshValueFieldInput].forEach(input => {
+            if (input) {
+                input.addEventListener('input', () => {
+                    formHasBeenModified = true;
+                    updateElementSettingsSaveButtonVisibility();
+                });
+            }
+        });
+        
+        meshCommandTypeRadios.forEach(radio => {
+            radio.addEventListener('change', () => {
+                formHasBeenModified = true;
+                updateElementSettingsSaveButtonVisibility();
+            });
         });
     }
     
@@ -3885,6 +4010,8 @@ function updateSaveButtonState() {
                 return !f.graphql_op || f.graphql_op === '';
             } else if (f.type === 'dropdown_mysql') {
                 return !f.query || f.query === '' || !f.label_field || f.label_field === '' || !f.value_field || f.value_field === '';
+            } else if (f.type === 'dropdown_mesh') {
+                return !f.node_id || f.node_id === '' || !f.command || f.command === '' || !f.label_field || f.label_field === '' || !f.value_field || f.value_field === '';
             }
             return false;
         });
@@ -3938,6 +4065,8 @@ function updateSaveButtonState() {
                     return !f.graphql_op || f.graphql_op === '';
                 } else if (f.type === 'dropdown_mysql') {
                     return !f.query || f.query === '' || !f.label_field || f.label_field === '' || !f.value_field || f.value_field === '';
+                } else if (f.type === 'dropdown_mesh') {
+                    return !f.node_id || f.node_id === '' || !f.command || f.command === '' || !f.label_field || f.label_field === '' || !f.value_field || f.value_field === '';
                 }
                 return false;
             });
@@ -3949,6 +4078,8 @@ function updateSaveButtonState() {
                     missingLabel = 'GraphQL Operation';
                 } else if (dropdown.type === 'dropdown_mysql') {
                     missingLabel = 'Query/Fields';
+                } else if (dropdown.type === 'dropdown_mesh') {
+                    missingLabel = 'Command/Fields';
                 }
                 items.push({
                     label: `${dropdown.field_name} ${missingLabel}`,
@@ -5368,6 +5499,14 @@ function renderFieldHTML(config, allFieldConfigs) {
             ${config.description ? `<div class="field-description">${RewstLib.utils.escapeHtml(config.description)}</div>` : ''}
             <select disabled>
                 <option value="">-- Select a ${config.field_displayname.toLowerCase()} (MySQL) --</option>
+            </select>
+        `;
+    } else if (config.type === 'dropdown_mesh') {
+        html += `
+            <label>${config.field_displayname}</label>
+            ${config.description ? `<div class="field-description">${RewstLib.utils.escapeHtml(config.description)}</div>` : ''}
+            <select disabled>
+                <option value="">-- Select a ${config.field_displayname.toLowerCase()} (MeshCentral) --</option>
             </select>
         `;
     }
