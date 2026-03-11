@@ -201,10 +201,10 @@ const ProxyLib = (() => {
     }
     
     /**
-     * Get all nodes from MeshCentral organized by mesh group
+     * Get nodes from MeshCentral organized by mesh group, with optional filtering
      * @param {string} sessionToken - Session token (from authenticate)
      * @param {string} user - Username
-     * @param {object} options - Optional config
+     * @param {object} options - Optional config {query, ...}
      * @returns {Promise<{success, result}>} result is object with mesh groups as keys
      */
     async function getNodes(sessionToken, user, options = {}) {
@@ -215,15 +215,23 @@ const ProxyLib = (() => {
             
             console.log('[ProxyLib] Retrieving nodes for user:', user);
             
+            const body = {
+                user: user
+            };
+            
+            // Add query if provided
+            if (options.query) {
+                body.query = options.query;
+                console.log('[ProxyLib] Query filter:', options.query.substring(0, 100) + '...');
+            }
+            
             const response = await fetch(`${PROXY_URL}/nodes`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                     'X-Session-Token': sessionToken
                 },
-                body: JSON.stringify({
-                    user: user
-                })
+                body: JSON.stringify(body)
             });
             
             const data = await response.json();
