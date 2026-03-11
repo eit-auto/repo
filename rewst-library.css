@@ -681,7 +681,8 @@
   .form-group input[type="text"],
   .form-group input[type="email"],
   .form-group input[type="date"],
-  .form-group input[type="datetime-local"] {
+  .form-group input[type="datetime-local"],
+  .form-group input[type="number"] {
     padding: 0.5rem 0.75rem;
     border: 2px solid var(--form-border-color);
     border-radius: 4px;
@@ -796,6 +797,7 @@
   .form-group input[type="email"]:focus,
   .form-group input[type="date"]:focus,
   .form-group input[type="datetime-local"]:focus,
+  .form-group input[type="number"]:focus,
   .form-group textarea:focus,
   .form-group select:focus {
     outline: none;
