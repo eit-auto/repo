@@ -400,10 +400,12 @@ const ELEMENT_TYPE_DEFAULTS = {
         default_value: null
     },
     'dropdown_mesh': {
-        mode: 'powershell',         // 'cmd' | 'powershell' | 'nodes'
-        node_id: '',                // For cmd/powershell modes
-        command: '',                // For cmd/powershell modes
-        node_query: '',             // For nodes mode (optional filter)
+        mode: 'powershell',             // 'cmd' | 'powershell' | 'nodes'
+        node_selection_type: 'fixed',   // 'fixed' | 'query' | 'variable' (for cmd/powershell modes)
+        node_id: '',                    // For fixed node selection
+        node_query: '',                 // For query-based node selection
+        node_variable: '',              // For variable-based node selection
+        command: '',                    // For cmd/powershell modes
         label_field: '',
         value_field: '',
         multi_select: false,
@@ -938,15 +940,32 @@ function saveTypeSpecificFields(fieldConfig) {
             
             // Conditional field saving based on mode
             if (fieldConfig.mode === 'cmd' || fieldConfig.mode === 'powershell') {
-                fieldConfig.node_id = document.getElementById('mesh_node_id')?.value || '';
+                // Save node selection type
+                fieldConfig.node_selection_type = document.getElementById('mesh_node_selection_type')?.value || 'fixed';
+                
+                // Save conditional node selection fields based on type
+                if (fieldConfig.node_selection_type === 'fixed') {
+                    fieldConfig.node_id = document.getElementById('mesh_node_id')?.value || '';
+                    fieldConfig.node_query = '';
+                    fieldConfig.node_variable = '';
+                } else if (fieldConfig.node_selection_type === 'query') {
+                    fieldConfig.node_query = document.getElementById('mesh_node_query_cmd')?.value || '';
+                    fieldConfig.node_id = '';
+                    fieldConfig.node_variable = '';
+                } else if (fieldConfig.node_selection_type === 'variable') {
+                    fieldConfig.node_variable = document.getElementById('mesh_node_variable')?.value || '';
+                    fieldConfig.node_id = '';
+                    fieldConfig.node_query = '';
+                }
+                
                 fieldConfig.command = document.getElementById('mesh_command')?.value || '';
-                // Clear nodes mode fields
-                fieldConfig.node_query = '';
             } else if (fieldConfig.mode === 'nodes') {
                 fieldConfig.node_query = document.getElementById('mesh_node_query')?.value || '';
                 // Clear command mode fields
                 fieldConfig.node_id = '';
                 fieldConfig.command = '';
+                fieldConfig.node_variable = '';
+                fieldConfig.node_selection_type = 'fixed'; // Reset to default
             }
             
             // Common fields for all modes
@@ -2752,10 +2771,43 @@ function showElementSettings(elementUid) {
         if (fieldConfig.mode === 'cmd' || fieldConfig.mode === 'powershell') {
             formHTML += `
                 <div style='margin-bottom: 15px;'>
-                    <label style='display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;'>Node ID</label>
-                    <input type='text' id='mesh_node_id' value='${fieldConfig.node_id || ''}' placeholder='e.g., node123 or [[node_field]]' style='width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box;'>
-                    <div style='color: #999; font-size: 12px; margin-top: 6px;'>MeshCentral node ID, supports [[field_name]] placeholders</div>
+                    <label style='display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;'>Node Selection Type</label>
+                    <select id='mesh_node_selection_type' style='width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box;'>
+                        <option value='fixed' ${fieldConfig.node_selection_type === 'fixed' ? 'selected' : ''}>Fixed Node ID</option>
+                        <option value='query' ${fieldConfig.node_selection_type === 'query' ? 'selected' : ''}>Node Query</option>
+                        <option value='variable' ${fieldConfig.node_selection_type === 'variable' ? 'selected' : ''}>Variable Reference</option>
+                    </select>
                 </div>
+            `;
+            
+            // Conditional node selection fields
+            if (fieldConfig.node_selection_type === 'fixed') {
+                formHTML += `
+                    <div style='margin-bottom: 15px;'>
+                        <label style='display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;'>Node ID</label>
+                        <input type='text' id='mesh_node_id' value='${fieldConfig.node_id || ''}' placeholder='e.g., node123 or [[node_field]]' style='width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box;'>
+                        <div style='color: #999; font-size: 12px; margin-top: 6px;'>MeshCentral node ID, supports [[field_name]] placeholders</div>
+                    </div>
+                `;
+            } else if (fieldConfig.node_selection_type === 'query') {
+                formHTML += `
+                    <div style='margin-bottom: 15px;'>
+                        <label style='display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;'>Node Query</label>
+                        <textarea id='mesh_node_query_cmd' style='width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box; font-family: monospace; font-size: 13px; min-height: 100px;'>${fieldConfig.node_query || ''}</textarea>
+                        <div style='color: #999; font-size: 12px; margin-top: 6px;'>Query to find the node. Examples: node.name CONTAINS "primary" | node.tags CONTAINS "org-123"</div>
+                    </div>
+                `;
+            } else if (fieldConfig.node_selection_type === 'variable') {
+                formHTML += `
+                    <div style='margin-bottom: 15px;'>
+                        <label style='display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;'>Variable Reference</label>
+                        <input type='text' id='mesh_node_variable' value='${fieldConfig.node_variable || ''}' placeholder='e.g., [[mesh_node_var]]' style='width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box;'>
+                        <div style='color: #999; font-size: 12px; margin-top: 6px;'>Reference to org variable or form field containing the node ID</div>
+                    </div>
+                `;
+            }
+            
+            formHTML += `
                 <div style='margin-bottom: 15px;'>
                     <label style='display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;'>Command/Script</label>
                     <textarea id='mesh_command' style='width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box; font-family: monospace; font-size: 13px; min-height: 120px;'>${fieldConfig.command || ''}</textarea>
@@ -3340,7 +3392,10 @@ function showElementSettings(elementUid) {
     // Add listeners for dropdown_mesh
     if (fieldConfig.type === 'dropdown_mesh') {
         const meshModeSelect = document.getElementById('mesh_mode');
+        const meshNodeSelectionTypeSelect = document.getElementById('mesh_node_selection_type');
         const meshNodeIdInput = document.getElementById('mesh_node_id');
+        const meshNodeQueryCmdInput = document.getElementById('mesh_node_query_cmd');
+        const meshNodeVariableInput = document.getElementById('mesh_node_variable');
         const meshCommandInput = document.getElementById('mesh_command');
         const meshNodeQueryInput = document.getElementById('mesh_node_query');
         const meshLabelFieldInput = document.getElementById('mesh_label_field');
@@ -3357,8 +3412,19 @@ function showElementSettings(elementUid) {
             });
         }
         
+        // Node Selection Type dropdown listener - rebuild form on change
+        if (meshNodeSelectionTypeSelect) {
+            meshNodeSelectionTypeSelect.addEventListener('change', (e) => {
+                fieldConfig.node_selection_type = e.target.value;
+                formHasBeenModified = true;
+                updateElementSettingsSaveButtonVisibility();
+                // Rebuild form to show/hide conditional node selection fields
+                showElementSettings(elementUid);
+            });
+        }
+        
         // Input listeners for conditional fields
-        [meshNodeIdInput, meshCommandInput, meshNodeQueryInput, meshLabelFieldInput, meshValueFieldInput].forEach(input => {
+        [meshNodeIdInput, meshNodeQueryCmdInput, meshNodeVariableInput, meshCommandInput, meshNodeQueryInput, meshLabelFieldInput, meshValueFieldInput].forEach(input => {
             if (input) {
                 input.addEventListener('input', () => {
                     formHasBeenModified = true;
@@ -4045,7 +4111,16 @@ function updateSaveButtonState() {
             } else if (f.type === 'dropdown_mesh') {
                 // Check based on mode
                 if (f.mode === 'cmd' || f.mode === 'powershell') {
-                    return !f.node_id || f.node_id === '' || !f.command || f.command === '' || !f.label_field || f.label_field === '' || !f.value_field || f.value_field === '';
+                    // Check node selection based on type
+                    let nodeSelectValid = false;
+                    if (f.node_selection_type === 'fixed') {
+                        nodeSelectValid = f.node_id && f.node_id !== '';
+                    } else if (f.node_selection_type === 'query') {
+                        nodeSelectValid = f.node_query && f.node_query !== '';
+                    } else if (f.node_selection_type === 'variable') {
+                        nodeSelectValid = f.node_variable && f.node_variable !== '';
+                    }
+                    return !nodeSelectValid || !f.command || f.command === '' || !f.label_field || f.label_field === '' || !f.value_field || f.value_field === '';
                 } else if (f.mode === 'nodes') {
                     return !f.label_field || f.label_field === '' || !f.value_field || f.value_field === '';
                 }
@@ -4106,7 +4181,16 @@ function updateSaveButtonState() {
                 } else if (f.type === 'dropdown_mesh') {
                     // Check based on mode
                     if (f.mode === 'cmd' || f.mode === 'powershell') {
-                        return !f.node_id || f.node_id === '' || !f.command || f.command === '' || !f.label_field || f.label_field === '' || !f.value_field || f.value_field === '';
+                        // Check node selection based on type
+                        let nodeSelectValid = false;
+                        if (f.node_selection_type === 'fixed') {
+                            nodeSelectValid = f.node_id && f.node_id !== '';
+                        } else if (f.node_selection_type === 'query') {
+                            nodeSelectValid = f.node_query && f.node_query !== '';
+                        } else if (f.node_selection_type === 'variable') {
+                            nodeSelectValid = f.node_variable && f.node_variable !== '';
+                        }
+                        return !nodeSelectValid || !f.command || f.command === '' || !f.label_field || f.label_field === '' || !f.value_field || f.value_field === '';
                     } else if (f.mode === 'nodes') {
                         return !f.label_field || f.label_field === '' || !f.value_field || f.value_field === '';
                     }
@@ -4124,7 +4208,15 @@ function updateSaveButtonState() {
                     missingLabel = 'Query/Fields';
                 } else if (dropdown.type === 'dropdown_mesh') {
                     if (dropdown.mode === 'cmd' || dropdown.mode === 'powershell') {
-                        missingLabel = 'Command/Fields';
+                        if (!dropdown.node_selection_type) {
+                            missingLabel = 'Node Selection';
+                        } else if (dropdown.node_selection_type === 'fixed') {
+                            missingLabel = 'Node ID/Command/Fields';
+                        } else if (dropdown.node_selection_type === 'query') {
+                            missingLabel = 'Node Query/Command/Fields';
+                        } else if (dropdown.node_selection_type === 'variable') {
+                            missingLabel = 'Node Variable/Command/Fields';
+                        }
                     } else if (dropdown.mode === 'nodes') {
                         missingLabel = 'Fields';
                     }
