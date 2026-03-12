@@ -409,6 +409,28 @@ const ELEMENT_TYPE_DEFAULTS = {
         value_field: '',
         multi_select: false,
         default_value: null
+    },
+    'data_retrieval': {
+        variable_name: 'page_data',     // Page variable name to store results
+        type: 'mesh_powershell',        // 'mesh_cmd' | 'mesh_powershell' | 'mesh_nodes' | 'mysql' | 'workflow' | 'graphql'
+        // Mesh fields
+        node_selection_type: 'fixed',
+        node_id: '',
+        node_query: '',
+        command: '',
+        // MySQL fields
+        query: '',
+        // Common fields
+        label_field: '',
+        value_field: ''
+    },
+    'dropdown_prefetch': {
+        source_element_uid: '',         // UID of data_retrieval element
+        result_path: '',                // Path to data array: "ad_users" or "data.users"
+        label_field: '',
+        value_field: '',
+        multi_select: false,
+        default_value: null
     }
 };
 
@@ -431,7 +453,9 @@ const PALETTE_DISPLAY = {
     'horizontal_line': 'Horizontal Line',
     'date': 'Date',
     'date_time': 'Date Time',
-    'dropdown': 'Dropdown'  // Consolidates dropdown, dropdown_static, dropdown_graphql
+    'dropdown': 'Dropdown',  // Consolidates dropdown, dropdown_static, dropdown_graphql
+    'data_retrieval': 'Data Retrieval',
+    'dropdown_prefetch': 'Dropdown (Pre-fetched)'
 };
 
 // ============================================
@@ -963,6 +987,38 @@ function saveTypeSpecificFields(fieldConfig) {
             // Common fields for all modes
             fieldConfig.label_field = document.getElementById('mesh_label_field')?.value || '';
             fieldConfig.value_field = document.getElementById('mesh_value_field')?.value || '';
+            fieldConfig.multi_select = document.getElementById('multi_select')?.checked || false;
+        } else if (elementType === 'data_retrieval') {
+            // Save data retrieval fields
+            fieldConfig.variable_name = document.getElementById('retrieval_variable_name')?.value || 'page_data';
+            fieldConfig.type = document.getElementById('retrieval_type')?.value || 'mesh_powershell';
+            
+            // Conditional field saving based on type
+            if (fieldConfig.type === 'mesh_cmd' || fieldConfig.type === 'mesh_powershell') {
+                fieldConfig.node_selection_type = document.getElementById('retrieval_node_selection_type')?.value || 'fixed';
+                
+                if (fieldConfig.node_selection_type === 'fixed') {
+                    fieldConfig.node_id = document.getElementById('retrieval_node_id')?.value || '';
+                    fieldConfig.node_query = '';
+                } else if (fieldConfig.node_selection_type === 'query') {
+                    fieldConfig.node_query = document.getElementById('retrieval_node_query')?.value || '';
+                    fieldConfig.node_id = '';
+                }
+                
+                fieldConfig.command = document.getElementById('retrieval_command')?.value || '';
+                fieldConfig.query = '';
+            } else if (fieldConfig.type === 'mysql') {
+                fieldConfig.query = document.getElementById('retrieval_query')?.value || '';
+                fieldConfig.node_id = '';
+                fieldConfig.node_query = '';
+                fieldConfig.command = '';
+            }
+        } else if (elementType === 'dropdown_prefetch') {
+            // Save prefetch dropdown fields
+            fieldConfig.source_element_uid = document.getElementById('prefetch_source_element_uid')?.value || '';
+            fieldConfig.result_path = document.getElementById('prefetch_result_path')?.value || '';
+            fieldConfig.label_field = document.getElementById('prefetch_label_field')?.value || '';
+            fieldConfig.value_field = document.getElementById('prefetch_value_field')?.value || '';
             fieldConfig.multi_select = document.getElementById('multi_select')?.checked || false;
         } else if (elementType === 'form_extend') {
             fieldConfig.extend_var = document.getElementById('extend_var')?.value || null;
@@ -2396,7 +2452,7 @@ function showElementSettings(elementUid) {
     let formHTML = ``;
     
     // Add Dropdown Type selector for dropdown elements
-    if (['dropdown', 'dropdown_static', 'dropdown_graphql', 'dropdown_mysql', 'dropdown_mesh'].includes(fieldConfig.type)) {
+    if (['dropdown', 'dropdown_static', 'dropdown_graphql', 'dropdown_mysql', 'dropdown_mesh', 'dropdown_prefetch'].includes(fieldConfig.type)) {
         formHTML += `
             <div class="mb-15">
                 <label class="form-label">Dropdown Type</label>
@@ -2406,6 +2462,7 @@ function showElementSettings(elementUid) {
                     <option value="dropdown_graphql" ${fieldConfig.type === 'dropdown_graphql' ? 'selected' : ''}>GraphQL</option>
                     <option value="dropdown_mysql" ${fieldConfig.type === 'dropdown_mysql' ? 'selected' : ''}>MySQL Query</option>
                     <option value="dropdown_mesh" ${fieldConfig.type === 'dropdown_mesh' ? 'selected' : ''}>MeshCentral Command</option>
+                    <option value="dropdown_prefetch" ${fieldConfig.type === 'dropdown_prefetch' ? 'selected' : ''}>Pre-fetched Data</option>
                 </select>
             </div>
             
@@ -2819,8 +2876,106 @@ function showElementSettings(elementUid) {
                 <input type='text' id='mesh_value_field' value='${fieldConfig.value_field || ''}' placeholder='e.g., id' style='width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box;'>
             </div>
         `;
+    } else if (fieldConfig.type === 'data_retrieval') {
+        // Data Retrieval element - hidden data fetching element
+        formHTML += `
+            <div style='margin-bottom: 15px;'>
+                <label style='display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;'>Page Variable Name</label>
+                <input type='text' id='retrieval_variable_name' value='${fieldConfig.variable_name || 'page_data'}' placeholder='e.g., ad_data' style='width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box;'>
+                <div style='color: #999; font-size: 12px; margin-top: 6px;'>Variable name where results will be stored (accessible in FormViewer as formData.page_variables.{name})</div>
+            </div>
+            <div style='margin-bottom: 15px;'>
+                <label style='display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;'>Data Source Type</label>
+                <select id='retrieval_type' style='width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box;'>
+                    <option value='mesh_cmd' ${fieldConfig.type === 'mesh_cmd' ? 'selected' : ''}>MeshCentral CMD</option>
+                    <option value='mesh_powershell' ${fieldConfig.type === 'mesh_powershell' ? 'selected' : ''}>MeshCentral PowerShell</option>
+                    <option value='mesh_nodes' ${fieldConfig.type === 'mesh_nodes' ? 'selected' : ''}>MeshCentral Nodes</option>
+                    <option value='mysql' ${fieldConfig.type === 'mysql' ? 'selected' : ''}>MySQL Query</option>
+                    <option value='workflow' ${fieldConfig.type === 'workflow' ? 'selected' : ''}>Workflow</option>
+                    <option value='graphql' ${fieldConfig.type === 'graphql' ? 'selected' : ''}>GraphQL</option>
+                </select>
+            </div>
+        `;
+        
+        // Conditional fields based on data source type
+        if (fieldConfig.type === 'mesh_cmd' || fieldConfig.type === 'mesh_powershell') {
+            formHTML += `
+                <div style='margin-bottom: 15px;'>
+                    <label style='display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;'>Node Selection Type</label>
+                    <select id='retrieval_node_selection_type' style='width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box;'>
+                        <option value='fixed' ${fieldConfig.node_selection_type === 'fixed' ? 'selected' : ''}>Fixed/Variable Node</option>
+                        <option value='query' ${fieldConfig.node_selection_type === 'query' ? 'selected' : ''}>Node Query</option>
+                    </select>
+                </div>
+            `;
+            
+            if (fieldConfig.node_selection_type === 'fixed') {
+                formHTML += `
+                    <div style='margin-bottom: 15px;'>
+                        <label style='display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;'>Fixed/Variable Node</label>
+                        <input type='text' id='retrieval_node_id' value='${fieldConfig.node_id || ''}' placeholder='e.g., node123 or [[field]] or [[var]]' style='width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box;'>
+                    </div>
+                `;
+            } else if (fieldConfig.node_selection_type === 'query') {
+                formHTML += `
+                    <div style='margin-bottom: 15px;'>
+                        <label style='display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;'>Node Query</label>
+                        <textarea id='retrieval_node_query' style='width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box; font-family: monospace; font-size: 13px; min-height: 100px;'>${fieldConfig.node_query || ''}</textarea>
+                    </div>
+                `;
+            }
+            
+            formHTML += `
+                <div style='margin-bottom: 15px;'>
+                    <label style='display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;'>Command/Script</label>
+                    <textarea id='retrieval_command' style='width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box; font-family: monospace; font-size: 13px; min-height: 120px;'>${fieldConfig.command || ''}</textarea>
+                    <div style='color: #999; font-size: 12px; margin-top: 6px;'>Command must return JSON data, typically an object with arrays (e.g., {ad_users: [...], ad_groups: [...]})</div>
+                </div>
+            `;
+        } else if (fieldConfig.type === 'mysql') {
+            formHTML += `
+                <div style='margin-bottom: 15px;'>
+                    <label style='display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;'>SQL Query</label>
+                    <textarea id='retrieval_query' style='width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box; font-family: monospace; font-size: 13px; min-height: 120px;'>${fieldConfig.query || ''}</textarea>
+                    <div style='color: #999; font-size: 12px; margin-top: 6px;'>Use [[field_name]] placeholders. Should return an array or object with arrays.</div>
+                </div>
+            `;
+        }
+    } else if (fieldConfig.type === 'dropdown_prefetch') {
+        // Dropdown Prefetch element - uses data from data_retrieval element
+        formHTML += `
+            <div style='margin-bottom: 15px;'>
+                <label style='display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;'>Data Source</label>
+                <select id='prefetch_source_element_uid' style='width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box;'>
+                    <option value=''>-- Select Data Source --</option>
+        `;
+        
+        // Populate with available data_retrieval elements
+        const dataRetrievalElements = fieldConfigs.filter(f => f.type === 'data_retrieval');
+        dataRetrievalElements.forEach(el => {
+            const selected = fieldConfig.source_element_uid === el.uid ? 'selected' : '';
+            formHTML += `<option value='${el.uid}' ${selected}>${el.variable_name || el.uid}</option>`;
+        });
+        
+        formHTML += `
+                </select>
+                <div style='color: #999; font-size: 12px; margin-top: 6px;'>Select a Data Retrieval element that will provide the data</div>
+            </div>
+            <div style='margin-bottom: 15px;'>
+                <label style='display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;'>Result Path (Optional)</label>
+                <input type='text' id='prefetch_result_path' value='${fieldConfig.result_path || ''}' placeholder='e.g., ad_users or data.users' style='width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box;'>
+                <div style='color: #999; font-size: 12px; margin-top: 6px;'>Path to array in the returned data. Use dot notation (e.g., "ad_users" for {ad_users: [...]}, or "data.users" for nested structures). Leave empty if data is directly an array.</div>
+            </div>
+            <div style='margin-bottom: 15px;'>
+                <label style='display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;'>Label Field</label>
+                <input type='text' id='prefetch_label_field' value='${fieldConfig.label_field || ''}' placeholder='e.g., name' style='width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box;'>
+            </div>
+            <div style='margin-bottom: 15px;'>
+                <label style='display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;'>Value Field</label>
+                <input type='text' id='prefetch_value_field' value='${fieldConfig.value_field || ''}' placeholder='e.g., id' style='width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box;'>
+            </div>
+        `;
     }
-    let dependantFieldsHTML = '';
     
     // Add common fields - Dependent Fields
     // Parse dependant_fields - handle both old string format and new object format
@@ -3416,7 +3571,68 @@ function showElementSettings(elementUid) {
         });
     }
     
-    // Add listeners for array items
+    // Add listeners for data_retrieval
+    if (fieldConfig.type === 'data_retrieval') {
+        const retrievalTypeSelect = document.getElementById('retrieval_type');
+        const retrievalNodeSelectionTypeSelect = document.getElementById('retrieval_node_selection_type');
+        const retrievalNodeIdInput = document.getElementById('retrieval_node_id');
+        const retrievalNodeQueryInput = document.getElementById('retrieval_node_query');
+        const retrievalCommandInput = document.getElementById('retrieval_command');
+        const retrievalQueryInput = document.getElementById('retrieval_query');
+        const retrievalVariableNameInput = document.getElementById('retrieval_variable_name');
+        
+        // Type dropdown listener - rebuild form on type change
+        if (retrievalTypeSelect) {
+            retrievalTypeSelect.addEventListener('change', (e) => {
+                fieldConfig.type = e.target.value;
+                formHasBeenModified = true;
+                updateElementSettingsSaveButtonVisibility();
+                showElementSettings(elementUid);
+            });
+        }
+        
+        // Node Selection Type dropdown listener - rebuild form on change
+        if (retrievalNodeSelectionTypeSelect) {
+            retrievalNodeSelectionTypeSelect.addEventListener('change', (e) => {
+                fieldConfig.node_selection_type = e.target.value;
+                formHasBeenModified = true;
+                updateElementSettingsSaveButtonVisibility();
+                showElementSettings(elementUid);
+            });
+        }
+        
+        // Input listeners
+        [retrievalVariableNameInput, retrievalNodeIdInput, retrievalNodeQueryInput, retrievalCommandInput, retrievalQueryInput].forEach(input => {
+            if (input) {
+                input.addEventListener('input', () => {
+                    formHasBeenModified = true;
+                    updateElementSettingsSaveButtonVisibility();
+                });
+            }
+        });
+    }
+    
+    // Add listeners for dropdown_prefetch
+    if (fieldConfig.type === 'dropdown_prefetch') {
+        const prefetchSourceSelect = document.getElementById('prefetch_source_element_uid');
+        const prefetchResultPathInput = document.getElementById('prefetch_result_path');
+        const prefetchLabelFieldInput = document.getElementById('prefetch_label_field');
+        const prefetchValueFieldInput = document.getElementById('prefetch_value_field');
+        
+        // Input listeners
+        [prefetchSourceSelect, prefetchResultPathInput, prefetchLabelFieldInput, prefetchValueFieldInput].forEach(input => {
+            if (input) {
+                input.addEventListener('input', () => {
+                    formHasBeenModified = true;
+                    updateElementSettingsSaveButtonVisibility();
+                });
+                input.addEventListener('change', () => {
+                    formHasBeenModified = true;
+                    updateElementSettingsSaveButtonVisibility();
+                });
+            }
+        });
+    }
     if (fieldConfig.type === 'array') {
         const editArrayItemsBtn = document.getElementById('editArrayItemsBtn');
         if (editArrayItemsBtn) {
@@ -4105,6 +4321,23 @@ function updateSaveButtonState() {
                     return !f.label_field || f.label_field === '' || !f.value_field || f.value_field === '';
                 }
                 return false;
+            } else if (f.type === 'dropdown_prefetch') {
+                // Check prefetch dropdown configuration
+                return !f.source_element_uid || f.source_element_uid === '' || !f.label_field || f.label_field === '' || !f.value_field || f.value_field === '';
+            } else if (f.type === 'data_retrieval') {
+                // Check data retrieval configuration
+                if (f.type === 'mesh_cmd' || f.type === 'mesh_powershell') {
+                    let nodeSelectValid = false;
+                    if (f.node_selection_type === 'fixed') {
+                        nodeSelectValid = f.node_id && f.node_id !== '';
+                    } else if (f.node_selection_type === 'query') {
+                        nodeSelectValid = f.node_query && f.node_query !== '';
+                    }
+                    return !f.variable_name || f.variable_name === '' || !nodeSelectValid || !f.command || f.command === '';
+                } else if (f.type === 'mysql') {
+                    return !f.variable_name || f.variable_name === '' || !f.query || f.query === '';
+                }
+                return false;
             }
             return false;
         });
@@ -4173,6 +4406,9 @@ function updateSaveButtonState() {
                         return !f.label_field || f.label_field === '' || !f.value_field || f.value_field === '';
                     }
                     return false;
+                } else if (f.type === 'dropdown_prefetch') {
+                    // Check prefetch dropdown configuration
+                    return !f.source_element_uid || f.source_element_uid === '' || !f.label_field || f.label_field === '' || !f.value_field || f.value_field === '';
                 }
                 return false;
             });
@@ -4196,6 +4432,8 @@ function updateSaveButtonState() {
                     } else if (dropdown.mode === 'nodes') {
                         missingLabel = 'Fields';
                     }
+                } else if (dropdown.type === 'dropdown_prefetch') {
+                    missingLabel = 'Source/Fields';
                 }
                 items.push({
                     label: `${dropdown.field_name} ${missingLabel}`,
