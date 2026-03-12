@@ -2976,6 +2976,7 @@ function showElementSettings(elementUid) {
             </div>
         `;
     }
+    let dependantFieldsHTML = '';
     
     // Add common fields - Dependent Fields
     // Parse dependant_fields - handle both old string format and new object format
