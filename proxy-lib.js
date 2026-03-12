@@ -153,6 +153,9 @@ const ProxyLib = (() => {
             throw error;
         }
     }
+    
+    /**
+     * Validate existing session token
      * @param {string} sessionToken - Session token to validate
      * @param {string} user - Username
      * @param {object} options - Optional config
@@ -522,3 +525,8 @@ const ProxyLib = (() => {
         buildTable
     };
 })();
+
+// Make ProxyLib available globally
+if (typeof window !== 'undefined') {
+    window.ProxyLib = ProxyLib;
+}
