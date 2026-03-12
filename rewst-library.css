@@ -771,6 +771,7 @@
     background: #f9d86c;
     border-color: #d4a017;
     color: #7a6b00;
+    font-weight: bold;
   }
   .modal-overlay {
     position: fixed;
