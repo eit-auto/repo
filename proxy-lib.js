@@ -245,6 +245,13 @@ const ProxyLib = (() => {
             return data;
         } catch (error) {
             console.error('[ProxyLib] executeCommand error:', error);
+            // Check if this is a transient error worth retrying
+            const isRetryable = error.message.includes('WebSocket') || error.message.includes('500');
+            if (isRetryable && !options._retried) {
+                console.warn('[ProxyLib] Retrying command execution...');
+                options._retried = true;
+                return executeCommand(sessionToken, user, nodeId, command, commandType, options);
+            }
             throw error;
         }
     }
