@@ -225,6 +225,518 @@
     </style>
     <!-- Rewst Library JavaScript (must load before loadFormConfigEarly) -->
     <script src="https://eit-auto.github.io/repo/rewst-library.js"></script>
+    <!-- ProxyLib for MeshCentral and MySQL operations (inlined) -->
+    <script>
+/**
+ * ProxyLib - Reusable library for MeshCentral Proxy authentication and operations
+ * Wraps /auth, /validate, /command, and /nodes endpoints
+ * Requires: RewstLib (for orgVariables.get)
+ */
+
+const ProxyLib = (() => {
+    const PROXY_URL = 'https://llink.equinoxits.com:1139';
+    
+    // Cache for in-flight authentication promises (user_keyName -> promise)
+    const authInFlight = {};
+    // Cache for completed authentication tokens (user_keyName -> token)
+    const authCache = {};
+    
+    /**
+     * Retrieve API key from org variables
+     * @param {string} keyName - Org variable name (required)
+     * @returns {Promise<string>} API key value
+     */
+    async function getApiKey(keyName) {
+        try {
+            if (!keyName) {
+                throw new Error('keyName is required');
+            }
+            
+            const apiKeyVar = await RewstLib.orgVariables.get(keyName);
+            
+            if (!apiKeyVar || !apiKeyVar.value) {
+                throw new Error(`${keyName} not found in org variables`);
+            }
+            
+            console.log('[ProxyLib] API key retrieved:', keyName);
+            return apiKeyVar.value;
+        } catch (error) {
+            console.error('[ProxyLib] getApiKey error:', error);
+            throw error;
+        }
+    }
+    
+    /**
+     * Internal authenticate function (without caching)
+     * @private
+     */
+    async function _authenticate(user, origin, options = {}) {
+        try {
+            if (!user) {
+                throw new Error('user is required');
+            }
+            
+            // Handle origin - if null or invalid, use parent window origin
+            let authOrigin = origin;
+            if (!authOrigin || authOrigin === 'null') {
+                try {
+                    authOrigin = window.parent.location.origin;
+                    console.log('[ProxyLib] Origin was null/invalid, using parent origin:', authOrigin);
+                } catch (e) {
+                    console.warn('[ProxyLib] Could not access parent origin:', e.message);
+                    throw new Error('origin is required and could not be auto-detected');
+                }
+            }
+            
+            let apiKey = options.apiKey;
+            if (!apiKey) {
+                if (!options.keyName) {
+                    throw new Error('keyName is required (or provide apiKey directly)');
+                }
+                apiKey = await getApiKey(options.keyName);
+            }
+            
+            console.log('[ProxyLib] Authenticating user:', user);
+            
+            const authPayload = {
+                origin: authOrigin,
+                user: user
+            };
+            
+            console.log('[ProxyLib] Auth request payload:', authPayload);
+            console.log('[ProxyLib] Auth request headers:', {
+                'Content-Type': 'application/json',
+                'X-Proxy-Token': apiKey ? `${apiKey.substring(0, 20)}...` : 'MISSING'
+            });
+            
+            const response = await fetch(`${PROXY_URL}/auth`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Proxy-Token': apiKey
+                },
+                body: JSON.stringify(authPayload)
+            });
+            
+            const data = await response.json();
+            
+            if (!response.ok) {
+                throw new Error(data.error || `HTTP ${response.status}`);
+            }
+            
+            if (data.status !== 'Authorized') {
+                throw new Error(data.error || 'Authentication failed');
+            }
+            
+            console.log('[ProxyLib] Authentication successful for:', user);
+            return data;
+        } catch (error) {
+            console.error('[ProxyLib] authenticate error:', error);
+            throw error;
+        }
+    }
+    
+    /**
+     * Authenticate with proxy to get session token
+     * Handles caching and in-flight promise deduplication for concurrent auth requests
+     * @param {string} user - Username (e.g., bradf@equinoxits.com)
+     * @param {string} origin - Origin URL (e.g., https://equinoxits-tools.rew.st)
+     * @param {object} options - Required: keyName OR apiKey (apiKey takes precedence)
+     * @returns {Promise<{status, sessionToken, credentialName, expiresIn}>}
+     */
+    async function authenticate(user, origin, options = {}) {
+        try {
+            // Create cache key based on user and keyName
+            const keyName = options.keyName || 'default';
+            const cacheKey = `${user}_${keyName}`;
+            
+            // Check if token is already cached
+            if (authCache[cacheKey]) {
+                console.log('[ProxyLib] Using cached session token for:', user, 'with key:', keyName);
+                return authCache[cacheKey];
+            }
+            
+            // Check if authentication is already in-flight
+            if (authInFlight[cacheKey]) {
+                console.log('[ProxyLib] Waiting for in-flight authentication for:', user, 'with key:', keyName);
+                return authInFlight[cacheKey];
+            }
+            
+            // Create the authentication promise
+            const authPromise = _authenticate(user, origin, options);
+            
+            // Store the in-flight promise
+            authInFlight[cacheKey] = authPromise;
+            
+            try {
+                const result = await authPromise;
+                // Cache the result
+                authCache[cacheKey] = result;
+                return result;
+            } finally {
+                // Remove from in-flight after completion
+                delete authInFlight[cacheKey];
+            }
+        } catch (error) {
+            console.error('[ProxyLib] authenticate error:', error);
+            throw error;
+        }
+    }
+    
+    /**
+     * Validate existing session token
+     * @param {string} sessionToken - Session token to validate
+     * @param {string} user - Username
+     * @param {object} options - Optional config
+     * @returns {Promise<{status, credentialName, user, expiresIn}>}
+     */
+    async function validateSession(sessionToken, user, options = {}) {
+        try {
+            if (!sessionToken || !user) {
+                throw new Error('sessionToken and user are required');
+            }
+            
+            console.log('[ProxyLib] Validating session for user:', user);
+            
+            const response = await fetch(`${PROXY_URL}/validate`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Session-Token': sessionToken
+                },
+                body: JSON.stringify({
+                    user: user
+                })
+            });
+            
+            const data = await response.json();
+            
+            if (!response.ok) {
+                throw new Error(data.error || `HTTP ${response.status}`);
+            }
+            
+            if (data.status !== 'Valid') {
+                throw new Error(data.error || 'Session validation failed');
+            }
+            
+            console.log('[ProxyLib] Session validation successful');
+            return data;
+        } catch (error) {
+            console.error('[ProxyLib] validateSession error:', error);
+            throw error;
+        }
+    }
+    
+    /**
+     * Execute command on MeshCentral agent
+     * @param {string} sessionToken - Session token (from authenticate)
+     * @param {string} user - Username
+     * @param {string} nodeId - MeshCentral node ID
+     * @param {string} command - Command to execute
+     * @param {number} commandType - 1=cmd, 2=powershell (default: 1)
+     * @param {object} options - Optional config
+     * @returns {Promise<{success, result}>}
+     */
+    async function executeCommand(sessionToken, user, nodeId, command, commandType = 1, options = {}) {
+        try {
+            if (!sessionToken || !user || !nodeId || !command) {
+                throw new Error('sessionToken, user, nodeId, and command are required');
+            }
+            
+            console.log('[ProxyLib] Executing command on node:', nodeId);
+            
+            const response = await fetch(`${PROXY_URL}/command`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Session-Token': sessionToken
+                },
+                body: JSON.stringify({
+                    nodeId: nodeId,
+                    command: command,
+                    commandType: commandType,
+                    user: user,
+                    reply: options.reply || true
+                })
+            });
+            
+            const data = await response.json();
+            
+            if (!response.ok) {
+                throw new Error(data.error || `HTTP ${response.status}`);
+            }
+            
+            if (!data.success) {
+                throw new Error(data.error || 'Command execution failed');
+            }
+            
+            console.log('[ProxyLib] Command executed successfully');
+            return data;
+        } catch (error) {
+            console.error('[ProxyLib] executeCommand error:', error);
+            throw error;
+        }
+    }
+    
+    /**
+     * Get nodes from MeshCentral organized by mesh group, with optional filtering
+     * @param {string} sessionToken - Session token (from authenticate)
+     * @param {string} user - Username
+     * @param {object} options - Optional config {query, ...}
+     * @returns {Promise<{success, result}>} result is object with mesh groups as keys
+     */
+    async function getNodes(sessionToken, user, options = {}) {
+        try {
+            if (!sessionToken || !user) {
+                throw new Error('sessionToken and user are required');
+            }
+            
+            console.log('[ProxyLib] Retrieving nodes for user:', user);
+            
+            const body = {
+                user: user
+            };
+            
+            // Add query if provided
+            if (options.query) {
+                body.query = options.query;
+                console.log('[ProxyLib] Query filter:', options.query.substring(0, 100) + '...');
+            }
+            
+            const response = await fetch(`${PROXY_URL}/nodes`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Session-Token': sessionToken
+                },
+                body: JSON.stringify(body)
+            });
+            
+            const data = await response.json();
+            
+            if (!response.ok) {
+                throw new Error(data.error || `HTTP ${response.status}`);
+            }
+            
+            if (!data.success) {
+                throw new Error(data.error || 'Failed to retrieve nodes');
+            }
+            
+            // Process nodes to strip "node//" prefix from _id fields
+            if (data.result && typeof data.result === 'object') {
+                Object.values(data.result).forEach(meshGroup => {
+                    if (Array.isArray(meshGroup)) {
+                        meshGroup.forEach(node => {
+                            if (node && node._id && typeof node._id === 'string') {
+                                // Strip "node//" prefix if present (6 characters: n-o-d-e-/-/)
+                                if (node._id.startsWith('node//')) {
+                                    node._id = node._id.substring(6); // Remove "node//"
+                                }
+                            }
+                        });
+                    }
+                });
+            }
+            
+            const meshGroupCount = Object.keys(data.result || {}).length;
+            console.log('[ProxyLib] Retrieved nodes:', meshGroupCount, 'mesh groups');
+            return data;
+        } catch (error) {
+            console.error('[ProxyLib] getNodes error:', error);
+            throw error;
+        }
+    }
+    
+    /**
+     * Get proxy status (health check)
+     * @returns {Promise<object>} Proxy status
+     */
+    async function getStatus(options = {}) {
+        try {
+            console.log('[ProxyLib] Checking proxy status');
+            
+            const response = await fetch(`${PROXY_URL}/status`, {
+                method: 'GET'
+            });
+            
+            const data = await response.json();
+            
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+            
+            console.log('[ProxyLib] Proxy status OK');
+            return data;
+        } catch (error) {
+            console.error('[ProxyLib] getStatus error:', error);
+            throw error;
+        }
+    }
+    
+    /**
+     * Execute MySQL query
+     * @param {string} sessionToken - Session token (from authenticate)
+     * @param {string} user - Username
+     * @param {string} query - SQL query to execute
+     * @param {object} options - Optional config
+     * @returns {Promise<{success, result, rowCount}>}
+     */
+    async function executeQuery(sessionToken, user, query, options = {}) {
+        try {
+            if (!sessionToken || !user || !query) {
+                throw new Error('sessionToken, user, and query are required');
+            }
+            
+            console.log('[ProxyLib] Executing query');
+            
+            const response = await fetch(`${PROXY_URL}/query`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Session-Token': sessionToken
+                },
+                body: JSON.stringify({
+                    query: query,
+                    user: user
+                })
+            });
+            
+            const data = await response.json();
+            
+            if (!response.ok) {
+                throw new Error(data.error || `HTTP ${response.status}`);
+            }
+            
+            if (!data.success) {
+                throw new Error(data.errors || 'Query execution failed');
+            }
+            
+            console.log('[ProxyLib] Query executed successfully, returned', data.rowCount, 'rows');
+            return data;
+        } catch (error) {
+            console.error('[ProxyLib] executeQuery error:', error);
+            throw error;
+        }
+    }
+    
+    /**
+     * Authenticate with UI handling
+     * @param {string} user - Username
+     * @param {string} origin - Origin URL
+     * @param {string} keyName - Org variable name for API key
+     * @param {object} uiElements - UI elements {authStatusBox, inputElement, buttonElement}
+     * @returns {Promise<string>} Session token on success
+     */
+    async function authenticateWithKeyName(user, origin, keyName, uiElements = {}) {
+        const authBox = uiElements.authStatusBox;
+        const inputElement = uiElements.inputElement;
+        const buttonElement = uiElements.buttonElement;
+        
+        try {
+            console.log('[ProxyLib] Authenticating with keyName:', keyName);
+            
+            // Use main authenticate function
+            const authResult = await authenticate(user, origin, { keyName });
+            const sessionToken = authResult.sessionToken;
+            
+            // Update UI if provided
+            if (authBox) {
+                authBox.className = 'status-box success';
+                authBox.textContent = `✓ Authenticated (${authResult.credentialName}) - Ready to execute`;
+                authBox.style.display = 'block';
+            }
+            
+            // Enable inputs if provided
+            if (inputElement) inputElement.disabled = false;
+            if (buttonElement) buttonElement.disabled = false;
+            
+            console.log('[ProxyLib] Authentication with UI handling successful');
+            return sessionToken;
+            
+        } catch (error) {
+            console.error('[ProxyLib] Authentication error:', error);
+            
+            // Update UI on error
+            if (authBox) {
+                authBox.className = 'status-box error';
+                authBox.textContent = `✗ Auth Error: ${error.message}`;
+                authBox.style.display = 'block';
+            }
+            
+            // Disable inputs on error
+            if (inputElement) inputElement.disabled = true;
+            if (buttonElement) buttonElement.disabled = true;
+            
+            throw error;
+        }
+    }
+    
+    /**
+     * Escape HTML special characters to prevent XSS
+     * @param {string} text - Text to escape
+     * @returns {string} Escaped text safe for innerHTML
+     */
+    function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+    
+    /**
+     * Build HTML table from array of objects
+     * @param {array} rows - Array of objects (each object is a row)
+     * @param {array} columns - Optional: array of column names
+     * @returns {string} HTML table string
+     */
+    function buildTable(rows, columns = null) {
+        if (!rows || rows.length === 0) {
+            return '';
+        }
+        
+        // Get columns from first row if not provided
+        const cols = columns || Object.keys(rows[0]);
+        
+        // Build table
+        let html = '<div class="table-wrapper"><table><thead><tr>';
+        cols.forEach(col => {
+            html += `<th>${escapeHtml(col)}</th>`;
+        });
+        html += '</tr></thead><tbody>';
+        
+        rows.forEach(row => {
+            html += '<tr>';
+            cols.forEach(col => {
+                const value = row[col];
+                const displayValue = value === null ? '(null)' : escapeHtml(String(value));
+                html += `<td>${displayValue}</td>`;
+            });
+            html += '</tr>';
+        });
+        
+        html += '</tbody></table></div>';
+        return html;
+    }
+    
+    // Public API
+    return {
+        getApiKey,
+        authenticate,
+        authenticateWithKeyName,
+        validateSession,
+        executeCommand,
+        executeQuery,
+        getNodes,
+        getStatus,
+        escapeHtml,
+        buildTable
+    };
+})();
+
+// Make ProxyLib available globally
+if (typeof window !== 'undefined') {
+    window.ProxyLib = ProxyLib;
+}
+    </script>
     <!-- Load form config and check permissions before rendering body -->
     <script>
         /**
@@ -1440,6 +1952,14 @@
                     console.log(`Dropdown_graphql ${config.field_name} has no dependencies, loading options immediately`);
                     loadFieldOptions(config, fieldConfigs, formConfig);
                 }
+                if (config.type === 'dropdown_mysql' && !config.dependant_fields) {
+                    console.log(`Dropdown_mysql ${config.field_name} has no dependencies, loading options immediately`);
+                    loadFieldOptions(config, fieldConfigs, formConfig);
+                }
+                if (config.type === 'dropdown_mesh' && !config.dependant_fields) {
+                    console.log(`Dropdown_mesh ${config.field_name} has no dependencies, loading options immediately`);
+                    loadFieldOptions(config, fieldConfigs, formConfig);
+                }
             });
             
             // Load array field dropdowns (workflow and GraphQL)
@@ -1463,7 +1983,9 @@
         function showLoadingMessage(formGroup, config) {
             if (!formGroup) return;
             const msg = formGroup.querySelector('.field-loading-message');
+            const container = formGroup.querySelector('.dropdown-refresh-container');
             if (msg) msg.style.display = 'flex';
+            if (container) container.style.display = 'none';
         }
 
         /**
@@ -1472,7 +1994,16 @@
         function hideLoadingMessage(formGroup, config) {
             if (!formGroup) return;
             const msg = formGroup.querySelector('.field-loading-message');
+            const container = formGroup.querySelector('.dropdown-refresh-container');
+            const select = formGroup.querySelector('select');
+            const multiSelect = formGroup.querySelector('.multi-select-container');
+            const refreshBtn = formGroup.querySelector('.dropdown-refresh-btn');
+            
             if (msg) msg.style.display = 'none';
+            if (container) container.style.display = 'flex';
+            if (select) select.style.display = 'block';
+            if (multiSelect) multiSelect.style.display = 'block';
+            if (refreshBtn) refreshBtn.style.display = 'block';
         }
 
         /**
@@ -1481,16 +2012,27 @@
         function showWaitingMessage(formGroup, config, allFieldConfigs) {
             if (!formGroup) return;
             const msg = formGroup.querySelector('.field-waiting-message');
+            const container = formGroup.querySelector('.dropdown-refresh-container');
             if (msg) msg.style.display = 'flex';
+            if (container) container.style.display = 'none';
         }
 
         /**
-         * Hide "Waiting for..." message in a form group
+         * Hide "Waiting for..." message and show field again
          */
         function hideWaitingMessage(formGroup, config) {
             if (!formGroup) return;
             const msg = formGroup.querySelector('.field-waiting-message');
+            const container = formGroup.querySelector('.dropdown-refresh-container');
+            const select = formGroup.querySelector('select');
+            const multiSelect = formGroup.querySelector('.multi-select-container');
+            const refreshBtn = formGroup.querySelector('.dropdown-refresh-btn');
+            
             if (msg) msg.style.display = 'none';
+            if (container) container.style.display = 'flex';
+            if (select) select.style.display = 'block';
+            if (multiSelect) multiSelect.style.display = 'block';
+            if (refreshBtn) refreshBtn.style.display = 'block';
         }
 
         /**
@@ -1598,7 +2140,10 @@
                 console.log(`[UPDATE_DEPS] Field ${config.field_name} depends on ${changedFieldName}, reloading`);
                 
                 // Reload options for dropdown fields
-                if ((config.type === 'dropdown' && config.workflow_id) || config.type === 'dropdown_graphql') {
+                if ((config.type === 'dropdown' && config.workflow_id) || 
+                    config.type === 'dropdown_graphql' || 
+                    config.type === 'dropdown_mesh' || 
+                    config.type === 'dropdown_mysql') {
                     if (loadFieldOptionsFn) {
                         loadFieldOptionsFn(config, fieldConfigs, formConfig);
                     }
@@ -1855,6 +2400,359 @@
                     const input = document.querySelector(`select[name="${config.field_name}"]`);
                     if (input) input.innerHTML = `<option value="">-- Error loading options --</option>`;
                 });
+            }
+            
+            // Handle dropdown_mysql - execute SQL query and populate dropdown
+            if (config.type === 'dropdown_mysql') {
+                const cacheKey = getQueryCacheKey(config.query, config.query_variables || {});
+                
+                // Helper function to populate dropdown with data
+                const populateMysqlDropdown = (data) => {
+                    const input = document.querySelector(`select[name="${config.field_name}"]`);
+                    if (!input) {
+                        console.error(`[MYSQL] SELECT element not found for ${config.field_name}`);
+                        return;
+                    }
+                    
+                    if (!Array.isArray(data)) {
+                        console.error(`[MYSQL] Data is not an array`);
+                        return;
+                    }
+                    
+                    if (data.length > 0) {
+                        input.innerHTML = `<option value="">${RewstLib.utils.getGrammaticalPhrase(config.field_displayname)}</option>`;
+                        let successCount = 0;
+                        data.forEach((item) => {
+                            const value = item[config.value_field] || item.id;
+                            const label = item[config.label_field] || item.name;
+                            if (value && label) {
+                                const opt = document.createElement('option');
+                                opt.value = value;
+                                opt.textContent = label;
+                                input.appendChild(opt);
+                                successCount++;
+                            }
+                        });
+                    } else {
+                        input.innerHTML = `<option value="">-- No results --</option>`;
+                    }
+                };
+                
+                // Check cache
+                if (!skipCache && proxyCache.queryResults[cacheKey]) {
+                    if (formGroup) RewstLib.utils.hideLoadingMessage(formGroup, config);
+                    populateMysqlDropdown(proxyCache.queryResults[cacheKey]);
+                    return Promise.resolve();
+                }
+                
+                // Execute query and return promise
+                return (async () => {
+                    try {
+                        const sessionToken = await getProxySessionToken('proxy_api_mysql');
+                        const queryResult = await ProxyLib.executeQuery(sessionToken, REWST_USER, config.query, {});
+                        
+                        if (formGroup) RewstLib.utils.hideLoadingMessage(formGroup, config);
+                        
+                        // Cache the result
+                        if (!skipCache && queryResult.result) {
+                            proxyCache.queryResults[cacheKey] = queryResult.result;
+                        }
+                        
+                        populateMysqlDropdown(queryResult.result);
+                    } catch (error) {
+                        console.error(`[MYSQL] Error executing query for ${config.field_name}:`, error);
+                        if (formGroup) RewstLib.utils.hideLoadingMessage(formGroup, config);
+                        const input = document.querySelector(`select[name="${config.field_name}"]`);
+                        if (input) input.innerHTML = `<option value="">-- Error loading options --</option>`;
+                    }
+                })();
+            }
+            
+            // Handle dropdown_mesh - execute command or retrieve nodes
+            if (config.type === 'dropdown_mesh') {
+                console.log(`[MESH] loadFieldOptions: checking dependencies for ${config.field_name}, has dependant_fields:`, !!config.dependant_fields);
+                
+                // Check if dependencies are met (for fields that have blocking dependencies)
+                if (config.dependant_fields) {
+                    const depsMet = RewstLib.utils.areDependenciesMet(config, allFieldConfigs);
+                    console.log(`[MESH] Dependencies for ${config.field_name}: met=${depsMet}`, config.dependant_fields);
+                    
+                    if (!depsMet) {
+                        console.log(`[MESH] Dependencies not met for ${config.field_name}, showing waiting message`);
+                        if (formGroup) {
+                            RewstLib.utils.showWaitingMessage(formGroup, config, allFieldConfigs);
+                        }
+                        return Promise.resolve();
+                    } else {
+                        // Dependencies are met, hide the waiting message
+                        if (formGroup) {
+                            RewstLib.utils.hideWaitingMessage(formGroup, config);
+                        }
+                    }
+                }
+                
+                const isNodesMode = config.mode === 'nodes';
+                // Skip cache if node_selection_type is 'query' and has variables (since results depend on variable values)
+                const hasQueryVariables = config.node_selection_type === 'query' && config.node_query && config.node_query.includes('[[');
+                const cacheKey = isNodesMode 
+                    ? `mesh_nodes_${config.node_query}`
+                    : config.node_selection_type === 'query'
+                    ? `mesh_command_query_${config.node_query}_${config.command}`
+                    : `mesh_command_${config.node_id}_${config.command}`;
+                
+                // Helper function to populate dropdown with data
+                const populateMeshDropdown = (data) => {
+                    const input = document.querySelector(`select[name="${config.field_name}"]`);
+                    if (!input) {
+                        console.error(`[MESH] SELECT element not found for ${config.field_name}`);
+                        return;
+                    }
+                    
+                    if (!Array.isArray(data)) {
+                        console.error(`[MESH] Data is not an array`);
+                        return;
+                    }
+                    
+                    if (data.length > 0) {
+                        input.innerHTML = `<option value="">${RewstLib.utils.getGrammaticalPhrase(config.field_displayname)}</option>`;
+                        let successCount = 0;
+                        data.forEach((item) => {
+                            const value = item[config.value_field] || item.id;
+                            const label = item[config.label_field] || item.name;
+                            if (value && label) {
+                                const opt = document.createElement('option');
+                                opt.value = value;
+                                opt.textContent = label;
+                                input.appendChild(opt);
+                                successCount++;
+                            }
+                        });
+                    } else {
+                        input.innerHTML = `<option value="">-- No results --</option>`;
+                    }
+                };
+                
+                // Helper function to flatten nodes from mesh groups
+                const flattenNodes = (meshGroupsObj) => {
+                    const nodes = [];
+                    if (typeof meshGroupsObj === 'object' && meshGroupsObj !== null) {
+                        Object.entries(meshGroupsObj).forEach(([groupKey, value]) => {
+                            if (Array.isArray(value)) {
+                                // The value is directly an array of nodes
+                                nodes.push(...value);
+                            } else if (value && typeof value === 'object') {
+                                // The value is an object that might have a .nodes property
+                                const groupNodes = value.nodes;
+                                if (Array.isArray(groupNodes)) {
+                                    nodes.push(...groupNodes);
+                                } else if (typeof groupNodes === 'object') {
+                                    // nodes is an object of node_id -> node_data
+                                    const nodesArray = Object.values(groupNodes);
+                                    nodes.push(...nodesArray);
+                                }
+                            }
+                        });
+                    }
+                    return nodes;
+                };
+                
+                // Check cache (skip if query has variables since results depend on variable values)
+                if (!skipCache && !hasQueryVariables && proxyCache.commandResults[cacheKey]) {
+                    if (formGroup) RewstLib.utils.hideLoadingMessage(formGroup, config);
+                    populateMeshDropdown(proxyCache.commandResults[cacheKey]);
+                    return Promise.resolve();
+                }
+                
+                // Execute operation and return promise
+                return (async () => {
+                    try {
+                        // Show loading message
+                        if (formGroup) RewstLib.utils.showLoadingMessage(formGroup, config);
+                        
+                        const sessionToken = await getProxySessionToken('proxy_api_meshcentral');
+                        let resultData;
+                        
+                        if (isNodesMode) {
+                            // Get nodes matching the query
+                            const nodesResult = await ProxyLib.getNodes(sessionToken, REWST_USER, {
+                                query: config.node_query
+                            });
+                            
+                            // Flatten the nested mesh group structure
+                            resultData = flattenNodes(nodesResult.result);
+                        } else {
+                            // Execute command on specific node
+                            let nodeId = config.node_id;
+                            console.log(`[MESH] Command execution block - node_id from config: "${nodeId}"`);
+                            
+                            // Handle node_selection_type: "query" - resolve node_id from getNodes query
+                            if (config.node_selection_type === 'query' && config.node_query) {
+                                console.log(`[MESH] Node selection type is "query", processing query: ${config.node_query}`);
+                                
+                                // Handle variable substitution for [[field_name]] patterns in node_query
+                                let resolvedQuery = config.node_query;
+                                if (resolvedQuery.includes('[[')) {
+                                    console.log(`[MESH] Processing variable substitution in node_query`);
+                                    
+                                    // Collect current form values
+                                    const formData = {};
+                                    console.log(`[MESH] Collecting form values from ${allFieldConfigs.length} fields`);
+                                    
+                                    if (allFieldConfigs && Array.isArray(allFieldConfigs)) {
+                                        allFieldConfigs.forEach(fc => {
+                                            const input = document.querySelector(`input[name="${fc.field_name}"], select[name="${fc.field_name}"], textarea[name="${fc.field_name}"]`);
+                                            if (input) {
+                                                if (input.type === 'checkbox') {
+                                                    formData[fc.field_name] = input.checked;
+                                                } else if (input.type === 'radio') {
+                                                    const checkedRadio = document.querySelector(`input[name="${fc.field_name}"]:checked`);
+                                                    formData[fc.field_name] = checkedRadio ? checkedRadio.value : null;
+                                                } else {
+                                                    formData[fc.field_name] = input.value;
+                                                }
+                                            }
+                                        });
+                                    }
+                                    
+                                    console.log(`[MESH] Form data collected:`, formData);
+                                    
+                                    // Replace [[field_name]] patterns with actual values
+                                    resolvedQuery = resolvedQuery.replace(/\[\[(\w+)\]\]/g, (match, fieldName) => {
+                                        const value = formData[fieldName];
+                                        console.log(`[MESH] Substituting [[${fieldName}]] -> "${value}"`);
+                                        return value !== undefined && value !== null && value !== '' ? value : match;
+                                    });
+                                    
+                                    console.log(`[MESH] After query substitution: "${resolvedQuery}"`);
+                                }
+                                
+                                const nodesResult = await ProxyLib.getNodes(sessionToken, REWST_USER, {
+                                    query: resolvedQuery
+                                });
+                                
+                                // Flatten the results to get an array of nodes
+                                const queryNodes = flattenNodes(nodesResult.result);
+                                console.log(`[MESH] Query returned ${queryNodes.length} node(s)`);
+                                
+                                if (queryNodes.length === 0) {
+                                    throw new Error(`Query matched 0 nodes. Please refine the query to return exactly one node.`);
+                                } else if (queryNodes.length > 1) {
+                                    throw new Error(`Query matched ${queryNodes.length} nodes. Please refine the query to return exactly one node.`);
+                                }
+                                
+                                // Extract node_id from the single matching node
+                                nodeId = queryNodes[0]._id;
+                                console.log(`[MESH] Resolved node_id from query: "${nodeId}"`);
+                            }
+                            // Handle variable substitution for [[field_name]] patterns (for fixed selection type)
+                            else if (nodeId && nodeId.includes('[[')) {
+                                console.log(`[MESH] Processing variable substitution in node_id: ${nodeId}`);
+                                
+                                // Collect current form values
+                                const formData = {};
+                                console.log(`[MESH] Collecting form values from ${allFieldConfigs.length} fields`);
+                                
+                                if (allFieldConfigs && Array.isArray(allFieldConfigs)) {
+                                    allFieldConfigs.forEach(fc => {
+                                        const input = document.querySelector(`input[name="${fc.field_name}"], select[name="${fc.field_name}"], textarea[name="${fc.field_name}"]`);
+                                        if (input) {
+                                            if (input.type === 'checkbox') {
+                                                formData[fc.field_name] = input.checked;
+                                            } else if (input.type === 'radio') {
+                                                const checkedRadio = document.querySelector(`input[name="${fc.field_name}"]:checked`);
+                                                formData[fc.field_name] = checkedRadio ? checkedRadio.value : null;
+                                            } else {
+                                                formData[fc.field_name] = input.value;
+                                            }
+                                        }
+                                    });
+                                }
+                                
+                                console.log(`[MESH] Form data collected:`, formData);
+                                
+                                // Replace [[field_name]] patterns with actual values
+                                nodeId = nodeId.replace(/\[\[(\w+)\]\]/g, (match, fieldName) => {
+                                    const value = formData[fieldName];
+                                    console.log(`[MESH] Substituting [[${fieldName}]] -> "${value}"`);
+                                    return value !== undefined && value !== null && value !== '' ? value : match;
+                                });
+                                
+                                console.log(`[MESH] After substitution: "${nodeId}"`);
+                            } else {
+                                console.log(`[MESH] No variable substitution needed (nodeId: "${nodeId}")`);
+                            }
+                            
+                            // Determine command type based on mode or explicit config
+                            // Type 1 = CMD, Type 2 = PowerShell
+                            let commandType = config.command_type;
+                            
+                            if (!commandType) {
+                                // If mode is explicitly set, use that
+                                if (config.mode === 'powershell') {
+                                    commandType = 2;
+                                    console.log('[MESH] Mode is powershell, using type 2 (PowerShell)');
+                                } else if (config.mode === 'cmd') {
+                                    commandType = 1;
+                                    console.log('[MESH] Mode is cmd, using type 1 (CMD)');
+                                } else if (config.command) {
+                                    // Auto-detect: if command contains PowerShell-specific keywords, use type 2
+                                    const psKeywords = ['Import-Module', 'Write-Output', 'Get-', 'Set-', '$', 'Write-Error', 'ConvertTo-Json'];
+                                    if (psKeywords.some(kw => config.command.includes(kw))) {
+                                        commandType = 2;
+                                        console.log('[MESH] Auto-detected PowerShell command, using type 2');
+                                    } else {
+                                        commandType = 1;
+                                        console.log('[MESH] Auto-detected CMD command, using type 1');
+                                    }
+                                } else {
+                                    commandType = 1; // Default to CMD
+                                }
+                            }
+                            
+                            const commandResult = await ProxyLib.executeCommand(
+                                sessionToken, 
+                                REWST_USER, 
+                                nodeId, 
+                                config.command, 
+                                commandType
+                            );
+                            
+                            // Parse result - handle nested structure
+                            let parsedResult = commandResult.result;
+                            
+                            // If result is an object with a nested 'result' property, get that
+                            if (typeof parsedResult === 'object' && parsedResult !== null && parsedResult.result) {
+                                parsedResult = parsedResult.result;
+                            }
+                            
+                            // Parse as JSON string if needed
+                            if (typeof parsedResult === 'string') {
+                                try {
+                                    parsedResult = JSON.parse(parsedResult);
+                                } catch (e) {
+                                    console.warn('[MESH] Could not parse command result as JSON:', e);
+                                    parsedResult = [];
+                                }
+                            }
+                            
+                            resultData = Array.isArray(parsedResult) ? parsedResult : [];
+                        }
+                        
+                        if (formGroup) RewstLib.utils.hideLoadingMessage(formGroup, config);
+                        
+                        // Cache the result (skip if query has variables since results depend on variable values)
+                        if (!skipCache && !hasQueryVariables && Array.isArray(resultData)) {
+                            proxyCache.commandResults[cacheKey] = resultData;
+                        }
+                        
+                        populateMeshDropdown(Array.isArray(resultData) ? resultData : []);
+                    } catch (error) {
+                        console.error(`[MESH] Error loading ${isNodesMode ? 'nodes' : 'command'} for ${config.field_name}:`, error);
+                        if (formGroup) RewstLib.utils.hideLoadingMessage(formGroup, config);
+                        const input = document.querySelector(`select[name="${config.field_name}"]`);
+                        if (input) input.innerHTML = `<option value="">-- Error loading options --</option>`;
+                    }
+                })();
             }
             
             // Handle form_extend separately
@@ -2271,10 +3169,10 @@
                     return;
                 }
                 
-                // Check each array item for workflow and GraphQL dropdowns
+                // Check each array item for workflow, GraphQL, MySQL, and Mesh dropdowns
                 const itemsArray = Array.isArray(arrayConfig.items) ? arrayConfig.items : [];
                 itemsArray.forEach(itemConfig => {
-                    if (itemConfig.type !== 'dropdown_workflow' && itemConfig.type !== 'dropdown_graphql') return;
+                    if (itemConfig.type !== 'dropdown_workflow' && itemConfig.type !== 'dropdown_graphql' && itemConfig.type !== 'dropdown_mysql' && itemConfig.type !== 'dropdown_mesh') return;
                     
                     const fieldName = itemConfig.name;
                     
@@ -2289,13 +3187,23 @@
                         const pseudoConfig = {
                             field_name: fieldId,
                             field_displayname: itemConfig.display_name || fieldName,
-                            type: itemConfig.type === 'dropdown_graphql' ? 'dropdown_graphql' : 'dropdown',
+                            type: itemConfig.type,
                             workflow_id: itemConfig.workflow_id,
                             label_name: itemConfig.label_name,
                             value_name: itemConfig.value_name,
+                            label_field: itemConfig.label_field || itemConfig.label_name,
+                            value_field: itemConfig.value_field || itemConfig.value_name,
                             workflow_input: itemConfig.workflow_input || {},
                             graphql_op: itemConfig.graphql_op,
                             graphql_op_variables: itemConfig.graphql_op_variables || {},
+                            query: itemConfig.query,
+                            query_variables: itemConfig.query_variables || {},
+                            mode: itemConfig.mode,
+                            node_query: itemConfig.node_query,
+                            node_id: itemConfig.node_id,
+                            node_selection_type: itemConfig.node_selection_type,
+                            command: itemConfig.command,
+                            command_type: itemConfig.command_type || 1,
                             dependant_fields: itemConfig.dependant_fields  // Include if defined
                         };
                         
@@ -2320,6 +3228,12 @@
             inFlight: {}      // In-flight GraphQL promises
         };
         
+        const proxyCache = {
+            sessionTokens: {},  // Cached proxy session tokens by user
+            queryResults: {},   // Cached MySQL query results
+            commandResults: {}  // Cached Mesh command results
+        };
+        
         function getWorkflowCacheKey(workflowId, workflowInput) {
             // Create a consistent cache key by sorting object keys
             // This ensures {a:1, b:2} and {b:2, a:1} produce the same key
@@ -2339,6 +3253,52 @@
                 sortedVars[key] = variables[key];
             });
             return `${operation}_${JSON.stringify(sortedVars)}`;
+        }
+        
+        function getQueryCacheKey(query, variables = {}) {
+            // Create cache key for MySQL queries
+            const sortedVars = {};
+            const keys = Object.keys(variables).sort();
+            keys.forEach(key => {
+                sortedVars[key] = variables[key];
+            });
+            return `query_${query}_${JSON.stringify(sortedVars)}`;
+        }
+        
+        /**
+         * Get or create proxy session token for current user
+         * Caches token so we only authenticate once per session per key
+         * @param {string} keyName - Org variable name for API key (e.g., 'proxy_api_mysql', 'proxy_api_meshcentral')
+         */
+        async function getProxySessionToken(keyName = 'proxy_api_key') {
+            try {
+                if (!REWST_USER) {
+                    throw new Error('REWST_USER not available');
+                }
+                
+                const cacheKey = `${REWST_USER}_${keyName}`;
+                
+                // Check if we already have a cached token for this key
+                if (proxyCache.sessionTokens[cacheKey]) {
+                    console.log('[PROXY] Using cached session token for:', REWST_USER, 'with key:', keyName);
+                    return proxyCache.sessionTokens[cacheKey];
+                }
+                
+                // Get API key and authenticate
+                console.log('[PROXY] Authenticating with ProxyLib for:', REWST_USER, 'using key:', keyName);
+                const authResult = await ProxyLib.authenticate(REWST_USER, window.location.origin, {
+                    keyName: keyName
+                });
+                
+                // Cache the session token
+                proxyCache.sessionTokens[cacheKey] = authResult.sessionToken;
+                console.log('[PROXY] Session token obtained and cached for key:', keyName);
+                
+                return authResult.sessionToken;
+            } catch (error) {
+                console.error('[PROXY] Failed to get session token:', error);
+                throw error;
+            }
         }
         
         async function getOrExecuteWorkflow(config, workflowInput, allFieldConfigs = [], formConfig = {}) {
@@ -2475,15 +3435,25 @@
                         const itemsArray = Array.isArray(arrayConfig.items) ? arrayConfig.items : [];
                         const itemConfig = itemsArray.find(i => i.name === itemFieldName);
                         
-                        if (itemConfig && (itemConfig.type === 'dropdown_workflow' || itemConfig.type === 'dropdown_graphql')) {
+                        if (itemConfig && (itemConfig.type === 'dropdown_workflow' || itemConfig.type === 'dropdown_graphql' || itemConfig.type === 'dropdown_mysql' || itemConfig.type === 'dropdown_mesh')) {
                             // Create pseudo-config for array dropdown field
                             config = {
                                 field_name: fieldName,
                                 field_displayname: itemConfig.display_name || itemFieldName,
-                                type: itemConfig.type === 'dropdown_graphql' ? 'dropdown_graphql' : 'dropdown',
+                                type: itemConfig.type,
                                 workflow_id: itemConfig.workflow_id,
                                 graphql_op: itemConfig.graphql_op,
                                 graphql_op_variables: itemConfig.graphql_op_variables || {},
+                                query: itemConfig.query,
+                                query_variables: itemConfig.query_variables || {},
+                                mode: itemConfig.mode,
+                                node_query: itemConfig.node_query,
+                                node_id: itemConfig.node_id,
+                                node_selection_type: itemConfig.node_selection_type,
+                                command: itemConfig.command,
+                                command_type: itemConfig.command_type || 1,
+                                label_field: itemConfig.label_field || itemConfig.label_name,
+                                value_field: itemConfig.value_field || itemConfig.value_name,
                                 label_name: itemConfig.label_name,
                                 value_name: itemConfig.value_name,
                                 workflow_input: itemConfig.workflow_input || {},
@@ -2697,6 +3667,80 @@
                     html += `
                         <label>${displayName}</label>
                         ${config.description ? `<div class="field-description">${escapeHtml(config.description)}</div>` : ''}
+                        <div class="dropdown-refresh-container">
+                            <select name="${config.field_name}">
+                                <option value="">${RewstLib.utils.getGrammaticalPhrase(config.field_displayname)}</option>
+                            </select>
+                            <button type="button" class="dropdown-refresh-btn" data-field-name="${config.field_name}" title="Refresh options">↻</button>
+                        </div>
+                    `;
+                }
+            } else if (config.type === 'dropdown_mysql') {
+                if (config.multi_select) {
+                    // Custom multi-select component with refresh button
+                    const multiSelectId = `ms_${config.field_name}`;
+                    const descriptionHtml = config.description ? `<div class="field-description">${escapeHtml(config.description)}</div>` : '';
+                    html += `
+                        <label>${displayName}</label>
+                        ${descriptionHtml}
+                        <div class="dropdown-refresh-container">
+                            <div style="flex: 1;">
+                                <div class="multi-select-container" id="${multiSelectId}">
+                                    <div class="multi-select-display">
+                                        <div class="multi-select-tags"></div>
+                                        <div class="multi-select-toggle">▼</div>
+                                    </div>
+                                    <div class="multi-select-options"></div>
+                                    <select name="${config.field_name}" class="multi-select-hidden-select"></select>
+                                </div>
+                            </div>
+                            <button type="button" class="dropdown-refresh-btn" data-field-name="${config.field_name}" title="Refresh options">↻</button>
+                        </div>
+                    `;
+                } else {
+                    // Single select with refresh button
+                    html += `
+                        <label>${displayName}</label>
+                        ${config.description ? `<div class="field-description">${escapeHtml(config.description)}</div>` : ''}
+                        <div class="dropdown-refresh-container">
+                            <select name="${config.field_name}">
+                                <option value="">${RewstLib.utils.getGrammaticalPhrase(config.field_displayname)}</option>
+                            </select>
+                            <button type="button" class="dropdown-refresh-btn" data-field-name="${config.field_name}" title="Refresh options">↻</button>
+                        </div>
+                    `;
+                }
+            } else if (config.type === 'dropdown_mesh') {
+                if (config.multi_select) {
+                    // Custom multi-select component with refresh button
+                    const multiSelectId = `ms_${config.field_name}`;
+                    const descriptionHtml = config.description ? `<div class="field-description">${escapeHtml(config.description)}</div>` : '';
+                    html += `
+                        <label>${displayName}</label>
+                        ${descriptionHtml}
+                        <div class="field-loading-message" style="display: none;"><span class="spinner"></span> Loading...</div>
+                        <div class="field-waiting-message" style="display: none;">Waiting for dependencies...</div>
+                        <div class="dropdown-refresh-container">
+                            <div style="flex: 1;">
+                                <div class="multi-select-container" id="${multiSelectId}">
+                                    <div class="multi-select-display">
+                                        <div class="multi-select-tags"></div>
+                                        <div class="multi-select-toggle">▼</div>
+                                    </div>
+                                    <div class="multi-select-options"></div>
+                                    <select name="${config.field_name}" class="multi-select-hidden-select"></select>
+                                </div>
+                            </div>
+                            <button type="button" class="dropdown-refresh-btn" data-field-name="${config.field_name}" title="Refresh options">↻</button>
+                        </div>
+                    `;
+                } else {
+                    // Single select with refresh button
+                    html += `
+                        <label>${displayName}</label>
+                        ${config.description ? `<div class="field-description">${escapeHtml(config.description)}</div>` : ''}
+                        <div class="field-loading-message" style="display: none;"><span class="spinner"></span> Loading...</div>
+                        <div class="field-waiting-message" style="display: none;">Waiting for dependencies...</div>
                         <div class="dropdown-refresh-container">
                             <select name="${config.field_name}">
                                 <option value="">${RewstLib.utils.getGrammaticalPhrase(config.field_displayname)}</option>
