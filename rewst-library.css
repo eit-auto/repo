@@ -52,7 +52,6 @@
     border-radius: 8px;
     box-sizing: border-box;
     overflow-x: hidden;
-    overflow-y: visible;
     display: flex;
     flex-direction: column;
     gap: 1rem;
@@ -229,33 +228,6 @@
     accent-color: #5a9fb8;
   }
 
-  .checkbox-group {
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-  }
-
-  .checkbox-item {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    padding: 0.1rem 0;
-    cursor: pointer;
-    user-select: none;
-    white-space: nowrap;
-    position: relative;
-  }
-
-  .checkbox-item label {
-    color: #e0e0e0;
-    font-size: 0.9rem;
-    cursor: pointer;
-    white-space: nowrap;
-    margin: 0;
-    pointer-events: auto;
-    display: inline;
-  }
-
   .confirm-modal-backdrop {
     position: fixed;
     top: 0;
@@ -362,7 +334,7 @@
     width: 100%;
     border-collapse: collapse;
     margin-bottom: 0;
-    table-layout: auto;
+    table-layout: fixed;
   }
   thead {
     background: #32373e;
@@ -592,58 +564,6 @@
     line-height: 1.2;
   }
   /* ============================================
-   DATATABLE COLUMN WIDTHS
-   ============================================ */
-  /* Type-specific narrow column widths */
-  th.col-type-boolean,
-  td.col-type-boolean {
-    width: 20px !important;
-    min-width: 20px !important;
-  }
-  th.col-type-int,
-  td.col-type-int {
-    width: 50px !important;
-    min-width: 50px !important;
-  }
-  th.col-type-integer,
-  td.col-type-integer {
-    width: 50px !important;
-    min-width: 50px !important;
-  }
-  th.col-type-bigint,
-  td.col-type-bigint {
-    width: 50px !important;
-    min-width: 50px !important;
-  }
-  th.col-type-smallint,
-  td.col-type-smallint {
-    width: 50px !important;
-    min-width: 50px !important;
-  }
-  th.col-type-date,
-  td.col-type-date {
-    width: 70px !important;
-    min-width: 70px !important;
-  }
-  th.col-type-datetime,
-  td.col-type-datetime {
-    width: 100px !important;
-    min-width: 100px !important;
-  }
-  th.col-type-timestamp,
-  td.col-type-timestamp {
-    width: 100px !important;
-    min-width: 100px !important;
-  }
-  th.col-type-varchar,
-  td.col-type-varchar {
-    min-width: 150px !important;
-  }
-  th.col-type-text,
-  td.col-type-text {
-    min-width: 250px !important;
-  }
-  /* ============================================
    FORM VIEWER STYLING
    ============================================ */
   .form-container {
@@ -654,15 +574,9 @@
     --form-accent-color: #5a9fb8;
   }
   .form-group {
-    margin-bottom: 0.75rem;
+    margin-bottom: 1.125rem;
     display: flex;
     flex-direction: column;
-    align-items: flex-start;
-    position: relative;
-    z-index: auto;
-  }
-  .form-group > * {
-    align-self: stretch;
   }
   .form-group-vert {
     display: flex;
@@ -685,29 +599,18 @@
   .form-group input[type="text"],
   .form-group input[type="email"],
   .form-group input[type="date"],
-  .form-group input[type="datetime-local"],
-  .form-group input[type="number"] {
+  .form-group input[type="datetime-local"] {
     padding: 0.5rem 0.75rem;
     border: 2px solid var(--form-border-color);
     border-radius: 4px;
     background: var(--form-bg-color);
-    color: var(--form-text-color);
+    color: inherit;
     font-size: 0.95rem;
     line-height: 1.0;
     transition: all 0.2s ease;
     font-family: inherit;
     height: 37px;
     box-sizing: border-box;
-  }
-  
-  /* Override webkit autofill styling */
-  .form-group input[type="text"]:-webkit-autofill,
-  .form-group input[type="email"]:-webkit-autofill,
-  .form-group input[type="date"]:-webkit-autofill,
-  .form-group input[type="datetime-local"]:-webkit-autofill,
-  .form-group input[type="number"]:-webkit-autofill {
-    -webkit-box-shadow: 0 0 0 1000px var(--form-bg-color) inset !important;
-    -webkit-text-fill-color: var(--form-text-color) !important;
   }
   .form-group input[type="date"]::-webkit-calendar-picker-indicator,
   .form-group input[type="datetime-local"]::-webkit-calendar-picker-indicator {
@@ -719,7 +622,7 @@
     border: 2px solid var(--form-border-color);
     border-radius: 4px;
     background: var(--form-bg-color);
-    color: var(--form-text-color);
+    color: inherit;
     font-size: 0.95rem;
     line-height: 1.0;
     transition: all 0.2s ease;
@@ -731,61 +634,12 @@
     overflow: hidden;
     text-overflow: ellipsis;
   }
-
-  /* Style placeholder option in single-select dropdowns when expanded */
-  .form-group select option:first-child {
-    color: #aaa;
-  }
-
-  /* ============================================
-   DROPDOWN REFRESH BUTTON
-   ============================================ */
-  .dropdown-refresh-container {
-    position: relative;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    width: 100%;
-  }
-
-  .dropdown-refresh-btn {
-    flex-shrink: 0;
-    width: 24px;
-    height: 37px;
-    padding: 0;
-    border: none;
-    border-radius: 0;
-    background: transparent;
-    color: #ffffff;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 1.2rem;
-    transition: all 0.2s ease;
-  }
-
-  .dropdown-refresh-btn:hover:not(:disabled) {
-    color: #5a9fb8;
-    transform: rotate(20deg);
-  }
-
-  .dropdown-refresh-btn:disabled {
-    opacity: 0.4;
-    cursor: not-allowed;
-    color: #888;
-  }
-
-  .dropdown-refresh-btn.loading {
-    animation: spin 1s linear infinite;
-  }
-
   .form-group .searchable-select-input {
     padding: 0.35rem 0.75rem;
     border: 2px solid var(--form-border-color);
     border-radius: 4px;
     background: var(--form-bg-color);
-    color: var(--form-text-color);
+    color: inherit;
     font-size: 0.95rem;
     line-height: 1.0;
     transition: all 0.2s ease;
@@ -799,7 +653,7 @@
     border: 2px solid var(--form-border-color);
     border-radius: 4px;
     background: var(--form-bg-color);
-    color: var(--form-text-color);
+    color: inherit;
     font-size: 0.95rem;
     line-height: 1.4;
     transition: all 0.2s ease;
@@ -807,17 +661,10 @@
     resize: vertical;
     min-height: 100px;
   }
-  
-  /* Override webkit autofill styling for textarea */
-  .form-group textarea:-webkit-autofill {
-    -webkit-box-shadow: 0 0 0 1000px var(--form-bg-color) inset !important;
-    -webkit-text-fill-color: var(--form-text-color) !important;
-  }
   .form-group input[type="text"]:focus,
   .form-group input[type="email"]:focus,
   .form-group input[type="date"]:focus,
   .form-group input[type="datetime-local"]:focus,
-  .form-group input[type="number"]:focus,
   .form-group textarea:focus,
   .form-group select:focus {
     outline: none;
@@ -850,6 +697,7 @@
     align-items: center;
     gap: 0.125rem;
     margin-top: 0.25rem;
+    margin-bottom: 0.25rem;
   }
   .radio-item input[type="radio"] {
     width: 18px;
@@ -859,7 +707,7 @@
   }
   .radio-item label {
     margin-bottom: 0;
-    margin-left: 5px;
+    margin-left: -2px;
     font-weight: 400;
     cursor: pointer;
   }
@@ -869,18 +717,18 @@
     gap: 0.125rem;
   }
   .checkbox-wrapper label {
-    margin-left: 5px;
+    margin-left: -2px;
     margin-bottom: 0;
   }
   .waiting-box {
     padding: 0.35rem 0.75rem;
-    border: 2px solid #333333;
+    border: 2px solid #b8860b;
     border-radius: 4px;
-    background: #d8d8d8;
-    color: #333333;
-    font-size: 0.85rem;
+    background: #fffacd;
+    color: #8b8b00;
+    font-size: 0.9rem;
     text-align: center;
-    font-weight: 600;
+    font-weight: 500;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -902,15 +750,14 @@
     line-height: 1.0;
     height: 37px;
     box-sizing: border-box;
-    flex: 1;
   }
   .field-waiting-message {
     padding: 0.35rem 0.75rem;
-    border: 2px solid #333333;
+    border: 2px solid #b8860b;
     border-radius: 4px;
-    background: #d8d8d8;
-    color: #333333;
-    font-size: 0.85rem;
+    background: #fffacd;
+    color: #8b8b00;
+    font-size: 0.95rem;
     text-align: center;
     display: flex;
     align-items: center;
@@ -919,14 +766,12 @@
     line-height: 1.0;
     height: 37px;
     box-sizing: border-box;
-    font-weight: 600;
   }
-
-  /* Hide all input elements when waiting message is present */
-  .form-group:has(.field-waiting-message) > :not(label):not(.field-description):not(.field-waiting-message) {
-    display: none;
+  .field-waiting-message.data-retrieval-waiting {
+    background: #f9d86c;
+    border-color: #d4a017;
+    color: #7a6b00;
   }
-
   .modal-overlay {
     position: fixed;
     top: 0;
@@ -1035,19 +880,7 @@
     display: block;
   }
   .edit-section.active {
-    position: fixed !important;
-    width: 600px !important;
-    height: fit-content !important;
-    max-height: none !important;
-    left: 50% !important;
-    top: 50% !important;
-    transform: translate(-50%, -50%) !important;
-    margin: 0 !important;
-    overflow-y: visible !important;
-    box-sizing: border-box !important;
-    padding: 1.5rem !important;
-    display: flex !important;
-    flex-direction: column !important;
+    display: block;
     animation: slideIn 0.3s ease;
   }
   @keyframes slideIn {
@@ -1114,7 +947,7 @@
     flex: 1;
   }
   .form-group {
-    margin-bottom: 0.75rem;
+    margin-bottom: 25px;
     position: relative;
   }
   .form-group-with-status {
@@ -1449,404 +1282,6 @@
     --form-bg-color: #991a1a;
     --form-border-color: #808080;
     --form-accent-color: #5a9fb8;
-  }
-
-  /* ============================================
-   MULTI-SELECT COMPONENT STYLES
-   ============================================ */
-  /* Ensure form-group with multi-select allows dropdown overflow */
-  .form-group:has(.multi-select-container) {
-    overflow: visible !important;
-  }
-
-  .multi-select-container {
-    position: relative;
-    width: 100%;
-    overflow: visible;
-  }
-
-  .multi-select-display {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 0.25rem 0.5rem;
-    border: 2px solid var(--form-border-color);
-    border-radius: 4px;
-    background: var(--form-bg-color);
-    min-height: 37px;
-    cursor: pointer;
-    flex-wrap: wrap;
-    transition: all 0.2s ease;
-    overflow: visible;
-    user-select: none;
-  }
-
-  .multi-select-display:hover {
-    border-color: var(--form-accent-color);
-  }
-
-  .multi-select-display:focus-within {
-    border-color: var(--form-accent-color);
-    box-shadow: 0 0 0 3px rgba(90, 159, 184, 0.1);
-  }
-
-  .multi-select-tags {
-    display: flex;
-    gap: 6px;
-    flex-wrap: wrap;
-    flex: 1;
-    align-items: center;
-  }
-
-  .multi-select-tag {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 0px 4px;
-    background: #5a9fb8;
-    color: #ffffff;
-    border-radius: 4px;
-    font-size: 0.75rem;
-    font-weight: 500;
-    white-space: nowrap;
-  }
-
-  .multi-select-tag-remove {
-    cursor: pointer;
-    font-weight: bold;
-    opacity: 0.8;
-    transition: opacity 0.2s;
-    pointer-events: auto;
-    background: none;
-    border: none;
-    padding: 0;
-    margin: 0;
-    font-size: inherit;
-    color: inherit;
-  }
-
-  .multi-select-tag-remove:hover {
-    opacity: 1;
-  }
-
-  .multi-select-placeholder {
-    color: #ffffff;
-    font-size: 0.95rem;
-  }
-
-  .multi-select-toggle {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 24px;
-    height: 24px;
-    color: #888;
-    transition: color 0.2s;
-    flex-shrink: 0;
-  }
-
-  .multi-select-display:hover .multi-select-toggle {
-    color: var(--form-accent-color);
-  }
-
-  .multi-select-options {
-    position: absolute;
-    top: 100%;
-    left: 0;
-    right: 0;
-    background: var(--form-bg-color);
-    border: 2px solid var(--form-border-color);
-    border-top: none;
-    border-radius: 0 0 4px 4px;
-    display: none;
-    overflow-y: auto;
-    overflow-x: hidden;
-    z-index: 10000;
-    margin-top: 0;
-    max-height: 250px;
-    scrollbar-width: thin;
-    scrollbar-color: #5a9fb8 #1f4051;
-  }
-
-  .multi-select-options::-webkit-scrollbar {
-    width: 10px;
-  }
-  .multi-select-options::-webkit-scrollbar-track {
-    background: #1f4051;
-    border-radius: 4px;
-  }
-  .multi-select-options::-webkit-scrollbar-thumb {
-    background: #5a9fb8;
-    border-radius: 4px;
-    border: 2px solid #1f4051;
-  }
-  .multi-select-options::-webkit-scrollbar-thumb:hover {
-    background: #6db5ce;
-  }
-
-  .multi-select-options.open {
-    display: block;
-  }
-
-  .multi-select-option {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 0.5rem 0.75rem;
-    cursor: pointer;
-    transition: background 0.2s;
-    border-bottom: 1px solid #314a59;
-    word-break: break-word;
-    white-space: normal;
-  }
-
-  .multi-select-option.multi-select-select-all {
-    background: rgba(90, 159, 184, 0.15);
-    font-weight: 500;
-  }
-
-  .multi-select-option.multi-select-select-all:hover {
-    background: rgba(90, 159, 184, 0.25);
-  }
-
-  .multi-select-option:hover {
-    background: rgba(90, 159, 184, 0.1);
-  }
-
-  .multi-select-option input[type="checkbox"] {
-    cursor: pointer;
-    accent-color: #5a9fb8;
-  }
-
-  .multi-select-option label {
-    flex: 1;
-    cursor: pointer;
-    margin: 0;
-    font-size: 0.95rem;
-  }
-
-  .multi-select-hidden-select {
-    display: none;
-  }
-
-  /* ============================================
-   FORMBUILDER UTILITY CLASSES
-   ============================================ */
-  /* Spacing utilities */
-  .mb-8 {
-    margin-bottom: 8px;
-  }
-  .mb-10 {
-    margin-bottom: 10px;
-  }
-  .mb-15 {
-    margin-bottom: 15px;
-  }
-  .mb-20 {
-    margin-bottom: 20px;
-  }
-  .mb-30 {
-    margin-bottom: 30px;
-  }
-
-  /* Form elements */
-  .form-label {
-    display: block;
-    color: #ffffff;
-    font-weight: 600;
-    font-size: 14px;
-    margin-bottom: 8px;
-  }
-
-  .form-input {
-    width: 100%;
-    padding: 10px;
-    background: #1a3540;
-    border: 1px solid #555;
-    border-radius: 4px;
-    color: #ffffff;
-    box-sizing: border-box;
-    font-family: inherit;
-    font-size: 14px;
-  }
-
-  .form-input:focus {
-    outline: none;
-    border-color: #667eea;
-    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
-  }
-
-  .form-textarea {
-    width: 100%;
-    padding: 10px;
-    background: #1a3540;
-    border: 1px solid #555;
-    border-radius: 4px;
-    color: #ffffff;
-    box-sizing: border-box;
-    font-family: inherit;
-    font-size: 14px;
-    min-height: 80px;
-    resize: vertical;
-  }
-
-  .form-textarea:focus {
-    outline: none;
-    border-color: #667eea;
-    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
-  }
-
-  .checkbox-input {
-    width: 18px;
-    height: 18px;
-    cursor: pointer;
-  }
-
-  /* Flex utilities */
-  .flex-gap-8 {
-    display: flex;
-    gap: 8px;
-  }
-
-  .flex-gap-10 {
-    display: flex;
-    gap: 10px;
-  }
-
-  .flex-center {
-    display: flex;
-    align-items: center;
-  }
-
-  .flex-column {
-    display: flex;
-    flex-direction: column;
-  }
-
-  .flex-center-end {
-    display: flex;
-    align-items: flex-end;
-  }
-
-  .flex-between {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-  }
-
-  /* Button variants for FormBuilder */
-  .btn-builder-blue {
-    background: #667eea;
-    color: white;
-    border: none;
-    border-radius: 4px;
-    padding: 8px 12px;
-    cursor: pointer;
-    font-weight: 600;
-    font-size: 15px;
-    transition: all 0.3s;
-  }
-
-  .btn-builder-blue:hover {
-    background: #5568d3;
-  }
-
-  .btn-builder-red {
-    background: #dc3545;
-    color: white;
-    border: none;
-    border-radius: 4px;
-    padding: 7px 11px;
-    cursor: pointer;
-    font-weight: 600;
-    font-size: 12px;
-    transition: all 0.3s;
-  }
-
-  .btn-builder-red:hover {
-    background: #c82333;
-  }
-
-  /* Text utilities */
-  .text-center {
-    text-align: center;
-  }
-
-  .text-secondary {
-    color: #999;
-    font-size: 12px;
-  }
-
-  .nowrap {
-    white-space: nowrap;
-  }
-
-  /* Additional spacing utilities */
-  .px-20 {
-    padding: 10px 20px;
-  }
-
-  .px-30 {
-    padding: 10px 30px;
-  }
-
-  .w-100 {
-    width: 100%;
-  }
-
-  .w-50 {
-    width: 50%;
-  }
-
-  .flex-1 {
-    flex: 1;
-  }
-
-  /* Flex with common gaps and alignments */
-  .flex-gap-10-center {
-    display: flex;
-    gap: 10px;
-    justify-content: center;
-  }
-
-  .flex-gap-8-center {
-    display: flex;
-    gap: 8px;
-    align-items: center;
-  }
-
-  .flex-gap-8-end {
-    display: flex;
-    gap: 8px;
-    align-items: flex-end;
-    margin-bottom: 8px;
-  }
-
-  /* Form element for half-width inputs */
-  .form-input-half {
-    flex: 1;
-    padding: 8px;
-    background: #1a3540;
-    border: 1px solid #555;
-    border-radius: 4px;
-    color: #ffffff;
-    font-size: 13px;
-    width: 50%;
-    box-sizing: border-box;
-  }
-
-  .form-input-half:focus {
-    outline: none;
-    border-color: #667eea;
-    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
-  }
-
-  /* Secondary text with flex */
-  .flex-1-secondary {
-    flex: 1;
-    color: #999;
-    font-size: 12px;
-    font-weight: 600;
   }
 
 /* Version 1.0.3 */
