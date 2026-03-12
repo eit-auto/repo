@@ -7,6 +7,11 @@
 const ProxyLib = (() => {
     const PROXY_URL = 'https://llink.equinoxits.com:1139';
     
+    // Cache for in-flight authentication promises (user_keyName -> promise)
+    const authInFlight = {};
+    // Cache for completed authentication tokens (user_keyName -> token)
+    const authCache = {};
+    
     /**
      * Retrieve API key from org variables
      * @param {string} keyName - Org variable name (required)
@@ -33,13 +38,10 @@ const ProxyLib = (() => {
     }
     
     /**
-     * Authenticate with proxy to get session token
-     * @param {string} user - Username (e.g., bradf@equinoxits.com)
-     * @param {string} origin - Origin URL (e.g., https://equinoxits-tools.rew.st)
-     * @param {object} options - Required: keyName OR apiKey (apiKey takes precedence)
-     * @returns {Promise<{status, sessionToken, credentialName, expiresIn}>}
+     * Internal authenticate function (without caching)
+     * @private
      */
-    async function authenticate(user, origin, options = {}) {
+    async function _authenticate(user, origin, options = {}) {
         try {
             if (!user) {
                 throw new Error('user is required');
@@ -106,7 +108,51 @@ const ProxyLib = (() => {
     }
     
     /**
-     * Validate existing session token
+     * Authenticate with proxy to get session token
+     * Handles caching and in-flight promise deduplication for concurrent auth requests
+     * @param {string} user - Username (e.g., bradf@equinoxits.com)
+     * @param {string} origin - Origin URL (e.g., https://equinoxits-tools.rew.st)
+     * @param {object} options - Required: keyName OR apiKey (apiKey takes precedence)
+     * @returns {Promise<{status, sessionToken, credentialName, expiresIn}>}
+     */
+    async function authenticate(user, origin, options = {}) {
+        try {
+            // Create cache key based on user and keyName
+            const keyName = options.keyName || 'default';
+            const cacheKey = `${user}_${keyName}`;
+            
+            // Check if token is already cached
+            if (authCache[cacheKey]) {
+                console.log('[ProxyLib] Using cached session token for:', user, 'with key:', keyName);
+                return authCache[cacheKey];
+            }
+            
+            // Check if authentication is already in-flight
+            if (authInFlight[cacheKey]) {
+                console.log('[ProxyLib] Waiting for in-flight authentication for:', user, 'with key:', keyName);
+                return authInFlight[cacheKey];
+            }
+            
+            // Create the authentication promise
+            const authPromise = _authenticate(user, origin, options);
+            
+            // Store the in-flight promise
+            authInFlight[cacheKey] = authPromise;
+            
+            try {
+                const result = await authPromise;
+                // Cache the result
+                authCache[cacheKey] = result;
+                return result;
+            } finally {
+                // Remove from in-flight after completion
+                delete authInFlight[cacheKey];
+            }
+        } catch (error) {
+            console.error('[ProxyLib] authenticate error:', error);
+            throw error;
+        }
+    }
      * @param {string} sessionToken - Session token to validate
      * @param {string} user - Username
      * @param {object} options - Optional config
