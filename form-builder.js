@@ -7038,8 +7038,24 @@ function openDependentFieldsModal(fieldConfig) {
     // Clear existing fields list
     fieldsList.innerHTML = '';
     
-    // Get current selections
-    const currentSelections = fieldConfig.dependant_fields || {};
+    // Get current selections - handle both old string format and new object format
+    let currentSelections = {};
+    if (fieldConfig.dependant_fields) {
+        if (typeof fieldConfig.dependant_fields === 'string') {
+            // Old format: convert "field1,field2" to object with all properties set to true
+            const fields = fieldConfig.dependant_fields.split(',').map(f => f.trim()).filter(f => f && f !== 'null');
+            fields.forEach(f => {
+                currentSelections[f] = { blocking: true, block_hidden: true, incl_hidden: true };
+            });
+        } else if (typeof fieldConfig.dependant_fields === 'object') {
+            // New format: already an object
+            currentSelections = { ...fieldConfig.dependant_fields };
+            // Remove "null" key if it exists (defensive)
+            if ('null' in currentSelections) {
+                delete currentSelections['null'];
+            }
+        }
+    }
     
     // Render all available fields (excluding current field)
     const otherFields = fieldConfigs.filter(config => config.field_name !== fieldConfig.field_name);
