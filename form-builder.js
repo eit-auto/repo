@@ -421,7 +421,7 @@ const ELEMENT_TYPE_DEFAULTS = {
         query: ''
     },
     'dropdown_prefetch': {
-        source_element_uid: '',         // UID of data_retrieval element
+        source_element_name: '',        // Field name of data_retrieval element
         result_path: '',                // Path to data array: "ad_users" or "data.users"
         label_field: '',
         value_field: '',
@@ -1009,7 +1009,7 @@ function saveTypeSpecificFields(fieldConfig) {
             }
         } else if (elementType === 'dropdown_prefetch') {
             // Save prefetch dropdown fields
-            fieldConfig.source_element_uid = document.getElementById('prefetch_source_element_uid')?.value || '';
+            fieldConfig.source_element_name = document.getElementById('prefetch_source_element_name')?.value || '';
             fieldConfig.result_path = document.getElementById('prefetch_result_path')?.value || '';
             fieldConfig.label_field = document.getElementById('prefetch_label_field')?.value || '';
             fieldConfig.value_field = document.getElementById('prefetch_value_field')?.value || '';
@@ -2936,15 +2936,15 @@ function showElementSettings(elementUid) {
         formHTML += `
             <div style='margin-bottom: 15px;'>
                 <label style='display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;'>Data Source</label>
-                <select id='prefetch_source_element_uid' style='width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box;'>
+                <select id='prefetch_source_element_name' style='width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box;'>
                     <option value=''>-- Select Data Source --</option>
         `;
         
         // Populate with available data_retrieval elements
         const dataRetrievalElements = fieldConfigs.filter(f => f.type === 'data_retrieval');
         dataRetrievalElements.forEach(el => {
-            const selected = fieldConfig.source_element_uid === el.uid ? 'selected' : '';
-            formHTML += `<option value='${el.uid}' ${selected}>${el.field_name || el.uid}</option>`;
+            const selected = fieldConfig.source_element_name === el.field_name ? 'selected' : '';
+            formHTML += `<option value='${el.field_name}' ${selected}>${el.field_name}</option>`;
         });
         
         formHTML += `
@@ -3604,7 +3604,7 @@ function showElementSettings(elementUid) {
     
     // Add listeners for dropdown_prefetch
     if (fieldConfig.type === 'dropdown_prefetch') {
-        const prefetchSourceSelect = document.getElementById('prefetch_source_element_uid');
+        const prefetchSourceSelect = document.getElementById('prefetch_source_element_name');
         const prefetchResultPathInput = document.getElementById('prefetch_result_path');
         const prefetchLabelFieldInput = document.getElementById('prefetch_label_field');
         const prefetchValueFieldInput = document.getElementById('prefetch_value_field');
@@ -4313,7 +4313,7 @@ function updateSaveButtonState() {
                 return false;
             } else if (f.type === 'dropdown_prefetch') {
                 // Check prefetch dropdown configuration
-                return !f.source_element_uid || f.source_element_uid === '' || !f.label_field || f.label_field === '' || !f.value_field || f.value_field === '';
+                return !f.source_element_name || f.source_element_name === '' || !f.label_field || f.label_field === '' || !f.value_field || f.value_field === '';
             } else if (f.type === 'data_retrieval') {
                 // Check data retrieval configuration
                 if (f.data_source_type === 'mesh_cmd' || f.data_source_type === 'mesh_powershell') {
