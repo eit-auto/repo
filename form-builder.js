@@ -412,7 +412,7 @@ const ELEMENT_TYPE_DEFAULTS = {
     },
     'data_retrieval': {
         variable_name: 'page_data',     // Page variable name to store results
-        type: 'mesh_powershell',        // 'mesh_cmd' | 'mesh_powershell' | 'mesh_nodes' | 'mysql' | 'workflow' | 'graphql'
+        data_source_type: 'mesh_powershell',        // 'mesh_cmd' | 'mesh_powershell' | 'mesh_nodes' | 'mysql' | 'workflow' | 'graphql'
         // Mesh fields
         node_selection_type: 'fixed',
         node_id: '',
@@ -453,9 +453,8 @@ const PALETTE_DISPLAY = {
     'horizontal_line': 'Horizontal Line',
     'date': 'Date',
     'date_time': 'Date Time',
-    'dropdown': 'Dropdown',  // Consolidates dropdown, dropdown_static, dropdown_graphql
-    'data_retrieval': 'Data Retrieval',
-    'dropdown_prefetch': 'Dropdown (Pre-fetched)'
+    'dropdown': 'Dropdown',  // Consolidates dropdown, dropdown_static, dropdown_graphql, dropdown_mysql, dropdown_mesh, dropdown_prefetch
+    'data_retrieval': 'Data Retrieval'
 };
 
 // ============================================
@@ -991,10 +990,10 @@ function saveTypeSpecificFields(fieldConfig) {
         } else if (elementType === 'data_retrieval') {
             // Save data retrieval fields
             fieldConfig.variable_name = document.getElementById('retrieval_variable_name')?.value || 'page_data';
-            fieldConfig.type = document.getElementById('retrieval_type')?.value || 'mesh_powershell';
+            fieldConfig.data_source_type = document.getElementById('retrieval_type')?.value || 'mesh_powershell';
             
-            // Conditional field saving based on type
-            if (fieldConfig.type === 'mesh_cmd' || fieldConfig.type === 'mesh_powershell') {
+            // Conditional field saving based on data source type
+            if (fieldConfig.data_source_type === 'mesh_cmd' || fieldConfig.data_source_type === 'mesh_powershell') {
                 fieldConfig.node_selection_type = document.getElementById('retrieval_node_selection_type')?.value || 'fixed';
                 
                 if (fieldConfig.node_selection_type === 'fixed') {
@@ -1007,7 +1006,7 @@ function saveTypeSpecificFields(fieldConfig) {
                 
                 fieldConfig.command = document.getElementById('retrieval_command')?.value || '';
                 fieldConfig.query = '';
-            } else if (fieldConfig.type === 'mysql') {
+            } else if (fieldConfig.data_source_type === 'mysql') {
                 fieldConfig.query = document.getElementById('retrieval_query')?.value || '';
                 fieldConfig.node_id = '';
                 fieldConfig.node_query = '';
@@ -2887,18 +2886,18 @@ function showElementSettings(elementUid) {
             <div style='margin-bottom: 15px;'>
                 <label style='display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;'>Data Source Type</label>
                 <select id='retrieval_type' style='width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box;'>
-                    <option value='mesh_cmd' ${fieldConfig.type === 'mesh_cmd' ? 'selected' : ''}>MeshCentral CMD</option>
-                    <option value='mesh_powershell' ${fieldConfig.type === 'mesh_powershell' ? 'selected' : ''}>MeshCentral PowerShell</option>
-                    <option value='mesh_nodes' ${fieldConfig.type === 'mesh_nodes' ? 'selected' : ''}>MeshCentral Nodes</option>
-                    <option value='mysql' ${fieldConfig.type === 'mysql' ? 'selected' : ''}>MySQL Query</option>
-                    <option value='workflow' ${fieldConfig.type === 'workflow' ? 'selected' : ''}>Workflow</option>
-                    <option value='graphql' ${fieldConfig.type === 'graphql' ? 'selected' : ''}>GraphQL</option>
+                    <option value='mesh_cmd' ${fieldConfig.data_source_type === 'mesh_cmd' ? 'selected' : ''}>MeshCentral CMD</option>
+                    <option value='mesh_powershell' ${fieldConfig.data_source_type === 'mesh_powershell' ? 'selected' : ''}>MeshCentral PowerShell</option>
+                    <option value='mesh_nodes' ${fieldConfig.data_source_type === 'mesh_nodes' ? 'selected' : ''}>MeshCentral Nodes</option>
+                    <option value='mysql' ${fieldConfig.data_source_type === 'mysql' ? 'selected' : ''}>MySQL Query</option>
+                    <option value='workflow' ${fieldConfig.data_source_type === 'workflow' ? 'selected' : ''}>Workflow</option>
+                    <option value='graphql' ${fieldConfig.data_source_type === 'graphql' ? 'selected' : ''}>GraphQL</option>
                 </select>
             </div>
         `;
         
         // Conditional fields based on data source type
-        if (fieldConfig.type === 'mesh_cmd' || fieldConfig.type === 'mesh_powershell') {
+        if (fieldConfig.data_source_type === 'mesh_cmd' || fieldConfig.data_source_type === 'mesh_powershell') {
             formHTML += `
                 <div style='margin-bottom: 15px;'>
                     <label style='display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;'>Node Selection Type</label>
@@ -2932,7 +2931,7 @@ function showElementSettings(elementUid) {
                     <div style='color: #999; font-size: 12px; margin-top: 6px;'>Command must return JSON data, typically an object with arrays (e.g., {ad_users: [...], ad_groups: [...]})</div>
                 </div>
             `;
-        } else if (fieldConfig.type === 'mysql') {
+        } else if (fieldConfig.data_source_type === 'mysql') {
             formHTML += `
                 <div style='margin-bottom: 15px;'>
                     <label style='display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;'>SQL Query</label>
@@ -3585,7 +3584,7 @@ function showElementSettings(elementUid) {
         // Type dropdown listener - rebuild form on type change
         if (retrievalTypeSelect) {
             retrievalTypeSelect.addEventListener('change', (e) => {
-                fieldConfig.type = e.target.value;
+                fieldConfig.data_source_type = e.target.value;
                 formHasBeenModified = true;
                 updateElementSettingsSaveButtonVisibility();
                 showElementSettings(elementUid);
@@ -4327,7 +4326,7 @@ function updateSaveButtonState() {
                 return !f.source_element_uid || f.source_element_uid === '' || !f.label_field || f.label_field === '' || !f.value_field || f.value_field === '';
             } else if (f.type === 'data_retrieval') {
                 // Check data retrieval configuration
-                if (f.type === 'mesh_cmd' || f.type === 'mesh_powershell') {
+                if (f.data_source_type === 'mesh_cmd' || f.data_source_type === 'mesh_powershell') {
                     let nodeSelectValid = false;
                     if (f.node_selection_type === 'fixed') {
                         nodeSelectValid = f.node_id && f.node_id !== '';
@@ -4335,7 +4334,7 @@ function updateSaveButtonState() {
                         nodeSelectValid = f.node_query && f.node_query !== '';
                     }
                     return !f.variable_name || f.variable_name === '' || !nodeSelectValid || !f.command || f.command === '';
-                } else if (f.type === 'mysql') {
+                } else if (f.data_source_type === 'mysql') {
                     return !f.variable_name || f.variable_name === '' || !f.query || f.query === '';
                 }
                 return false;
