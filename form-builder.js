@@ -411,7 +411,6 @@ const ELEMENT_TYPE_DEFAULTS = {
         default_value: null
     },
     'data_retrieval': {
-        variable_name: 'page_data',     // Page variable name to store results
         data_source_type: 'mesh_powershell',        // 'mesh_cmd' | 'mesh_powershell' | 'mesh_nodes' | 'mysql' | 'workflow' | 'graphql'
         // Mesh fields
         node_selection_type: 'fixed',
@@ -419,10 +418,7 @@ const ELEMENT_TYPE_DEFAULTS = {
         node_query: '',
         command: '',
         // MySQL fields
-        query: '',
-        // Common fields
-        label_field: '',
-        value_field: ''
+        query: ''
     },
     'dropdown_prefetch': {
         source_element_uid: '',         // UID of data_retrieval element
@@ -989,7 +985,6 @@ function saveTypeSpecificFields(fieldConfig) {
             fieldConfig.multi_select = document.getElementById('multi_select')?.checked || false;
         } else if (elementType === 'data_retrieval') {
             // Save data retrieval fields
-            fieldConfig.variable_name = document.getElementById('retrieval_variable_name')?.value || 'page_data';
             fieldConfig.data_source_type = document.getElementById('retrieval_type')?.value || 'mesh_powershell';
             
             // Conditional field saving based on data source type
@@ -2879,11 +2874,6 @@ function showElementSettings(elementUid) {
         // Data Retrieval element - hidden data fetching element
         formHTML += `
             <div style='margin-bottom: 15px;'>
-                <label style='display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;'>Page Variable Name</label>
-                <input type='text' id='retrieval_variable_name' value='${fieldConfig.variable_name || 'page_data'}' placeholder='e.g., ad_data' style='width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box;'>
-                <div style='color: #999; font-size: 12px; margin-top: 6px;'>Variable name where results will be stored (accessible in FormViewer as formData.page_variables.{name})</div>
-            </div>
-            <div style='margin-bottom: 15px;'>
                 <label style='display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;'>Data Source Type</label>
                 <select id='retrieval_type' style='width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box;'>
                     <option value='mesh_cmd' ${fieldConfig.data_source_type === 'mesh_cmd' ? 'selected' : ''}>MeshCentral CMD</option>
@@ -2893,6 +2883,7 @@ function showElementSettings(elementUid) {
                     <option value='workflow' ${fieldConfig.data_source_type === 'workflow' ? 'selected' : ''}>Workflow</option>
                     <option value='graphql' ${fieldConfig.data_source_type === 'graphql' ? 'selected' : ''}>GraphQL</option>
                 </select>
+                <div style='color: #999; font-size: 12px; margin-top: 6px;'>Data will be stored in page variable: <strong>${fieldConfig.field_name || '[field_name]'}</strong></div>
             </div>
         `;
         
@@ -2953,12 +2944,12 @@ function showElementSettings(elementUid) {
         const dataRetrievalElements = fieldConfigs.filter(f => f.type === 'data_retrieval');
         dataRetrievalElements.forEach(el => {
             const selected = fieldConfig.source_element_uid === el.uid ? 'selected' : '';
-            formHTML += `<option value='${el.uid}' ${selected}>${el.variable_name || el.uid}</option>`;
+            formHTML += `<option value='${el.uid}' ${selected}>${el.field_name || el.uid}</option>`;
         });
         
         formHTML += `
                 </select>
-                <div style='color: #999; font-size: 12px; margin-top: 6px;'>Select a Data Retrieval element that will provide the data</div>
+                <div style='color: #999; font-size: 12px; margin-top: 6px;'>Select a Data Retrieval element. Data will be fetched from formData.page_variables.{field_name}</div>
             </div>
             <div style='margin-bottom: 15px;'>
                 <label style='display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;'>Result Path (Optional)</label>
@@ -3579,7 +3570,6 @@ function showElementSettings(elementUid) {
         const retrievalNodeQueryInput = document.getElementById('retrieval_node_query');
         const retrievalCommandInput = document.getElementById('retrieval_command');
         const retrievalQueryInput = document.getElementById('retrieval_query');
-        const retrievalVariableNameInput = document.getElementById('retrieval_variable_name');
         
         // Type dropdown listener - rebuild form on type change
         if (retrievalTypeSelect) {
@@ -3602,7 +3592,7 @@ function showElementSettings(elementUid) {
         }
         
         // Input listeners
-        [retrievalVariableNameInput, retrievalNodeIdInput, retrievalNodeQueryInput, retrievalCommandInput, retrievalQueryInput].forEach(input => {
+        [retrievalNodeIdInput, retrievalNodeQueryInput, retrievalCommandInput, retrievalQueryInput].forEach(input => {
             if (input) {
                 input.addEventListener('input', () => {
                     formHasBeenModified = true;
@@ -4333,9 +4323,9 @@ function updateSaveButtonState() {
                     } else if (f.node_selection_type === 'query') {
                         nodeSelectValid = f.node_query && f.node_query !== '';
                     }
-                    return !f.variable_name || f.variable_name === '' || !nodeSelectValid || !f.command || f.command === '';
+                    return !nodeSelectValid || !f.command || f.command === '';
                 } else if (f.data_source_type === 'mysql') {
-                    return !f.variable_name || f.variable_name === '' || !f.query || f.query === '';
+                    return !f.query || f.query === '';
                 }
                 return false;
             }
