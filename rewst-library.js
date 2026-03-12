@@ -1786,6 +1786,15 @@ const GRAPHQL_OPERATIONS = {
         console.error('[MULTI-SELECT] Dropdown element not found');
         return;
       }
+      
+      // Close all other open multi-selects on the page
+      const allOpenDropdowns = document.querySelectorAll('.multi-select-options.open');
+      allOpenDropdowns.forEach(openDropdown => {
+        if (openDropdown !== dropdown) {
+          openDropdown.classList.remove('open');
+        }
+      });
+      
       console.log('[MULTI-SELECT] Toggle clicked, current open state:', dropdown.classList.contains('open'));
       dropdown.classList.toggle('open');
       console.log('[MULTI-SELECT] After toggle, open state:', dropdown.classList.contains('open'));
