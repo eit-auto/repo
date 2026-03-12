@@ -753,10 +753,10 @@
   }
   .field-waiting-message {
     padding: 0.35rem 0.75rem;
-    border: 2px solid #b8860b;
+    border: 2px solid #999999;
     border-radius: 4px;
-    background: #fffacd;
-    color: #8b8b00;
+    background: #e8e8e8;
+    color: #000000;
     font-size: 0.95rem;
     text-align: center;
     display: flex;
@@ -770,7 +770,7 @@
   .field-waiting-message.data-retrieval-waiting {
     background: #f9d86c;
     border-color: #d4a017;
-    color: #7a6b00;
+    color: #000000;
     font-weight: bold;
   }
   .modal-overlay {
