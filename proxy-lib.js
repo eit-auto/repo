@@ -5,7 +5,7 @@
  */
 
 const ProxyLib = (() => {
-    const PROXY_URL = 'https://llink.equinoxits.com:1139';
+    const PROXY_URL = 'https://65.121.78.136:1139';
     
     // Cache for in-flight authentication promises (user_keyName -> promise)
     const authInFlight = {};
