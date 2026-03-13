@@ -1713,9 +1713,16 @@ const GRAPHQL_OPERATIONS = {
         console.log(`[MULTI-SELECT] updateTags - after marking, data attribute contains:`, hiddenSelect.getAttribute('data-selected-values'));
         
         // Also sync the selected attributes on the actual option elements
+        console.log(`[MULTI-SELECT] Before sync - selected array:`, selected);
+        console.log(`[MULTI-SELECT] Before sync - option values:`, Array.from(hiddenSelect.options).map(o => o.value));
         Array.from(hiddenSelect.options).forEach(opt => {
-          opt.selected = selected.includes(opt.value);
+          const shouldBeSelected = selected.includes(opt.value);
+          opt.selected = shouldBeSelected;
+          if (shouldBeSelected) {
+            console.log(`[MULTI-SELECT] Synced ${opt.value} to selected=true`);
+          }
         });
+        console.log(`[MULTI-SELECT] After sync - selectedOptions:`, Array.from(hiddenSelect.selectedOptions).map(o => o.value));
       }
 
       if (onChange) {
