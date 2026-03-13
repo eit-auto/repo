@@ -1156,8 +1156,6 @@ const GRAPHQL_OPERATIONS = {
    * @param {Array} preselectedValues - Optional array of pre-selected values
    */
   function repopulateMultiSelectField(fieldName, options, preselectedValues = []) {
-    console.log(`[REPOPULATE] Updating multi-select ${fieldName} with ${options.length} options and ${preselectedValues.length} pre-selected`);
-    
     const multiSelectContainer = document.querySelector(`[data-field-name="${fieldName}"] .multi-select-container`);
     if (!multiSelectContainer) {
       console.error(`[REPOPULATE] Multi-select container not found for ${fieldName}`);
@@ -1671,15 +1669,6 @@ const GRAPHQL_OPERATIONS = {
     const toggleBtn = container.querySelector('.multi-select-toggle');
     const hiddenSelect = container.querySelector('select');
 
-    console.log('[MULTI-SELECT] Initializing:', {
-      container: !!container,
-      tagsContainer: !!tagsContainer,
-      dropdown: !!dropdown,
-      toggleBtn: !!toggleBtn,
-      hiddenSelect: !!hiddenSelect,
-      optionsCount: options.length
-    });
-
     if (!dropdown || !toggleBtn) {
       console.error('[MULTI-SELECT] Missing required elements');
       return;
@@ -1730,21 +1719,13 @@ const GRAPHQL_OPERATIONS = {
 
       // Update hidden select selected state via data attribute and option elements
       if (hiddenSelect) {
-        console.log(`[MULTI-SELECT] updateTags - storing selected values:`, selected);
         hiddenSelect.setAttribute('data-selected-values', JSON.stringify(selected));
-        console.log(`[MULTI-SELECT] updateTags - after marking, data attribute contains:`, hiddenSelect.getAttribute('data-selected-values'));
         
         // Also sync the selected attributes on the actual option elements
-        console.log(`[MULTI-SELECT] Before sync - selected array:`, selected);
-        console.log(`[MULTI-SELECT] Before sync - option values:`, Array.from(hiddenSelect.options).map(o => o.value));
         Array.from(hiddenSelect.options).forEach(opt => {
           const shouldBeSelected = selected.includes(opt.value);
           opt.selected = shouldBeSelected;
-          if (shouldBeSelected) {
-            console.log(`[MULTI-SELECT] Synced ${opt.value} to selected=true`);
-          }
         });
-        console.log(`[MULTI-SELECT] After sync - selectedOptions:`, Array.from(hiddenSelect.selectedOptions).map(o => o.value));
       }
 
       if (onChange) {
@@ -1830,9 +1811,7 @@ const GRAPHQL_OPERATIONS = {
         }
       });
       
-      console.log('[MULTI-SELECT] Toggle clicked, current open state:', dropdown.classList.contains('open'));
       dropdown.classList.toggle('open');
-      console.log('[MULTI-SELECT] After toggle, open state:', dropdown.classList.contains('open'));
       if (dropdown.classList.contains('open')) {
         populateDropdown();
       }
@@ -1856,7 +1835,6 @@ const GRAPHQL_OPERATIONS = {
             if (e.target.classList.contains('multi-select-tag-remove')) {
               return;
             }
-            console.log('[MULTI-SELECT] Display area clicked, dropdown element:', !!dropdown);
             e.stopPropagation();
             toggleDropdown();
           });
