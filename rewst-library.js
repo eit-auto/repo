@@ -1706,11 +1706,16 @@ const GRAPHQL_OPERATIONS = {
         });
       }
 
-      // Update hidden select selected state via data attribute
+      // Update hidden select selected state via data attribute and option elements
       if (hiddenSelect) {
         console.log(`[MULTI-SELECT] updateTags - storing selected values:`, selected);
         hiddenSelect.setAttribute('data-selected-values', JSON.stringify(selected));
         console.log(`[MULTI-SELECT] updateTags - after marking, data attribute contains:`, hiddenSelect.getAttribute('data-selected-values'));
+        
+        // Also sync the selected attributes on the actual option elements
+        Array.from(hiddenSelect.options).forEach(opt => {
+          opt.selected = selected.includes(opt.value);
+        });
       }
 
       if (onChange) {
