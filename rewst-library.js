@@ -1667,15 +1667,16 @@ const GRAPHQL_OPERATIONS = {
     // Mark as initialized to prevent double-initialization
     container.setAttribute('data-initialized', 'true');
 
-    let selected = [...(selectedValues || [])];
+    let selected = [...(selectedValues || [])].map(v => String(v));  // Normalize to strings for comparison with option.value
 
     // Populate hidden select with option elements once during initialization
     if (hiddenSelect) {
+      hiddenSelect.innerHTML = '';  // Clear any existing options first
       options.forEach(option => {
         const opt = document.createElement('option');
         opt.value = option.value;
         opt.textContent = option.label;
-        if (selectedValues && selectedValues.includes(option.value)) {
+        if (selected && selected.includes(String(option.value))) {
           opt.selected = true;
         }
         hiddenSelect.appendChild(opt);
@@ -1693,7 +1694,7 @@ const GRAPHQL_OPERATIONS = {
         tagsContainer.appendChild(placeholder);
       } else {
         selected.forEach(value => {
-          const option = options.find(o => o.value === value);
+          const option = options.find(o => String(o.value) === value);
           if (option) {
             const tag = document.createElement('span');
             tag.className = 'multi-select-tag';
@@ -1749,7 +1750,7 @@ const GRAPHQL_OPERATIONS = {
       selectAllCheckbox.addEventListener('change', () => {
         if (selectAllCheckbox.checked) {
           // Select all
-          selected = options.map(o => o.value);
+          selected = options.map(o => String(o.value));
         } else {
           // Deselect all
           selected = [];
@@ -1769,21 +1770,22 @@ const GRAPHQL_OPERATIONS = {
         const optionDiv = document.createElement('div');
         optionDiv.className = 'multi-select-option';
         const optId = 'opt_' + Math.random().toString(36).substr(2, 9);
-        const isChecked = selected.includes(option.value);
+        const isChecked = selected.includes(String(option.value));
         optionDiv.innerHTML = `
           <input type="checkbox" id="${optId}" 
-                 value="${escapeHtml(option.value)}" ${isChecked ? 'checked' : ''}>
+                 value="${escapeHtml(String(option.value))}" ${isChecked ? 'checked' : ''}>
           <label for="${optId}">${escapeHtml(option.label)}</label>
         `;
         
         const checkbox = optionDiv.querySelector('input');
         checkbox.addEventListener('change', () => {
+          const stringValue = String(option.value);
           if (checkbox.checked) {
-            if (!selected.includes(option.value)) {
-              selected.push(option.value);
+            if (!selected.includes(stringValue)) {
+              selected.push(stringValue);
             }
           } else {
-            selected = selected.filter(v => v !== option.value);
+            selected = selected.filter(v => v !== stringValue);
           }
           updateTags();
         });
