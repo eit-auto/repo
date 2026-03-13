@@ -224,7 +224,7 @@
         }
     </style>
     <!-- Rewst Library JavaScript (must load before loadFormConfigEarly) -->
-    <script src="https://eit-auto.github.io/repo/rewst-library.js"></script>
+    <script src="https://eit-auto.github.io/repo/rewst-library.js?v=2.1.2"></script>
     <!-- ProxyLib for MeshCentral and MySQL operations -->
     <script src="https://eit-auto.github.io/repo/proxy-lib.js?v=1.0"></script>
     <!-- Load form config and check permissions before rendering body -->
@@ -272,14 +272,20 @@
                     console.log('[CONFIG EARLY LOAD] No permissions in form config, showing page');
                     showPageContent();
                 }
-                
-            } catch (error) {
-                console.error('[CONFIG EARLY LOAD] Error during early config load:', error);
+        }
+        
+        // Wait for RewstLib to be available before running config loading
+        function waitForRewstLibThenLoad() {
+            if (typeof RewstLib !== 'undefined' && RewstLib.forms) {
+                console.log('[CONFIG EARLY LOAD] RewstLib ready, loading config...');
+                loadFormConfigEarly();
+            } else {
+                console.log('[CONFIG EARLY LOAD] Waiting for RewstLib...');
+                setTimeout(waitForRewstLibThenLoad, 100);
             }
         }
         
-        // Run config loading as soon as RewstLib and security are ready
-        loadFormConfigEarly();
+        waitForRewstLibThenLoad();
     </script>
 <body>
 <div id="page-content">
@@ -1766,11 +1772,7 @@
         RewstLib.utils.updateDependentFields = updateDependentFields;
         RewstLib.utils.mapResultsToOptions = mapResultsToOptions;
 
-        function loadFieldOptions(config, allFieldConfigs = [], formConfig = {}) {
-            console.log(`>>> loadFieldOptions called for: ${config.field_name}`);
-            if (config.field_name === 'dropdown_1') {
-                console.log(`[DEBUG] loadFieldOptions call #${window.__loadFieldOptionsCount = (window.__loadFieldOptionsCount || 0) + 1} for dropdown_1`);
-            }
+        function loadFieldOptions(config, allFieldConfigs = [], formConfig = {}, preselectedValues = []) {
             const formGroup = document.querySelector(`[data-field-name="${config.field_name}"]`);
             console.log(`>>> formGroup found?`, !!formGroup);
             
@@ -1781,7 +1783,6 @@
             
             // Handle dropdown_prefetch fields - populate from cached data_retrieval results
             if (config.type === 'dropdown_prefetch') {
-                console.log(`[PREFETCH] Loading field: ${config.field_name}, source: ${config.source_element_name || config.source_element_uid}`);
                 const formGroup = document.querySelector(`[data-field-name="${config.field_name}"]`);
                 const sourceFieldName = config.source_element_name || config.source_element_uid;
                 const resultPath = config.result_path;
@@ -1791,16 +1792,13 @@
                 // Check if dependencies are met
                 if (config.dependant_fields) {
                     const allDepsMet = RewstLib.utils.areDependenciesMet(config, allFieldConfigs);
-                    console.log(`[PREFETCH] ${config.field_name} checking dependencies: met=${allDepsMet}`);
                     if (!allDepsMet) {
-                        console.log(`[PREFETCH] Dependencies not met for ${config.field_name}, showing waiting message`);
                         if (formGroup) {
                             RewstLib.utils.hideLoadingMessage(formGroup, config);
                             RewstLib.utils.showWaitingMessage(formGroup, config, allFieldConfigs);
                         }
                         return;
                     } else {
-                        console.log(`[PREFETCH] Dependencies met for ${config.field_name}, proceeding`);
                         if (formGroup) {
                             RewstLib.utils.hideWaitingMessage(formGroup, config);
                         }
@@ -1824,29 +1822,8 @@
                 
                 // Populate the dropdown
                 if (config.multi_select) {
-                    console.log(`[POPULATE] Populating multi-select for ${config.field_name}`);
-                    const multiSelectContainer = formGroup.querySelector('.multi-select-container');
-                    if (multiSelectContainer) {
-                        const optionsDiv = multiSelectContainer.querySelector('.multi-select-options');
-                        const hiddenSelect = multiSelectContainer.querySelector('.multi-select-hidden-select');
-                        
-                        if (optionsDiv && hiddenSelect) {
-                            optionsDiv.innerHTML = options.map(opt => 
-                                `<div class="multi-select-option" data-value="${escapeHtml(String(opt.value))}">${escapeHtml(String(opt.label))}</div>`
-                            ).join('');
-                            
-                            // Clear hidden select and add options
-                            hiddenSelect.innerHTML = options.map(opt =>
-                                `<option value="${escapeHtml(String(opt.value))}">${escapeHtml(String(opt.label))}</option>`
-                            ).join('');
-                            
-                            multiSelectContainer.setAttribute('data-initialized', 'true');
-                            // Initialize the multi-select component
-                            RewstLib.utils.initializeDropdownMultiSelect(config.field_name, options);
-                        }
-                    }
+                    RewstLib.utils.repopulateMultiSelectField(config.field_name, options, preselectedValues);
                 } else {
-                    console.log(`[POPULATE] Populating single-select for ${config.field_name}`);
                     // Single select
                     const select = formGroup.querySelector('select:not(.multi-select-hidden-select)');
                     if (select) {
@@ -1871,7 +1848,6 @@
                 }
                 
                 if (formGroup) {
-                    console.log(`[PREFETCH] Populating ${config.field_name}, hiding messages, showing select`);
                     RewstLib.utils.hideLoadingMessage(formGroup, config);
                     RewstLib.utils.hideWaitingMessage(formGroup, config);
                 }
@@ -2111,10 +2087,8 @@
                 // Check if dependencies are met (for fields that have blocking dependencies)
                 if (config.dependant_fields) {
                     const depsMet = RewstLib.utils.areDependenciesMet(config, allFieldConfigs);
-                    console.log(`[MYSQL] Dependencies for ${config.field_name}: met=${depsMet}`, config.dependant_fields);
                     
                     if (!depsMet) {
-                        console.log(`[MYSQL] Dependencies not met for ${config.field_name}, showing waiting message`);
                         if (formGroup) {
                             RewstLib.utils.showWaitingMessage(formGroup, config, allFieldConfigs);
                         }
@@ -2136,15 +2110,13 @@
                     
                     // For multi-select, use the library function
                     if (config.multi_select) {
-                        console.log(`[MYSQL] Populating multi-select for ${config.field_name}`);
                         const options = data.map(item => ({
                             value: item[config.value_field] || item.id,
                             label: item[config.label_field] || item.name
                         }));
-                        RewstLib.utils.initializeDropdownMultiSelect(config.field_name, options);
+                        RewstLib.utils.repopulateMultiSelectField(config.field_name, options, preselectedValues);
                     } else {
                         // Single-select: populate the select element
-                        console.log(`[MYSQL] Populating single-select for ${config.field_name}`);
                         const input = document.querySelector(`select[name="${config.field_name}"]`);
                         if (!input) {
                             console.error(`[MYSQL] SELECT element not found for ${config.field_name}`);
@@ -2196,7 +2168,7 @@
                         console.error(`[MYSQL] Error executing query for ${config.field_name}:`, error);
                         if (formGroup) RewstLib.utils.hideLoadingMessage(formGroup, config);
                         if (config.multi_select) {
-                            console.log(`[MYSQL] Error occurred, multi-select field ${config.field_name} - cannot display error in multi-select`);
+                            // Error occurred in multi-select field - cannot display error in multi-select
                         } else {
                             const input = document.querySelector(`select[name="${config.field_name}"]`);
                             if (input) input.innerHTML = `<option value="">-- Error loading options --</option>`;
@@ -2783,7 +2755,6 @@
             const depsMet = RewstLib.utils.areDependenciesMet(config, allFieldConfigs);
             
             btn.disabled = !depsMet;
-            console.log(`[REFRESH] Button state for ${fieldName}: disabled=${btn.disabled} (depsMet=${depsMet})`);
         }
 
         function setupArrayFieldHandlers(fieldConfigs, formConfig) {
@@ -3159,6 +3130,9 @@
                     if (fc.type === 'dropdown_prefetch' && sourceElementName === config.field_name) {
                         console.log(`[DATA_RETRIEVAL] Reloading prefetch field: ${fc.field_name}`);
                         loadFieldOptions(fc, allFieldConfigs, formConfig);
+                        
+                        // Update refresh button state now that source data is available
+                        updateRefreshButtonState(fc.field_name, fc, allFieldConfigs);
                     }
                 });
                 
@@ -3172,6 +3146,14 @@
                     // Hide the form-group even on error
                     formGroup.style.display = 'none';
                 }
+                
+                // Update button states for dependent prefetch fields (will be disabled due to failed dependency)
+                allFieldConfigs.forEach(fc => {
+                    const sourceElementName = fc.source_element_name || fc.source_element_uid;
+                    if (fc.type === 'dropdown_prefetch' && sourceElementName === config.field_name) {
+                        updateRefreshButtonState(fc.field_name, fc, allFieldConfigs);
+                    }
+                });
             } finally {
                 dataRetrievalExecuting[config.field_name] = false;
             }
@@ -3390,21 +3372,260 @@
                 
                 btn.addEventListener('click', (e) => {
                     e.preventDefault();
-                    console.log(`[REFRESH] User clicked refresh for field: ${fieldName}`);
                     
                     // Disable button and show loading state
                     btn.disabled = true;
                     btn.classList.add('loading');
                     
+                    // Check if this is a prefetch dropdown refresh
+                    const sourceFieldName = btn.getAttribute('data-source-field');
+                    if (sourceFieldName) {
+                        // This is a prefetch dropdown - refresh the source data_retrieval field
+                        
+                        // Capture current selections from all prefetch dropdowns using this source
+                        const selections = {};
+                        fieldConfigs.forEach(fc => {
+                            const fcSourceField = fc.source_element_name || fc.source_element_uid;
+                            if (fc.type === 'dropdown_prefetch' && fcSourceField === sourceFieldName) {
+                                const formGroup = document.querySelector(`[data-field-name="${fc.field_name}"]`);
+                                if (formGroup) {
+                                    if (fc.multi_select) {
+                                        const hiddenSelect = formGroup.querySelector('.multi-select-hidden-select');
+                                        if (hiddenSelect) {
+                                            // Read from actual selected option elements (kept in sync by rewst-library.js)
+                                            selections[fc.field_name] = Array.from(hiddenSelect.selectedOptions).map(o => o.value);
+                                        }
+                                    } else {
+                                        const select = formGroup.querySelector('select:not(.multi-select-hidden-select)');
+                                        if (select) {
+                                            selections[fc.field_name] = select.value;
+                                        }
+                                    }
+                                }
+                            }
+                        });
+                        
+                        // Show waiting messages on all dependent prefetch fields while refreshing
+                        fieldConfigs.forEach(fc => {
+                            const fcSourceField = fc.source_element_name || fc.source_element_uid;
+                            if (fc.type === 'dropdown_prefetch' && fcSourceField === sourceFieldName) {
+                                const formGroup = document.querySelector(`[data-field-name="${fc.field_name}"]`);
+                                if (formGroup) {
+                                    hideLoadingMessage(formGroup, fc);
+                                    showWaitingMessage(formGroup, fc, fieldConfigs);
+                                }
+                            }
+                        });
+                        
+                        // Re-execute the source data_retrieval field
+                        const sourceConfig = fieldConfigs.find(c => c.field_name === sourceFieldName);
+                        if (sourceConfig && sourceConfig.type === 'data_retrieval') {
+                            // Force skip_cache to get fresh data
+                            const originalSkipCache = sourceConfig.skip_cache;
+                            sourceConfig.skip_cache = true;
+                            
+                            executeDataRetrievalField(sourceConfig, fieldConfigs, formConfig).then(() => {
+                                sourceConfig.skip_cache = originalSkipCache;
+                                
+                                // Reload all prefetch fields that depend on this source
+                                const prefetchFieldsToReload = [];
+                                fieldConfigs.forEach(fc => {
+                                    const fcSourceField = fc.source_element_name || fc.source_element_uid;
+                                    if (fc.type === 'dropdown_prefetch' && fcSourceField === sourceFieldName) {
+                                        prefetchFieldsToReload.push(fc);
+                                    }
+                                });
+                                
+                                // Reload all at once, then restore selections
+                                Promise.all(prefetchFieldsToReload.map(fc => loadFieldOptions(fc, fieldConfigs, formConfig, selections[fc.field_name]))).then(() => {
+                                    
+                                    // Restore selections where possible
+                                    prefetchFieldsToReload.forEach(fc => {
+                                        const formGroup = document.querySelector(`[data-field-name="${fc.field_name}"]`);
+                                        if (formGroup && selections[fc.field_name]) {
+                                            if (fc.multi_select) {
+                                                const hiddenSelect = formGroup.querySelector('.multi-select-hidden-select');
+                                                const multiSelectContainer = formGroup.querySelector('.multi-select-container');
+                                                if (hiddenSelect && multiSelectContainer && Array.isArray(selections[fc.field_name]) && selections[fc.field_name].length > 0) {
+                                                    // Restore multi-select values to hidden select
+                                                    Array.from(hiddenSelect.options).forEach(opt => {
+                                                        opt.selected = selections[fc.field_name].includes(opt.value);
+                                                    });
+                                                    
+                                                    // Debug: log what was actually set
+                                                    const restoredOptions = Array.from(hiddenSelect.options).filter(o => o.selected).map(o => ({ value: o.value, text: o.text }));
+                                                    
+                                                    // Also manually check the corresponding checkboxes in the multi-select component
+                                                    const multiSelectOptions = formGroup.querySelectorAll('.multi-select-option input[type="checkbox"]');
+                                                    multiSelectOptions.forEach(checkbox => {
+                                                        const value = checkbox.value;
+                                                        const shouldBeChecked = selections[fc.field_name].includes(value);
+                                                        if (checkbox.checked !== shouldBeChecked) {
+                                                            checkbox.checked = shouldBeChecked;
+                                                        }
+                                                    });
+                                                    
+                                                    // Manually rebuild the tags display without re-initializing (to avoid duplicate listeners)
+                                                    const tagsContainer = multiSelectContainer.querySelector('.multi-select-tags');
+                                                    if (tagsContainer) {
+                                                        tagsContainer.innerHTML = '';
+                                                        selections[fc.field_name].forEach(value => {
+                                                            const option = hiddenSelect.querySelector(`option[value="${value}"]`);
+                                                            if (option) {
+                                                                const tag = document.createElement('span');
+                                                                tag.className = 'multi-select-tag';
+                                                                const removeBtn = document.createElement('span');
+                                                                removeBtn.className = 'multi-select-remove';
+                                                                removeBtn.setAttribute('data-value', value);
+                                                                removeBtn.textContent = '✕';
+                                                                // Attach click handler to remove button
+                                                                removeBtn.addEventListener('click', (e) => {
+                                                                    e.stopPropagation();
+                                                                    const val = e.target.getAttribute('data-value');
+                                                                    Array.from(hiddenSelect.options).forEach(opt => {
+                                                                        if (opt.value === val) opt.selected = false;
+                                                                    });
+                                                                    hiddenSelect.dispatchEvent(new Event('change', { bubbles: true }));
+                                                                });
+                                                                tag.appendChild(document.createTextNode(RewstLib.utils.escapeHtml(option.textContent)));
+                                                                tag.appendChild(removeBtn);
+                                                                tagsContainer.appendChild(tag);
+                                                            }
+                                                        });
+                                                    }
+                                                    
+                                                    // Trigger change to update any dependent fields
+                                                    hiddenSelect.dispatchEvent(new Event('change', { bubbles: true }));
+                                                } else {
+                                                }
+                                            } else {
+                                                const select = formGroup.querySelector('select:not(.multi-select-hidden-select)');
+                                                if (select) {
+                                                    select.value = selections[fc.field_name] || '';
+                                                    select.dispatchEvent(new Event('change', { bubbles: true }));
+                                                }
+                                            }
+                                        }
+                                    });
+                                    
+                                    btn.classList.remove('loading');
+                                    updateRefreshButtonState(fieldName, config, fieldConfigs);
+                                }).catch(error => {
+                                    console.error(`[REFRESH] Error reloading prefetch fields:`, error);
+                                    btn.classList.remove('loading');
+                                    updateRefreshButtonState(fieldName, config, fieldConfigs);
+                                });
+                            }).catch(error => {
+                                console.error(`[REFRESH] Error refreshing source field ${sourceFieldName}:`, error);
+                                sourceConfig.skip_cache = originalSkipCache;
+                                btn.classList.remove('loading');
+                                updateRefreshButtonState(fieldName, config, fieldConfigs);
+                            });
+                            return;
+                        }
+                    }
+                    
+                    // Regular dropdown refresh (non-prefetch)
+                    // Capture current selections before refreshing
+                    let selections = null;
+                    const formGroup = document.querySelector(`[data-field-name="${fieldName}"]`);
+                    if (formGroup) {
+                        if (config.multi_select) {
+                            const hiddenSelect = formGroup.querySelector('.multi-select-hidden-select');
+                            if (hiddenSelect) {
+                                // Read from actual selected option elements (kept in sync by rewst-library.js)
+                                selections = Array.from(hiddenSelect.selectedOptions).map(o => o.value);
+                            }
+                        } else {
+                            const select = formGroup.querySelector('select:not(.multi-select-hidden-select)');
+                            if (select) {
+                                selections = select.value;
+                            }
+                        }
+                    }
+                    
                     // Force skip_cache for refresh
                     const originalSkipCache = config.skip_cache;
                     config.skip_cache = true;
                     
-                    // Call loadFieldOptions with all required parameters
-                    loadFieldOptions(config, fieldConfigs, formConfig).then(() => {
-                        console.log(`[REFRESH] Refresh complete for ${fieldName}`);
+                    // Call loadFieldOptions with pre-selected values for multi-select fields
+                    const preselectedValues = (config.multi_select && Array.isArray(selections)) ? selections : [];
+                    loadFieldOptions(config, fieldConfigs, formConfig, preselectedValues).then(() => {
                         // Restore original skip_cache setting
                         config.skip_cache = originalSkipCache;
+                        
+                        // Restore selections if we captured them
+                        if (selections !== null) {
+                            const formGroup = document.querySelector(`[data-field-name="${fieldName}"]`);
+                            if (formGroup) {
+                                if (config.multi_select) {
+                                    if (Array.isArray(selections) && selections.length > 0) {
+                                        const hiddenSelect = formGroup.querySelector('.multi-select-hidden-select');
+                                        const multiSelectContainer = formGroup.querySelector('.multi-select-container');
+                                        if (hiddenSelect) {
+                                            // Restore multi-select values to hidden select
+                                            Array.from(hiddenSelect.options).forEach(opt => {
+                                                const shouldBeSelected = selections.includes(opt.value);
+                                                opt.selected = shouldBeSelected;
+                                                if (shouldBeSelected) {
+                                                }
+                                            });
+                                            
+                                            // Manually rebuild the tags display without re-initializing (to avoid duplicate listeners)
+                                            const tagsContainer = multiSelectContainer.querySelector('.multi-select-tags');
+                                            if (tagsContainer) {
+                                                tagsContainer.innerHTML = '';
+                                                selections.forEach(value => {
+                                                    const option = hiddenSelect.querySelector(`option[value="${value}"]`);
+                                                    if (option) {
+                                                        const tag = document.createElement('span');
+                                                        tag.className = 'multi-select-tag';
+                                                        const removeBtn = document.createElement('span');
+                                                        removeBtn.className = 'multi-select-remove';
+                                                        removeBtn.setAttribute('data-value', value);
+                                                        removeBtn.textContent = '✕';
+                                                        // Attach click handler to remove button
+                                                        removeBtn.addEventListener('click', (e) => {
+                                                            e.stopPropagation();
+                                                            const val = e.target.getAttribute('data-value');
+                                                            Array.from(hiddenSelect.options).forEach(opt => {
+                                                                if (opt.value === val) opt.selected = false;
+                                                            });
+                                                            hiddenSelect.dispatchEvent(new Event('change', { bubbles: true }));
+                                                        });
+                                                        tag.appendChild(document.createTextNode(RewstLib.utils.escapeHtml(option.textContent)));
+                                                        tag.appendChild(removeBtn);
+                                                        tagsContainer.appendChild(tag);
+                                                    }
+                                                });
+                                                
+                                                // Also manually check the corresponding checkboxes
+                                                const multiSelectOptions = formGroup.querySelectorAll('.multi-select-option input[type="checkbox"]');
+                                                multiSelectOptions.forEach(checkbox => {
+                                                    const value = checkbox.value;
+                                                    const shouldBeChecked = selections.includes(value);
+                                                    if (checkbox.checked !== shouldBeChecked) {
+                                                        checkbox.checked = shouldBeChecked;
+                                                    }
+                                                });
+                                            }
+                                            
+                                            // Trigger change to update any dependent fields
+                                            hiddenSelect.dispatchEvent(new Event('change', { bubbles: true }));
+                                        }
+                                    }
+                                } else {
+                                    if (selections) {
+                                        const select = formGroup.querySelector('select:not(.multi-select-hidden-select)');
+                                        if (select) {
+                                            select.value = selections;
+                                            select.dispatchEvent(new Event('change', { bubbles: true }));
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        
                         // Re-enable button and remove loading state, then check dependencies
                         btn.classList.remove('loading');
                         updateRefreshButtonState(fieldName, config, fieldConfigs);
@@ -3537,24 +3758,13 @@
                 }
             } else if (config.type === 'dropdown') {
                 if (config.multi_select) {
-                    // Custom multi-select component with refresh button
-                    const multiSelectId = `ms_${config.field_name}`;
-                    const descriptionHtml = config.description ? `<div class="field-description">${escapeHtml(config.description)}</div>` : '';
+                    // Custom multi-select component with refresh button - use library to generate structure
                     html += `
-                        <label>${displayName}</label>
-                        ${descriptionHtml}
                         <div class="field-loading-message" style="display: none;"><span class="spinner"></span> Loading...</div>
                         <div class="field-waiting-message" style="display: none;">Waiting for dependencies...</div>
                         <div class="dropdown-refresh-container">
                             <div style="flex: 1;">
-                                <div class="multi-select-container" id="${multiSelectId}">
-                                    <div class="multi-select-display">
-                                        <div class="multi-select-tags"></div>
-                                        <div class="multi-select-toggle">▼</div>
-                                    </div>
-                                    <div class="multi-select-options"></div>
-                                    <select name="${config.field_name}" class="multi-select-hidden-select"></select>
-                                </div>
+                                ${RewstLib.utils.renderMultiSelectContainer(config.field_name, displayName, config.description)}
                             </div>
                             <button type="button" class="dropdown-refresh-btn" data-field-name="${config.field_name}" title="Refresh options">↻</button>
                         </div>
@@ -3576,24 +3786,13 @@
                 }
             } else if (config.type === 'dropdown_graphql') {
                 if (config.multi_select) {
-                    // Custom multi-select component with refresh button
-                    const multiSelectId = `ms_${config.field_name}`;
-                    const descriptionHtml = config.description ? `<div class="field-description">${escapeHtml(config.description)}</div>` : '';
+                    // Custom multi-select component with refresh button - use library to generate structure
                     html += `
-                        <label>${displayName}</label>
-                        ${descriptionHtml}
                         <div class="field-loading-message" style="display: none;"><span class="spinner"></span> Loading...</div>
                         <div class="field-waiting-message" style="display: none;">Waiting for dependencies...</div>
                         <div class="dropdown-refresh-container">
                             <div style="flex: 1;">
-                                <div class="multi-select-container" id="${multiSelectId}">
-                                    <div class="multi-select-display">
-                                        <div class="multi-select-tags"></div>
-                                        <div class="multi-select-toggle">▼</div>
-                                    </div>
-                                    <div class="multi-select-options"></div>
-                                    <select name="${config.field_name}" class="multi-select-hidden-select"></select>
-                                </div>
+                                ${RewstLib.utils.renderMultiSelectContainer(config.field_name, displayName, config.description)}
                             </div>
                             <button type="button" class="dropdown-refresh-btn" data-field-name="${config.field_name}" title="Refresh options">↻</button>
                         </div>
@@ -3615,24 +3814,13 @@
                 }
             } else if (config.type === 'dropdown_mysql') {
                 if (config.multi_select) {
-                    // Custom multi-select component with refresh button
-                    const multiSelectId = `ms_${config.field_name}`;
-                    const descriptionHtml = config.description ? `<div class="field-description">${escapeHtml(config.description)}</div>` : '';
+                    // Custom multi-select component with refresh button - use library to generate structure
                     html += `
-                        <label>${displayName}</label>
-                        ${descriptionHtml}
                         <div class="field-loading-message" style="display: none;"><span class="spinner"></span> Loading...</div>
                         <div class="field-waiting-message" style="display: none;">Waiting for dependencies...</div>
                         <div class="dropdown-refresh-container">
                             <div style="flex: 1;">
-                                <div class="multi-select-container" id="${multiSelectId}">
-                                    <div class="multi-select-display">
-                                        <div class="multi-select-tags"></div>
-                                        <div class="multi-select-toggle">▼</div>
-                                    </div>
-                                    <div class="multi-select-options"></div>
-                                    <select name="${config.field_name}" class="multi-select-hidden-select"></select>
-                                </div>
+                                ${RewstLib.utils.renderMultiSelectContainer(config.field_name, displayName, config.description)}
                             </div>
                             <button type="button" class="dropdown-refresh-btn" data-field-name="${config.field_name}" title="Refresh options">↻</button>
                         </div>
@@ -3654,24 +3842,13 @@
                 }
             } else if (config.type === 'dropdown_mesh') {
                 if (config.multi_select) {
-                    // Custom multi-select component with refresh button
-                    const multiSelectId = `ms_${config.field_name}`;
-                    const descriptionHtml = config.description ? `<div class="field-description">${escapeHtml(config.description)}</div>` : '';
+                    // Custom multi-select component with refresh button - use library to generate structure
                     html += `
-                        <label>${displayName}</label>
-                        ${descriptionHtml}
                         <div class="field-loading-message" style="display: none;"><span class="spinner"></span> Loading...</div>
                         <div class="field-waiting-message" style="display: none;">Waiting for dependencies...</div>
                         <div class="dropdown-refresh-container">
                             <div style="flex: 1;">
-                                <div class="multi-select-container" id="${multiSelectId}">
-                                    <div class="multi-select-display">
-                                        <div class="multi-select-tags"></div>
-                                        <div class="multi-select-toggle">▼</div>
-                                    </div>
-                                    <div class="multi-select-options"></div>
-                                    <select name="${config.field_name}" class="multi-select-hidden-select"></select>
-                                </div>
+                                ${RewstLib.utils.renderMultiSelectContainer(config.field_name, displayName, config.description)}
                             </div>
                             <button type="button" class="dropdown-refresh-btn" data-field-name="${config.field_name}" title="Refresh options">↻</button>
                         </div>
@@ -3693,7 +3870,6 @@
                 }
             } else if (config.type === 'dropdown_prefetch') {
                 // Dropdown prefetch - populates from cached data_retrieval results
-                console.log(`[RENDER] Rendering dropdown_prefetch ${config.field_name}: multi_select=${config.multi_select}`);
                 const sourceFieldName = config.source_element_name || config.source_element_uid;
                 const resultPath = config.result_path;
                 const labelField = config.label_field || 'label';
@@ -3715,30 +3891,18 @@
                 }
                 
                 if (config.multi_select) {
-                    console.log(`[RENDER] Using multi-select for ${config.field_name}`);
-                    // Custom multi-select component for prefetch
-                    const multiSelectId = `ms_${config.field_name}`;
-                    const descriptionHtml = config.description ? `<div class="field-description">${escapeHtml(config.description)}</div>` : '';
+                    // Custom multi-select component for prefetch - use library to generate structure
                     html += `
-                        <label>${displayName}</label>
-                        ${descriptionHtml}
                         <div class="field-loading-message" style="display: none;"><span class="spinner"></span> Loading...</div>
                         <div class="field-waiting-message" style="display: none;">Waiting for dependencies...</div>
                         <div class="dropdown-refresh-container">
                             <div style="flex: 1;">
-                                <div class="multi-select-container" id="${multiSelectId}">
-                                    <div class="multi-select-display">
-                                        <div class="multi-select-tags"></div>
-                                        <div class="multi-select-toggle">▼</div>
-                                    </div>
-                                    <div class="multi-select-options"></div>
-                                    <select name="${config.field_name}" class="multi-select-hidden-select"></select>
-                                </div>
+                                ${RewstLib.utils.renderMultiSelectContainer(config.field_name, displayName, config.description)}
                             </div>
+                            <button type="button" class="btn btn-small dropdown-refresh-btn" data-field-name="${config.field_name}" data-source-field="${sourceFieldName}" title="Refresh options">↻</button>
                         </div>
                     `;
                 } else {
-                    console.log(`[RENDER] Using single-select for ${config.field_name}`);
                     // Single select dropdown for prefetch - wrap in container for consistent hiding/showing
                     const optionsHtml = options.map(opt => 
                         `<option value="${escapeHtml(String(opt.value))}">${escapeHtml(String(opt.label))}</option>`
@@ -3754,6 +3918,7 @@
                                 <option value="">${RewstLib.utils.getGrammaticalPhrase(config.field_displayname)}</option>
                                 ${optionsHtml}
                             </select>
+                            <button type="button" class="btn btn-small dropdown-refresh-btn" data-field-name="${config.field_name}" data-source-field="${sourceFieldName}" title="Refresh options">↻</button>
                         </div>
                     `;
                 }
