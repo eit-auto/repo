@@ -1164,20 +1164,8 @@ const GRAPHQL_OPERATIONS = {
       return;
     }
     
-    const optionsDiv = multiSelectContainer.querySelector('.multi-select-options');
-    if (!optionsDiv) {
-      console.error(`[REPOPULATE] Options div not found for ${fieldName}`);
-      return;
-    }
-    
-    // Update the visible options div with new options
-    optionsDiv.innerHTML = options.map(opt => 
-      `<div class="multi-select-option" data-value="${escapeHtml(String(opt.value))}">${escapeHtml(String(opt.label))}</div>`
-    ).join('');
-    
-    multiSelectContainer.setAttribute('data-initialized', 'true');
-    
     // Initialize the multi-select component with pre-selected values
+    // This will handle updating the hidden select, tags, and dropdown display
     initializeDropdownMultiSelect(fieldName, options, preselectedValues);
   }
 
@@ -1697,12 +1685,12 @@ const GRAPHQL_OPERATIONS = {
       return;
     }
 
-    // Mark as initialized to prevent double-initialization
-    container.setAttribute('data-initialized', 'true');
-
+    // Check if already initialized to prevent duplicate event listeners
+    const alreadyInitialized = container.getAttribute('data-initialized') === 'true';
+    
     let selected = [...(selectedValues || [])].map(v => String(v));  // Normalize to strings for comparison with option.value
 
-    // Populate hidden select with option elements once during initialization
+    // Populate hidden select with option elements
     if (hiddenSelect) {
       hiddenSelect.innerHTML = '';  // Clear any existing options first
       options.forEach(option => {
@@ -1855,44 +1843,54 @@ const GRAPHQL_OPERATIONS = {
       dropdown.classList.remove('open');
     }
 
-    // Event listeners
-    if (!toggleBtn) {
-      console.error('[MULTI-SELECT] Toggle button not found - cannot attach click handler');
-    } else {
-      // Make entire display area clickable to open dropdown
-      const displayArea = container.querySelector('.multi-select-display');
-      if (displayArea) {
-        displayArea.addEventListener('click', (e) => {
-          // Don't toggle if clicking on the X button to remove a tag
-          if (e.target.classList.contains('multi-select-tag-remove')) {
-            return;
-          }
-          console.log('[MULTI-SELECT] Display area clicked, dropdown element:', !!dropdown);
-          e.stopPropagation();
-          toggleDropdown();
-        });
+    // Event listeners - only attach on first initialization
+    if (!alreadyInitialized) {
+      if (!toggleBtn) {
+        console.error('[MULTI-SELECT] Toggle button not found - cannot attach click handler');
+      } else {
+        // Make entire display area clickable to open dropdown
+        const displayArea = container.querySelector('.multi-select-display');
+        if (displayArea) {
+          displayArea.addEventListener('click', (e) => {
+            // Don't toggle if clicking on the X button to remove a tag
+            if (e.target.classList.contains('multi-select-tag-remove')) {
+              return;
+            }
+            console.log('[MULTI-SELECT] Display area clicked, dropdown element:', !!dropdown);
+            e.stopPropagation();
+            toggleDropdown();
+          });
+        }
       }
+
+      container.addEventListener('click', (e) => {
+        if (e.target.classList.contains('multi-select-tag-remove')) {
+          e.preventDefault();
+          e.stopPropagation();
+          const value = e.target.dataset.value;
+          selected = selected.filter(v => v !== value);
+          updateTags();
+        }
+      });
+
+      // Click outside to close
+      document.addEventListener('click', (e) => {
+        if (!container.contains(e.target)) {
+          closeDropdown();
+        }
+      });
     }
 
-    container.addEventListener('click', (e) => {
-      if (e.target.classList.contains('multi-select-tag-remove')) {
-        e.preventDefault();
-        e.stopPropagation();
-        const value = e.target.dataset.value;
-        selected = selected.filter(v => v !== value);
-        updateTags();
-      }
-    });
-
-    // Click outside to close
-    document.addEventListener('click', (e) => {
-      if (!container.contains(e.target)) {
-        closeDropdown();
-      }
-    });
+    // Mark as initialized to prevent double-initialization
+    container.setAttribute('data-initialized', 'true');
 
     // Initial render
     updateTags();
+    
+    // If dropdown is open, refresh its display with new options
+    if (dropdown.classList.contains('open')) {
+      populateDropdown();
+    }
   }
 
   return {
@@ -1989,7 +1987,7 @@ const GRAPHQL_OPERATIONS = {
       get: getGraphQLOperation
     },
     // Version
-    version: '2.1.1'
+    version: '2.1.2'
   };
 })();
 // Make available globally
