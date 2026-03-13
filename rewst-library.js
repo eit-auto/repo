@@ -1128,7 +1128,7 @@ const GRAPHQL_OPERATIONS = {
           <div class="multi-select-toggle">▼</div>
         </div>
         <div class="multi-select-options"></div>
-        <select name="${fieldName}" class="multi-select-hidden-select" data-selected-values="[]"></select>
+        <select name="${fieldName}" class="multi-select-hidden-select" multiple="multiple" data-selected-values="[]"></select>
       </div>
     `;
   }
