@@ -1398,7 +1398,7 @@ if (typeof window !== 'undefined') {
                 console.log('>>> Successfully loaded form:', form);
                 console.log('>>> Calling renderForm with form object');
                 try {
-                    renderForm(form);
+                    await renderForm(form);
                     console.log('>>> renderForm completed successfully');
                 } catch (renderError) {
                     console.error('>>> ERROR in renderForm:', renderError);
@@ -1584,13 +1584,13 @@ if (typeof window !== 'undefined') {
             dropdown.style.display = 'block';
         }
 
-        function selectForm(index) {
+        async function selectForm(index) {
             const form = existingForms[index];
             
             // Parse form_config if it's a string
             if (form.form_config_parsed) {
                 // Already parsed, use it
-                renderForm({
+                await renderForm({
                     ...form,
                     form_config: form.form_config_parsed
                 });
@@ -1598,7 +1598,7 @@ if (typeof window !== 'undefined') {
                 // Parse the JSON string
                 try {
                     const parsedConfig = JSON.parse(form.form_config);
-                    renderForm({
+                    await renderForm({
                         ...form,
                         form_config: parsedConfig
                     });
@@ -1608,7 +1608,7 @@ if (typeof window !== 'undefined') {
                     previewContent.innerHTML = '<div class="preview-placeholder">Error: Invalid form configuration</div>';
                 }
             } else {
-                renderForm(form);
+                await renderForm(form);
             }
         }
 
@@ -1619,7 +1619,7 @@ if (typeof window !== 'undefined') {
         
         if (openExistingDropdown && openExistingLoading) {
             // Load form immediately when dropdown selection changes
-            openExistingDropdown.addEventListener('change', () => {
+            openExistingDropdown.addEventListener('change', async () => {
                 const selectedIndex = parseInt(openExistingDropdown.value);
                 
                 if (isNaN(selectedIndex) || selectedIndex < 0 || selectedIndex >= existingForms.length) {
@@ -1630,7 +1630,7 @@ if (typeof window !== 'undefined') {
                 }
                 
                 console.log('Loading form at index:', selectedIndex);
-                selectForm(selectedIndex);
+                await selectForm(selectedIndex);
             });
         }
 
@@ -1639,7 +1639,7 @@ if (typeof window !== 'undefined') {
         const evaluateConditionalVisibility = (allFieldConfigs) => RewstLib.forms.evaluateConditionalVisibility(allFieldConfigs);
         const evaluateCondition = (conditionString, formData) => RewstLib.forms.evaluateCondition(conditionString, formData);
 
-        function renderForm(form) {
+        async function renderForm(form) {
             console.log('>>> renderForm STARTED');
             const previewContent = document.getElementById('previewContent');
             console.log('>>> previewContent element found:', !!previewContent);
@@ -1853,11 +1853,12 @@ if (typeof window !== 'undefined') {
                     // Add change listener to trigger dependent fields (for any field type)
                     const changeHandler = () => {
                         console.log(`>>> Change event fired for: ${config.field_name}`);
-                        RewstLib.utils.updateDependentFields(config.field_name, fieldConfigs, formConfig, loadFieldOptions);
-                        // Also evaluate conditional visibility for other fields
+                        // First, evaluate conditional visibility to ensure fields are visible/hidden based on conditions
                         console.log(`>>> About to evaluate conditional visibility for all fields`);
                         evaluateConditionalVisibility(fieldConfigs);
                         console.log(`>>> Conditional visibility evaluation complete`);
+                        // Then update dependent fields (they'll load into visible fields, not hidden ones)
+                        RewstLib.utils.updateDependentFields(config.field_name, fieldConfigs, formConfig, loadFieldOptions);
                         
                         // Load options for any dropdowns that just became visible
                         fieldConfigs.forEach(fc => {
@@ -1877,7 +1878,7 @@ if (typeof window !== 'undefined') {
                                     }
                                     
                                     if (!fc.multi_select) {
-                                        const select = formGroup.querySelector('select');
+                                        const select = formGroup.querySelector('select:not(.multi-select-hidden-select)');
                                         // Check if options haven't been loaded yet (only has placeholder)
                                         if (select && select.querySelectorAll('option').length <= 1) {
                                             console.log(`[CONDITIONAL] Field ${fc.field_name} became visible, loading options`);
@@ -1960,6 +1961,15 @@ if (typeof window !== 'undefined') {
                     console.log(`Dropdown_mesh ${config.field_name} has no dependencies, loading options immediately`);
                     loadFieldOptions(config, fieldConfigs, formConfig);
                 }
+                if (config.type === 'data_retrieval' && !config.dependant_fields) {
+                    console.log(`Data_retrieval ${config.field_name} has no dependencies, executing immediately`);
+                    loadFieldOptions(config, fieldConfigs, formConfig);
+                }
+                // Initialize dropdown_prefetch fields (both with and without dependencies)
+                if (config.type === 'dropdown_prefetch') {
+                    console.log(`Dropdown_prefetch ${config.field_name} initializing`);
+                    loadFieldOptions(config, fieldConfigs, formConfig);
+                }
             });
             
             // Load array field dropdowns (workflow and GraphQL)
@@ -1995,7 +2005,7 @@ if (typeof window !== 'undefined') {
             if (!formGroup) return;
             const msg = formGroup.querySelector('.field-loading-message');
             const container = formGroup.querySelector('.dropdown-refresh-container');
-            const select = formGroup.querySelector('select');
+            const select = formGroup.querySelector('select:not(.multi-select-hidden-select)');
             const multiSelect = formGroup.querySelector('.multi-select-container');
             const refreshBtn = formGroup.querySelector('.dropdown-refresh-btn');
             
@@ -2011,10 +2021,52 @@ if (typeof window !== 'undefined') {
          */
         function showWaitingMessage(formGroup, config, allFieldConfigs) {
             if (!formGroup) return;
+            console.log(`[WAITING] Showing waiting message for ${config.field_name}`);
             const msg = formGroup.querySelector('.field-waiting-message');
             const container = formGroup.querySelector('.dropdown-refresh-container');
-            if (msg) msg.style.display = 'flex';
-            if (container) container.style.display = 'none';
+            console.log(`[WAITING] Found msg=${!!msg}, container=${!!container}`);
+            
+            if (msg) {
+                // Build custom message based on blocking dependencies
+                let messageText = `Waiting for selection...`;
+                if (config.dependant_fields && allFieldConfigs) {
+                    const blockingDeps = Object.entries(config.dependant_fields)
+                        .filter(([fieldName, depConfig]) => depConfig.blocking === true)
+                        .map(([fieldName]) => fieldName);
+                    
+                    if (blockingDeps.length > 0) {
+                        const depFieldName = blockingDeps[0]; // Use first blocking dependency
+                        const depField = allFieldConfigs.find(fc => fc.field_name === depFieldName);
+                        if (depField) {
+                            // Don't add "Selection" suffix if the dependency is a data_retrieval field
+                            const suffix = depField.type === 'data_retrieval' ? '' : ' Selection';
+                            messageText = `Waiting on ${depField.field_displayname}${suffix}`;
+                            
+                            // Only prepend field name for data_retrieval type
+                            if (config.type === 'data_retrieval') {
+                                messageText = `${config.field_displayname} Retrieval - ${messageText}`;
+                            }
+                            console.log(`[WAITING] Built custom message: "${messageText}"`);
+                        }
+                    }
+                }
+                
+                msg.textContent = messageText;
+                msg.style.display = 'flex';
+                
+                // Add light gold background for data_retrieval waiting messages
+                if (config.type === 'data_retrieval') {
+                    msg.classList.add('data-retrieval-waiting');
+                } else {
+                    msg.classList.remove('data-retrieval-waiting');
+                }
+                
+                console.log(`[WAITING] Set message display to flex`);
+            }
+            if (container) {
+                container.style.display = 'none';
+                console.log(`[WAITING] Hid container`);
+            }
         }
 
         /**
@@ -2022,17 +2074,36 @@ if (typeof window !== 'undefined') {
          */
         function hideWaitingMessage(formGroup, config) {
             if (!formGroup) return;
+            console.log(`[HIDE_WAITING] Hiding waiting message for ${config.field_name}`);
             const msg = formGroup.querySelector('.field-waiting-message');
             const container = formGroup.querySelector('.dropdown-refresh-container');
-            const select = formGroup.querySelector('select');
+            const select = formGroup.querySelector('select:not(.multi-select-hidden-select)');
             const multiSelect = formGroup.querySelector('.multi-select-container');
             const refreshBtn = formGroup.querySelector('.dropdown-refresh-btn');
             
-            if (msg) msg.style.display = 'none';
-            if (container) container.style.display = 'flex';
-            if (select) select.style.display = 'block';
-            if (multiSelect) multiSelect.style.display = 'block';
-            if (refreshBtn) refreshBtn.style.display = 'block';
+            console.log(`[HIDE_WAITING] Found: msg=${!!msg}, container=${!!container}, select=${!!select}, multiSelect=${!!multiSelect}`);
+            
+            if (msg) {
+                msg.style.display = 'none';
+                msg.classList.remove('data-retrieval-waiting');
+                console.log(`[HIDE_WAITING] Hid message`);
+            }
+            if (container) {
+                container.style.display = 'flex';
+                console.log(`[HIDE_WAITING] Showed container`);
+            }
+            if (select) {
+                select.style.display = 'block';
+                console.log(`[HIDE_WAITING] Showed select`);
+            }
+            if (multiSelect) {
+                multiSelect.style.display = 'block';
+                console.log(`[HIDE_WAITING] Showed multiSelect`);
+            }
+            if (refreshBtn) {
+                refreshBtn.style.display = 'block';
+                console.log(`[HIDE_WAITING] Showed refreshBtn`);
+            }
         }
 
         /**
@@ -2041,8 +2112,27 @@ if (typeof window !== 'undefined') {
         function areDependenciesMet(config, allFieldConfigs) {
             if (!config.dependant_fields) return true;
             
+            console.log(`[DEPS] Checking dependencies for ${config.field_name}:`, Object.keys(config.dependant_fields));
+            
             for (const depFieldName of Object.keys(config.dependant_fields)) {
                 const depConfig = config.dependant_fields[depFieldName];
+                
+                // Check if this dependency is a data_retrieval field
+                const depFieldConfig = allFieldConfigs.find(f => f.field_name === depFieldName);
+                if (depFieldConfig && depFieldConfig.type === 'data_retrieval') {
+                    // For data_retrieval fields, check if they have cached results
+                    if (depConfig.blocking) {
+                        const cachedData = proxyCache.dataRetrievalResults[depFieldName];
+                        console.log(`[DEPS] Checking data_retrieval ${depFieldName}: blocking=${depConfig.blocking}, cached=${!!cachedData}, hasError=${cachedData?.error ? true : false}`);
+                        if (!cachedData || cachedData.error) {
+                            console.log(`[DEPS] Data_retrieval field ${depFieldName} not yet executed or has error`);
+                            return false;
+                        }
+                    }
+                    continue;
+                }
+                
+                // For regular fields, check input values
                 const input = document.querySelector(`input[name="${depFieldName}"], select[name="${depFieldName}"], textarea[name="${depFieldName}"]`);
                 
                 if (!input) continue;
@@ -2057,12 +2147,16 @@ if (typeof window !== 'undefined') {
                     value = input.value;
                 }
                 
+                console.log(`[DEPS] Field ${depFieldName}: blocking=${depConfig.blocking}, value='${value}'`);
+                
                 // If blocking is true and value is empty, dependencies not met
                 if (depConfig.blocking && (value === '' || value === null)) {
+                    console.log(`[DEPS] Blocking dependency ${depFieldName} not met`);
                     return false;
                 }
             }
             
+            console.log(`[DEPS] All dependencies met for ${config.field_name}`);
             return true;
         }
 
@@ -2104,7 +2198,11 @@ if (typeof window !== 'undefined') {
                     if (formGroup) {
                         const allDepsMet = areDependenciesMet(config, fieldConfigs);
                         if (!allDepsMet) {
+                            console.log(`[INIT_DEPS] Field ${config.field_name} dependencies not met, showing waiting message`);
                             showWaitingMessage(formGroup, config, fieldConfigs);
+                        } else {
+                            console.log(`[INIT_DEPS] Field ${config.field_name} dependencies met on init`);
+                            hideWaitingMessage(formGroup, config);
                         }
                     }
                 }
@@ -2139,11 +2237,13 @@ if (typeof window !== 'undefined') {
                 
                 console.log(`[UPDATE_DEPS] Field ${config.field_name} depends on ${changedFieldName}, reloading`);
                 
-                // Reload options for dropdown fields
+                // Reload options for dropdown fields and data_retrieval fields
                 if ((config.type === 'dropdown' && config.workflow_id) || 
                     config.type === 'dropdown_graphql' || 
                     config.type === 'dropdown_mesh' || 
-                    config.type === 'dropdown_mysql') {
+                    config.type === 'dropdown_mysql' ||
+                    config.type === 'data_retrieval' ||
+                    config.type === 'dropdown_prefetch') {
                     if (loadFieldOptionsFn) {
                         loadFieldOptionsFn(config, fieldConfigs, formConfig);
                     }
@@ -2154,11 +2254,6 @@ if (typeof window !== 'undefined') {
         /**
          * Initialize multi-select dropdown
          */
-        function initializeDropdownMultiSelect(fieldName, options) {
-            // Placeholder - multi-select not fully implemented yet
-            console.log(`[MULTISELECT] Initializing multi-select for ${fieldName}`);
-        }
-
         /**
          * Map results to options for dropdown
          */
@@ -2170,13 +2265,6 @@ if (typeof window !== 'undefined') {
             }));
         }
 
-        /**
-         * Render multi-select container (placeholder)
-         */
-        function renderMultiSelectContainer(config) {
-            // Placeholder implementation
-            return '';
-        }
 
         // Extend RewstLib.utils with form-specific utilities
         RewstLib.utils.showLoadingMessage = showLoadingMessage;
@@ -2187,14 +2275,120 @@ if (typeof window !== 'undefined') {
         RewstLib.utils.getDependencyValues = getDependencyValues;
         RewstLib.utils.initializeDependentFields = initializeDependentFields;
         RewstLib.utils.updateDependentFields = updateDependentFields;
-        RewstLib.utils.initializeDropdownMultiSelect = initializeDropdownMultiSelect;
         RewstLib.utils.mapResultsToOptions = mapResultsToOptions;
-        RewstLib.utils.renderMultiSelectContainer = renderMultiSelectContainer;
 
         function loadFieldOptions(config, allFieldConfigs = [], formConfig = {}) {
             console.log(`>>> loadFieldOptions called for: ${config.field_name}`);
+            if (config.field_name === 'dropdown_1') {
+                console.log(`[DEBUG] loadFieldOptions call #${window.__loadFieldOptionsCount = (window.__loadFieldOptionsCount || 0) + 1} for dropdown_1`);
+            }
             const formGroup = document.querySelector(`[data-field-name="${config.field_name}"]`);
             console.log(`>>> formGroup found?`, !!formGroup);
+            
+            // Handle data_retrieval fields
+            if (config.type === 'data_retrieval') {
+                return executeDataRetrievalField(config, allFieldConfigs, formConfig);
+            }
+            
+            // Handle dropdown_prefetch fields - populate from cached data_retrieval results
+            if (config.type === 'dropdown_prefetch') {
+                console.log(`[PREFETCH] Loading field: ${config.field_name}, source: ${config.source_element_name || config.source_element_uid}`);
+                const formGroup = document.querySelector(`[data-field-name="${config.field_name}"]`);
+                const sourceFieldName = config.source_element_name || config.source_element_uid;
+                const resultPath = config.result_path;
+                const labelField = config.label_field || 'label';
+                const valueField = config.value_field || 'value';
+                
+                // Check if dependencies are met
+                if (config.dependant_fields) {
+                    const allDepsMet = RewstLib.utils.areDependenciesMet(config, allFieldConfigs);
+                    console.log(`[PREFETCH] ${config.field_name} checking dependencies: met=${allDepsMet}`);
+                    if (!allDepsMet) {
+                        console.log(`[PREFETCH] Dependencies not met for ${config.field_name}, showing waiting message`);
+                        if (formGroup) {
+                            RewstLib.utils.hideLoadingMessage(formGroup, config);
+                            RewstLib.utils.showWaitingMessage(formGroup, config, allFieldConfigs);
+                        }
+                        return;
+                    } else {
+                        console.log(`[PREFETCH] Dependencies met for ${config.field_name}, proceeding`);
+                        if (formGroup) {
+                            RewstLib.utils.hideWaitingMessage(formGroup, config);
+                        }
+                    }
+                }
+                
+                // Get cached data from data_retrieval field
+                let options = [];
+                if (proxyCache.dataRetrievalResults[sourceFieldName]) {
+                    const sourceData = proxyCache.dataRetrievalResults[sourceFieldName];
+                    if (sourceData && sourceData[resultPath]) {
+                        const results = sourceData[resultPath];
+                        if (Array.isArray(results)) {
+                            options = results.map(item => ({
+                                label: item[labelField] || item.name || String(item.id),
+                                value: item[valueField] || item.id || ''
+                            }));
+                        }
+                    }
+                }
+                
+                // Populate the dropdown
+                if (config.multi_select) {
+                    console.log(`[POPULATE] Populating multi-select for ${config.field_name}`);
+                    const multiSelectContainer = formGroup.querySelector('.multi-select-container');
+                    if (multiSelectContainer) {
+                        const optionsDiv = multiSelectContainer.querySelector('.multi-select-options');
+                        const hiddenSelect = multiSelectContainer.querySelector('.multi-select-hidden-select');
+                        
+                        if (optionsDiv && hiddenSelect) {
+                            optionsDiv.innerHTML = options.map(opt => 
+                                `<div class="multi-select-option" data-value="${escapeHtml(String(opt.value))}">${escapeHtml(String(opt.label))}</div>`
+                            ).join('');
+                            
+                            // Clear hidden select and add options
+                            hiddenSelect.innerHTML = options.map(opt =>
+                                `<option value="${escapeHtml(String(opt.value))}">${escapeHtml(String(opt.label))}</option>`
+                            ).join('');
+                            
+                            multiSelectContainer.setAttribute('data-initialized', 'true');
+                            // Initialize the multi-select component
+                            RewstLib.utils.initializeDropdownMultiSelect(config.field_name, options);
+                        }
+                    }
+                } else {
+                    console.log(`[POPULATE] Populating single-select for ${config.field_name}`);
+                    // Single select
+                    const select = formGroup.querySelector('select:not(.multi-select-hidden-select)');
+                    if (select) {
+                        const placeholder = select.querySelector('option[value=""]');
+                        select.innerHTML = '';
+                        if (placeholder) {
+                            select.appendChild(placeholder);
+                        } else {
+                            const opt = document.createElement('option');
+                            opt.value = '';
+                            opt.textContent = RewstLib.utils.getGrammaticalPhrase(config.field_displayname);
+                            select.appendChild(opt);
+                        }
+                        
+                        options.forEach(opt => {
+                            const option = document.createElement('option');
+                            option.value = String(opt.value);
+                            option.textContent = String(opt.label);
+                            select.appendChild(option);
+                        });
+                    }
+                }
+                
+                if (formGroup) {
+                    console.log(`[PREFETCH] Populating ${config.field_name}, hiding messages, showing select`);
+                    RewstLib.utils.hideLoadingMessage(formGroup, config);
+                    RewstLib.utils.hideWaitingMessage(formGroup, config);
+                }
+                
+                return Promise.resolve();
+            }
             
             // Skip loading options if the field is hidden
             // Use offsetParent check - if null, element is hidden via CSS or display:none
@@ -2206,7 +2400,7 @@ if (typeof window !== 'undefined') {
                 RewstLib.utils.hideWaitingMessage(formGroup, config);
                 
                 // Only show loading message for data-fetching field types
-                if (config.type === 'dropdown' || config.type === 'dropdown_graphql') {
+                if (config.type === 'dropdown' || config.type === 'dropdown_graphql' || config.type === 'data_retrieval') {
                     RewstLib.utils.showLoadingMessage(formGroup, config);
                 }
             }
@@ -2310,6 +2504,25 @@ if (typeof window !== 'undefined') {
             if (config.type === 'dropdown_graphql') {
                 console.log(`Loading GraphQL options for ${config.field_name} using operation: ${config.graphql_op}`);
                 
+                // Check if dependencies are met (for fields that have blocking dependencies)
+                if (config.dependant_fields) {
+                    const depsMet = RewstLib.utils.areDependenciesMet(config, allFieldConfigs);
+                    console.log(`[GRAPHQL] Dependencies for ${config.field_name}: met=${depsMet}`, config.dependant_fields);
+                    
+                    if (!depsMet) {
+                        console.log(`[GRAPHQL] Dependencies not met for ${config.field_name}, showing waiting message`);
+                        if (formGroup) {
+                            RewstLib.utils.showWaitingMessage(formGroup, config, allFieldConfigs);
+                        }
+                        return Promise.resolve();
+                    } else {
+                        // Dependencies are met, hide the waiting message
+                        if (formGroup) {
+                            RewstLib.utils.hideWaitingMessage(formGroup, config);
+                        }
+                    }
+                }
+                
                 // Create cache key based on operation + variables
                 const cacheKey = getGraphQLCacheKey(config.graphql_op, config.graphql_op_variables || {});
                 
@@ -2406,35 +2619,66 @@ if (typeof window !== 'undefined') {
             if (config.type === 'dropdown_mysql') {
                 const cacheKey = getQueryCacheKey(config.query, config.query_variables || {});
                 
+                // Check if dependencies are met (for fields that have blocking dependencies)
+                if (config.dependant_fields) {
+                    const depsMet = RewstLib.utils.areDependenciesMet(config, allFieldConfigs);
+                    console.log(`[MYSQL] Dependencies for ${config.field_name}: met=${depsMet}`, config.dependant_fields);
+                    
+                    if (!depsMet) {
+                        console.log(`[MYSQL] Dependencies not met for ${config.field_name}, showing waiting message`);
+                        if (formGroup) {
+                            RewstLib.utils.showWaitingMessage(formGroup, config, allFieldConfigs);
+                        }
+                        return Promise.resolve();
+                    } else {
+                        // Dependencies are met, hide the waiting message
+                        if (formGroup) {
+                            RewstLib.utils.hideWaitingMessage(formGroup, config);
+                        }
+                    }
+                }
+                
                 // Helper function to populate dropdown with data
                 const populateMysqlDropdown = (data) => {
-                    const input = document.querySelector(`select[name="${config.field_name}"]`);
-                    if (!input) {
-                        console.error(`[MYSQL] SELECT element not found for ${config.field_name}`);
-                        return;
-                    }
-                    
                     if (!Array.isArray(data)) {
                         console.error(`[MYSQL] Data is not an array`);
                         return;
                     }
                     
-                    if (data.length > 0) {
-                        input.innerHTML = `<option value="">${RewstLib.utils.getGrammaticalPhrase(config.field_displayname)}</option>`;
-                        let successCount = 0;
-                        data.forEach((item) => {
-                            const value = item[config.value_field] || item.id;
-                            const label = item[config.label_field] || item.name;
-                            if (value && label) {
-                                const opt = document.createElement('option');
-                                opt.value = value;
-                                opt.textContent = label;
-                                input.appendChild(opt);
-                                successCount++;
-                            }
-                        });
+                    // For multi-select, use the library function
+                    if (config.multi_select) {
+                        console.log(`[MYSQL] Populating multi-select for ${config.field_name}`);
+                        const options = data.map(item => ({
+                            value: item[config.value_field] || item.id,
+                            label: item[config.label_field] || item.name
+                        }));
+                        RewstLib.utils.initializeDropdownMultiSelect(config.field_name, options);
                     } else {
-                        input.innerHTML = `<option value="">-- No results --</option>`;
+                        // Single-select: populate the select element
+                        console.log(`[MYSQL] Populating single-select for ${config.field_name}`);
+                        const input = document.querySelector(`select[name="${config.field_name}"]`);
+                        if (!input) {
+                            console.error(`[MYSQL] SELECT element not found for ${config.field_name}`);
+                            return;
+                        }
+                        
+                        if (data.length > 0) {
+                            input.innerHTML = `<option value="">${RewstLib.utils.getGrammaticalPhrase(config.field_displayname)}</option>`;
+                            let successCount = 0;
+                            data.forEach((item) => {
+                                const value = item[config.value_field] || item.id;
+                                const label = item[config.label_field] || item.name;
+                                if (value && label) {
+                                    const opt = document.createElement('option');
+                                    opt.value = value;
+                                    opt.textContent = label;
+                                    input.appendChild(opt);
+                                    successCount++;
+                                }
+                            });
+                        } else {
+                            input.innerHTML = `<option value="">-- No results --</option>`;
+                        }
                     }
                 };
                 
@@ -2462,8 +2706,12 @@ if (typeof window !== 'undefined') {
                     } catch (error) {
                         console.error(`[MYSQL] Error executing query for ${config.field_name}:`, error);
                         if (formGroup) RewstLib.utils.hideLoadingMessage(formGroup, config);
-                        const input = document.querySelector(`select[name="${config.field_name}"]`);
-                        if (input) input.innerHTML = `<option value="">-- Error loading options --</option>`;
+                        if (config.multi_select) {
+                            console.log(`[MYSQL] Error occurred, multi-select field ${config.field_name} - cannot display error in multi-select`);
+                        } else {
+                            const input = document.querySelector(`select[name="${config.field_name}"]`);
+                            if (input) input.innerHTML = `<option value="">-- Error loading options --</option>`;
+                        }
                     }
                 })();
             }
@@ -2502,33 +2750,45 @@ if (typeof window !== 'undefined') {
                 
                 // Helper function to populate dropdown with data
                 const populateMeshDropdown = (data) => {
-                    const input = document.querySelector(`select[name="${config.field_name}"]`);
-                    if (!input) {
-                        console.error(`[MESH] SELECT element not found for ${config.field_name}`);
-                        return;
-                    }
-                    
                     if (!Array.isArray(data)) {
                         console.error(`[MESH] Data is not an array`);
                         return;
                     }
                     
-                    if (data.length > 0) {
-                        input.innerHTML = `<option value="">${RewstLib.utils.getGrammaticalPhrase(config.field_displayname)}</option>`;
-                        let successCount = 0;
-                        data.forEach((item) => {
-                            const value = item[config.value_field] || item.id;
-                            const label = item[config.label_field] || item.name;
-                            if (value && label) {
-                                const opt = document.createElement('option');
-                                opt.value = value;
-                                opt.textContent = label;
-                                input.appendChild(opt);
-                                successCount++;
-                            }
-                        });
+                    // For multi-select, use the library function
+                    if (config.multi_select) {
+                        console.log(`[MESH] Populating multi-select for ${config.field_name}`);
+                        const options = data.map(item => ({
+                            value: item[config.value_field] || item.id,
+                            label: item[config.label_field] || item.name
+                        }));
+                        RewstLib.utils.initializeDropdownMultiSelect(config.field_name, options);
                     } else {
-                        input.innerHTML = `<option value="">-- No results --</option>`;
+                        // Single-select: populate the select element
+                        console.log(`[MESH] Populating single-select for ${config.field_name}`);
+                        const input = document.querySelector(`select[name="${config.field_name}"]`);
+                        if (!input) {
+                            console.error(`[MESH] SELECT element not found for ${config.field_name}`);
+                            return;
+                        }
+                        
+                        if (data.length > 0) {
+                            input.innerHTML = `<option value="">${RewstLib.utils.getGrammaticalPhrase(config.field_displayname)}</option>`;
+                            let successCount = 0;
+                            data.forEach((item) => {
+                                const value = item[config.value_field] || item.id;
+                                const label = item[config.label_field] || item.name;
+                                if (value && label) {
+                                    const opt = document.createElement('option');
+                                    opt.value = value;
+                                    opt.textContent = label;
+                                    input.appendChild(opt);
+                                    successCount++;
+                                }
+                            });
+                        } else {
+                            input.innerHTML = `<option value="">-- No results --</option>`;
+                        }
                     }
                 };
                 
@@ -2749,8 +3009,10 @@ if (typeof window !== 'undefined') {
                     } catch (error) {
                         console.error(`[MESH] Error loading ${isNodesMode ? 'nodes' : 'command'} for ${config.field_name}:`, error);
                         if (formGroup) RewstLib.utils.hideLoadingMessage(formGroup, config);
-                        const input = document.querySelector(`select[name="${config.field_name}"]`);
-                        if (input) input.innerHTML = `<option value="">-- Error loading options --</option>`;
+                        if (!config.multi_select) {
+                            const input = document.querySelector(`select[name="${config.field_name}"]`);
+                            if (input) input.innerHTML = `<option value="">-- Error loading options --</option>`;
+                        }
                     }
                 })();
             }
@@ -3231,7 +3493,8 @@ if (typeof window !== 'undefined') {
         const proxyCache = {
             sessionTokens: {},  // Cached proxy session tokens by user
             queryResults: {},   // Cached MySQL query results
-            commandResults: {}  // Cached Mesh command results
+            commandResults: {}, // Cached Mesh command results
+            dataRetrievalResults: {}  // Cached data_retrieval field results by field_name
         };
         
         function getWorkflowCacheKey(workflowId, workflowInput) {
@@ -3263,6 +3526,162 @@ if (typeof window !== 'undefined') {
                 sortedVars[key] = variables[key];
             });
             return `query_${query}_${JSON.stringify(sortedVars)}`;
+        }
+        
+        /**
+         * Execute a data_retrieval field with dependency checking
+         * Similar to loadFieldOptions but for data_retrieval type fields
+         * @param {object} config - Field configuration
+         * @param {array} allFieldConfigs - All field configs for dependency resolution
+         * @param {object} formConfig - Form configuration
+         * @returns {Promise<void>}
+         */
+        // Track data_retrieval fields currently executing to prevent duplicates
+        const dataRetrievalExecuting = {};
+        
+        async function executeDataRetrievalField(config, allFieldConfigs = [], formConfig = {}) {
+            // Guard: if already executing, skip
+            if (dataRetrievalExecuting[config.field_name]) {
+                console.log(`[DATA_RETRIEVAL] Field ${config.field_name} already executing, skipping`);
+                return;
+            }
+            
+            dataRetrievalExecuting[config.field_name] = true;
+            
+            try {
+                const formGroup = document.querySelector(`[data-field-name="${config.field_name}"]`);
+                
+                if (formGroup) {
+                    RewstLib.utils.hideWaitingMessage(formGroup, config);
+                    RewstLib.utils.showLoadingMessage(formGroup, config);
+                }
+                
+                // Check dependencies
+                if (config.dependant_fields) {
+                    const allDepsMet = RewstLib.utils.areDependenciesMet(config, allFieldConfigs);
+                    
+                    if (!allDepsMet) {
+                        console.log(`[DATA_RETRIEVAL] Dependencies not met for ${config.field_name}`);
+                        if (formGroup) {
+                            RewstLib.utils.hideLoadingMessage(formGroup, config);
+                            RewstLib.utils.showWaitingMessage(formGroup, config, allFieldConfigs);
+                        }
+                        return;
+                    }
+                }
+                
+                if (config.data_source_type !== 'mesh_powershell') {
+                    throw new Error(`Unsupported data_source_type: ${config.data_source_type}`);
+                }
+                
+                // Map data_source_type to appropriate API key
+                const apiKeyName = config.data_source_type === 'mesh_powershell' ? 'proxy_api_meshcentral' : 'proxy_api_key';
+                
+                // Get proxy session token
+                const sessionToken = await getProxySessionToken(apiKeyName);
+                
+                // Handle node selection
+                let nodeId = config.node_id;
+                
+                if (config.node_selection_type === 'query' && config.node_query) {
+                    // Substitute variables in node_query
+                    let nodeQuery = config.node_query;
+                    const formValues = {};
+                    allFieldConfigs.forEach(fc => {
+                        const input = document.querySelector(`input[name="${fc.field_name}"], select[name="${fc.field_name}"], textarea[name="${fc.field_name}"]`);
+                        if (input) {
+                            if (input.type === 'checkbox') {
+                                formValues[fc.field_name] = input.checked;
+                            } else if (input.type === 'radio') {
+                                const checkedRadio = document.querySelector(`input[name="${fc.field_name}"]:checked`);
+                                formValues[fc.field_name] = checkedRadio ? checkedRadio.value : null;
+                            } else {
+                                formValues[fc.field_name] = input.value;
+                            }
+                        }
+                    });
+                    
+                    // Replace [[variable]] patterns with actual values
+                    nodeQuery = nodeQuery.replace(/\[\[(\w+)\]\]/g, (match, varName) => {
+                        return formValues[varName] !== undefined ? formValues[varName] : match;
+                    });
+                    
+                    console.log('[DATA_RETRIEVAL] Executing node query:', nodeQuery);
+                    
+                    // Execute getNodes to find the matching node
+                    const nodesResult = await ProxyLib.getNodes(sessionToken, REWST_USER, { query: nodeQuery });
+                    
+                    if (!nodesResult.success) {
+                        throw new Error('Failed to query nodes: ' + (nodesResult.error || 'Unknown error'));
+                    }
+                    
+                    // Find the node - should be exactly 1
+                    let foundNode = null;
+                    let nodeCount = 0;
+                    
+                    if (nodesResult.result && typeof nodesResult.result === 'object') {
+                        Object.values(nodesResult.result).forEach(meshGroup => {
+                            if (Array.isArray(meshGroup)) {
+                                meshGroup.forEach(node => {
+                                    nodeCount++;
+                                    foundNode = node;
+                                });
+                            }
+                        });
+                    }
+                    
+                    if (nodeCount === 0) {
+                        throw new Error('Query matched 0 nodes. Please refine the query to return exactly one node.');
+                    } else if (nodeCount > 1) {
+                        throw new Error(`Query matched ${nodeCount} nodes. Please refine the query to return exactly one node.`);
+                    }
+                    
+                    nodeId = foundNode._id;
+                    console.log('[DATA_RETRIEVAL] Found node:', nodeId);
+                }
+                
+                // Execute the command (auto-detects PowerShell vs CMD)
+                const commandResult = await executeCommandWithRetry(sessionToken, REWST_USER, nodeId, config.command, 2);
+                
+                // Parse result
+                let resultData = commandResult.result;
+                if (typeof resultData === 'object' && resultData !== null && resultData.result) {
+                    resultData = resultData.result;
+                }
+                if (typeof resultData === 'string') {
+                    resultData = JSON.parse(resultData);
+                }
+                
+                // Cache the result
+                proxyCache.dataRetrievalResults[config.field_name] = resultData;
+                console.log('[DATA_RETRIEVAL] Cached result for:', config.field_name, resultData);
+                
+                if (formGroup) {
+                    RewstLib.utils.hideLoadingMessage(formGroup, config);
+                }
+                
+                // Reload dependent dropdown_prefetch fields
+                console.log(`[DATA_RETRIEVAL] Looking for prefetch fields that depend on ${config.field_name}`);
+                allFieldConfigs.forEach(fc => {
+                    const sourceElementName = fc.source_element_name || fc.source_element_uid;
+                    console.log(`[DATA_RETRIEVAL] Checking field ${fc.field_name}: type=${fc.type}, source_element_name=${sourceElementName}`);
+                    if (fc.type === 'dropdown_prefetch' && sourceElementName === config.field_name) {
+                        console.log(`[DATA_RETRIEVAL] Reloading prefetch field: ${fc.field_name}`);
+                        loadFieldOptions(fc, allFieldConfigs, formConfig);
+                    }
+                });
+                
+            } catch (error) {
+                console.error('[DATA_RETRIEVAL] Error executing', config.field_name, ':', error);
+                proxyCache.dataRetrievalResults[config.field_name] = { error: error.message };
+                
+                const formGroup = document.querySelector(`[data-field-name="${config.field_name}"]`);
+                if (formGroup) {
+                    RewstLib.utils.hideLoadingMessage(formGroup, config);
+                }
+            } finally {
+                dataRetrievalExecuting[config.field_name] = false;
+            }
         }
         
         /**
@@ -3299,6 +3718,14 @@ if (typeof window !== 'undefined') {
                 console.error('[PROXY] Failed to get session token:', error);
                 throw error;
             }
+        }
+        
+        /**
+         * Execute command with automatic single retry on failure
+         * Uses ProxyLib.executeCommand internally
+         */
+        async function executeCommandWithRetry(sessionToken, user, nodeId, command, commandType = 1) {
+            return await ProxyLib.executeCommand(sessionToken, user, nodeId, command, commandType);
         }
         
         async function getOrExecuteWorkflow(config, workflowInput, allFieldConfigs = [], formConfig = {}) {
@@ -3506,6 +3933,16 @@ if (typeof window !== 'undefined') {
         }
 
         function renderFieldHTML(config, allFieldConfigs) {
+            // Handle data_retrieval fields - rendered but hidden, with waiting/loading messages
+            if (config.type === 'data_retrieval') {
+                const fieldId = `field_${config.field_name}_${Math.random().toString(36).substr(2, 5)}`;
+                let html = `<div class="form-group" data-field-name="${config.field_name}" style="display: none !important; margin-bottom: 0 !important;">`;
+                html += `<div class="field-loading-message" style="display: none;"><span class="spinner"></span> Loading...</div>`;
+                html += `<div class="field-waiting-message" style="display: none;">Waiting for dependencies...</div>`;
+                html += `</div>`;
+                return html;
+            }
+            
             // Determine if field should be hidden based on hidden property
             let isHidden = config.hidden === true;
             let styleAttr = isHidden ? ' style="display: none !important; margin-bottom: 0 !important;"' : '';
@@ -3613,6 +4050,8 @@ if (typeof window !== 'undefined') {
                     html += `
                         <label>${displayName}</label>
                         ${descriptionHtml}
+                        <div class="field-loading-message" style="display: none;"><span class="spinner"></span> Loading...</div>
+                        <div class="field-waiting-message" style="display: none;">Waiting for dependencies...</div>
                         <div class="dropdown-refresh-container">
                             <div style="flex: 1;">
                                 <div class="multi-select-container" id="${multiSelectId}">
@@ -3632,6 +4071,8 @@ if (typeof window !== 'undefined') {
                     html += `
                         <label>${displayName}</label>
                         ${config.description ? `<div class="field-description">${escapeHtml(config.description)}</div>` : ''}
+                        <div class="field-loading-message" style="display: none;"><span class="spinner"></span> Loading...</div>
+                        <div class="field-waiting-message" style="display: none;">Waiting for dependencies...</div>
                         <div class="dropdown-refresh-container">
                             <select name="${config.field_name}">
                                 <option value="">${RewstLib.utils.getGrammaticalPhrase(config.field_displayname)}</option>
@@ -3648,6 +4089,8 @@ if (typeof window !== 'undefined') {
                     html += `
                         <label>${displayName}</label>
                         ${descriptionHtml}
+                        <div class="field-loading-message" style="display: none;"><span class="spinner"></span> Loading...</div>
+                        <div class="field-waiting-message" style="display: none;">Waiting for dependencies...</div>
                         <div class="dropdown-refresh-container">
                             <div style="flex: 1;">
                                 <div class="multi-select-container" id="${multiSelectId}">
@@ -3667,6 +4110,8 @@ if (typeof window !== 'undefined') {
                     html += `
                         <label>${displayName}</label>
                         ${config.description ? `<div class="field-description">${escapeHtml(config.description)}</div>` : ''}
+                        <div class="field-loading-message" style="display: none;"><span class="spinner"></span> Loading...</div>
+                        <div class="field-waiting-message" style="display: none;">Waiting for dependencies...</div>
                         <div class="dropdown-refresh-container">
                             <select name="${config.field_name}">
                                 <option value="">${RewstLib.utils.getGrammaticalPhrase(config.field_displayname)}</option>
@@ -3683,6 +4128,8 @@ if (typeof window !== 'undefined') {
                     html += `
                         <label>${displayName}</label>
                         ${descriptionHtml}
+                        <div class="field-loading-message" style="display: none;"><span class="spinner"></span> Loading...</div>
+                        <div class="field-waiting-message" style="display: none;">Waiting for dependencies...</div>
                         <div class="dropdown-refresh-container">
                             <div style="flex: 1;">
                                 <div class="multi-select-container" id="${multiSelectId}">
@@ -3702,6 +4149,8 @@ if (typeof window !== 'undefined') {
                     html += `
                         <label>${displayName}</label>
                         ${config.description ? `<div class="field-description">${escapeHtml(config.description)}</div>` : ''}
+                        <div class="field-loading-message" style="display: none;"><span class="spinner"></span> Loading...</div>
+                        <div class="field-waiting-message" style="display: none;">Waiting for dependencies...</div>
                         <div class="dropdown-refresh-container">
                             <select name="${config.field_name}">
                                 <option value="">${RewstLib.utils.getGrammaticalPhrase(config.field_displayname)}</option>
@@ -3746,6 +4195,72 @@ if (typeof window !== 'undefined') {
                                 <option value="">${RewstLib.utils.getGrammaticalPhrase(config.field_displayname)}</option>
                             </select>
                             <button type="button" class="dropdown-refresh-btn" data-field-name="${config.field_name}" title="Refresh options">↻</button>
+                        </div>
+                    `;
+                }
+            } else if (config.type === 'dropdown_prefetch') {
+                // Dropdown prefetch - populates from cached data_retrieval results
+                console.log(`[RENDER] Rendering dropdown_prefetch ${config.field_name}: multi_select=${config.multi_select}`);
+                const sourceFieldName = config.source_element_name || config.source_element_uid;
+                const resultPath = config.result_path;
+                const labelField = config.label_field || 'label';
+                const valueField = config.value_field || 'value';
+                
+                // Get cached data from data_retrieval field
+                let options = [];
+                if (proxyCache.dataRetrievalResults[sourceFieldName]) {
+                    const sourceData = proxyCache.dataRetrievalResults[sourceFieldName];
+                    if (sourceData && sourceData[resultPath]) {
+                        const results = sourceData[resultPath];
+                        if (Array.isArray(results)) {
+                            options = results.map(item => ({
+                                label: item[labelField] || item.name || String(item.id),
+                                value: item[valueField] || item.id || ''
+                            }));
+                        }
+                    }
+                }
+                
+                if (config.multi_select) {
+                    console.log(`[RENDER] Using multi-select for ${config.field_name}`);
+                    // Custom multi-select component for prefetch
+                    const multiSelectId = `ms_${config.field_name}`;
+                    const descriptionHtml = config.description ? `<div class="field-description">${escapeHtml(config.description)}</div>` : '';
+                    html += `
+                        <label>${displayName}</label>
+                        ${descriptionHtml}
+                        <div class="field-loading-message" style="display: none;"><span class="spinner"></span> Loading...</div>
+                        <div class="field-waiting-message" style="display: none;">Waiting for dependencies...</div>
+                        <div class="dropdown-refresh-container">
+                            <div style="flex: 1;">
+                                <div class="multi-select-container" id="${multiSelectId}">
+                                    <div class="multi-select-display">
+                                        <div class="multi-select-tags"></div>
+                                        <div class="multi-select-toggle">▼</div>
+                                    </div>
+                                    <div class="multi-select-options"></div>
+                                    <select name="${config.field_name}" class="multi-select-hidden-select"></select>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                } else {
+                    console.log(`[RENDER] Using single-select for ${config.field_name}`);
+                    // Single select dropdown for prefetch - wrap in container for consistent hiding/showing
+                    const optionsHtml = options.map(opt => 
+                        `<option value="${escapeHtml(String(opt.value))}">${escapeHtml(String(opt.label))}</option>`
+                    ).join('');
+                    
+                    html += `
+                        <label>${displayName}</label>
+                        ${config.description ? `<div class="field-description">${escapeHtml(config.description)}</div>` : ''}
+                        <div class="field-loading-message" style="display: none;"><span class="spinner"></span> Loading...</div>
+                        <div class="field-waiting-message" style="display: none;">Waiting for dependencies...</div>
+                        <div class="dropdown-refresh-container">
+                            <select name="${config.field_name}">
+                                <option value="">${RewstLib.utils.getGrammaticalPhrase(config.field_displayname)}</option>
+                                ${optionsHtml}
+                            </select>
                         </div>
                     `;
                 }
