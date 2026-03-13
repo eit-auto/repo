@@ -1149,6 +1149,39 @@ const GRAPHQL_OPERATIONS = {
   }
 
   /**
+   * Unified function to repopulate a multi-select field with options and pre-selected values
+   * Used by both prefetch and non-prefetch dropdown refreshes
+   * @param {string} fieldName - Field name
+   * @param {Array} options - Array of {value, label} objects
+   * @param {Array} preselectedValues - Optional array of pre-selected values
+   */
+  function repopulateMultiSelectField(fieldName, options, preselectedValues = []) {
+    console.log(`[REPOPULATE] Updating multi-select ${fieldName} with ${options.length} options and ${preselectedValues.length} pre-selected`);
+    
+    const multiSelectContainer = document.querySelector(`[data-field-name="${fieldName}"] .multi-select-container`);
+    if (!multiSelectContainer) {
+      console.error(`[REPOPULATE] Multi-select container not found for ${fieldName}`);
+      return;
+    }
+    
+    const optionsDiv = multiSelectContainer.querySelector('.multi-select-options');
+    if (!optionsDiv) {
+      console.error(`[REPOPULATE] Options div not found for ${fieldName}`);
+      return;
+    }
+    
+    // Update the visible options div with new options
+    optionsDiv.innerHTML = options.map(opt => 
+      `<div class="multi-select-option" data-value="${escapeHtml(String(opt.value))}">${escapeHtml(String(opt.label))}</div>`
+    ).join('');
+    
+    multiSelectContainer.setAttribute('data-initialized', 'true');
+    
+    // Initialize the multi-select component with pre-selected values
+    initializeDropdownMultiSelect(fieldName, options, preselectedValues);
+  }
+
+  /**
    * Map result items to options format for dropdowns
    * @param {Array} items - Array of result items
    * @param {string} valueName - Property name for value
@@ -1917,7 +1950,8 @@ const GRAPHQL_OPERATIONS = {
       escapeHtml,
       formatTaskName,
       renderMultiSelectContainer,
-      initializeDropdownMultiSelect
+      initializeDropdownMultiSelect,
+      repopulateMultiSelectField
     },
     // Utilities
     utils: {
@@ -1935,6 +1969,7 @@ const GRAPHQL_OPERATIONS = {
       initializeMultiSelect,
       renderMultiSelectContainer,
       initializeDropdownMultiSelect,
+      repopulateMultiSelectField,
       mapResultsToOptions,
       showWaitingMessage,
       showLoadingMessage,
