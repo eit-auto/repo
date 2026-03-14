@@ -453,12 +453,12 @@
     
         #editableGrid > div.form-group[style*="flex-direction: row"] label {
             display: flex;
-            align-items: center;
-            height: 20px;
+            align-items: flex-start;
+            height: auto;
         }
         
         #editableGrid > div.form-group[style*="flex-direction: row"] input[type="checkbox"] {
-            align-self: center;
+            align-self: flex-start;
             margin: 0;
         }
         
@@ -467,6 +467,7 @@
         #editableGrid label
     </style>
     <script src="https://eit-auto.github.io/repo/rewst-library.js"></script>
+    <script src="https://eit-auto.github.io/repo/proxy-lib.js"></script>
     <script>
         // ============================================
         // DATATABLE CONFIG VARIABLES - Must be declared before config load
@@ -483,6 +484,8 @@
         let update_vars = null;
         let col_display_table = [];
         let col_display_edit = [];
+        let proxySessionToken = null;
+        let proxyUser = null;
     </script>
     <script>
         // ============================================
@@ -492,19 +495,7 @@
             try {
                 console.log('[INIT] Starting datatable config load...');
 
-                let datatableId = RewstLib.forms.getUrlParameter('datatable');
-                
-                if (!datatableId && window.parent !== window) {
-                    try {
-                        const parentUrl = new URL(window.parent.location.href);
-                        datatableId = parentUrl.searchParams.get('datatable');
-                        if (datatableId) {
-                            console.log('[INIT] Got datatable ID from parent window:', datatableId);
-                        }
-                    } catch (e) {
-                        console.log('[INIT] Cannot access parent window:', e.message);
-                    }
-                }
+                let datatableId = RewstLib.utils.getUrlParameter('datatable');
                 
                 if (!datatableId) {
                     throw new Error('No datatable ID provided in URL (?datatable=id&audit_id=id)');
@@ -528,12 +519,13 @@
                     output_var = datatableConfig.output_var || null;
                     update_workflow = datatableConfig.update_workflow || null;
                     update_vars = datatableConfig.update_vars || {};
+                    inputVarConfig = datatableConfig.input_var_config || [];
                     allow_create = datatableConfig.allow_create === true;
                     allow_update = datatableConfig.allow_update === true;
                     allow_delete = datatableConfig.allow_delete === true;
                     edit_type = datatableConfig.edit_type || 'window';
 
-                    const columnSettings = datatableConfig.columns || [];
+                    const columnSettings = datatableConfig.col_settings || datatableConfig.columns || [];
                     col_display_table = columnSettings.filter(col => col.hide_table !== true).map(col => col.col_name);
                     col_display_edit = columnSettings.filter(col => col.hide_edit !== true);
 
@@ -549,6 +541,24 @@
                         showPageContent();
                     }
 
+                    // ProxyLib authentication for SQL-based datatables
+                    if (datatableConfig.use_sql) {
+                        try {
+                            console.log('[INIT] SQL-based datatable - authenticating with ProxyLib');
+                            proxyUser = rewstUser?.username || rewstUser?.user || rewstUser?.name || 'system@rewst.local';
+                            let origin;
+                            try {
+                                origin = window.parent.location.origin;
+                            } catch (e) {
+                                origin = window.location.origin;
+                            }
+                            proxySessionToken = await ProxyLib.authenticateWithKeyName(proxyUser, origin, 'proxy_api_mysql');
+                            console.log('[INIT] ProxyLib authentication successful');
+                        } catch (error) {
+                            throw new Error(`Proxy authentication failed: ${error.message}`);
+                        }
+                    }
+
                     console.log('[INIT] Datatable config successfully loaded');
                     return true;
                 } catch (error) {
@@ -561,20 +571,7 @@
             }
         }
 
-        // Load config when ready
-        if (document.readyState === 'loading') {
-            document.addEventListener('DOMContentLoaded', async () => {
-                try {
-                    await initializeDatatableConfig();
-                } catch (error) {
-                    console.error('[INIT] Fatal error during config load:', error.message);
-                }
-            });
-        } else {
-            initializeDatatableConfig().catch(error => {
-                console.error('[INIT] Fatal error during config load:', error.message);
-            });
-        }
+        // Initialization is now handled by initializeDataTable which calls initializeDatatableConfig first
     </script>
 </head>
 <body>
@@ -655,8 +652,9 @@
         <div class="success-modal-backdrop" id="batchSaveBackdrop">
             <div class="success-modal">
                 <h3 id="batchSaveTitle">Saving Changes...</h3>
-                <div class="spinner" style="margin: 1rem auto;"></div>
+                <div class="spinner" id="batchSaveSpinner" style="margin: 1rem auto;"></div>
                 <div id="batchSaveMessage" style="margin-top: 1rem; text-align: center; color: #5a9fb8;"></div>
+                <button class="btn btn-blue" id="batchSaveOkBtn" style="display: none; margin-top: 1.5rem;">OK</button>
             </div>
         </div>
 
@@ -711,7 +709,6 @@
         </div>
         <div class="edit-backdrop" id="addBackdrop"></div>
         <div class="edit-section" id="addSection">
-            <div class="info-box" id="addStatusMessage"></div>
             <h2>Add New Record</h2>
             <form id="addForm">
                 <div class="form-grid" id="addFormGrid"></div>
@@ -736,6 +733,7 @@
         let filteredData = [];
         let currentSort = { column: null, direction: 'asc' };
         let selectedRow = null;
+        let currentEditingRow = null;
         let filterStates = {}; // Track filter checkbox states
         let inputVarValues = {}; // Store dropdown/URL selected values
         let inputVarConfig = []; // Will be populated from datatable config
@@ -808,6 +806,15 @@
                     return 'NULL';
                 }
                 
+                // Empty string handling - return as empty string for text types, NULL for others
+                if (value === '') {
+                    if (colType === 'varchar' || colType === 'text' || colType === 'string') {
+                        return "''";
+                    }
+                    // For non-string types, empty string becomes NULL
+                    return 'NULL';
+                }
+                
                 // Numeric types - no quotes
                 if (colType === 'int' || colType === 'integer' || colType === 'bigint' || 
                     colType === 'smallint' || colType === 'decimal' || colType === 'float' || 
@@ -818,6 +825,23 @@
                 // Boolean - 1 or 0, no quotes
                 if (colType === 'boolean') {
                     return value ? '1' : '0';
+                }
+                
+                // Datetime/Timestamp - convert from ISO format to MySQL format
+                if (colType === 'datetime' || colType === 'timestamp' || colType === 'date') {
+                    // Handle ISO datetime format from HTML datetime-local inputs (e.g., '2026-03-10T18:26')
+                    if (String(value).includes('T')) {
+                        const isoDate = new Date(value);
+                        const year = isoDate.getFullYear();
+                        const month = String(isoDate.getMonth() + 1).padStart(2, '0');
+                        const day = String(isoDate.getDate()).padStart(2, '0');
+                        const hours = String(isoDate.getHours()).padStart(2, '0');
+                        const minutes = String(isoDate.getMinutes()).padStart(2, '0');
+                        const seconds = String(isoDate.getSeconds()).padStart(2, '0');
+                        return `'${year}-${month}-${day} ${hours}:${minutes}:${seconds}'`;
+                    }
+                    // Already in correct format or plain date
+                    return `'${String(value)}'`;
                 }
                 
                 // String types - quoted and escaped
@@ -833,14 +857,16 @@
                 throw new Error(`Primary key field "${pkField}" not found in record`);
             }
             
-            // Get columns that should be written (exclude gen, p_key, and non-editable)
+            // Get columns that should be written (exclude gen and p_key)
+            // For INSERT: include any column with a value, even if not normally editable
+            // For UPDATE: exclude non-editable columns (preserve original behavior)
             const writableColumns = columns.filter(col => {
                 // Skip if marked as generated
                 if (col.gen === true) return false;
                 // Skip if primary key
                 if (col.p_key === true) return false;
-                // Skip if not editable (for INSERT/UPDATE context)
-                if (col.editable === false) return false;
+                // For UPDATE, skip non-editable columns; for INSERT, allow them if they have values
+                if (action !== 'INSERT' && col.editable === false) return false;
                 return true;
             });
             
@@ -848,12 +874,12 @@
             
             if (action === 'INSERT') {
                 const fields = writableColumns
-                    .filter(col => record[col.col_name] !== null && record[col.col_name] !== undefined)
+                    .filter(col => record[col.col_name] !== null && record[col.col_name] !== undefined && record[col.col_name] !== '')
                     .map(col => `\`${col.col_name}\``)
                     .join(', ');
                 
                 const values = writableColumns
-                    .filter(col => record[col.col_name] !== null && record[col.col_name] !== undefined)
+                    .filter(col => record[col.col_name] !== null && record[col.col_name] !== undefined && record[col.col_name] !== '')
                     .map(col => formatValue(record[col.col_name], col.type))
                     .join(', ');
                 
@@ -867,6 +893,10 @@
                         return `\`${col.col_name}\` = ${value}`;
                     })
                     .join(', ');
+                
+                if (!updates) {
+                    throw new Error('UPDATE query has no columns to update (all fields were null/undefined)');
+                }
                 
                 const pkFormattedValue = formatValue(pkValue, pkColConfig?.type || 'int');
                 query = `UPDATE ${dbTable} SET ${updates} WHERE \`${pkField}\` = ${pkFormattedValue}`;
@@ -1130,7 +1160,7 @@
                 return inputVarValues[varName];
             }
             // Check URL params
-            const urlValue = RewstLib.forms.getUrlParameter(varName);
+            const urlValue = RewstLib.utils.getUrlParameter(varName);
             if (urlValue) {
                 return urlValue;
             }
@@ -1172,9 +1202,31 @@
         // Helper: Check if all dependencies for a var are satisfied
         function areDependenciesSatisfied(varName) {
             const varConfig = inputVarConfig.find(v => v.name === varName);
-            if (!varConfig || !varConfig.input_var) return true;
+            if (!varConfig) return true;
             
-            const { dependencies } = parseInputVar(varConfig.input_var);
+            let dependencies = [];
+            
+            // Collect dependencies from input_var
+            if (varConfig.input_var) {
+                const { dependencies: inputVarDeps } = parseInputVar(varConfig.input_var);
+                dependencies = dependencies.concat(inputVarDeps);
+            }
+            
+            // Collect dependencies from proxy_query
+            if (varConfig.proxy_query) {
+                const varPattern = /\[\[(\w+)\]\]/g;
+                let match;
+                while ((match = varPattern.exec(varConfig.proxy_query)) !== null) {
+                    const depName = match[1];
+                    if (!dependencies.includes(depName)) {
+                        dependencies.push(depName);
+                    }
+                }
+            }
+            
+            // Check if all dependencies are satisfied
+            if (dependencies.length === 0) return true;
+            
             return dependencies.every(dep => {
                 const value = getInputVarValue(dep);
                 return value !== null && value !== '' && value !== undefined;
@@ -1194,11 +1246,27 @@
                 const varConfig = inputVarConfig.find(v => v.name === varName);
                 if (!varConfig) return;
                 
-                // Add dependencies first
+                // Collect dependencies from input_var
+                let dependencies = [];
                 if (varConfig.input_var) {
-                    const { dependencies } = parseInputVar(varConfig.input_var);
-                    dependencies.forEach(dep => addVar(dep));
+                    const { dependencies: inputVarDeps } = parseInputVar(varConfig.input_var);
+                    dependencies = dependencies.concat(inputVarDeps);
                 }
+                
+                // Collect dependencies from proxy_query
+                if (varConfig.proxy_query) {
+                    const varPattern = /\[\[(\w+)\]\]/g;
+                    let match;
+                    while ((match = varPattern.exec(varConfig.proxy_query)) !== null) {
+                        const depName = match[1];
+                        if (!dependencies.includes(depName)) {
+                            dependencies.push(depName);
+                        }
+                    }
+                }
+                
+                // Add dependencies first
+                dependencies.forEach(dep => addVar(dep));
                 
                 ordered.push(varConfig);
                 processed.add(varName);
@@ -1214,6 +1282,7 @@
         const addBtn = document.getElementById('addBtn');
         const searchInput = document.getElementById('searchInput');
         const saveBtn = document.getElementById('saveBtn');
+        console.log('[INIT] saveBtn element found:', saveBtn);
 const batchSaveBackdrop = document.getElementById('batchSaveBackdrop');
         const batchSaveTitle = document.getElementById('batchSaveTitle');
         const batchSaveMessage = document.getElementById('batchSaveMessage');
@@ -1245,7 +1314,6 @@ const batchSaveBackdrop = document.getElementById('batchSaveBackdrop');
         const addSection = document.getElementById('addSection');
         const addForm = document.getElementById('addForm');
         const addFormGrid = document.getElementById('addFormGrid');
-        const addStatusMessage = document.getElementById('addStatusMessage');
         const addCancelBtn = document.getElementById('addCancelBtn');
 
         // ============================================
@@ -1423,6 +1491,8 @@ const batchSaveBackdrop = document.getElementById('batchSaveBackdrop');
         }
 
         function renderTable() {
+            console.log('[RENDER] Starting renderTable, col_display_table:', col_display_table);
+            console.log('[RENDER] First row data:', filteredData[0]);
             tableBody.innerHTML = '';
 
             if (filteredData.length === 0) {
@@ -1499,16 +1569,16 @@ const batchSaveBackdrop = document.getElementById('batchSaveBackdrop');
                             
                             input.dataset.column = colName;
                             input.addEventListener('change', () => {
-                                // Update tableData with the new value
+                                // Update the row directly (row is from filteredData)
                                 if (colType === 'boolean') {
-                                    tableData[index][colName] = input.checked;
+                                    row[colName] = input.checked;
                                 } else if (colType === 'datetime' || colType === 'timestamp') {
-                                    tableData[index][colName] = input.value;
+                                    row[colName] = input.value;
                                 } else if (colType === 'int' || colType === 'integer' || colType === 'bigint' || 
                                            colType === 'smallint' || colType === 'decimal' || colType === 'float' || colType === 'numeric') {
-                                    tableData[index][colName] = input.value ? parseInt(input.value) : null;
+                                    row[colName] = input.value ? parseInt(input.value) : null;
                                 } else {
-                                    tableData[index][colName] = input.value;
+                                    row[colName] = input.value;
                                 }
                                 
                                 // Mark row as modified
@@ -1604,8 +1674,66 @@ const batchSaveBackdrop = document.getElementById('batchSaveBackdrop');
             renderTable();
         });
 
+        // ============================================
+        // Field Validation for Updates
+        // ============================================
+        function validateUpdateRecord(record, columns) {
+            const errors = [];
+            
+            columns.forEach(col => {
+                const value = record[col.col_name];
+                const isEmpty = value === null || value === undefined || value === '';
+                
+                // Check NOT NULL constraint
+                if (col.not_null && isEmpty) {
+                    errors.push(`"${formatColumnName(col.col_name)}" is required (cannot be empty)`);
+                    return;
+                }
+                
+                // Skip validation for empty values if field is nullable
+                if (isEmpty) return;
+                
+                // Validate column type
+                if (col.type === 'int' || col.type === 'integer' || col.type === 'bigint' || 
+                    col.type === 'smallint' || col.type === 'decimal' || col.type === 'float' || 
+                    col.type === 'numeric' || col.type === 'double') {
+                    // Check if value is numeric
+                    if (isNaN(parseFloat(value))) {
+                        errors.push(`"${formatColumnName(col.col_name)}" must be a number`);
+                    }
+                }
+                
+                if (col.type === 'datetime' || col.type === 'timestamp') {
+                    // Check if value is valid datetime (ISO format or recognizable date)
+                    const dateValue = new Date(value);
+                    if (isNaN(dateValue.getTime())) {
+                        errors.push(`"${formatColumnName(col.col_name)}" must be a valid date/time`);
+                    }
+                }
+                
+                if (col.type === 'date') {
+                    // Check if value is valid date format
+                    const dateValue = new Date(value);
+                    if (isNaN(dateValue.getTime())) {
+                        errors.push(`"${formatColumnName(col.col_name)}" must be a valid date`);
+                    }
+                }
+                
+                if (col.type === 'boolean') {
+                    // Check if value is boolean-like
+                    if (typeof value !== 'boolean' && value !== '1' && value !== '0' && 
+                        value !== 'true' && value !== 'false' && value !== 1 && value !== 0) {
+                        errors.push(`"${formatColumnName(col.col_name)}" must be true or false`);
+                    }
+                }
+            });
+            
+            return errors;
+        }
+
         // Helper function to execute batch save
         async function executeBatchSave(modifiedRows) {
+            console.log('████████ BATCH_SAVE FUNCTION CALLED ████████');
             try {
                 console.log('[BATCH_SAVE] Saving', modifiedRows.length, 'modified records');
                 
@@ -1614,9 +1742,157 @@ const batchSaveBackdrop = document.getElementById('batchSaveBackdrop');
                 batchSaveMessage.textContent = '';
                 batchSaveBackdrop.classList.add('active');
                 
-                // If using SQL, create batch update query
-                if (datatableConfig.use_sql === true && update_workflow) {
+                console.log('[BATCH_SAVE] Checking paths - use_sql:', datatableConfig.use_sql, 'proxySessionToken:', proxySessionToken, 'update_workflow:', update_workflow);
+                
+                // Handle SQL-based updates via ProxyLib
+                if (datatableConfig.use_sql && proxySessionToken) {
+                    console.log('[BATCH_SAVE] Entering SQL update path');
                     const pkField = getPrimaryKeyField();
+                    
+                    // Validate all records first before attempting updates
+                    let allValidationErrors = [];
+                    modifiedRows.forEach(({ index, record }, rowNum) => {
+                        console.log('[BATCH_SAVE] SQL - Validating record:', record);
+                        const recordErrors = validateUpdateRecord(record, col_display_edit);
+                        console.log('[BATCH_SAVE] SQL - Validation errors:', recordErrors);
+                        if (recordErrors.length > 0) {
+                            allValidationErrors.push({
+                                rowNumber: rowNum + 1,
+                                recordId: record[pkField],
+                                errors: recordErrors
+                            });
+                        }
+                    });
+                    
+                    // Also log the UPDATE queries that will be generated
+                    console.log('[BATCH_SAVE] SQL - col_display_edit:', col_display_edit);
+                    console.log('[BATCH_SAVE] SQL - col_display_edit length:', col_display_edit.length);
+                    console.log('[BATCH_SAVE] SQL - Generating UPDATE queries...');
+                    modifiedRows.forEach(({ record }, idx) => {
+                        console.log('[BATCH_SAVE] SQL - Record', idx, ':', record);
+                        let updateQuery = generateDynamicSQL('UPDATE', record, col_display_edit);
+                        updateQuery = updateQuery.replace(/;\s*COMMIT;\s*$/i, '').trim();
+                        console.log('[BATCH_SAVE] SQL - Query', idx, ':', updateQuery);
+                    });
+                    
+                    // DO NOT PROCEED if validation errors exist
+                    if (allValidationErrors.length > 0) {
+                        console.log('[BATCH_SAVE] BLOCKING: Found', allValidationErrors.length, 'validation errors');
+                        
+                        let errorMessage = 'Validation errors found:\n\n';
+                        allValidationErrors.forEach(({ rowNumber, recordId, errors }) => {
+                            errorMessage += `Record ${recordId}:\n`;
+                            errors.forEach(err => {
+                                errorMessage += `  • ${err}\n`;
+                            });
+                            errorMessage += '\n';
+                        });
+                        
+                        batchSaveTitle.textContent = 'Validation Error';
+                        batchSaveMessage.textContent = errorMessage;
+                        batchSaveMessage.style.whiteSpace = 'pre-wrap';
+                        batchSaveMessage.style.textAlign = 'left';
+                        
+                        // Hide spinner and show OK button
+                        document.getElementById('batchSaveSpinner').style.display = 'none';
+                        document.getElementById('batchSaveOkBtn').style.display = 'block';
+                        
+                        // One-time click handler for OK button
+                        const okBtn = document.getElementById('batchSaveOkBtn');
+                        okBtn.onclick = () => {
+                            batchSaveBackdrop.classList.remove('active');
+                            document.getElementById('batchSaveSpinner').style.display = 'block';
+                            document.getElementById('batchSaveOkBtn').style.display = 'none';
+                        };
+                        
+                        batchSaveBackdrop.classList.add('active');
+                        return;
+                    }
+                    
+                    console.log('[BATCH_SAVE] All validation passed, proceeding with updates');
+                    
+                    // Execute each UPDATE query via ProxyLib
+                    for (const { index, record } of modifiedRows) {
+                        try {
+                            let updateQuery = generateDynamicSQL('UPDATE', record, col_display_edit);
+                            // Remove COMMIT since ProxyLib handles transactions
+                            updateQuery = updateQuery.replace(/;\s*COMMIT;\s*$/i, '').trim();
+                            
+                            console.log('[BATCH_SAVE] Executing UPDATE for record:', record[pkField], 'Query:', updateQuery);
+                            const result = await ProxyLib.executeQuery(proxySessionToken, proxyUser, updateQuery);
+                            console.log('[BATCH_SAVE] UPDATE completed for record:', record[pkField], 'Result:', result);
+                        } catch (updateError) {
+                            console.error('[BATCH_SAVE] Error updating record:', record[pkField], updateError);
+                            throw new Error(`Failed to update record ${record[pkField]}: ${updateError.message}`);
+                        }
+                    }
+                    
+                    // Clear modified flags
+                    modifiedRows.forEach(({ index }) => {
+                        const tr = document.querySelector(`tr[data-row-index="${index}"]`);
+                        if (tr) {
+                            tr.dataset.modified = 'false';
+                        }
+                    });
+                    
+                    // Show success modal
+                    batchSaveMessage.style.whiteSpace = 'normal';
+                    batchSaveMessage.style.textAlign = 'center';
+                    batchSaveTitle.textContent = '✓ Successfully Saved';
+                    batchSaveMessage.textContent = `${modifiedRows.length} record${modifiedRows.length !== 1 ? '(s)' : ''} saved`;
+                    setTimeout(() => {
+                        batchSaveBackdrop.classList.remove('active');
+                    }, 1000);
+                } 
+                // Handle workflow-based updates (original logic)
+                else if (update_workflow) {
+                    const pkField = getPrimaryKeyField();
+                    
+                    // Validate all records first before attempting updates
+                    let allValidationErrors = [];
+                    modifiedRows.forEach(({ index, record }, rowNum) => {
+                        const recordErrors = validateUpdateRecord(record, col_display_edit);
+                        if (recordErrors.length > 0) {
+                            allValidationErrors.push({
+                                rowNumber: rowNum + 1,
+                                recordId: record[pkField],
+                                errors: recordErrors
+                            });
+                        }
+                    });
+                    
+                    // If there are validation errors, show them and return without updating
+                    if (allValidationErrors.length > 0) {
+                        let errorMessage = 'Validation errors found:\n\n';
+                        allValidationErrors.forEach(({ rowNumber, recordId, errors }) => {
+                            errorMessage += `Record ${recordId}:\n`;
+                            errors.forEach(err => {
+                                errorMessage += `  • ${err}\n`;
+                            });
+                            errorMessage += '\n';
+                        });
+                        
+                        batchSaveTitle.textContent = 'Validation Error';
+                        batchSaveMessage.textContent = errorMessage;
+                        batchSaveMessage.style.whiteSpace = 'pre-wrap';
+                        batchSaveMessage.style.textAlign = 'left';
+                        
+                        // Hide spinner and show OK button
+                        document.getElementById('batchSaveSpinner').style.display = 'none';
+                        document.getElementById('batchSaveOkBtn').style.display = 'block';
+                        
+                        // One-time click handler for OK button
+                        const okBtn = document.getElementById('batchSaveOkBtn');
+                        okBtn.onclick = () => {
+                            batchSaveBackdrop.classList.remove('active');
+                            document.getElementById('batchSaveSpinner').style.display = 'block';
+                            document.getElementById('batchSaveOkBtn').style.display = 'none';
+                        };
+                        
+                        batchSaveBackdrop.classList.add('active');
+                        return;
+                    }
+                    
                     let updateQueries = [];
                     
                     // Generate UPDATE query for each modified record
@@ -1667,14 +1943,18 @@ const batchSaveBackdrop = document.getElementById('batchSaveBackdrop');
                     });
                     
                     // Show success modal for 1 second
+                    batchSaveMessage.style.whiteSpace = 'normal';
+                    batchSaveMessage.style.textAlign = 'center';
                     batchSaveTitle.textContent = '✓ Successfully Saved';
                     batchSaveMessage.textContent = `${modifiedRows.length} record${modifiedRows.length !== 1 ? '(s)' : ''} saved`;
                     setTimeout(() => {
                         batchSaveBackdrop.classList.remove('active');
                     }, 1000);
                 } else {
+                    batchSaveMessage.style.whiteSpace = 'normal';
+                    batchSaveMessage.style.textAlign = 'center';
                     batchSaveTitle.textContent = 'Error';
-                    batchSaveMessage.textContent = 'Update workflow not configured or use_sql is not enabled';
+                    batchSaveMessage.textContent = 'Update workflow not configured and SQL is not enabled';
                     setTimeout(() => {
                         batchSaveBackdrop.classList.remove('active');
                     }, 2000);
@@ -1682,6 +1962,8 @@ const batchSaveBackdrop = document.getElementById('batchSaveBackdrop');
                 
             } catch (error) {
                 console.error('[BATCH_SAVE] Error:', error);
+                batchSaveMessage.style.whiteSpace = 'normal';
+                batchSaveMessage.style.textAlign = 'center';
                 batchSaveTitle.textContent = 'Error';
                 batchSaveMessage.textContent = error.message;
                 setTimeout(() => {
@@ -1692,12 +1974,14 @@ const batchSaveBackdrop = document.getElementById('batchSaveBackdrop');
 
         // Save button handler for batch updates in column edit mode
         saveBtn.addEventListener('click', async () => {
+            console.log('[BATCH_SAVE] saveBtn clicked');
             try {
                 // Find all modified rows
                 const modifiedRows = [];
                 document.querySelectorAll('tbody tr[data-modified="true"]').forEach(tr => {
                     const rowIndex = parseInt(tr.dataset.rowIndex);
                     const record = filteredData[rowIndex];
+                    console.log('[BATCH_SAVE] Record from filteredData[' + rowIndex + ']:', record);
                     if (record) {
                         modifiedRows.push({
                             index: rowIndex,
@@ -1707,6 +1991,8 @@ const batchSaveBackdrop = document.getElementById('batchSaveBackdrop');
                 });
                 
                 if (modifiedRows.length === 0) {
+                    batchSaveMessage.style.whiteSpace = 'normal';
+                    batchSaveMessage.style.textAlign = 'center';
                     batchSaveTitle.textContent = 'No Changes';
                     batchSaveMessage.textContent = 'There are no changes to save';
                     batchSaveBackdrop.classList.add('active');
@@ -1733,6 +2019,8 @@ const batchSaveBackdrop = document.getElementById('batchSaveBackdrop');
                 
             } catch (error) {
                 console.error('[BATCH_SAVE] Error:', error);
+                batchSaveMessage.style.whiteSpace = 'normal';
+                batchSaveMessage.style.textAlign = 'center';
                 batchSaveTitle.textContent = 'Error';
                 batchSaveMessage.textContent = error.message;
                 batchSaveBackdrop.classList.add('active');
@@ -1741,6 +2029,7 @@ const batchSaveBackdrop = document.getElementById('batchSaveBackdrop');
                 }, 3000);
             }
         });
+        console.log('[INIT] saveBtn click handler attached');
 
         // ============================================
         // UTILITY - Get Primary Key Field Name
@@ -1844,9 +2133,9 @@ const batchSaveBackdrop = document.getElementById('batchSaveBackdrop');
                         input.type = 'checkbox';
                         input.checked = RewstLib.utils.parseBooleanValue(item[colName]);
                         
-                        // For checkboxes, display horizontally with label to the right
+                        // For checkboxes, display horizontally with label to the right, aligned to top
                         group.style.flexDirection = 'row';
-                        group.style.alignItems = 'center';
+                        group.style.alignItems = 'flex-start';
                         group.style.gap = '0.5rem';
                     } else if (fieldType === 'datetime' || fieldType === 'timestamp') {
                         input = document.createElement('input');
@@ -1878,7 +2167,7 @@ const batchSaveBackdrop = document.getElementById('batchSaveBackdrop');
                     input.className = 'edit-field';
                     input.setAttribute('data-column', colName);
 
-                    // For checkboxes, add input first (left side), then label (right side)
+                    // For checkboxes, add input first (left), then label (right)
                     if (fieldType === 'boolean') {
                         group.appendChild(input);
                         group.appendChild(label);
@@ -1961,9 +2250,21 @@ const batchSaveBackdrop = document.getElementById('batchSaveBackdrop');
             if (index !== -1) {
                 const recordToDelete = tableData[index];
                 
-                // If update_workflow is configured, execute DELETE
-                if (update_workflow) {
-                    try {
+                try {
+                    // Handle SQL-based DELETE via ProxyLib
+                    if (datatableConfig.use_sql && proxySessionToken) {
+                        console.log('[DELETE] Taking SQL/ProxyLib path for record:', id);
+                        let deleteQuery = generateDynamicSQL('DELETE', recordToDelete, col_display_edit);
+                        // Remove COMMIT since ProxyLib handles transactions
+                        deleteQuery = deleteQuery.replace(/;\s*COMMIT;\s*$/i, '').trim();
+                        console.log('[DELETE] Generated DELETE query:', deleteQuery);
+                        
+                        const result = await ProxyLib.executeQuery(proxySessionToken, proxyUser, deleteQuery);
+                        console.log('[DELETE] DELETE completed, result:', result);
+                    }
+                    // Handle workflow-based DELETE
+                    else if (update_workflow) {
+                        console.log('[DELETE] Taking workflow path for record:', id);
                         let payload = { ...update_vars };
                         
                         // For workflow-based operations (not SQL), add action parameter
@@ -1981,26 +2282,44 @@ const batchSaveBackdrop = document.getElementById('batchSaveBackdrop');
                         console.log('[DELETE] Executing update_workflow with payload:', payload);
                         await rewst.runWorkflowSmart(update_workflow, payload);
                         console.log('[DELETE] Delete workflow completed successfully');
-                    } catch (deleteError) {
-                        console.error('[DELETE] Workflow error:', deleteError);
-                        savingModalBackdrop.classList.remove('active');
-                        statusMessage.textContent = 'Error deleting record: ' + deleteError.message;
-                        statusMessage.className = 'status-message error active';
-                        return;
+                    } else {
+                        throw new Error('No delete method configured (SQL or workflow)');
                     }
+                    
+                    // Remove from UI
+                    savingModalBackdrop.classList.remove('active');
+                    tableData.splice(index, 1);
+                    filterData(searchInput.value);
+                    renderTable();
+                    
+                    showSuccessModal('Record deleted successfully!');
+                    
+                    setTimeout(() => {
+                        closeEditForm();
+                    }, 1500);
+                } catch (deleteError) {
+                    console.error('[DELETE] Error:', deleteError);
+                    savingModalBackdrop.classList.remove('active');
+                    
+                    let errorMsg = `Error deleting record: ${deleteError.message}`;
+                    
+                    // Show error in a modal instead of status message
+                    batchSaveTitle.textContent = 'Delete Error';
+                    batchSaveMessage.textContent = errorMsg;
+                    batchSaveMessage.style.whiteSpace = 'normal';
+                    batchSaveMessage.style.textAlign = 'center';
+                    document.getElementById('batchSaveSpinner').style.display = 'none';
+                    document.getElementById('batchSaveOkBtn').style.display = 'block';
+                    
+                    const okBtn = document.getElementById('batchSaveOkBtn');
+                    okBtn.onclick = () => {
+                        batchSaveBackdrop.classList.remove('active');
+                        document.getElementById('batchSaveSpinner').style.display = 'block';
+                        document.getElementById('batchSaveOkBtn').style.display = 'none';
+                    };
+                    
+                    batchSaveBackdrop.classList.add('active');
                 }
-                
-                savingModalBackdrop.classList.remove('active');
-                tableData.splice(index, 1);
-                filterData(searchInput.value);
-                renderTable();
-                
-                statusMessage.textContent = 'Record deleted successfully!';
-                statusMessage.className = 'status-message success active';
-                
-                setTimeout(() => {
-                    closeEditForm();
-                }, 1500);
             }
         });
 
@@ -2072,8 +2391,40 @@ const batchSaveBackdrop = document.getElementById('batchSaveBackdrop');
                     }
                 });
 
-                // If update_workflow is configured, execute it
-                if (update_workflow) {
+                // STEP 2: Execute database operation (SQL or Workflow)
+                // If use_sql is configured, execute UPDATE via ProxyLib
+                if (datatableConfig.use_sql && proxySessionToken) {
+                    try {
+                        let updateQuery = generateDynamicSQL('UPDATE', tableData[index], col_display_edit);
+                        console.log('[UPDATE] Generated UPDATE query:', updateQuery);
+                        
+                        // Strip COMMIT statement - proxy handles commits
+                        updateQuery = updateQuery.replace(/;\s*COMMIT;?\s*$/i, ';');
+                        
+                        const result = await ProxyLib.executeQuery(proxySessionToken, proxyUser, updateQuery);
+                        console.log('[UPDATE] SQL UPDATE executed successfully:', result);
+                    } catch (updateError) {
+                        console.error('[UPDATE] ProxyLib error:', updateError);
+                        savingModalBackdrop.classList.remove('active');
+                        batchSaveTitle.textContent = 'Error';
+                        batchSaveMessage.textContent = 'Error updating record: ' + updateError.message;
+                        batchSaveMessage.style.whiteSpace = 'normal';
+                        batchSaveMessage.style.textAlign = 'center';
+                        document.getElementById('batchSaveSpinner').style.display = 'none';
+                        document.getElementById('batchSaveOkBtn').style.display = 'block';
+                        
+                        const okBtn = document.getElementById('batchSaveOkBtn');
+                        okBtn.onclick = () => {
+                            batchSaveBackdrop.classList.remove('active');
+                            document.getElementById('batchSaveSpinner').style.display = 'block';
+                            document.getElementById('batchSaveOkBtn').style.display = 'none';
+                        };
+                        
+                        batchSaveBackdrop.classList.add('active');
+                        return;
+                    }
+                } else if (update_workflow) {
+                    // If update_workflow is configured, execute it
                     try {
                         let payload = { ...update_vars };
                         
@@ -2124,7 +2475,21 @@ const batchSaveBackdrop = document.getElementById('batchSaveBackdrop');
                     } catch (updateError) {
                         console.error('[UPDATE] Workflow error:', updateError);
                         savingModalBackdrop.classList.remove('active');
-                        showErrorMessage(`Error updating record: ${updateError.message}`);
+                        batchSaveTitle.textContent = 'Error';
+                        batchSaveMessage.textContent = 'Error updating record: ' + updateError.message;
+                        batchSaveMessage.style.whiteSpace = 'normal';
+                        batchSaveMessage.style.textAlign = 'center';
+                        document.getElementById('batchSaveSpinner').style.display = 'none';
+                        document.getElementById('batchSaveOkBtn').style.display = 'block';
+                        
+                        const okBtn = document.getElementById('batchSaveOkBtn');
+                        okBtn.onclick = () => {
+                            batchSaveBackdrop.classList.remove('active');
+                            document.getElementById('batchSaveSpinner').style.display = 'block';
+                            document.getElementById('batchSaveOkBtn').style.display = 'none';
+                        };
+                        
+                        batchSaveBackdrop.classList.add('active');
                         return;
                     }
                 }
@@ -2151,7 +2516,28 @@ const batchSaveBackdrop = document.getElementById('batchSaveBackdrop');
         function openAddForm() {
             addFormGrid.innerHTML = '';
 
-            col_display_edit.forEach((colConfig) => {
+            // Count fields to determine column layout
+            let fieldCount = 0;
+            datatableConfig.col_settings.forEach((colConfig) => {
+                if (!colConfig.p_key && !colConfig.gen) {
+                    fieldCount++;
+                }
+            });
+            
+            // Set grid columns based on field count
+            let gridColumns = 1;
+            if (fieldCount > 10) {
+                gridColumns = 3;
+            } else if (fieldCount > 5) {
+                gridColumns = 2;
+            }
+            addFormGrid.style.display = 'grid';
+            addFormGrid.style.gridTemplateColumns = `repeat(${gridColumns}, 1fr)`;
+            addFormGrid.style.gap = '1rem';
+
+            // For Add form, use full col_settings (not filtered col_display_edit)
+            // Show all fields except p_key and gen
+            datatableConfig.col_settings.forEach((colConfig) => {
                 // Skip primary key fields and generated fields
                 if (colConfig.p_key || colConfig.gen) {
                     return;
@@ -2165,15 +2551,33 @@ const batchSaveBackdrop = document.getElementById('batchSaveBackdrop');
                 label.htmlFor = `add_${colName}`;
                 label.textContent = formatColumnName(colName);
 
-                const input = document.createElement('input');
-                const fieldType = fieldTypes[colName];
+                let input;
+                const fieldType = fieldTypes[colName] || colConfig.type;
                 
-                // Determine input type based on detected field type
-                if (fieldType === 'datetime') {
+                // Determine input type based on field type
+                if (fieldType === 'boolean') {
+                    input = document.createElement('input');
+                    input.type = 'checkbox';
+                    
+                    // For checkboxes, display horizontally with label to the right, aligned to top
+                    group.style.flexDirection = 'row';
+                    group.style.alignItems = 'flex-start';
+                    group.style.gap = '0.5rem';
+                } else if (fieldType === 'datetime' || fieldType === 'timestamp') {
+                    input = document.createElement('input');
                     input.type = 'datetime-local';
                 } else if (fieldType === 'date') {
+                    input = document.createElement('input');
                     input.type = 'date';
+                } else if (fieldType === 'text' || fieldType === 'longtext' || fieldType === 'mediumtext') {
+                    input = document.createElement('textarea');
+                    input.rows = 3;
+                } else if (fieldType === 'int' || fieldType === 'integer' || fieldType === 'bigint' || 
+                           fieldType === 'smallint' || fieldType === 'decimal' || fieldType === 'float' || fieldType === 'numeric') {
+                    input = document.createElement('input');
+                    input.type = 'number';
                 } else {
+                    input = document.createElement('input');
                     input.type = 'text';
                 }
                 
@@ -2181,21 +2585,26 @@ const batchSaveBackdrop = document.getElementById('batchSaveBackdrop');
                 input.className = 'add-field';
                 input.setAttribute('data-column', colName);
 
-                group.appendChild(label);
-                group.appendChild(input);
+                // For checkboxes, add input first (left side), then label (right side)
+                if (fieldType === 'boolean') {
+                    group.appendChild(input);
+                    group.appendChild(label);
+                } else {
+                    // For other fields, add label first (top), then input (bottom)
+                    group.appendChild(label);
+                    group.appendChild(input);
+                }
                 addFormGrid.appendChild(group);
             });
 
             addBackdrop.classList.add('active');
             addSection.classList.add('active');
-            addStatusMessage.classList.remove('active');
         }
 
         function closeAddForm() {
             addBackdrop.classList.remove('active');
             addSection.classList.remove('active');
             addForm.reset();
-            addStatusMessage.classList.remove('active');
         }
 
         addBtn.addEventListener('click', openAddForm);
@@ -2223,11 +2632,48 @@ const batchSaveBackdrop = document.getElementById('batchSaveBackdrop');
 
             document.querySelectorAll('.add-field').forEach(field => {
                 const colName = field.getAttribute('data-column');
-                newRecord[colName] = field.value;
+                const fieldValue = field.value;
+                newRecord[colName] = fieldValue;
+                console.log('[INSERT] Field captured:', colName, '=', fieldValue);
             });
+            
+            console.log('[INSERT] All form fields collected, newRecord:', newRecord);
 
-            // If update_workflow is configured, execute INSERT
-            if (update_workflow) {
+            // Handle SQL-based INSERT
+            if (datatableConfig.use_sql && proxySessionToken) {
+                try {
+                    console.log('[INSERT] col_display_edit:', col_display_edit);
+                    let insertQuery = generateDynamicSQL('INSERT', newRecord, col_display_edit);
+                    // Remove COMMIT if present - ProxyLib handles transaction management
+                    insertQuery = insertQuery.replace(/;\s*COMMIT;\s*$/i, '').trim();
+                    console.log('[INSERT] New record data:', newRecord);
+                    console.log('[INSERT] Generated INSERT query:', insertQuery);
+                    console.log('[INSERT] Table name:', datatableConfig.table_name);
+                    
+                    const result = await ProxyLib.executeQuery(proxySessionToken, proxyUser, insertQuery);
+                    console.log('[INSERT] ProxyLib INSERT completed successfully, result:', result);
+                } catch (insertError) {
+                    console.error('[INSERT] ProxyLib error:', insertError);
+                    savingModalBackdrop.classList.remove('active');
+                    batchSaveTitle.textContent = 'Error';
+                    batchSaveMessage.textContent = 'Error adding record: ' + insertError.message;
+                    batchSaveMessage.style.whiteSpace = 'normal';
+                    batchSaveMessage.style.textAlign = 'center';
+                    document.getElementById('batchSaveSpinner').style.display = 'none';
+                    document.getElementById('batchSaveOkBtn').style.display = 'block';
+                    
+                    const okBtn = document.getElementById('batchSaveOkBtn');
+                    okBtn.onclick = () => {
+                        batchSaveBackdrop.classList.remove('active');
+                        document.getElementById('batchSaveSpinner').style.display = 'block';
+                        document.getElementById('batchSaveOkBtn').style.display = 'none';
+                    };
+                    
+                    batchSaveBackdrop.classList.add('active');
+                    return;
+                }
+            } else if (update_workflow) {
+                // Handle workflow-based INSERT
                 try {
                     let payload = { ...update_vars };
                     
@@ -2249,8 +2695,21 @@ const batchSaveBackdrop = document.getElementById('batchSaveBackdrop');
                 } catch (insertError) {
                     console.error('[INSERT] Workflow error:', insertError);
                     savingModalBackdrop.classList.remove('active');
-                    addStatusMessage.textContent = 'Error adding record: ' + insertError.message;
-                    addStatusMessage.className = 'status-message error active';
+                    batchSaveTitle.textContent = 'Error';
+                    batchSaveMessage.textContent = 'Error adding record: ' + insertError.message;
+                    batchSaveMessage.style.whiteSpace = 'normal';
+                    batchSaveMessage.style.textAlign = 'center';
+                    document.getElementById('batchSaveSpinner').style.display = 'none';
+                    document.getElementById('batchSaveOkBtn').style.display = 'block';
+                    
+                    const okBtn = document.getElementById('batchSaveOkBtn');
+                    okBtn.onclick = () => {
+                        batchSaveBackdrop.classList.remove('active');
+                        document.getElementById('batchSaveSpinner').style.display = 'block';
+                        document.getElementById('batchSaveOkBtn').style.display = 'none';
+                    };
+                    
+                    batchSaveBackdrop.classList.add('active');
                     return;
                 }
             }
@@ -2262,8 +2721,7 @@ const batchSaveBackdrop = document.getElementById('batchSaveBackdrop');
             filterData(searchInput.value);
             renderTable();
 
-            addStatusMessage.textContent = 'Record added successfully!';
-            addStatusMessage.className = 'status-message success active';
+            showSuccessModal('Record added successfully!');
 
             setTimeout(() => {
                 closeAddForm();
@@ -2283,7 +2741,7 @@ const batchSaveBackdrop = document.getElementById('batchSaveBackdrop');
             
             config.input_var_config.forEach(varConfig => {
                 if (varConfig.from_url) {
-                    const value = RewstLib.forms.getUrlParameter(varConfig.name);
+                    const value = RewstLib.utils.getUrlParameter(varConfig.name);
                     if (!value && varConfig.required) {
                         errors.push(`Required URL parameter missing: ?${varConfig.name}=...`);
                     }
@@ -2302,7 +2760,7 @@ const batchSaveBackdrop = document.getElementById('batchSaveBackdrop');
             
             config.input_var_config.forEach(varConfig => {
                 if (varConfig.from_url) {
-                    const value = RewstLib.forms.getUrlParameter(varConfig.name);
+                    const value = RewstLib.utils.getUrlParameter(varConfig.name);
                     if (value) {
                         urlVars[varConfig.name] = value;
                         console.log(`[URL_VAR] ${varConfig.name} = ${value}`);
@@ -2392,6 +2850,12 @@ const batchSaveBackdrop = document.getElementById('batchSaveBackdrop');
             });
             
             tr.dataset.modified = 'false';
+        }
+        
+        // Delete a single row in inline edit mode
+        function deleteRowInline(index) {
+            currentEditingRow = index;
+            deleteConfirmBackdrop.classList.add('active');
         }
         
         // Save all changes across all rows
@@ -2526,6 +2990,8 @@ async function renderInputVarDropdowns() {
             const messageDiv = document.getElementById('inputVarMessage');
             
             console.log('[INPUT_VAR] messageDiv found:', !!messageDiv);
+            console.log('[INPUT_VAR] Current URL:', window.location.href);
+            console.log('[INPUT_VAR] Parent URL:', window.parent !== window ? window.parent.location.href : 'not in iframe');
             
             // Clear previous
             dropdownsDiv.innerHTML = '';
@@ -2548,7 +3014,7 @@ async function renderInputVarDropdowns() {
             // First pass: Set static vars and URL params (for non-dataset vars)
             const staticAndUrlVars = orderedVars.filter(v => !v.from_dataset);
             for (const varConfig of staticAndUrlVars) {
-                const urlValue = RewstLib.forms.getUrlParameter(varConfig.name);
+                const urlValue = RewstLib.utils.getUrlParameter(varConfig.name);
                 if (urlValue) {
                     setInputVarValue(varConfig.name, urlValue);
                     console.log('[INPUT_VAR] Populated from URL:', varConfig.name, '=', urlValue);
@@ -2564,22 +3030,13 @@ async function renderInputVarDropdowns() {
             // 2. It's a dependency of a datatable_var with unexpanded placeholders
             const neededDropdowns = [];
             
-            // Check all from_dataset vars directly
+            // Pre-populate any from_dataset vars that have URL values
             for (const varConfig of orderedVars) {
                 if (varConfig.from_dataset === true) {
-                    const urlValue = RewstLib.forms.getUrlParameter(varConfig.name);
-                    const hasUrlValue = varConfig.from_url && urlValue;
-                    
-                    if (!hasUrlValue) {
-                        // No URL value provided, need a dropdown
-                        if (!neededDropdowns.includes(varConfig.name)) {
-                            neededDropdowns.push(varConfig.name);
-                            console.log('[INPUT_VAR] Need dropdown for from_dataset var:', varConfig.name);
-                        }
-                    } else {
-                        // URL value provided, set it
+                    const urlValue = RewstLib.utils.getUrlParameter(varConfig.name);
+                    if (urlValue && varConfig.from_url) {
                         setInputVarValue(varConfig.name, urlValue);
-                        console.log('[INPUT_VAR] Populated from_dataset var from URL:', varConfig.name, '=', urlValue);
+                        console.log('[INPUT_VAR] Pre-populated from URL:', varConfig.name, '=', urlValue);
                     }
                 }
             }
@@ -2597,27 +3054,53 @@ async function renderInputVarDropdowns() {
                 const varConfig = inputVarConfig.find(v => v.name === varName);
                 if (!varConfig) return;
                 
-                // Get the actual value from input_vars or input_var property
-                let checkValue = varConfig.input_var || input_vars[varConfig.name];
-                console.log('[INPUT_VAR] Checking datatable_var', varName, '- value:', checkValue);
+                // Collect dependencies from multiple sources
+                let dependencies = [];
                 
+                // 1. Check input_var property (for workflow/graphql with dependencies)
+                let checkValue = varConfig.input_var || input_vars[varConfig.name];
                 if (checkValue) {
-                    const { dependencies } = parseInputVar(checkValue);
-                    console.log('[INPUT_VAR]   - dependencies:', dependencies);
-                    
+                    const { dependencies: inputVarDeps } = parseInputVar(checkValue);
+                    dependencies = dependencies.concat(inputVarDeps);
+                    console.log('[INPUT_VAR] input_var dependencies:', inputVarDeps);
+                }
+                
+                // 2. Check proxy_query for [[variable]] placeholders (for MySQL sources)
+                if (varConfig.proxy_query) {
+                    const varPattern = /\[\[(\w+)\]\]/g;
+                    let match;
+                    const queryDeps = [];
+                    while ((match = varPattern.exec(varConfig.proxy_query)) !== null) {
+                        const depName = match[1];
+                        if (!queryDeps.includes(depName)) {
+                            queryDeps.push(depName);
+                        }
+                    }
+                    dependencies = dependencies.concat(queryDeps);
+                    console.log('[INPUT_VAR] proxy_query dependencies:', queryDeps);
+                }
+                
+                console.log('[INPUT_VAR] Checking dropdown var', varName, '- total dependencies:', dependencies);
+                
+                if (dependencies.length > 0) {
                     for (const dep of dependencies) {
                         const depValue = getInputVarValue(dep);
-                        console.log('[INPUT_VAR]     -', dep, '=', depValue);
+                        console.log('[INPUT_VAR]     -', dep, '=', depValue, '(satisfied:', !!depValue, ')');
                         if (!depValue) {
                             // This dependency is unexpanded, need to render it
                             const depConfig = inputVarConfig.find(v => v.name === dep);
                             if (depConfig && depConfig.from_dataset === true && !neededDropdowns.includes(dep)) {
                                 neededDropdowns.push(dep);
-                                console.log('[INPUT_VAR] Need dropdown for datatable_var dependency:', dep);
+                                console.log('[INPUT_VAR] Need dropdown for dependency:', dep);
                                 
                                 // Recursively check this dependency's dependencies
+                                console.log('[INPUT_VAR] Recursively checking dependencies of', dep);
                                 findNeededDropdowns(dep);
+                            } else if (!depConfig || depConfig.from_dataset !== true) {
+                                console.log('[INPUT_VAR]   - Skipping', dep, '(not from_dataset or already added)');
                             }
+                        } else {
+                            console.log('[INPUT_VAR]   - Skipping', dep, '(already has value)');
                         }
                     }
                 }
@@ -2627,6 +3110,8 @@ async function renderInputVarDropdowns() {
             for (const varConfig of datatable_vars) {
                 findNeededDropdowns(varConfig.name);
             }
+
+            console.log('[INPUT_VAR] Final neededDropdowns list:', neededDropdowns);
 
             // If no dropdowns needed, skip to loading data
             if (neededDropdowns.length === 0) {
@@ -2685,8 +3170,25 @@ async function renderInputVarDropdowns() {
             if (!areDependenciesSatisfied(varConfig.name)) {
                 console.log('[INPUT_VAR] Dependencies not satisfied for:', varConfig.name);
                 
-                // Get parent dependency names for message
-                const { dependencies } = parseInputVar(varConfig.input_var || '');
+                // Get parent dependency names from both input_var and proxy_query
+                let dependencies = [];
+                
+                if (varConfig.input_var) {
+                    const { dependencies: inputVarDeps } = parseInputVar(varConfig.input_var);
+                    dependencies = dependencies.concat(inputVarDeps);
+                }
+                
+                if (varConfig.proxy_query) {
+                    const varPattern = /\[\[(\w+)\]\]/g;
+                    let match;
+                    while ((match = varPattern.exec(varConfig.proxy_query)) !== null) {
+                        const depName = match[1];
+                        if (!dependencies.includes(depName)) {
+                            dependencies.push(depName);
+                        }
+                    }
+                }
+                
                 const dependencyLabels = dependencies.map(depName => {
                     const depConfig = inputVarConfig.find(v => v.name === depName);
                     return depConfig ? (depConfig.dspl_name || depName) : depName;
@@ -2703,7 +3205,7 @@ async function renderInputVarDropdowns() {
             }
 
             // Check if value already set from URL
-            const urlValue = RewstLib.forms.getUrlParameter(varConfig.name);
+            const urlValue = RewstLib.utils.getUrlParameter(varConfig.name);
             if (urlValue) {
                 setInputVarValue(varConfig.name, urlValue);
                 // Don't render dropdown if already have URL value
@@ -2722,8 +3224,8 @@ async function renderInputVarDropdowns() {
             group.appendChild(select);
             dropdownsDiv.appendChild(group);
             
-            // Execute workflow asynchronously (don't await or throw)
-            populateInputVarDropdown(varConfig, select);
+            // Await dropdown population (important for dependency chains)
+            await populateInputVarDropdown(varConfig, select);
         }
         
         async function populateInputVarDropdown(varConfig, selectElement) {
@@ -2736,41 +3238,122 @@ async function renderInputVarDropdowns() {
             }
             
             try {
-                const workflowPayload = {};
+                let options;
                 
-                // Build payload from input_var config
-                if (varConfig.input_var) {
-                    const { dependencies, staticVars } = parseInputVar(varConfig.input_var);
+                // Determine data source: GraphQL, MySQL, or Workflow
+                if (varConfig.dataset_source === 'graphql') {
+                    console.log('[INPUT_VAR] Using GraphQL source for:', varConfig.name);
                     
-                    // Add dependency values
-                    dependencies.forEach(dep => {
-                        const depValue = getInputVarValue(dep);
-                        if (depValue) {
-                            workflowPayload[dep] = depValue;
+                    // Map operation name to RewstLib function
+                    const operationName = varConfig.graphql_operation;
+                    
+                    // Build parameters from input_var config
+                    const params = [];
+                    if (varConfig.input_var) {
+                        const { dependencies } = parseInputVar(varConfig.input_var);
+                        dependencies.forEach(dep => {
+                            const depValue = getInputVarValue(dep);
+                            if (depValue) {
+                                params.push(depValue);
+                            }
+                        });
+                    }
+                    
+                    console.log('[INPUT_VAR] GraphQL operation:', operationName, 'Params:', params);
+                    
+                    // Execute GraphQL operation via RewstLib
+                    let result;
+                    if (operationName === 'list_orgs') {
+                        const parentOrgId = params[0];
+                        result = await RewstLib.organizations.getSubOrganizations(parentOrgId);
+                    } else {
+                        throw new Error(`Unknown GraphQL operation: ${operationName}`);
+                    }
+                    
+                    console.log('[INPUT_VAR] GraphQL result:', result);
+                    options = result;
+                    
+                } else if (varConfig.dataset_source === 'mysql') {
+                    console.log('[INPUT_VAR] Using MySQL source for:', varConfig.name);
+                    
+                    // Get the proxy query and substitute variables
+                    let sqlQuery = varConfig.proxy_query;
+                    console.log('[INPUT_VAR] Original query:', sqlQuery);
+                    
+                    // Substitute [[variable]] placeholders
+                    const varPattern = /\[\[(\w+)\]\]/g;
+                    let match;
+                    while ((match = varPattern.exec(varConfig.proxy_query)) !== null) {
+                        const varName = match[1];
+                        const varValue = getInputVarValue(varName);
+                        if (varValue) {
+                            sqlQuery = sqlQuery.replace(match[0], varValue);
                         }
-                    });
+                    }
                     
-                    // Add static values
-                    Object.assign(workflowPayload, staticVars);
+                    console.log('[INPUT_VAR] Substituted query:', sqlQuery);
+                    
+                    // Execute query via ProxyLib
+                    if (!proxySessionToken || !proxyUser) {
+                        throw new Error('ProxyLib not initialized - cannot execute MySQL query');
+                    }
+                    
+                    const result = await ProxyLib.executeQuery(proxySessionToken, proxyUser, sqlQuery);
+                    console.log('[INPUT_VAR] MySQL result:', result);
+                    
+                    // ProxyLib returns result in a specific structure - extract the rows
+                    if (result.result && Array.isArray(result.result)) {
+                        options = result.result;
+                    } else if (Array.isArray(result)) {
+                        options = result;
+                    } else {
+                        throw new Error('MySQL query did not return valid results');
+                    }
+                    
+                } else {
+                    // Workflow-based data source (default)
+                    console.log('[INPUT_VAR] Using workflow source for:', varConfig.name);
+                    
+                    const workflowPayload = {};
+                    
+                    // Build payload from input_var config
+                    if (varConfig.input_var) {
+                        const { dependencies, staticVars } = parseInputVar(varConfig.input_var);
+                        
+                        // Add dependency values
+                        dependencies.forEach(dep => {
+                            const depValue = getInputVarValue(dep);
+                            if (depValue) {
+                                workflowPayload[dep] = depValue;
+                            }
+                        });
+                        
+                        // Add static values
+                        Object.assign(workflowPayload, staticVars);
+                    }
+                    
+                    console.log('[INPUT_VAR] Executing workflow for:', varConfig.name, 'Payload:', workflowPayload);
+                    
+                    const result = await rewst.runWorkflowSmart(varConfig.workflow, workflowPayload);
+                    
+                    console.log('[INPUT_VAR] Workflow result:', result);
+                    
+                    // Extract dropdown options
+                    if (!result.conductor || !result.conductor.output || !result.conductor.output[varConfig.output_var]) {
+                        throw new Error(`Output variable '${varConfig.output_var}' not found in workflow result`);
+                    }
+                    
+                    options = result.conductor.output[varConfig.output_var];
+                    if (!Array.isArray(options)) {
+                        throw new Error(`Output variable '${varConfig.output_var}' is not an array`);
+                    }
                 }
                 
-                console.log('[INPUT_VAR] Executing workflow for:', varConfig.name, 'Payload:', workflowPayload);
-                
-                const result = await rewst.runWorkflowSmart(varConfig.workflow, workflowPayload);
-                
-                console.log('[INPUT_VAR] Workflow result:', result);
-                
-                // Extract dropdown options
-                if (!result.conductor || !result.conductor.output || !result.conductor.output[varConfig.output_var]) {
-                    throw new Error(`Output variable '${varConfig.output_var}' not found in workflow result`);
-                }
-                
-                const options = result.conductor.output[varConfig.output_var];
+                // Populate dropdown with options (works for GraphQL, MySQL, and Workflow sources)
                 if (!Array.isArray(options)) {
-                    throw new Error(`Output variable '${varConfig.output_var}' is not an array`);
+                    throw new Error('Options result is not an array');
                 }
                 
-                // Populate dropdown
                 selectElement.innerHTML = '<option value="">Select...</option>';
                 options.forEach(option => {
                     const optionEl = document.createElement('option');
@@ -2787,7 +3370,7 @@ async function renderInputVarDropdowns() {
                 });
                 
             } catch (error) {
-                console.error('[INPUT_VAR] Workflow error:', error);
+                console.error('[INPUT_VAR] Error loading dropdown:', error);
                 selectElement.innerHTML = '<option>Error loading options</option>';
                 selectElement.disabled = true;
             }
@@ -2798,11 +3381,31 @@ async function onInputVarSelected(varName, value) {
             
             setInputVarValue(varName, value);
             
-            // Find dependent vars and re-render them
+            // Find dependent vars - check both input_var and proxy_query for dependencies
             const dependentVars = inputVarConfig.filter(v => {
-                if (!v.input_var) return false;
-                const { dependencies } = parseInputVar(v.input_var);
-                return dependencies.includes(varName);
+                let hasDependency = false;
+                
+                // Check input_var dependencies
+                if (v.input_var) {
+                    const { dependencies } = parseInputVar(v.input_var);
+                    if (dependencies.includes(varName)) {
+                        hasDependency = true;
+                    }
+                }
+                
+                // Check proxy_query dependencies
+                if (!hasDependency && v.proxy_query) {
+                    const varPattern = /\[\[(\w+)\]\]/g;
+                    let match;
+                    while ((match = varPattern.exec(v.proxy_query)) !== null) {
+                        if (match[1] === varName) {
+                            hasDependency = true;
+                            break;
+                        }
+                    }
+                }
+                
+                return hasDependency;
             });
             
             console.log('[INPUT_VAR] Dependent vars:', dependentVars.map(v => v.name));
@@ -2873,14 +3476,16 @@ async function loadDataTable() {
                 
                 const messageDiv = document.getElementById('inputVarMessage');
                 // Clear the input var message when loading starts
-                messageDiv.textContent = '';
-                messageDiv.style.display = 'none';
+                if (messageDiv) {
+                    messageDiv.textContent = '';
+                    messageDiv.style.display = 'none';
+                }
                 
                 loadingSpinner.classList.add('active');
                 tableContainer.classList.remove('active');
                 
-                if (!data_workflow) {
-                    console.warn('[LOAD_TABLE] No data_workflow configured');
+                if (!data_workflow && !datatableConfig.use_sql) {
+                    console.warn('[LOAD_TABLE] No data_workflow configured and not SQL-based');
                     loadingSpinner.classList.remove('active');
                     return;
                 }
@@ -2919,15 +3524,16 @@ async function loadDataTable() {
                 
                 // Process input_vars from config - this may use values from input_var_config above
                 Object.keys(input_vars).forEach(key => {
-                    // Skip datatable_var entries - they get values from dropdown selections, not from input_vars
                     const varConfig = inputVarConfig.find(v => v.name === key);
-                    if (varConfig && varConfig.datatable_var === true) {
-                        console.log('[LOAD_TABLE] Skipping datatable_var:', key, '- using dropdown value:', payload[key]);
-                        return; // Skip this variable, keep the dropdown value from first pass
+                    
+                    if (varConfig && varConfig.from_dataset === true) {
+                        // Skip from_dataset entries - they keep their dropdown-selected values
+                        console.log('[LOAD_TABLE] Skipping dropdown var:', key, '- using value from selection:', payload[key]);
+                        return;
                     }
                     
+                    // For all other variables (including datatable_var), substitute any [[variable]] patterns
                     const value = input_vars[key];
-                    // Substitute any [[variable]] patterns using values now in payload
                     payload[key] = substituteVariables(value);
                 });
                 
@@ -2938,6 +3544,8 @@ async function loadDataTable() {
                 const unexpandedPattern = /\[\[\w+\]\]/;
                 if (unexpandedPattern.test(payloadStr)) {
                     console.warn('[LOAD_TABLE] Payload still has unexpanded placeholders, waiting...');
+                    console.log('[LOAD_TABLE] Full payload:', payload);
+                    console.log('[LOAD_TABLE] Payload as JSON:', payloadStr);
                     
                     // Find which parameters are still unexpanded
                     const unexpandedVars = [];
@@ -2957,8 +3565,10 @@ async function loadDataTable() {
                     const waitingFor = uniqueUnexpanded.join(' and ');
                     
                     loadingSpinner.classList.remove('active');
-                    messageDiv.textContent = `Waiting on ${waitingFor} selection`;
-                    messageDiv.style.display = 'block';
+                    if (messageDiv) {
+                        messageDiv.textContent = `Waiting on ${waitingFor} selection`;
+                        messageDiv.style.display = 'block';
+                    }
                     tableContainer.classList.add('active');
                     return;
                 }
@@ -2969,41 +3579,59 @@ async function loadDataTable() {
                     console.log('[LOAD_TABLE] Added action: "get" for workflow-based datatable');
                 }
                 
-                const result = await rewst.runWorkflowSmart(data_workflow, payload, {
-                    onProgress: (status, numSuccessfulTasks) => {
-                        console.log('[WORKFLOW] Status:', status, 'Tasks completed:', numSuccessfulTasks);
-                    }
-                });
+                let result;
                 
-                console.log('[LOAD_TABLE] Workflow completed, result:', result);
+                console.log('[LOAD_TABLE] Deciding data path: use_sql=', datatableConfig.use_sql, 'proxySessionToken=', !!proxySessionToken);
                 
-                // Extract data from output var
-                if (output_var && result.conductor && result.conductor.output) {
-                    const outputData = result.conductor.output[output_var];
-                    console.log('[LOAD_TABLE] Output data from', output_var + ':', outputData);
+                if (datatableConfig.use_sql && proxySessionToken) {
+                    // SQL-based: Execute via ProxyLib
+                    console.log('[LOAD_TABLE] Taking SQL/ProxyLib path');
+                    const sqlQuery = payload.sql_query;
+                    console.log('[LOAD_TABLE] SQL Query:', sqlQuery);
                     
-                    if (outputData && Array.isArray(outputData) && outputData.length > 0) {
-                        tableData.length = 0;
-                        tableData.push(...outputData);
-                        
-                        console.log('[LOAD_TABLE] Populated tableData with', tableData.length, 'records');
-                        
-                        fieldTypes = detectFieldTypes(tableData, col_display_edit);
-                        
-                        filterData(searchInput.value);
-                        renderTable();
-                        
-                        loadingSpinner.classList.remove('active');
-                        tableContainer.classList.add('active');
-                    } else {
-                        console.warn('[LOAD_TABLE] Output data is empty or not an array');
-                        loadingSpinner.classList.remove('active');
-                        showErrorMessage('No data returned from workflow');
-                    }
+                    result = await ProxyLib.executeQuery(proxySessionToken, proxyUser, sqlQuery);
+                    console.log('[LOAD_TABLE] ProxyLib query completed, result:', result);
                 } else {
-                    console.warn('[LOAD_TABLE] No output_var specified or conductor.output not available');
+                    // Workflow-based: Execute via Rewst
+                    console.log('[LOAD_TABLE] Taking workflow path with data_workflow=', data_workflow);
+                    result = await rewst.runWorkflowSmart(data_workflow, payload, {
+                        onProgress: (status, numSuccessfulTasks) => {
+                            console.log('[WORKFLOW] Status:', status, 'Tasks completed:', numSuccessfulTasks);
+                        }
+                    });
+                    console.log('[LOAD_TABLE] Workflow completed, result:', result);
+                }
+                
+                // Extract data from result - different format for SQL vs Workflow
+                let outputData = null;
+                
+                if (datatableConfig.use_sql && result.result) {
+                    // ProxyLib format: result.result contains the data array
+                    outputData = result.result;
+                    console.log('[LOAD_TABLE] Output data from ProxyLib:', outputData);
+                } else if (output_var && result.conductor && result.conductor.output) {
+                    // Workflow format: result.conductor.output[output_var]
+                    outputData = result.conductor.output[output_var];
+                    console.log('[LOAD_TABLE] Output data from', output_var + ':', outputData);
+                }
+                
+                if (outputData && Array.isArray(outputData) && outputData.length > 0) {
+                    tableData.length = 0;
+                    tableData.push(...outputData);
+                    
+                    console.log('[LOAD_TABLE] Populated tableData with', tableData.length, 'records');
+                    
+                    fieldTypes = detectFieldTypes(tableData, col_display_edit);
+                    
+                    filterData(searchInput.value);
+                    renderTable();
+                    
                     loadingSpinner.classList.remove('active');
-                    showErrorMessage('Invalid workflow response');
+                    tableContainer.classList.add('active');
+                } else {
+                    console.warn('[LOAD_TABLE] Output data is empty or not an array');
+                    loadingSpinner.classList.remove('active');
+                    showErrorMessage('No data returned');
                 }
             } catch (error) {
                 console.error('[LOAD_TABLE] Error:', error);
@@ -3028,139 +3656,78 @@ async function loadDataTable() {
             try {
                 console.log('[INIT] Starting datatable initialization...');
                 
+                // STEP 0: Load and initialize datatable config (including ProxyLib auth)
+                await initializeDatatableConfig();
+                
                 tableContainer.classList.remove('active');
 
-                // STEP 1: Validate datatable ID (required immediately)
-                // First try direct URL parameter, then fall back to parent window (for iframe context)
-                let datatableId = RewstLib.forms.getUrlParameter('datatable');
+                // Config has been loaded by initializeDatatableConfig
+                // All global variables are now set up (datatableConfig, data_workflow, inputVarConfig, etc.)
                 
-                if (!datatableId && window.parent !== window) {
-                    try {
-                        const parentUrl = new URL(window.parent.location.href);
-                        datatableId = parentUrl.searchParams.get('datatable');
-                        if (datatableId) {
-                            console.log('[INIT] Got datatable ID from parent window:', datatableId);
-                        }
-                    } catch (e) {
-                        console.log('[INIT] Cannot access parent window:', e.message);
-                    }
-                }
+                // STEP 1: Build table structure and filters (using config already loaded)
+                buildTableStructure();
+                renderFilters();
+                console.log('[INIT] Table structure and filters built');
                 
-                if (!datatableId) {
-                    throw new Error('No datatable ID provided in URL (?datatable=id&audit_id=id)');
-                }
-
-                console.log('[INIT] Loading datatable config for ID:', datatableId);
-
-                // STEP 2: Retrieve and parse datatable config
-                const variableName = 'datatable_' + datatableId;
-                const orgVar = await RewstLib.orgVariables.get(variableName, window.ORG_ID);
-
-                if (!orgVar) {
-                    throw new Error(`Datatable configuration not found: ${variableName}`);
-                }
-
-                try {
-                    datatableConfig = JSON.parse(orgVar.value);
-                    console.log('[INIT] Datatable config loaded:', datatableConfig);
-
-                    // STEP 3: Extract configuration
-                    data_workflow = datatableConfig.data_workflow || null;
-                    input_vars = datatableConfig.input_vars || {};
-                    output_var = datatableConfig.output_var || null;
-                    update_workflow = datatableConfig.update_workflow || null;
-                    update_vars = datatableConfig.update_vars || {};
-                    allow_create = datatableConfig.allow_create === true;
-                    allow_update = datatableConfig.allow_update === true;
-                    allow_delete = datatableConfig.allow_delete === true;
-                    edit_type = datatableConfig.edit_type || 'window';
-
-                    console.log('[INIT] Configuration extracted:');
-                    console.log('[INIT]   data_workflow:', data_workflow);
-                    console.log('[INIT]   output_var:', output_var);
-                    console.log('[INIT]   update_workflow:', update_workflow);
-                    console.log('[INIT]   Permissions - Create:', allow_create, 'Update:', allow_update, 'Delete:', allow_delete);
-                    console.log('[INIT]   Edit type:', edit_type);
-
-                    // STEP 4: Extract and store input_var_config
-                    inputVarConfig = datatableConfig.input_var_config || [];
-                    console.log('[INIT] Input var config:', inputVarConfig);
-
-                    // STEP 5: Extract column settings
-                    const columnSettings = datatableConfig.col_settings || datatableConfig.column_settings || [];
-                    console.log('[INIT] Column settings:', columnSettings);
-
-                    col_display_table = columnSettings.filter(col => col.hide_table !== true).map(col => col.col_name);
-                    col_display_edit = columnSettings.filter(col => col.hide_edit !== true);
-
-                    console.log('[INIT] Columns for table:', col_display_table);
-                    console.log('[INIT] Columns for edit:', col_display_edit);
-
-                    // STEP 6: Create message div for status/error messages
-                    let messageDiv = document.getElementById('inputVarMessage');
-                    if (!messageDiv) {
-                        messageDiv = document.createElement('div');
-                        messageDiv.id = 'inputVarMessage';
-                        messageDiv.style.display = 'none';
-                        messageDiv.style.padding = '2rem';
-                        messageDiv.style.textAlign = 'center';
-                        messageDiv.style.color = '#e0e0e0';
-                        messageDiv.style.fontSize = '1rem';
-                        const dataTable = document.getElementById('dataTable');
+                // Create message div for input var status messages
+                let messageDiv = document.getElementById('inputVarMessage');
+                if (!messageDiv) {
+                    messageDiv = document.createElement('div');
+                    messageDiv.id = 'inputVarMessage';
+                    messageDiv.style.display = 'none';
+                    messageDiv.style.padding = '2rem';
+                    messageDiv.style.textAlign = 'center';
+                    messageDiv.style.color = '#e0e0e0';
+                    messageDiv.style.fontSize = '1rem';
+                    const dataTable = document.getElementById('dataTable');
+                    if (dataTable) {
                         dataTable.insertAdjacentElement('afterend', messageDiv);
-                        console.log('[INIT] Created messageDiv');
                     }
+                }
 
-                    // STEP 7: Build table structure and filters
-                    buildTableStructure();
-                    renderFilters();
-                    console.log('[INIT] Table structure and filters built');
+                // STEP 2: Handle input var dropdowns and data loading
+                console.log('[INIT] Processing input variables...');
+                
+                try {
+                    await renderInputVarDropdowns();
+                    // renderInputVarDropdowns will call loadDataTable when ready
+                    console.log('[INIT] Input var dropdowns rendered');
+                } catch (inputVarError) {
+                    console.error('[INIT] Input var error:', inputVarError);
+                    const messageDiv = document.getElementById('inputVarMessage');
+                    if (messageDiv) {
+                        messageDiv.textContent = inputVarError.message;
+                        messageDiv.style.display = 'block';
+                    }
+                    tableContainer.classList.add('active');
+                    return;
+                }
 
-                    // STEP 8: Handle input var dropdowns and data loading
-                    console.log('[INIT] Processing input variables...');
-                    
-                    try {
-                        await renderInputVarDropdowns();
-                        // renderInputVarDropdowns will call loadDataTable when ready
-                        console.log('[INIT] Input var dropdowns rendered');
-                    } catch (inputVarError) {
-                        console.error('[INIT] Input var error:', inputVarError);
-                        const messageDiv = document.getElementById('inputVarMessage');
-                        if (messageDiv) {
-                            messageDiv.textContent = inputVarError.message;
-                            messageDiv.style.display = 'block';
-                        }
-                        tableContainer.classList.add('active');
-                        return;
-                    }
-
-                    // STEP 9: Apply permission-based UI visibility
-                    const addBtn = document.getElementById('addBtn');
-                    if (!allow_create) {
-                        addBtn.style.display = 'none';
-                    }
-                    
-                    // Show Save button only in column edit mode
-                    if (edit_type === 'column') {
-                        saveBtn.style.display = 'flex';
-                    } else {
-                        saveBtn.style.display = 'none';
-                    }
-                    
-                    // Show instruction message only in window edit mode
-                    if (edit_type === 'window') {
-                        windowModeInstruction.style.display = 'block';
-                    } else {
-                        windowModeInstruction.style.display = 'none';
-                    }
-                    
-                    // Set the datatable name
-                    if (datatableConfig.name) {
-                        datatableName.textContent = datatableConfig.name;
-                    }
-
-                } catch (parseError) {
-                    throw new Error(`Invalid JSON in datatable configuration: ${parseError.message}`);
+                // STEP 3: Apply permission-based UI visibility
+                const addBtn = document.getElementById('addBtn');
+                if (!allow_create) {
+                    addBtn.style.display = 'none';
+                }
+                
+                // Show Save button only in column edit mode
+                if (edit_type === 'column') {
+                    saveBtn.style.display = 'flex';
+                    console.log('[INIT] edit_type is column, saveBtn shown');
+                } else {
+                    saveBtn.style.display = 'none';
+                    console.log('[INIT] edit_type is not column, saveBtn hidden');
+                }
+                
+                // Show instruction message only in window edit mode
+                if (edit_type === 'window') {
+                    windowModeInstruction.style.display = 'block';
+                } else {
+                    windowModeInstruction.style.display = 'none';
+                }
+                
+                // Set the datatable name
+                if (datatableConfig.name) {
+                    datatableName.textContent = datatableConfig.name;
                 }
 
             } catch (error) {
