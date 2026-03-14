@@ -981,7 +981,7 @@
 </div>
 
                 <div style="display: flex; gap: 1rem;">
-                    <div class="form-container"><div class="form-group" style="display: flex; flex-direction: column;">
+                    <div class="form-container" style="flex: 1;"><div class="form-group" style="display: flex; flex-direction: column;">
                         <label class="">Edit Type</label>
                         <div style="display: flex; flex-direction: column; gap: 0.75rem;">
                             <div>
@@ -996,7 +996,7 @@
                     </div>
 </div>
 
-                    <div class="form-container"><div class="form-group" style="display: flex; flex-direction: column;">
+                    <div class="form-container" style="flex: 1;"><div class="form-group" style="display: flex; flex-direction: column;">
                         <label class="">Allowed Actions</label>
                         <div class="checkbox-group">
                             <div>
@@ -1021,6 +1021,16 @@
                     <select id="permissionsSelect" class="multi-select-hidden-select" data-selected-values="[]" style="display: none;"></select>
                 </div>
 </div>
+
+                <div style="margin-top: 2rem; padding-top: 1rem; border-top: 1px solid #444;">
+                    <h3 style="margin-bottom: 1rem;">Filters</h3>
+                    <div class="form-container"><div class="form-group">
+                        <button class="btn btn-blue btn-small" onclick="addFilter()">Add Filter</button>
+                    </div>
+</div>
+                    <div class="form-container"><div class="form-group" id="filtersList"></div>
+</div>
+                </div>
             </div>
 
             <!-- Workflows & Data Configuration Panel -->
@@ -1041,7 +1051,7 @@
                         </div>
                     </div>
 
-                    <div class="form-group-vert" style="margin-top: 1rem;">
+                    <div id="dataWorkflowGroup" class="form-group-vert" style="margin-top: 1rem;">
                         <label class="">Data Workflow</label>
                         <div class="searchable-select-wrapper">
                             <input type="text" id="dataWorkflow" class="searchable-select-input" placeholder="Select workflow..." autocomplete="off">
@@ -1053,12 +1063,12 @@
                         </div>
                     </div>
 
-                    <div class="form-group-vert" style="margin-top: 1rem;">
+                    <div id="outputVarGroup" class="form-group-vert" style="margin-top: 1rem;">
                         <label class="">Output Variable Name</label>
                         <input type="text" id="outputVar" placeholder="e.g., sql_result">
                     </div>
 
-                    <div class="form-group-vert" style="margin-top: 1rem;">
+                    <div id="updateWorkflowGroup" class="form-group-vert" style="margin-top: 1rem;">
                         <label class="">Add/Update/Delete Workflow</label>
                         <div class="searchable-select-wrapper">
                             <input type="text" id="updateWorkflow" class="searchable-select-input" placeholder="Select workflow..." autocomplete="off">
@@ -1124,6 +1134,7 @@
         window.ORG_ID = '019176c2-059f-7391-afbc-97b201efbd93';
     </script>
     <script src="https://eit-auto.github.io/repo/rewst-library.js"></script>
+    <script src="https://eit-auto.github.io/repo/proxy-lib.js"></script>
     <script>
         // ============================================
         // CONFIGURATION
@@ -1270,6 +1281,7 @@
         // ============================================
         let columns = [];
         let inputVariables = [];  // Array to store input variable objects {name, value, fromUrl, required}
+        let filters = [];  // Array to store filter objects {col_name, display_label, default_checked}
         let allWorkflows = [];  // Array to store all available workflows for lookup
         let tableColumnInfo = {};
         let isLoadingTableInfo = false;
@@ -1278,7 +1290,7 @@
         let datatableName, datatableDesc, sqlData, tableName, tableNameGroup, sqlQueryGroup;
         let dataWorkflow, updateWorkflow, sqlQuery, outputVar, primaryKey;
         let allowCreate, allowUpdate, allowDelete;
-        let newColName, columnsList, jsonOutput, validationOutput;
+        let newColName, columnsList, filtersList, jsonOutput, validationOutput;
 
         // ============================================
         // REWST APP LIBRARY
@@ -1791,6 +1803,7 @@
             // Clear data arrays
             columns = [];
             inputVariables = [];
+            filters = [];
             
             // Clear editing tracking
             window.currentEditingConfigId = null;
@@ -1818,6 +1831,7 @@
             // Trigger re-render
             renderColumns();
             renderInputVariables();
+            renderFilters();
             sqlData.dispatchEvent(new Event('change', { bubbles: true }));
             resetChangeTracking();
             updateOutput();
@@ -2178,7 +2192,8 @@
                         hide_edit: col.hide_edit || false,
                         editable: col.editable !== false,
                         gen: col.gen || false,
-                        from_sql: col.from_sql || false
+                        from_sql: col.from_sql || false,
+                        not_null: col.not_null || false
                     }));
                 }
                 
@@ -2211,9 +2226,11 @@
                                 fromDataset: varConfig.from_dataset || false,
                                 datatable_var: varConfig.datatable_var || false,
                                 dspl_name: varConfig.dspl_name || '',
+                                dataset_source: varConfig.dataset_source || 'workflow',
                                 workflow: workflowName,
                                 workflow_id: workflowId,
                                 input_var: varConfig.input_var || '',
+                                proxy_query: varConfig.proxy_query || '',
                                 output_var: varConfig.output_var || '',
                                 output_id: varConfig.output_id || 'id',
                                 output_label: varConfig.output_label || 'name'
@@ -2222,17 +2239,39 @@
                     });
                 }
                 
+                // Populate filters
+                filters = [];
+                if (config.filters && Array.isArray(config.filters)) {
+                    filters = config.filters.map(filterItem => ({
+                        col_name: filterItem.col_name || '',
+                        display_label: filterItem.display_label || '',
+                        default_checked: filterItem.default_checked !== false
+                    }));
+                }
+                
                 // Trigger the sqlData checkbox change event to show/hide relevant fields
                 if (config.use_sql) {
                     // Use a small delay to ensure the DOM is ready before triggering the event
                     setTimeout(() => {
-                        console.log('Triggering sqlData change event');
+                        console.log('Triggering sqlData change event for MySQL config');
                         sqlData.dispatchEvent(new Event('change', { bubbles: true }));
+                    }, 100);
+                } else {
+                    // For workflow-based configs, ensure workflow fields are visible
+                    setTimeout(() => {
+                        console.log('Ensuring workflow fields are visible for workflow-based config');
+                        const dataWorkflowGroup = document.getElementById('dataWorkflowGroup');
+                        const outputVarGroup = document.getElementById('outputVarGroup');
+                        const updateWorkflowGroup = document.getElementById('updateWorkflowGroup');
+                        if (dataWorkflowGroup) dataWorkflowGroup.style.display = 'block';
+                        if (outputVarGroup) outputVarGroup.style.display = 'block';
+                        if (updateWorkflowGroup) updateWorkflowGroup.style.display = 'block';
                     }, 100);
                 }
                 
                 renderColumns();
                 renderInputVariables();
+                renderFilters();
                 updateOutput();
                 markConfigurationLoaded();
                 
@@ -2345,6 +2384,7 @@
             allowDelete = document.getElementById('allowDelete');
             newColName = document.getElementById('newColName');
             columnsList = document.getElementById('columnsList');
+            filtersList = document.getElementById('filtersList');
             jsonOutput = document.getElementById('jsonOutput');
 
             validationOutput = document.getElementById('validationOutput');
@@ -2424,6 +2464,16 @@
                     if (e.target.checked) {
                         console.log('Use MySQL Data: Checked');
                         
+                        // Hide workflow-related fields for MySQL configs
+                        const dataWorkflowGroup = document.getElementById('dataWorkflowGroup');
+                        const outputVarGroup = document.getElementById('outputVarGroup');
+                        const updateWorkflowGroup = document.getElementById('updateWorkflowGroup');
+                        
+                        if (dataWorkflowGroup) dataWorkflowGroup.style.display = 'none';
+                        if (outputVarGroup) outputVarGroup.style.display = 'none';
+                        if (updateWorkflowGroup) updateWorkflowGroup.style.display = 'none';
+                        console.log('Use MySQL Data: Hid workflow fields');
+                        
                         // 0. Hide Add Column section
                         const addColumnSection = document.getElementById('addColumnSection');
                         if (addColumnSection) {
@@ -2464,6 +2514,18 @@
                         
                         updateOutput();
                     } else {
+                        console.log('Use MySQL Data: Unchecked');
+                        
+                        // Show workflow-related fields when not using MySQL
+                        const dataWorkflowGroup = document.getElementById('dataWorkflowGroup');
+                        const outputVarGroup = document.getElementById('outputVarGroup');
+                        const updateWorkflowGroup = document.getElementById('updateWorkflowGroup');
+                        
+                        if (dataWorkflowGroup) dataWorkflowGroup.style.display = 'block';
+                        if (outputVarGroup) outputVarGroup.style.display = 'block';
+                        if (updateWorkflowGroup) updateWorkflowGroup.style.display = 'block';
+                        console.log('Use MySQL Data: Showed workflow fields');
+                        
                         // Show Add Column section
                         const addColumnSection = document.getElementById('addColumnSection');
                         if (addColumnSection) {
@@ -2546,7 +2608,11 @@
             
             updateOutput();
             loadWorkflows();
-            executeWorkflowForTables();
+            
+            // Only discover tables if Use MySQL Data is already checked
+            if (sqlData && sqlData.checked) {
+                executeWorkflowForTables();
+            }
             
             // Close dropdowns when clicking outside
             document.addEventListener('click', (e) => {
@@ -2595,26 +2661,34 @@
                     tableName.disabled = true;
                     tableName.classList.add('loading-state');
                 }
-                console.log('executeWorkflowForTables: Calling rewst.runWorkflowSmart');
+                console.log('executeWorkflowForTables: Calling ProxyLib.executeQuery');
                 
                 const sqlQuery = `
-                    SELECT TABLE_NAME, COLUMN_NAME, DATA_TYPE, COLUMN_KEY, EXTRA, COLUMN_DEFAULT
+                    SELECT TABLE_NAME, COLUMN_NAME, DATA_TYPE, COLUMN_KEY, EXTRA, COLUMN_DEFAULT, IS_NULLABLE
                     FROM INFORMATION_SCHEMA.COLUMNS
                     WHERE TABLE_SCHEMA = 'rewst'
                     ORDER BY TABLE_NAME, ORDINAL_POSITION
                 `;
                 
-                const result = await rewst.runWorkflowSmart(DISCOVERY_WORKFLOW_ID, {
-                    sql_query: sqlQuery
-                });
-                console.log('executeWorkflowForTables: Workflow result:', result);
+                // Authenticate and execute query via proxy
+                const sessionToken = await ProxyLib.authenticateWithKeyName(
+                    rewstUser.username,
+                    window.location.origin,  // ProxyLib will auto-detect parent origin if needed
+                    'proxy_api_mysql'  // Org variable name for proxy API key
+                );
+                
+                const result = await ProxyLib.executeQuery(
+                    sessionToken,
+                    rewstUser.username,
+                    sqlQuery
+                );
+                console.log('executeWorkflowForTables: ProxyLib result:', result);
 
                 if (result && result.success) {
-                    console.log('executeWorkflowForTables: Result success, parsing output');
-                    console.log('executeWorkflowForTables: conductor.output:', result.conductor?.output);
+                    console.log('executeWorkflowForTables: Query success, parsing result');
                     
-                    const sqlResult = result.conductor?.output?.sql_result || [];
-                    console.log('executeWorkflowForTables: Extracted sql_result:', sqlResult);
+                    const sqlResult = result.result || [];
+                    console.log('executeWorkflowForTables: Extracted result:', sqlResult);
                     
                     if (Array.isArray(sqlResult)) {
                         tableColumnInfo = {};
@@ -2627,6 +2701,7 @@
                             const ckey = row.COLUMN_KEY || row.column_key || '';
                             const extra = row.EXTRA || row.extra || '';
                             const columnDefault = row.COLUMN_DEFAULT || row.column_default;
+                            const isNullable = row.IS_NULLABLE || row.is_nullable || 'YES';
                             
                             // Check if tinyint with default 0 or 1 should be treated as boolean
                             if (dtype && dtype.toLowerCase() === 'tinyint' && (columnDefault === '0' || columnDefault === '1' || columnDefault === 0 || columnDefault === 1)) {
@@ -2645,7 +2720,8 @@
                                     name: cname,
                                     type: dtype,
                                     isPrimaryKey: ckey === 'PRI',
-                                    isGenerated: extra.includes('auto_increment') || extra.includes('GENERATED')
+                                    isGenerated: extra.includes('auto_increment') || extra.includes('GENERATED'),
+                                    isNullable: isNullable === 'YES'
                                 });
                             }
                         });
@@ -2860,7 +2936,8 @@
                     hide_edit: isPrimaryKey,
                     gen: col.isGenerated,
                     editable: !col.isGenerated,
-                    from_sql: true
+                    from_sql: true,
+                    not_null: !col.isNullable  // Convert isNullable to not_null (inverse)
                 });
             });
             
@@ -2898,7 +2975,8 @@
                 hide_table: false,
                 hide_edit: false,
                 gen: false,
-                editable: true
+                editable: true,
+                not_null: false
             });
             
             renderColumns();
@@ -2943,6 +3021,75 @@
             }
         }
 
+        // ============================================
+        // FILTER MANAGEMENT
+        // ============================================
+        
+        function renderFilters() {
+            if (filters.length === 0) {
+                filtersList.innerHTML = '<div style="color: #666; text-align: center; padding: 1rem;">No filters configured yet</div>';
+                return;
+            }
+
+            filtersList.innerHTML = filters.map((filter, idx) => `
+                <div class="grey-panel gp-two-column">
+                    <div class="gp-panel-left">
+                        <div class="gp-row">
+                            <label>Column:</label>
+                            <select class="form-input" 
+                                    onchange="updateFilterByIndex(${idx}, 'col_name', this.value)">
+                                <option value="">-- Select Column --</option>
+                                ${columns.map(col => `<option value="${col.col_name}" ${filter.col_name === col.col_name ? 'selected' : ''}>${col.col_name}</option>`).join('')}
+                            </select>
+                        </div>
+                        
+                        <div class="gp-row">
+                            <label>Display Label:</label>
+                            <input type="text" class="form-input" 
+                                   value="${filter.display_label || ''}" 
+                                   placeholder="e.g., Show Inactive?"
+                                   onchange="updateFilterByIndex(${idx}, 'display_label', this.value)">
+                        </div>
+                        
+                        <div class="checkbox-item">
+                            <input type="checkbox" id="filter_default_${idx}" 
+                                   ${filter.default_checked ? 'checked' : ''} 
+                                   onchange="updateFilterByIndex(${idx}, 'default_checked', this.checked)">
+                            <label for="filter_default_${idx}">Default Checked</label>
+                        </div>
+                    </div>
+                    
+                    <div class="gp-panel-right">
+                        <button class="btn btn-red btn-small" onclick="removeFilter(${idx})">Remove</button>
+                    </div>
+                </div>
+            `).join('');
+        }
+        
+        function addFilter() {
+            filters.push({
+                col_name: '',
+                display_label: '',
+                default_checked: true
+            });
+            
+            renderFilters();
+            updateOutput();
+        }
+        
+        function removeFilter(idx) {
+            filters.splice(idx, 1);
+            renderFilters();
+            updateOutput();
+        }
+        
+        function updateFilterByIndex(idx, field, value) {
+            if (idx >= 0 && idx < filters.length) {
+                filters[idx][field] = value;
+                updateOutput();
+            }
+        }
+
         function addInputVariable() {
             inputVariables.push({
                 name: '',
@@ -2952,9 +3099,11 @@
                 fromDataset: false,
                 datatable_var: false,
                 dspl_name: '',
+                dataset_source: 'workflow',
                 workflow: '',
                 workflow_id: '',
                 input_var: '',
+                proxy_query: '',
                 output_var: '',
                 output_id: 'id',
                 output_label: 'name'
@@ -3002,8 +3151,8 @@
                 inputVariables[index].workflow_id = getWorkflowIdFromName(value);
             }
             
-            // Re-render if updating fromDataset to show/hide the workflow dropdown
-            if (field === 'fromDataset') {
+            // Re-render if updating fromDataset to show/hide the workflow dropdown, or if dataset_source changes
+            if (field === 'fromDataset' || field === 'dataset_source') {
                 renderInputVariables();
             }
             updateOutput();
@@ -3026,27 +3175,48 @@
 
             listContainer.innerHTML = inputVariables.map((iv, idx) => {
                 const workflowOptions = iv.fromDataset ? getWorkflowOptions().map(wf => `<option value="${wf}" ${iv.workflow === wf ? 'selected' : ''}>${wf}</option>`).join('') : '';
+                
+                // Conditional dataset section based on dataset_source
                 const datasetSection = iv.fromDataset ? `
                     <div style="display: flex; flex-direction: column; gap: 0.3rem; padding-top: 0.5rem; border-top: 1px solid #404040;">
-                        <label style="color: #888; font-size: 0.75rem; text-transform: uppercase;">Dataset Selector Workflow</label>
-                        <select onchange="updateInputVariable(${idx}, 'workflow', this.value)" class="form-input">
-                            <option value="">-- Select Workflow --</option>
-                            ${workflowOptions}
+                        <label style="color: #888; font-size: 0.75rem; text-transform: uppercase;">Dataset Source</label>
+                        <select onchange="updateInputVariable(${idx}, 'dataset_source', this.value)" class="form-input">
+                            <option value="workflow" ${iv.dataset_source === 'workflow' ? 'selected' : ''}>Workflow</option>
+                            <option value="mysql" ${iv.dataset_source === 'mysql' ? 'selected' : ''}>MySQL Query</option>
                         </select>
-                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; margin-top: 0.5rem;">
-                            <div style="display: flex; flex-direction: column;">
-                                <label style="color: #888; font-size: 0.75rem; text-transform: uppercase; margin-bottom: 0.25rem;">Workflow Input Variable</label>
-                                <input type="text" value="${iv.input_var || ''}" 
-                                       onchange="updateInputVariable(${idx}, 'input_var', this.value)"
-                                       placeholder="e.g., selected_dataset" class="form-input">
+                        
+                        ${iv.dataset_source === 'workflow' ? `
+                            <div style="margin-top: 0.5rem;">
+                                <label style="color: #888; font-size: 0.75rem; text-transform: uppercase;">Dataset Selector Workflow</label>
+                                <select onchange="updateInputVariable(${idx}, 'workflow', this.value)" class="form-input" style="margin-top: 0.25rem;">
+                                    <option value="">-- Select Workflow --</option>
+                                    ${workflowOptions}
+                                </select>
+                                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; margin-top: 0.5rem;">
+                                    <div style="display: flex; flex-direction: column;">
+                                        <label style="color: #888; font-size: 0.75rem; text-transform: uppercase; margin-bottom: 0.25rem;">Workflow Input Variable</label>
+                                        <input type="text" value="${iv.input_var || ''}" 
+                                               onchange="updateInputVariable(${idx}, 'input_var', this.value)"
+                                               placeholder="e.g., selected_dataset" class="form-input">
+                                    </div>
+                                    <div style="display: flex; flex-direction: column;">
+                                        <label style="color: #888; font-size: 0.75rem; text-transform: uppercase; margin-bottom: 0.25rem;">Workflow Output Variable</label>
+                                        <input type="text" value="${iv.output_var || ''}" 
+                                               onchange="updateInputVariable(${idx}, 'output_var', this.value)"
+                                               placeholder="e.g., dataset_result" class="form-input">
+                                    </div>
+                                </div>
                             </div>
-                            <div style="display: flex; flex-direction: column;">
-                                <label style="color: #888; font-size: 0.75rem; text-transform: uppercase; margin-bottom: 0.25rem;">Workflow Output Variable</label>
-                                <input type="text" value="${iv.output_var || ''}" 
-                                       onchange="updateInputVariable(${idx}, 'output_var', this.value)"
-                                       placeholder="e.g., dataset_result" class="form-input">
+                        ` : `
+                            <div style="margin-top: 0.5rem;">
+                                <label style="color: #888; font-size: 0.75rem; text-transform: uppercase;">SQL Query</label>
+                                <textarea onchange="updateInputVariable(${idx}, 'proxy_query', this.value)" 
+                                          placeholder="SELECT id, name FROM table WHERE..." 
+                                          class="form-input" 
+                                          style="min-height: 80px; margin-top: 0.25rem; font-family: monospace; font-size: 0.85rem;">${iv.proxy_query || ''}</textarea>
                             </div>
-                        </div>
+                        `}
+                        
                         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; margin-top: 0.5rem;">
                             <div style="display: flex; flex-direction: column;">
                                 <label style="color: #888; font-size: 0.75rem; text-transform: uppercase; margin-bottom: 0.25rem;">Output ID Variable</label>
@@ -3063,6 +3233,7 @@
                         </div>
                     </div>
                 ` : '';
+                
                 
                 return `
                 <div class="grey-panel gp-two-column">
@@ -3224,14 +3395,12 @@
 
         function buildConfigObject() {
             // Build config object for comparison and output
-            return {
+            const config = {
                 user: userName,
                 updated: getCurrentTimeStamp(),
                 name: datatableName.value || 'unnamed_table',
                 desc: datatableDesc.value,
                 edit_type: document.querySelector('input[name="editType"]:checked').value,
-                data_workflow: dataWorkflow.dataset.value || dataWorkflow.value,
-                update_workflow: updateWorkflow.dataset.value || updateWorkflow.value || null,
                 input_vars: {
                     sql_query: sqlQuery.value,
                     ...Object.fromEntries(inputVariables
@@ -3246,16 +3415,22 @@
                         if (iv.required) varConfig.required = true;
                         if (iv.datatable_var) varConfig.datatable_var = true;
                         if (iv.dspl_name) varConfig.dspl_name = iv.dspl_name;
-                        if (iv.fromDataset) varConfig.from_dataset = true;
-                        if (iv.fromDataset && iv.input_var) varConfig.input_var = iv.input_var;
-                        if (iv.fromDataset && iv.workflow_id) varConfig.workflow = iv.workflow_id;
-                        if (iv.fromDataset && iv.output_var) varConfig.output_var = iv.output_var;
-                        if (iv.fromDataset && iv.output_id) varConfig.output_id = iv.output_id;
-                        if (iv.fromDataset && iv.output_label) varConfig.output_label = iv.output_label;
+                        if (iv.fromDataset) {
+                            varConfig.from_dataset = true;
+                            varConfig.dataset_source = iv.dataset_source || 'workflow';
+                            if (iv.dataset_source === 'workflow') {
+                                if (iv.input_var) varConfig.input_var = iv.input_var;
+                                if (iv.workflow_id) varConfig.workflow = iv.workflow_id;
+                                if (iv.output_var) varConfig.output_var = iv.output_var;
+                            } else if (iv.dataset_source === 'mysql') {
+                                if (iv.proxy_query) varConfig.proxy_query = iv.proxy_query;
+                            }
+                            if (iv.output_id) varConfig.output_id = iv.output_id;
+                            if (iv.output_label) varConfig.output_label = iv.output_label;
+                        }
                         return varConfig;
                     })
                 ],
-                output_var: outputVar.value,
                 allow_create: allowCreate.checked,
                 allow_update: allowUpdate.checked,
                 allow_delete: allowDelete.checked,
@@ -3281,10 +3456,25 @@
                     if (col.gen) colConfig.gen = true;
                     colConfig.editable = col.editable;
                     colConfig.type = data_type;
+                    colConfig.not_null = col.not_null || false;  // Add not_null, default to false
                     return colConfig;
                 }),
+                filters: filters.filter(f => f.col_name && f.col_name.trim()),  // Only include filters with a col_name
                 locked: false
             };
+            
+            // Only include workflow fields if NOT using MySQL data
+            if (!sqlData.checked) {
+                config.data_workflow = dataWorkflow.dataset.value || dataWorkflow.value;
+                config.update_workflow = updateWorkflow.dataset.value || updateWorkflow.value || null;
+                config.output_var = outputVar.value;
+                config.table_name = tableName.value;
+            } else {
+                // For MySQL configs, include table_name instead of workflows
+                config.table_name = tableName.value;
+            }
+            
+            return config;
         }
 
         function updateOutput() {
@@ -3426,11 +3616,20 @@
             if (!config.name || config.name === 'unnamed_table') {
                 issues.push({ type: 'invalid', text: 'Datatable name is required' });
             }
-            if (!config.data_workflow) {
-                issues.push({ type: 'invalid', text: 'Data workflow is required' });
-            }
-            if (!config.output_var) {
-                issues.push({ type: 'invalid', text: 'Output variable name is required' });
+            
+            // Only require data_workflow and output_var if NOT using MySQL
+            if (!config.use_sql) {
+                if (!config.data_workflow) {
+                    issues.push({ type: 'invalid', text: 'Data workflow is required' });
+                }
+                if (!config.output_var) {
+                    issues.push({ type: 'invalid', text: 'Output variable name is required' });
+                }
+            } else {
+                // MySQL configs require table_name
+                if (!config.table_name) {
+                    issues.push({ type: 'invalid', text: 'Table name is required for MySQL data' });
+                }
             }
             
             const colSettings = config.col_settings || config.column_settings || [];
