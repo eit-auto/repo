@@ -1817,6 +1817,43 @@ const GRAPHQL_OPERATIONS = {
       return;
     }
 
+    // Check if already initialized to prevent duplicate event listeners
+    // However, on re-initialization (e.g., when changing org), we need to clear old listeners
+    // and attach fresh ones that capture the new closure's variables
+    let alreadyInitialized = container.getAttribute('data-initialized') === 'true';
+    
+    if (alreadyInitialized) {
+      // On re-initialization, clear the flag so listeners get re-attached
+      // This ensures new listeners capture the current closure's variables (options, selected, etc.)
+      console.log(`[INIT-MULTI-SELECT] [CALL #${callId}] Re-initializing: clearing old flag to reattach fresh listeners`);
+      container.removeAttribute('data-initialized');
+      alreadyInitialized = false; // Now listeners will be re-attached
+      
+      // Clear the container's HTML to remove all old event listeners
+      container.innerHTML = '';
+      
+      // Rebuild the multi-select structure
+      const tagsDiv = document.createElement('div');
+      tagsDiv.className = 'multi-select-display';
+      tagsDiv.innerHTML = `
+        <div class="multi-select-tags"></div>
+        <div class="multi-select-toggle">▼</div>
+      `;
+      container.appendChild(tagsDiv);
+      
+      const optionsDiv = document.createElement('div');
+      optionsDiv.className = 'multi-select-options';
+      container.appendChild(optionsDiv);
+      
+      const selectElem = document.createElement('select');
+      selectElem.className = 'multi-select-hidden-select';
+      selectElem.setAttribute('multiple', 'multiple');
+      selectElem.setAttribute('data-selected-values', '[]');
+      container.appendChild(selectElem);
+      
+      console.log(`[INIT-MULTI-SELECT] [CALL #${callId}] Rebuilt container HTML, ready for fresh listener attachment`);
+    }
+
     const tagsContainer = container.querySelector('.multi-select-tags');
     const dropdown = container.querySelector('.multi-select-options');
     const toggleBtn = container.querySelector('.multi-select-toggle');
@@ -1828,9 +1865,6 @@ const GRAPHQL_OPERATIONS = {
       console.error('[MULTI-SELECT] Missing required elements');
       return;
     }
-
-    // Check if already initialized to prevent duplicate event listeners
-    const alreadyInitialized = container.getAttribute('data-initialized') === 'true';
     
     let selected = [...(selectedValues || [])].map(v => String(v));  // Normalize to strings for comparison with option.value
 
