@@ -2014,10 +2014,9 @@ const GRAPHQL_OPERATIONS = {
     // Initial render
     updateTags();
     
-    // If dropdown is open, refresh its display with new options
-    if (dropdown.classList.contains('open')) {
-      populateDropdown();
-    }
+    // Always populate the dropdown options (whether open or not)
+    // This ensures the visible options are fresh after re-initialization from dependency changes
+    populateDropdown();
   }
 
   return {
