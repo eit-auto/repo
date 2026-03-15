@@ -1288,9 +1288,14 @@ const GRAPHQL_OPERATIONS = {
     if (container && optionsArray && optionsArray.length > 0) {
       // Log the call stack to see who's calling this
       const stack = new Error().stack.split('\n').slice(1, 4).map(line => line.trim()).join(' <- ');
-      console.log(`[INIT-DROPDOWN-MS] Called for ${fieldName} with ${optionsArray.length} options. Stack: ${stack}`);
+      const containerRef = `[DOM@${container.offsetParent ? 'visible' : 'hidden'}]`;
+      const containerPath = `${container.parentElement?.className || 'no-parent'} > ${container.id}`;
+      console.log(`[INIT-DROPDOWN-MS] Called for ${fieldName} with ${optionsArray.length} options. Container: ${containerRef} Path: ${containerPath}. Stack: ${stack}`);
       initializeMultiSelect(container, optionsArray, selectedValues);
       console.log(`[MULTI-SELECT] Initialized for: ${fieldName} with ${optionsArray.length} options and ${selectedValues.length} pre-selected values`);
+    } else {
+      if (!container) console.log(`[INIT-DROPDOWN-MS] SKIPPED for ${fieldName}: container not found (id=${multiSelectId})`);
+      if (!optionsArray || optionsArray.length === 0) console.log(`[INIT-DROPDOWN-MS] SKIPPED for ${fieldName}: no options (length=${optionsArray?.length || 0})`);
     }
   }
 
@@ -1804,7 +1809,9 @@ const GRAPHQL_OPERATIONS = {
    * @param {Array} selectedValues - Initial selected values
    * @param {function} onChange - Callback when selection changes
    */
+  let initializeMultiSelectCallCount = 0;
   function initializeMultiSelect(container, options, selectedValues = [], onChange = null) {
+    const callId = ++initializeMultiSelectCallCount;
     if (!container) {
       console.error('[MULTI-SELECT] Container not provided');
       return;
@@ -1815,7 +1822,7 @@ const GRAPHQL_OPERATIONS = {
     const toggleBtn = container.querySelector('.multi-select-toggle');
     const hiddenSelect = container.querySelector('select');
 
-    console.log(`[INIT-MULTI-SELECT] initializeMultiSelect called. options.length=${options.length}, dropdown element=${!!dropdown}, container.id=${container.id}, container.class=${container.className}`);
+    console.log(`[INIT-MULTI-SELECT] [CALL #${callId}] initializeMultiSelect called. options.length=${options.length}, dropdown element=${!!dropdown}, container.id=${container.id}, container.class=${container.className}`);
 
     if (!dropdown || !toggleBtn) {
       console.error('[MULTI-SELECT] Missing required elements');
@@ -1885,9 +1892,10 @@ const GRAPHQL_OPERATIONS = {
     function populateDropdown() {
       const optionsContainer = dropdown;
       const oldChildCount = optionsContainer.children.length;
-      console.log(`[POPULATE] Starting populateDropdown. Container had ${oldChildCount} children, options.length=${options.length}`);
+      const stackTrace = new Error().stack.split('\n').slice(1, 3).map(line => line.trim().split(' (')[0]).join(' <- ');
+      console.log(`[POPULATE] [CALL #${callId}] Starting populateDropdown. Container had ${oldChildCount} children, options.length=${options.length}. Caller: ${stackTrace}`);
       optionsContainer.innerHTML = '';
-      console.log(`[POPULATE] Cleared container, now has ${optionsContainer.children.length} children`);
+      console.log(`[POPULATE] [CALL #${callId}] Cleared container, now has ${optionsContainer.children.length} children`);
 
       // Add SELECT ALL checkbox at the top
       const selectAllDiv = document.createElement('div');
@@ -1945,7 +1953,7 @@ const GRAPHQL_OPERATIONS = {
 
         optionsContainer.appendChild(optionDiv);
       });
-      console.log(`[POPULATE] Finished adding options. Container now has ${optionsContainer.children.length} children (including select-all + separator)`);
+      console.log(`[POPULATE] [CALL #${callId}] Finished adding options. Container now has ${optionsContainer.children.length} children (including select-all + separator)`);
     }
 
     // Toggle dropdown
@@ -2020,7 +2028,7 @@ const GRAPHQL_OPERATIONS = {
     // Always populate the dropdown options (whether open or not)
     // This ensures the visible options are fresh after re-initialization from dependency changes
     populateDropdown();
-    console.log(`[INIT-MULTI-SELECT] Initialization complete. Dropdown container now has ${dropdown.children.length} children`);
+    console.log(`[INIT-MULTI-SELECT] [CALL #${callId}] Initialization complete. Dropdown container now has ${dropdown.children.length} children`);
   }
 
   return {
