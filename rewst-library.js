@@ -675,6 +675,100 @@ const GRAPHQL_OPERATIONS = {
       throw error;
     }
   }
+  /**
+   * Handle cascading updates when a dependency field (like rewst_org_id) changes
+   * Clears cache and resets dependent fields to trigger re-execution
+   * @param {string} changedFieldName - Name of the field that changed
+   * @param {Array} allFieldConfigs - Array of all field configurations
+   * @param {object} options - Optional config {dataRetrievalCache, dataRetrievalResults, ...}
+   */
+  function onDependencyFieldChanged(changedFieldName, allFieldConfigs, options = {}) {
+    console.log(`[FORMS] Dependency field changed: ${changedFieldName}`);
+    
+    // Find all fields that depend on the changed field
+    const dependentFields = allFieldConfigs.filter(config => {
+      if (!config.dependant_fields) return false;
+      
+      // Check if this field depends on changedFieldName
+      if (typeof config.dependant_fields === 'object') {
+        return config.dependant_fields.hasOwnProperty(changedFieldName);
+      }
+      return false;
+    });
+    
+    console.log(`[FORMS] Found ${dependentFields.length} dependent field(s): ${dependentFields.map(f => f.field_name).join(', ')}`);
+    
+    // For each dependent field:
+    // 1. Clear cache entries
+    // 2. Reset UI
+    // 3. Mark for re-execution
+    dependentFields.forEach(depConfig => {
+      const fieldName = depConfig.field_name;
+      const formGroup = document.querySelector(`[data-field-name="${fieldName}"]`);
+      
+      if (!formGroup) {
+        console.warn(`[FORMS] Form group not found for dependent field: ${fieldName}`);
+        return;
+      }
+      
+      console.log(`[FORMS] Clearing dependent field: ${fieldName}`);
+      
+      // Clear cache if applicable
+      if (depConfig.type === 'data_retrieval') {
+        // For data_retrieval fields, clear the cache entry
+        if (options.dataRetrievalCache) {
+          delete options.dataRetrievalCache[fieldName];
+        }
+        if (options.dataRetrievalResults) {
+          delete options.dataRetrievalResults[fieldName];
+        }
+      }
+      
+      // Clear UI - reset to initial state
+      if (depConfig.type === 'dropdown_prefetch' || depConfig.type === 'dropdown_mysql' || 
+          depConfig.type === 'dropdown_graphql' || depConfig.type === 'dropdown_mesh' || 
+          depConfig.type === 'dropdown') {
+        
+        // Clear multi-select
+        if (depConfig.multi_select) {
+          const hiddenSelect = formGroup.querySelector('.multi-select-hidden-select');
+          const tagsContainer = formGroup.querySelector('.multi-select-tags');
+          const optionsDiv = formGroup.querySelector('.multi-select-options');
+          
+          if (hiddenSelect) {
+            hiddenSelect.innerHTML = '';
+            hiddenSelect.setAttribute('data-selected-values', '[]');
+          }
+          
+          if (tagsContainer) {
+            tagsContainer.innerHTML = '<span class="multi-select-placeholder">-- Select options --</span>';
+          }
+          
+          if (optionsDiv) {
+            optionsDiv.innerHTML = '';
+          }
+        } else {
+          // Clear single-select
+          const select = formGroup.querySelector('select:not(.multi-select-hidden-select)');
+          if (select) {
+            // Keep placeholder option if it exists
+            const placeholder = select.querySelector('option[value=""]');
+            select.innerHTML = '';
+            if (placeholder) {
+              select.appendChild(placeholder.cloneNode(true));
+            }
+            select.value = '';
+          }
+        }
+      }
+      
+      // Mark field for re-execution by removing any cached state
+      // This will be picked up by the field initialization logic on next update
+      formGroup.setAttribute('data-needs-refresh', 'true');
+    });
+    
+    console.log(`[FORMS] Cleared ${dependentFields.length} dependent field(s)`);
+  }
   // ========================================
   // UTILITY FUNCTIONS
   // ========================================
@@ -1920,6 +2014,7 @@ const GRAPHQL_OPERATIONS = {
       evaluateConditionalVisibility,
       validateForm,
       submitForm,
+      onDependencyFieldChanged,
       getUrlParameter,
       getFormIdFromParent,
       detectUrlFormId,
@@ -1965,7 +2060,7 @@ const GRAPHQL_OPERATIONS = {
       get: getGraphQLOperation
     },
     // Version
-    version: '2.1.2'
+    version: '2.1.3'
   };
 })();
 // Make available globally
