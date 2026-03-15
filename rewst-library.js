@@ -680,7 +680,10 @@ const GRAPHQL_OPERATIONS = {
    * Clears cache and resets dependent fields to trigger re-execution
    * @param {string} changedFieldName - Name of the field that changed
    * @param {Array} allFieldConfigs - Array of all field configurations
-   * @param {object} options - Optional config {dataRetrievalCache, dataRetrievalResults, ...}
+   * @param {object} options - Optional config {
+   *   dataRetrievalCache, dataRetrievalResults,
+   *   workflowCache, graphqlCache
+   * }
    */
   function onDependencyFieldChanged(changedFieldName, allFieldConfigs, options = {}) {
     console.log(`[FORMS] Dependency field changed: ${changedFieldName}`);
@@ -711,9 +714,9 @@ const GRAPHQL_OPERATIONS = {
         return;
       }
       
-      console.log(`[FORMS] Clearing dependent field: ${fieldName}`);
+      console.log(`[FORMS] Clearing dependent field: ${fieldName} (type: ${depConfig.type})`);
       
-      // Clear cache if applicable
+      // Clear cache based on field type
       if (depConfig.type === 'data_retrieval') {
         // For data_retrieval fields, clear the cache entry
         if (options.dataRetrievalCache) {
@@ -722,12 +725,58 @@ const GRAPHQL_OPERATIONS = {
         if (options.dataRetrievalResults) {
           delete options.dataRetrievalResults[fieldName];
         }
+      } else if (depConfig.type === 'dropdown' || depConfig.type === 'dropdown_workflow') {
+        // For workflow-based dropdowns, clear workflow cache
+        if (options.workflowCache) {
+          // Clear all workflow cache entries for this field
+          // We can't reconstruct the exact cache key without the full input,
+          // so we clear all entries that might match
+          Object.keys(options.workflowCache.results).forEach(cacheKey => {
+            if (cacheKey.startsWith(depConfig.workflow_id)) {
+              console.log(`[FORMS] Cleared workflow cache: ${cacheKey}`);
+              delete options.workflowCache.results[cacheKey];
+            }
+          });
+          Object.keys(options.workflowCache.inFlight).forEach(cacheKey => {
+            if (cacheKey.startsWith(depConfig.workflow_id)) {
+              console.log(`[FORMS] Cleared in-flight workflow: ${cacheKey}`);
+              delete options.workflowCache.inFlight[cacheKey];
+            }
+          });
+        }
+      } else if (depConfig.type === 'dropdown_graphql') {
+        // For GraphQL dropdowns, clear GraphQL cache
+        if (options.graphqlCache && depConfig.graphql_op) {
+          // Clear all GraphQL cache entries for this operation
+          Object.keys(options.graphqlCache.results).forEach(cacheKey => {
+            if (cacheKey.startsWith(depConfig.graphql_op)) {
+              console.log(`[FORMS] Cleared GraphQL cache: ${cacheKey}`);
+              delete options.graphqlCache.results[cacheKey];
+            }
+          });
+          Object.keys(options.graphqlCache.inFlight).forEach(cacheKey => {
+            if (cacheKey.startsWith(depConfig.graphql_op)) {
+              console.log(`[FORMS] Cleared in-flight GraphQL: ${cacheKey}`);
+              delete options.graphqlCache.inFlight[cacheKey];
+            }
+          });
+        }
+      } else if (depConfig.type === 'dropdown_mysql' || depConfig.type === 'dropdown_mesh' || depConfig.type === 'dropdown_prefetch') {
+        // These are handled via data_retrieval or other mechanisms
+        // Clear proxy query cache if applicable
+        if (depConfig.type === 'dropdown_mysql' && options.proxyCache && options.proxyCache.queryResults) {
+          Object.keys(options.proxyCache.queryResults).forEach(queryId => {
+            if (queryId.includes(fieldName)) {
+              delete options.proxyCache.queryResults[queryId];
+            }
+          });
+        }
       }
       
       // Clear UI - reset to initial state
       if (depConfig.type === 'dropdown_prefetch' || depConfig.type === 'dropdown_mysql' || 
           depConfig.type === 'dropdown_graphql' || depConfig.type === 'dropdown_mesh' || 
-          depConfig.type === 'dropdown') {
+          depConfig.type === 'dropdown' || depConfig.type === 'dropdown_workflow') {
         
         // Clear multi-select
         if (depConfig.multi_select) {
