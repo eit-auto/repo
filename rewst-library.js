@@ -1820,10 +1820,13 @@ const GRAPHQL_OPERATIONS = {
     // Check if already initialized to prevent duplicate event listeners
     const alreadyInitialized = container.getAttribute('data-initialized') === 'true';
     
+    console.log(`[MULTI-SELECT INIT] Container ID: ${container.id}, options count: ${options.length}, first option: ${options[0] ? JSON.stringify(options[0]).substring(0, 80) : 'none'}`);
+    
     let selected = [...(selectedValues || [])].map(v => String(v));  // Normalize to strings for comparison with option.value
 
     // Populate hidden select with option elements
     if (hiddenSelect) {
+      console.log(`[MULTI-SELECT INIT] Clearing hidden select, current option count: ${hiddenSelect.options.length}`);
       hiddenSelect.innerHTML = '';  // Clear any existing options first
       options.forEach(option => {
         const opt = document.createElement('option');
@@ -1834,6 +1837,7 @@ const GRAPHQL_OPERATIONS = {
         }
         hiddenSelect.appendChild(opt);
       });
+      console.log(`[MULTI-SELECT INIT] Populated hidden select with ${hiddenSelect.options.length} options`);
     }
 
     // Update UI with current selection
@@ -1880,6 +1884,8 @@ const GRAPHQL_OPERATIONS = {
     function populateDropdown() {
       const optionsContainer = dropdown;
       optionsContainer.innerHTML = '';
+      
+      console.log(`[MULTI-SELECT DROPDOWN] Populating with ${options.length} options, first 3: ${options.slice(0, 3).map(o => `${o.label}(${o.value})`).join(', ')}`);
 
       // Add SELECT ALL checkbox at the top
       const selectAllDiv = document.createElement('div');
