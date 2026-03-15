@@ -1815,6 +1815,8 @@ const GRAPHQL_OPERATIONS = {
     const toggleBtn = container.querySelector('.multi-select-toggle');
     const hiddenSelect = container.querySelector('select');
 
+    console.log(`[INIT-MULTI-SELECT] initializeMultiSelect called. options.length=${options.length}, dropdown element=${!!dropdown}, container.id=${container.id}, container.class=${container.className}`);
+
     if (!dropdown || !toggleBtn) {
       console.error('[MULTI-SELECT] Missing required elements');
       return;
@@ -1882,7 +1884,10 @@ const GRAPHQL_OPERATIONS = {
     // Populate dropdown options
     function populateDropdown() {
       const optionsContainer = dropdown;
+      const oldChildCount = optionsContainer.children.length;
+      console.log(`[POPULATE] Starting populateDropdown. Container had ${oldChildCount} children, options.length=${options.length}`);
       optionsContainer.innerHTML = '';
+      console.log(`[POPULATE] Cleared container, now has ${optionsContainer.children.length} children`);
 
       // Add SELECT ALL checkbox at the top
       const selectAllDiv = document.createElement('div');
@@ -1940,6 +1945,7 @@ const GRAPHQL_OPERATIONS = {
 
         optionsContainer.appendChild(optionDiv);
       });
+      console.log(`[POPULATE] Finished adding options. Container now has ${optionsContainer.children.length} children (including select-all + separator)`);
     }
 
     // Toggle dropdown
@@ -2014,6 +2020,7 @@ const GRAPHQL_OPERATIONS = {
     // Always populate the dropdown options (whether open or not)
     // This ensures the visible options are fresh after re-initialization from dependency changes
     populateDropdown();
+    console.log(`[INIT-MULTI-SELECT] Initialization complete. Dropdown container now has ${dropdown.children.length} children`);
   }
 
   return {
