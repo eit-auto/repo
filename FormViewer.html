@@ -224,7 +224,7 @@
         }
     </style>
     <!-- Rewst Library JavaScript (must load before loadFormConfigEarly) -->
-    <script src="https://eit-auto.github.io/repo/rewst-library.js?v=2.1.2"></script>
+    <script src="https://eit-auto.github.io/repo/rewst-library.js?v=2.1.3"></script>
     <!-- ProxyLib for MeshCentral and MySQL operations -->
     <script src="https://eit-auto.github.io/repo/proxy-lib.js?v=1.0"></script>
     <!-- Load form config and check permissions before rendering body -->
@@ -1134,6 +1134,26 @@
         const evaluateConditionalVisibility = (allFieldConfigs) => RewstLib.forms.evaluateConditionalVisibility(allFieldConfigs);
         const evaluateCondition = (conditionString, formData) => RewstLib.forms.evaluateCondition(conditionString, formData);
 
+        // ============================================
+        // WORKFLOW RESULT CACHING
+        // ============================================
+        const workflowCache = {
+            results: {},      // Cached workflow results
+            inFlight: {}      // In-flight workflow promises
+        };
+        
+        const graphqlCache = {
+            results: {},      // Cached GraphQL results
+            inFlight: {}      // In-flight GraphQL promises
+        };
+        
+        const proxyCache = {
+            sessionTokens: {},  // Cached proxy session tokens by user
+            queryResults: {},   // Cached MySQL query results
+            commandResults: {}, // Cached Mesh command results
+            dataRetrievalResults: {}  // Cached data_retrieval field results by field_name
+        };
+
         async function renderForm(form) {
             console.log('>>> renderForm STARTED');
             const previewContent = document.getElementById('previewContent');
@@ -1352,6 +1372,25 @@
                         console.log(`>>> About to evaluate conditional visibility for all fields`);
                         evaluateConditionalVisibility(fieldConfigs);
                         console.log(`>>> Conditional visibility evaluation complete`);
+                        
+                        // Clear caches for dependent fields if this field has dependents
+                        const hasDependents = fieldConfigs.some(fc => 
+                          fc.dependant_fields && 
+                          ((typeof fc.dependant_fields === 'object' && config.field_name in fc.dependant_fields) ||
+                           (typeof fc.dependant_fields === 'string' && fc.dependant_fields.includes(config.field_name)))
+                        );
+                        
+                        if (hasDependents) {
+                          // Pass caches once they're defined (they will be by runtime)
+                          RewstLib.forms.onDependencyFieldChanged(config.field_name, fieldConfigs, {
+                            dataRetrievalCache: proxyCache.dataRetrievalCache,
+                            dataRetrievalResults: proxyCache.dataRetrievalResults,
+                            workflowCache: workflowCache,
+                            graphqlCache: graphqlCache,
+                            proxyCache: proxyCache
+                          });
+                        }
+                        
                         // Then update dependent fields (they'll load into visible fields, not hidden ones)
                         RewstLib.utils.updateDependentFields(config.field_name, fieldConfigs, formConfig, loadFieldOptions);
                         
@@ -1772,6 +1811,84 @@
         RewstLib.utils.updateDependentFields = updateDependentFields;
         RewstLib.utils.mapResultsToOptions = mapResultsToOptions;
 
+        async function executeQueryWithRetry(apiKeyName, query, maxRetries = 2) {
+            let lastError = null;
+            for (let attempt = 1; attempt <= maxRetries; attempt++) {
+                try {
+                    console.log(`[MYSQL] executeQuery attempt ${attempt}/${maxRetries}`);
+                    const sessionToken = await getProxySessionToken(apiKeyName);
+                    const result = await ProxyLib.executeQuery(sessionToken, REWST_USER, query, {});
+                    if (result && result.result) return result;
+                    if (result?.error?.toString().includes('401')) throw new Error('Invalid session token (401)');
+                    throw new Error('Failed to execute query: ' + (result?.error || 'Unknown error'));
+                } catch (error) {
+                    lastError = error;
+                    const is401 = error.message && (error.message.includes('401') || error.message.includes('HTTP 401'));
+                    if (is401 && attempt < maxRetries) {
+                        console.log(`[MYSQL] Got 401 error on attempt ${attempt}, clearing token cache and retrying...`);
+                        proxyCache.sessions = proxyCache.sessions || {};
+                        delete proxyCache.sessions[apiKeyName];
+                        await new Promise(resolve => setTimeout(resolve, 500 * attempt));
+                        continue;
+                    }
+                    throw error;
+                }
+            }
+            throw lastError || new Error('Failed after retries');
+        }
+
+        async function getNodesWithRetry(apiKeyName, nodeQuery, maxRetries = 2) {
+            let lastError = null;
+            for (let attempt = 1; attempt <= maxRetries; attempt++) {
+                try {
+                    console.log(`[DATA_RETRIEVAL] getNodes attempt ${attempt}/${maxRetries}`);
+                    const sessionToken = await getProxySessionToken(apiKeyName);
+                    const result = await ProxyLib.getNodes(sessionToken, REWST_USER, { query: nodeQuery });
+                    if (result.success) return result;
+                    if (result?.error?.toString().includes('401')) throw new Error('Invalid session token (401)');
+                    throw new Error('Failed to query nodes: ' + (result?.error || 'Unknown error'));
+                } catch (error) {
+                    lastError = error;
+                    const is401 = error.message && (error.message.includes('401') || error.message.includes('HTTP 401'));
+                    if (is401 && attempt < maxRetries) {
+                        console.log(`[DATA_RETRIEVAL] Got 401 error on attempt ${attempt}, clearing token cache and retrying...`);
+                        proxyCache.sessions = proxyCache.sessions || {};
+                        delete proxyCache.sessions[apiKeyName];
+                        await new Promise(resolve => setTimeout(resolve, 500 * attempt));
+                        continue;
+                    }
+                    throw error;
+                }
+            }
+            throw lastError || new Error('Failed after retries');
+        }
+
+        async function executeCommandWithRetryLogic(apiKeyName, nodeId, command, commandType = 2, maxRetries = 2) {
+            let lastError = null;
+            for (let attempt = 1; attempt <= maxRetries; attempt++) {
+                try {
+                    console.log(`[DATA_RETRIEVAL] executeCommand attempt ${attempt}/${maxRetries} with commandType=${commandType}`);
+                    const sessionToken = await getProxySessionToken(apiKeyName);
+                    const result = await ProxyLib.executeCommand(sessionToken, REWST_USER, nodeId, command, commandType);
+                    if (result && result.success !== false) return result;
+                    if (result?.error?.toString().includes('401')) throw new Error('Invalid session token (401)');
+                    throw new Error('Failed to execute command: ' + (result?.error || 'Unknown error'));
+                } catch (error) {
+                    lastError = error;
+                    const is401 = error.message && (error.message.includes('401') || error.message.includes('HTTP 401'));
+                    if (is401 && attempt < maxRetries) {
+                        console.log(`[DATA_RETRIEVAL] Got 401 error on command attempt ${attempt}, clearing token cache and retrying...`);
+                        proxyCache.sessions = proxyCache.sessions || {};
+                        delete proxyCache.sessions[apiKeyName];
+                        await new Promise(resolve => setTimeout(resolve, 500 * attempt));
+                        continue;
+                    }
+                    throw error;
+                }
+            }
+            throw lastError || new Error('Failed after retries');
+        }
+
         function loadFieldOptions(config, allFieldConfigs = [], formConfig = {}, preselectedValues = []) {
             const formGroup = document.querySelector(`[data-field-name="${config.field_name}"]`);
             console.log(`>>> formGroup found?`, !!formGroup);
@@ -2153,8 +2270,7 @@
                 // Execute query and return promise
                 return (async () => {
                     try {
-                        const sessionToken = await getProxySessionToken('proxy_api_mysql');
-                        const queryResult = await ProxyLib.executeQuery(sessionToken, REWST_USER, config.query, {});
+                        const queryResult = await executeQueryWithRetry('proxy_api_mysql', config.query, 2);
                         
                         if (formGroup) RewstLib.utils.hideLoadingMessage(formGroup, config);
                         
@@ -2737,7 +2853,10 @@
             // Only execute workflow for fields that are not form_extend
             if (config.type !== 'form_extend' && config.workflow_id) {
                 // Use cached workflow execution, passing the already-prepared workflowInput with dependencies
-                return getOrExecuteWorkflow(config, workflowInput, allFieldConfigs, formConfig).catch(error => {
+                return getOrExecuteWorkflow(config, workflowInput, allFieldConfigs, formConfig).then(() => {
+                    // Workflow completed successfully, hide loading message
+                    if (formGroup) RewstLib.utils.hideLoadingMessage(formGroup, config);
+                }).catch(error => {
                     console.error(`Error executing workflow for ${config.field_name}:`, error);
                     if (formGroup) RewstLib.utils.hideLoadingMessage(formGroup, config);
                     const input = document.querySelector(`select[name="${config.field_name}"]`);
@@ -2937,25 +3056,6 @@
             });
         }
 
-        // ============================================
-        // WORKFLOW RESULT CACHING
-        // ============================================
-        const workflowCache = {
-            results: {},      // Cached workflow results
-            inFlight: {}      // In-flight workflow promises
-        };
-        
-        const graphqlCache = {
-            results: {},      // Cached GraphQL results
-            inFlight: {}      // In-flight GraphQL promises
-        };
-        
-        const proxyCache = {
-            sessionTokens: {},  // Cached proxy session tokens by user
-            queryResults: {},   // Cached MySQL query results
-            commandResults: {}, // Cached Mesh command results
-            dataRetrievalResults: {}  // Cached data_retrieval field results by field_name
-        };
         
         function getWorkflowCacheKey(workflowId, workflowInput) {
             // Create a consistent cache key by sorting object keys
@@ -3068,8 +3168,8 @@
                     
                     console.log('[DATA_RETRIEVAL] Executing node query:', nodeQuery);
                     
-                    // Execute getNodes to find the matching node
-                    const nodesResult = await ProxyLib.getNodes(sessionToken, REWST_USER, { query: nodeQuery });
+                    // Execute getNodes to find the matching node (with retry on 401)
+                    const nodesResult = await getNodesWithRetry('proxy_api_meshcentral', nodeQuery, 2);
                     
                     if (!nodesResult.success) {
                         throw new Error('Failed to query nodes: ' + (nodesResult.error || 'Unknown error'));
@@ -3100,16 +3200,28 @@
                     console.log('[DATA_RETRIEVAL] Found node:', nodeId);
                 }
                 
-                // Execute the command (auto-detects PowerShell vs CMD)
-                const commandResult = await executeCommandWithRetry(sessionToken, REWST_USER, nodeId, config.command, 2);
+                // Execute the command (with retry on 401)
+                const commandType = config.command_type || 2;  // Default to PowerShell (2) if not specified
+                const commandResult = await executeCommandWithRetryLogic('proxy_api_meshcentral', nodeId, config.command, commandType, 2);
                 
                 // Parse result
                 let resultData = commandResult.result;
+                console.log('[DATA_RETRIEVAL] Raw command result:', typeof resultData, resultData?.substring ? resultData.substring(0, 100) : resultData);
+                
                 if (typeof resultData === 'object' && resultData !== null && resultData.result) {
                     resultData = resultData.result;
                 }
+                
                 if (typeof resultData === 'string') {
-                    resultData = JSON.parse(resultData);
+                    try {
+                        console.log('[DATA_RETRIEVAL] Attempting to parse string result as JSON');
+                        resultData = JSON.parse(resultData);
+                        console.log('[DATA_RETRIEVAL] Successfully parsed JSON result');
+                    } catch (parseError) {
+                        console.error('[DATA_RETRIEVAL] Failed to parse result as JSON:', parseError.message);
+                        console.error('[DATA_RETRIEVAL] Raw result that failed to parse:', resultData.substring(0, 500));
+                        throw new Error(`Command returned non-JSON result: ${parseError.message}`);
+                    }
                 }
                 
                 // Cache the result
@@ -3647,6 +3759,9 @@
         }
 
         function renderFieldHTML(config, allFieldConfigs) {
+            if (config.field_name === 'dropdown_2') {
+                console.log(`[RENDER-FIELD] renderFieldHTML called for dropdown_2. Stack:`, new Error().stack.split('\n').slice(1, 5).join(' <- '));
+            }
             // Handle data_retrieval fields - rendered but hidden, with waiting/loading messages
             if (config.type === 'data_retrieval') {
                 const fieldId = `field_${config.field_name}_${Math.random().toString(36).substr(2, 5)}`;
