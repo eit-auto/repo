@@ -1154,11 +1154,19 @@
             dataRetrievalResults: {}  // Cached data_retrieval field results by field_name
         };
 
+        // Page variables storage (global)
+        window.pageVariables = {};
+        // Dropdown metadata storage (global but cleared on each form render)
+        let dropdownSourceMetadata = {}; // Maps field_name -> {cacheType, cacheKey, valueName, labelName, ...}
+
         async function renderForm(form) {
             console.log('>>> renderForm STARTED');
             const previewContent = document.getElementById('previewContent');
             console.log('>>> previewContent element found:', !!previewContent);
             const previewParent = previewContent.parentElement;
+            
+            // Clear dropdown metadata for this form render
+            dropdownSourceMetadata = {};
             
             if (!form) {
                 previewContent.innerHTML = '<div class="preview-placeholder">Form data not found</div>';
@@ -1182,8 +1190,751 @@
             const columnCount = formConfig.column_count || 1;
             const workflowId = formConfig.form_workflow || '';
             
+            // ========================================
+            // DEFINE buildPageVariableDependencyMap FIRST
+            // (This must be defined before it's called below)
+            // ========================================
+            
+            /**
+             * Whitelist of properties to scan for [[ ]] variable references by field type
+             */
+            const PROPERTY_WHITELIST = {
+                // All field types
+                'default_value': true,
+                'description': true,
+                // Display content
+                'content': true,
+                // Query/Command execution
+                'query': true,
+                'command': true,
+                'node_query': true,
+                // Workflow/API parameters
+                'workflow_input': true,
+                'graphql_op_variables': true,
+                // Radio/Checkbox
+                'default_select': true,
+                // Field displayname (rarely, but possible)
+                'field_displayname': true
+            };
+
+            /**
+             * Recursively scan object/string for [[ ]] variable references
+             * Returns array of varNames found
+             */
+            const scanPropertyForReferences = (value) => {
+                const varNames = new Set();
+                
+                if (typeof value === 'string') {
+                    // Scan string for [[ varName.property ]]
+                    const regex = /\[\[\s*(\w+)(?:\.([^\]]+))?\s*\]\]/g;
+                    let match;
+                    while ((match = regex.exec(value)) !== null) {
+                        varNames.add(match[1]);
+                    }
+                } else if (typeof value === 'object' && value !== null) {
+                    // Recursively scan object properties (workflow_input, graphql_op_variables, etc.)
+                    Object.values(value).forEach(val => {
+                        scanPropertyForReferences(val).forEach(v => varNames.add(v));
+                    });
+                }
+                
+                return varNames;
+            };
+
+            /**
+             * Build a comprehensive map of which fields depend on which page variables
+             * Scans ALL whitelisted properties universally, including nested array items
+             */
+            const buildPageVariableDependencyMap = (fieldConfigs) => {
+                const dependencies = {};
+                
+                const scanConfig = (config, fieldPath = '') => {
+                    // Scan all whitelisted properties
+                    Object.keys(config).forEach(propName => {
+                        if (!PROPERTY_WHITELIST[propName]) return;
+                        
+                        const value = config[propName];
+                        const varNames = scanPropertyForReferences(value);
+                        
+                        // Add field to each variable's dependency list
+                        varNames.forEach(varName => {
+                            if (!dependencies[varName]) {
+                                dependencies[varName] = [];
+                            }
+                            if (!dependencies[varName].includes(config.field_name)) {
+                                dependencies[varName].push(config.field_name);
+                            }
+                        });
+                    });
+                    
+                    // Recursively scan array item configs
+                    if (config.type === 'array' && Array.isArray(config.items)) {
+                        config.items.forEach((itemConfig, idx) => {
+                            scanConfig(itemConfig, `${fieldPath}[${idx}]`);
+                        });
+                    }
+                };
+                
+                fieldConfigs.forEach(config => scanConfig(config));
+                
+                console.log('[PAGE_VAR_DEPS] Universal dependency map:', dependencies);
+                return dependencies;
+            };
+            
+            // Build dependency map for page variables
+            const pageVarDependencies = buildPageVariableDependencyMap(fieldConfigs);
+            
             // Store form config globally for use in modal (e.g., checking for output_var)
             window.currentFormConfig = formConfig;
+            
+            // ========================================
+            // DEFINE ALL HELPER FUNCTIONS HERE
+            // ========================================
+            
+            /**
+             * Universal function to replace [[ ]] references in ANY value (within renderForm scope)
+             * Uses the renderForm-scoped replacePageVariableReferences function
+             */
+            const replaceReferencesInValue = (value) => {
+                if (typeof value === 'string') {
+                    // Replace in string using renderForm-scoped function
+                    return replacePageVariableReferences(value);
+                } else if (typeof value === 'object' && value !== null) {
+                    if (Array.isArray(value)) {
+                        // Recursively replace in array items
+                        return value.map(item => replaceReferencesInValue(item));
+                    } else {
+                        // Recursively replace in object properties
+                        const replaced = {};
+                        Object.keys(value).forEach(key => {
+                            replaced[key] = replaceReferencesInValue(value[key]);
+                        });
+                        return replaced;
+                    }
+                }
+                // Return unchanged for non-string, non-object types
+                return value;
+            };
+
+            /**
+             * Check if a field has [[ ]] refs in any execution parameters
+             * (workflow_input, graphql_op_variables, query, command, node_query)
+             */
+            const hasExecutionParameterReferences = (config) => {
+                const executionProps = ['workflow_input', 'graphql_op_variables', 'query', 'command', 'node_query'];
+                
+                for (const prop of executionProps) {
+                    if (!config[prop]) continue;
+                    const varNames = scanPropertyForReferences(config[prop]);
+                    if (varNames.size > 0) {
+                        console.log(`[PAGE_VAR_EXEC] Field ${config.field_name} has refs in ${prop}:`, Array.from(varNames));
+                        return true;
+                    }
+                }
+                return false;
+            };
+
+            /**
+             * Get a copy of the field config with all [[ ]] references replaced
+             * Used before executing workflows, queries, etc.
+             */
+            const getResolvedFieldConfig = (config) => {
+                const resolved = { ...config };
+                
+                // Replace in execution parameters
+                const executionProps = ['workflow_input', 'graphql_op_variables', 'query', 'command', 'node_query'];
+                executionProps.forEach(prop => {
+                    if (resolved[prop]) {
+                        resolved[prop] = replaceReferencesInValue(config[prop]);
+                        if (resolved[prop] !== config[prop]) {
+                            console.log(`[PAGE_VAR_EXEC] Resolved ${prop}:`, resolved[prop]);
+                        }
+                    }
+                });
+                
+                // Replace in display parameters
+                ['default_value', 'default_select', 'description', 'content', 'field_displayname'].forEach(prop => {
+                    if (resolved[prop] && typeof resolved[prop] === 'string') {
+                        resolved[prop] = replaceReferencesInValue(config[prop]);
+                    }
+                });
+                
+                return resolved;
+            };
+
+            /**
+             * Extract [[ variable_name.property ]] references from a string
+             * Returns array of {fullMatch, varName, propertyPath}
+             */
+            const extractPageVariableReferences = (text) => {
+                if (!text || typeof text !== 'string') return [];
+                const regex = /\[\[\s*(\w+)(?:\.([^\]]+))?\s*\]\]/g;
+                const matches = [];
+                let match;
+                while ((match = regex.exec(text)) !== null) {
+                    matches.push({
+                        fullMatch: match[0],
+                        varName: match[1],
+                        propertyPath: match[2] ? match[2].trim() : ''
+                    });
+                }
+                return matches;
+            };
+
+            /**
+             * Replace [[ ]] references in text with actual values from pageVariables
+             */
+            const replacePageVariableReferences = (text) => {
+                if (!text || typeof text !== 'string') return text;
+                
+                console.log(`[REPLACE_VARS] Input text: "${text}"`);
+                console.log(`[REPLACE_VARS] window.pageVariables:`, window.pageVariables);
+                
+                const result = text.replace(/\[\[\s*(\w+)(?:\.([^\]]+))?\s*\]\]/g, (match, varName, propertyPath) => {
+                    // Trim propertyPath to remove leading/trailing spaces
+                    if (propertyPath) {
+                        propertyPath = propertyPath.trim();
+                    }
+                    
+                    console.log(`[REPLACE_VARS] Found ref: match="${match}", varName="${varName}", propertyPath="${propertyPath}"`);
+                    
+                    const value = window.pageVariables[varName];
+                    console.log(`[REPLACE_VARS] Looked up ${varName}:`, value);
+                    
+                    if (value === undefined || value === null) {
+                        console.log(`[REPLACE_VARS] Value is undefined/null, returning match`);
+                        return match; // Leave placeholder if not found
+                    }
+                    
+                    if (propertyPath) {
+                        console.log(`[REPLACE_VARS] Getting nested path: ${propertyPath}`);
+                        const nestedValue = RewstLib.utils.getValueByPath(value, propertyPath);
+                        console.log(`[REPLACE_VARS] Nested value:`, nestedValue);
+                        return nestedValue !== undefined ? String(nestedValue) : match;
+                    }
+                    
+                    return String(value);
+                });
+                
+                console.log(`[REPLACE_VARS] Output text: "${result}"`);
+                return result;
+            };
+
+            /**
+             * Check if a field has unresolved page variable references
+             */
+            const hasUnresolvedPageVariables = (fieldConfig) => {
+                const fieldsToCheck = [];
+                if (fieldConfig.default_value) fieldsToCheck.push(fieldConfig.default_value);
+                if (fieldConfig.content) fieldsToCheck.push(fieldConfig.content);
+                
+                for (const value of fieldsToCheck) {
+                    const refs = extractPageVariableReferences(value);
+                    for (const ref of refs) {
+                        if (window.pageVariables[ref.varName] === undefined) {
+                            return true;
+                        }
+                    }
+                }
+                return false;
+            };
+
+            /**
+             * Rebuild fields that depend on a specific page variable
+             * Handles both display updates and re-execution of dependent fields
+             */
+            const rebuildDependentFields = (varName) => {
+                const dependentFieldNames = pageVarDependencies[varName] || [];
+                
+                dependentFieldNames.forEach(fieldName => {
+                    const config = fieldConfigs.find(f => f.field_name === fieldName);
+                    if (!config) return;
+                    
+                    const formGroup = document.querySelector(`[data-field-name="${fieldName}"]`);
+                    if (!formGroup) return;
+                    
+                    console.log(`[PAGE_VAR] Rebuilding field ${fieldName} due to ${varName} update`);
+                    
+                    // Check if field still has unresolved variables
+                    const hasUnresolved = hasUnresolvedPageVariables(config);
+                    const displayValue = hasUnresolved ? config.default_value : replacePageVariableReferences(config.default_value || config.content || '');
+                    
+                    // Handle different field types
+                    if (config.type === 'text') {
+                        const input = formGroup.querySelector('input[type="text"]');
+                        const waitingMsg = formGroup.querySelector('.field-waiting-message');
+                        
+                        console.log(`[PAGE_VAR DEBUG] text_1: hasUnresolved=${hasUnresolved}, displayValue="${displayValue}", input=${!!input}`);
+                        
+                        if (hasUnresolved) {
+                            if (input) input.style.visibility = 'hidden';
+                            if (waitingMsg) waitingMsg.style.display = 'flex';
+                        } else {
+                            if (input) {
+                                input.value = displayValue;
+                                console.log(`[PAGE_VAR DEBUG] Set input.value to: ${input.value}`);
+                                input.style.visibility = 'visible';
+                            }
+                            if (waitingMsg) waitingMsg.style.display = 'none';
+                        }
+                    } else if (config.type === 'textarea') {
+                        const textarea = formGroup.querySelector('textarea');
+                        const waitingMsg = formGroup.querySelector('.field-waiting-message');
+                        
+                        if (hasUnresolved) {
+                            if (textarea) textarea.style.visibility = 'hidden';
+                            if (waitingMsg) waitingMsg.style.display = 'flex';
+                        } else {
+                            if (textarea) {
+                                textarea.value = displayValue;
+                                textarea.style.visibility = 'visible';
+                            }
+                            if (waitingMsg) waitingMsg.style.display = 'none';
+                        }
+                    } else if (config.type === 'html') {
+                        const htmlElement = formGroup.querySelector('[data-html-content]');
+                        const waitingMsg = formGroup.querySelector('.field-waiting-message');
+                        
+                        console.log(`[PAGE_VAR DEBUG] html_1: hasUnresolved=${hasUnresolved}, displayValue="${displayValue}", htmlElement=${!!htmlElement}`);
+                        
+                        if (hasUnresolved) {
+                            if (htmlElement) htmlElement.style.visibility = 'hidden';
+                            if (waitingMsg) waitingMsg.style.display = 'flex';
+                        } else {
+                            if (htmlElement) {
+                                htmlElement.innerHTML = displayValue;
+                                console.log(`[PAGE_VAR DEBUG] Set htmlElement.innerHTML to: ${htmlElement.innerHTML}`);
+                                htmlElement.style.visibility = 'visible';
+                            }
+                            if (waitingMsg) waitingMsg.style.display = 'none';
+                        }
+                    }
+                    
+                    // Check if field has execution parameters that need re-evaluation
+                    if (!hasUnresolved && hasExecutionParameterReferences(config)) {
+                        console.log(`[PAGE_VAR_EXEC] Field ${fieldName} needs re-execution due to resolved variables`);
+                        
+                        // Get the resolved config with replaced values
+                        const resolvedConfig = getResolvedFieldConfig(config);
+                        
+                        // Re-load the field with resolved parameters
+                        // This will re-execute workflows, re-fetch queries, etc.
+                        loadFieldOptions(resolvedConfig, fieldConfigs, formConfig, [])
+                            .catch(err => console.error(`[PAGE_VAR_EXEC] Error re-loading field ${fieldName}:`, err));
+                    }
+                });
+            };
+            
+            /**
+             * Set a page variable with the full object(s) associated with a dropdown selection
+             * @param {object} config - Field configuration
+             * @param {*} selectedValue(s) - The value(s) selected in the dropdown (string or array)
+             */
+            const setPageVariableFromDropdown = (config, selectedValues) => {
+                if (!config.result_var) {
+                    return; // No result_var configured, skip
+                }
+
+                // Get metadata about this field's data source
+                const metadata = dropdownSourceMetadata[config.field_name];
+                if (!metadata) {
+                    console.warn(`[PAGE_VAR] No metadata found for dropdown ${config.field_name}, cannot set page variable`);
+                    return;
+                }
+
+                const { cacheType, cacheKey, valueName, labelName, sourceFieldName, resultPath } = metadata;
+                let sourceData = null;
+
+                // Retrieve data from appropriate cache based on source type
+                if (cacheType === 'mysql') {
+                    sourceData = proxyCache.queryResults[cacheKey];
+                } else if (cacheType === 'graphql') {
+                    sourceData = graphqlCache.results[cacheKey];
+                } else if (cacheType === 'mesh') {
+                    sourceData = proxyCache.commandResults[cacheKey];
+                } else if (cacheType === 'data_retrieval') {
+                    // For data_retrieval, we need to navigate using resultPath
+                    const retrievedData = proxyCache.dataRetrievalResults[sourceFieldName];
+                    if (retrievedData && resultPath) {
+                        // Navigate the path (e.g., "companies[0].users")
+                        sourceData = RewstLib.utils.getValueByPath(retrievedData, resultPath);
+                    } else {
+                        sourceData = retrievedData;
+                    }
+                } else if (cacheType === 'workflow') {
+                    sourceData = workflowCache[cacheKey];
+                }
+
+                if (!sourceData || !Array.isArray(sourceData)) {
+                    console.warn(`[PAGE_VAR] Source data not found or not an array for ${config.field_name}`, { cacheType, cacheKey });
+                    return;
+                }
+
+                // Normalize selectedValues to array
+                const values = Array.isArray(selectedValues) ? selectedValues : (selectedValues ? [selectedValues] : []);
+
+                if (config.multi_select) {
+                    // For multi-select, return array of full objects
+                    const results = values.map(val => 
+                        sourceData.find(item => String(item[valueName]) === String(val) || String(item.id) === String(val))
+                    ).filter(item => item !== undefined);
+                    
+                    window.pageVariables[config.result_var] = results;
+                    console.log(`[PAGE_VAR] Set ${config.result_var} (multi-select) with ${results.length} objects`, results);
+                } else {
+                    // For single-select, return single object or null
+                    if (values.length > 0) {
+                        const result = sourceData.find(item => String(item[valueName]) === String(values[0]) || String(item.id) === String(values[0]));
+                        window.pageVariables[config.result_var] = result || null;
+                        console.log(`[PAGE_VAR] Set ${config.result_var} (single-select)`, result);
+                    } else {
+                        window.pageVariables[config.result_var] = null;
+                        console.log(`[PAGE_VAR] Cleared ${config.result_var} (no selection)`);
+                    }
+                }
+                
+                // Rebuild any fields that depend on this page variable
+                rebuildDependentFields(config.result_var);
+            };
+            
+            // ========================================
+            // END HELPER FUNCTION DEFINITIONS
+            // ========================================
+            
+            // ========================================
+            // DEFINE renderFieldHTML FUNCTION HERE
+            // ========================================
+            
+            function renderFieldHTML(config, allFieldConfigs) {
+                if (config.field_name === 'dropdown_2') {
+                    console.log(`[RENDER-FIELD] renderFieldHTML called for dropdown_2. Stack:`, new Error().stack.split('\n').slice(1, 5).join(' <- '));
+                }
+                // Handle data_retrieval fields - rendered but hidden, with waiting/loading messages
+                if (config.type === 'data_retrieval') {
+                    const fieldId = `field_${config.field_name}_${Math.random().toString(36).substr(2, 5)}`;
+                    let html = `<div class="form-group" data-field-name="${config.field_name}" style="display: none !important; margin-bottom: 0 !important;">`;
+                    html += `<div class="field-loading-message" style="display: none;"><span class="spinner"></span> Loading...</div>`;
+                    html += `<div class="field-waiting-message" style="display: none;">Waiting for dependencies...</div>`;
+                    html += `</div>`;
+                    return html;
+                }
+                
+                // Determine if field should be hidden based on hidden property
+                let isHidden = config.hidden === true;
+                let styleAttr = isHidden ? ' style="display: none !important; margin-bottom: 0 !important;"' : '';
+                
+                // Debug logging for form_extend
+                if (config.field_name === 'form_extend') {
+                    console.log(`[DEBUG] renderFieldHTML for form_extend:`, {
+                        field_name: config.field_name,
+                        hidden: config.hidden,
+                        isHidden: isHidden,
+                        styleAttr: styleAttr
+                    });
+                }
+                
+                let html = `<div class="form-group" data-field-name="${config.field_name}"${styleAttr}>`;
+                
+                // Add " - Required" to display name if field is required
+                const displayName = config.required ? `${config.field_displayname} <span style="color: #999; font-size: 12px;">- Required</span>` : config.field_displayname;
+                
+                // Generate a unique ID for this field
+                const fieldId = `field_${config.field_name}_${Math.random().toString(36).substr(2, 5)}`;
+
+                if (config.type === 'checkbox') {
+                    html += `
+                        <div class="checkbox-wrapper">
+                            <input type="checkbox" id="${fieldId}" name="${config.field_name}" ${config.default_checked ? 'checked' : ''}>
+                            <div>
+                                <label for="${fieldId}">${displayName}</label>
+                                ${config.description ? `<div class="field-description">${escapeHtml(config.description)}</div>` : ''}
+                            </div>
+                        </div>
+                    `;
+                } else if (config.type === 'text') {
+                    const hasUnresolved = hasUnresolvedPageVariables(config);
+                    const displayValue = hasUnresolved ? config.default_value : replacePageVariableReferences(config.default_value || '');
+                    
+                    html += `
+                        <label for="${fieldId}">${displayName}</label>
+                        ${config.description ? `<div class="field-description">${escapeHtml(config.description)}</div>` : ''}
+                        <div style="position: relative;">
+                            ${hasUnresolved ? `<div class="field-waiting-message" style="display: flex; position: absolute; top: 0; left: 0; right: 0; margin: 0; z-index: 10;">Waiting for dependencies...</div>` : ''}
+                            <input type="text" id="${fieldId}" name="${config.field_name}" value="${escapeHtml(displayValue)}" style="${hasUnresolved ? 'visibility: hidden;' : ''}">
+                        </div>
+                    `;
+                } else if (config.type === 'textarea') {
+                    const hasUnresolved = hasUnresolvedPageVariables(config);
+                    const displayValue = hasUnresolved ? config.default_value : replacePageVariableReferences(config.default_value || '');
+                    
+                    html += `
+                        <label>${displayName}</label>
+                        ${config.description ? `<div class="field-description">${escapeHtml(config.description)}</div>` : ''}
+                        <div style="position: relative;">
+                            ${hasUnresolved ? `<div class="field-waiting-message" style="display: flex; position: absolute; top: 0; left: 0; right: 0; margin: 0; z-index: 10;">Waiting for dependencies...</div>` : ''}
+                            <textarea name="${config.field_name}" style="${hasUnresolved ? 'visibility: hidden;' : ''}">${escapeHtml(displayValue)}</textarea>
+                        </div>
+                    `;
+                } else if (config.type === 'date') {
+                    html += `
+                        <label>${displayName}</label>
+                        ${config.description ? `<div class="field-description">${escapeHtml(config.description)}</div>` : ''}
+                        <input type="date" name="${config.field_name}" value="${escapeHtml(config.default_value || '')}">
+                    `;
+                } else if (config.type === 'date_time') {
+                    html += `
+                        <label>${displayName}</label>
+                        ${config.description ? `<div class="field-description">${escapeHtml(config.description)}</div>` : ''}
+                        <input type="datetime-local" name="${config.field_name}" value="${escapeHtml(config.default_value || '')}">
+                    `;
+                } else if (config.type === 'radio') {
+                    html += `
+                        <label>${displayName}</label>
+                        ${config.description ? `<div class="field-description">${escapeHtml(config.description)}</div>` : ''}
+                        <div class="radio-group">
+                    `;
+                    
+                    if (config.options && typeof config.options === 'object') {
+                        Object.entries(config.options).forEach(([key, value]) => {
+                            const isChecked = config.default_select === key ? 'checked' : '';
+                            const radioId = `field_${config.field_name}_${value}_${Math.random().toString(36).substr(2, 5)}`;
+                            html += `
+                                <div class="radio-item">
+                                    <input type="radio" id="${radioId}" name="${config.field_name}" value="${value}" ${isChecked}>
+                                    <label for="${radioId}">${escapeHtml(key)}</label>
+                                </div>
+                            `;
+                        });
+                    }
+                    
+                    html += '</div>';
+                } else if (config.type === 'dropdown_static') {
+                    if (config.multi_select) {
+                        // Custom multi-select component
+                        html += RewstLib.utils.renderMultiSelectContainer(config.field_name, displayName, config.description);
+                    } else {
+                        // Single select (original logic)
+                        html += `
+                            <label>${displayName}</label>
+                            ${config.description ? `<div class="field-description">${escapeHtml(config.description)}</div>` : ''}
+                            <select name="${config.field_name}">
+                                <option value="">${RewstLib.utils.getGrammaticalPhrase(config.field_displayname)}</option>
+                        `;
+                        
+                        if (config.options && typeof config.options === 'object') {
+                            Object.entries(config.options).forEach(([key, value]) => {
+                                const isSelected = config.default_value === value ? 'selected' : '';
+                                html += `<option value="${escapeHtml(value)}" ${isSelected}>${escapeHtml(key)}</option>`;
+                            });
+                        }
+                        
+                        html += '</select>';
+                    }
+                } else if (config.type === 'dropdown') {
+                    if (config.multi_select) {
+                        html += RewstLib.utils.renderMultiSelectContainer(config.field_name, displayName, config.description);
+                    } else {
+                        html += `
+                            <label>${displayName}</label>
+                            ${config.description ? `<div class="field-description">${escapeHtml(config.description)}</div>` : ''}
+                            <div style="position: relative;">
+                                <div class="field-loading-message" style="display: none; position: absolute; top: 0; left: 0; right: 0; margin: 0; z-index: 10;"><span class="spinner"></span> Loading...</div>
+                                <div class="field-waiting-message" style="display: none; position: absolute; top: 0; left: 0; right: 0; margin: 0; z-index: 10;">Waiting for dependencies...</div>
+                                <select name="${config.field_name}" style="width: 100%; box-sizing: border-box;">
+                                    <option value="">Loading...</option>
+                                </select>
+                            </div>
+                        `;
+                    }
+                } else if (config.type === 'dropdown_mysql') {
+                    if (config.multi_select) {
+                        html += RewstLib.utils.renderMultiSelectContainer(config.field_name, displayName, config.description);
+                    } else {
+                        html += `
+                            <label>${displayName}</label>
+                            ${config.description ? `<div class="field-description">${escapeHtml(config.description)}</div>` : ''}
+                            <div style="position: relative;">
+                                <div class="field-loading-message" style="display: none; position: absolute; top: 0; left: 0; right: 0; margin: 0; z-index: 10;"><span class="spinner"></span> Loading...</div>
+                                <div class="field-waiting-message" style="display: none; position: absolute; top: 0; left: 0; right: 0; margin: 0; z-index: 10;">Waiting for dependencies...</div>
+                                <select name="${config.field_name}" style="width: 100%; box-sizing: border-box;">
+                                    <option value="">Loading...</option>
+                                </select>
+                            </div>
+                        `;
+                    }
+                } else if (config.type === 'dropdown_graphql') {
+                    if (config.multi_select) {
+                        html += RewstLib.utils.renderMultiSelectContainer(config.field_name, displayName, config.description);
+                    } else {
+                        html += `
+                            <label>${displayName}</label>
+                            ${config.description ? `<div class="field-description">${escapeHtml(config.description)}</div>` : ''}
+                            <div style="position: relative;">
+                                <div class="field-loading-message" style="display: none; position: absolute; top: 0; left: 0; right: 0; margin: 0; z-index: 10;"><span class="spinner"></span> Loading...</div>
+                                <div class="field-waiting-message" style="display: none; position: absolute; top: 0; left: 0; right: 0; margin: 0; z-index: 10;">Waiting for dependencies...</div>
+                                <select name="${config.field_name}" style="width: 100%; box-sizing: border-box;">
+                                    <option value="">Loading...</option>
+                                </select>
+                            </div>
+                        `;
+                    }
+                } else if (config.type === 'dropdown_mesh') {
+                    if (config.multi_select) {
+                        html += RewstLib.utils.renderMultiSelectContainer(config.field_name, displayName, config.description);
+                    } else {
+                        html += `
+                            <label>${displayName}</label>
+                            ${config.description ? `<div class="field-description">${escapeHtml(config.description)}</div>` : ''}
+                            <div style="position: relative;">
+                                <div class="field-loading-message" style="display: none; position: absolute; top: 0; left: 0; right: 0; margin: 0; z-index: 10;"><span class="spinner"></span> Loading...</div>
+                                <div class="field-waiting-message" style="display: none; position: absolute; top: 0; left: 0; right: 0; margin: 0; z-index: 10;">Waiting for dependencies...</div>
+                                <select name="${config.field_name}" style="width: 100%; box-sizing: border-box;">
+                                    <option value="">Loading...</option>
+                                </select>
+                            </div>
+                        `;
+                    }
+                } else if (config.type === 'dropdown_prefetch') {
+                    // Get the source field config
+                    const sourceFieldName = config.source_element_name;
+                    const resultPath = config.result_path || 'id';
+                    const labelField = config.label_field || 'name';
+                    const valueField = config.value_field || 'id';
+                    
+                    let options = [];
+                    
+                    // Check if we have cached data from the source field
+                    if (sourceFieldName && proxyCache.dataRetrievalResults && proxyCache.dataRetrievalResults[sourceFieldName]) {
+                        const sourceData = proxyCache.dataRetrievalResults[sourceFieldName];
+                        const results = sourceData[resultPath];
+                        if (Array.isArray(results)) {
+                            options = results.map(item => ({
+                                label: item[labelField] || item.name || String(item.id),
+                                value: item[valueField] || item.id || ''
+                            }));
+                        }
+                    }
+                    
+                    if (config.multi_select) {
+                        // Custom multi-select component for prefetch - use library to generate structure
+                        html += `
+                            <div class="dropdown-refresh-container" style="position: relative;">
+                                <div class="field-loading-message" style="display: none; position: absolute; top: 0; left: 0; right: 0; margin: 0; z-index: 10;"><span class="spinner"></span> Loading...</div>
+                                <div class="field-waiting-message" style="display: none; position: absolute; top: 0; left: 0; right: 0; margin: 0; z-index: 10;">Waiting for dependencies...</div>
+                                <div style="flex: 1;">
+                                    ${RewstLib.utils.renderMultiSelectContainer(config.field_name, displayName, config.description)}
+                                </div>
+                                <button type="button" class="btn btn-small dropdown-refresh-btn" data-field-name="${config.field_name}" data-source-field="${sourceFieldName}" title="Refresh options">↻</button>
+                            </div>
+                        `;
+                    } else {
+                        // Single select dropdown for prefetch - wrap in container for consistent hiding/showing
+                        const optionsHtml = options.map(opt => 
+                            `<option value="${escapeHtml(String(opt.value))}">${escapeHtml(String(opt.label))}</option>`
+                        ).join('');
+                        
+                        html += `
+                            <label>${displayName}</label>
+                            ${config.description ? `<div class="field-description">${escapeHtml(config.description)}</div>` : ''}
+                            <div class="dropdown-refresh-container" style="position: relative;">
+                                <div class="field-loading-message" style="display: none; position: absolute; top: 0; left: 0; right: 0; margin: 0; z-index: 10;"><span class="spinner"></span> Loading...</div>
+                                <div class="field-waiting-message" style="display: none; position: absolute; top: 0; left: 0; right: 0; margin: 0; z-index: 10;">Waiting for dependencies...</div>
+                                <select name="${config.field_name}" style="width: 100%; box-sizing: border-box;">
+                                    <option value="">${RewstLib.utils.getGrammaticalPhrase(config.field_displayname)}</option>
+                                    ${optionsHtml}
+                                </select>
+                                <button type="button" class="btn btn-small dropdown-refresh-btn" data-field-name="${config.field_name}" data-source-field="${sourceFieldName}" title="Refresh options">↻</button>
+                            </div>
+                        `;
+                    }
+                } else if (config.type === 'html') {
+                    // Render HTML content directly with label color styling
+                    const hasUnresolved = hasUnresolvedPageVariables(config);
+                    const displayValue = hasUnresolved ? config.content : replacePageVariableReferences(config.content || '');
+                    
+                    html += `
+                        <div style="position: relative;">
+                            ${hasUnresolved ? `<div class="field-waiting-message" style="display: flex; position: absolute; top: 0; left: 0; right: 0; margin: 0; z-index: 10;">Waiting for dependencies...</div>` : ''}
+                            <div class="html-field" data-html-content style="${hasUnresolved ? 'visibility: hidden;' : ''}">${displayValue}</div>
+                        </div>
+                    `;
+                } else if (config.type === 'horizontal_line') {
+                    // Render horizontal line (content field contains the HR element or styling)
+                    html += `${config.content || '<hr>'}`;
+                } else if (config.type === 'array') {
+                    // Array field with add/remove functionality
+                    const arrayId = `array_${config.field_name}_${Math.random().toString(36).substr(2, 5)}`;
+                    const itemsArray = Array.isArray(config.items) ? config.items : [];
+                    
+                    // Generate default instance - render each field based on its type
+                    const itemsHtml = itemsArray.map((itemConfig) => {
+                        const fieldName = itemConfig.name;
+                        const displayName = itemConfig.display_name || fieldName;
+                        const fieldId = `${config.field_name}_${fieldName}_0`;
+                        
+                        let fieldHtml = '';
+                        
+                        if (itemConfig.type === 'dropdown_static') {
+                            // Static dropdown with predefined options
+                            const options = itemConfig.options || {};
+                            const optionsHtml = Object.entries(options)
+                                .map(([label, value]) => `<option value="${escapeHtml(String(value))}">${escapeHtml(label)}</option>`)
+                                .join('');
+                            fieldHtml = `<select name="${fieldId}" id="${fieldId}" data-array-field="${fieldName}"><option value="">-- Select --</option>${optionsHtml}</select>`;
+                        } 
+                        else if (itemConfig.type === 'dropdown_workflow') {
+                            // Workflow dropdown - will load options asynchronously
+                            fieldHtml = `<div style="display: flex; gap: 8px; align-items: center;">
+                                <select name="${fieldId}" id="${fieldId}" data-array-field="${fieldName}" style="flex: 1;"><option value="">Loading options...</option></select>
+                                <button type="button" class="btn btn-small dropdown-refresh-btn" data-field-name="${fieldId}" style="width: auto; padding: 0.2rem 0.15rem;">↻</button>
+                            </div>`;
+                        }
+                        else if (itemConfig.type === 'dropdown_graphql') {
+                            // GraphQL dropdown - will load options asynchronously
+                            fieldHtml = `<div style="display: flex; gap: 8px; align-items: center;">
+                                <select name="${fieldId}" id="${fieldId}" data-array-field="${fieldName}" style="flex: 1;"><option value="">Loading options...</option></select>
+                                <button type="button" class="btn btn-small dropdown-refresh-btn" data-field-name="${fieldId}" style="width: auto; padding: 0.2rem 0.15rem;">↻</button>
+                            </div>`;
+                        }
+                        else {
+                            // Default to text input for unknown types
+                            fieldHtml = `<input type="text" name="${fieldId}" id="${fieldId}" data-array-field="${fieldName}" placeholder="${escapeHtml(displayName)}">`;
+                        }
+                        
+                        return `<div class="array-instance-field" data-field-name="${fieldId}"><label>${escapeHtml(displayName)}</label>${fieldHtml}</div>`;
+                    }).join('');
+                    
+                    // Calculate grid layout for default instance
+                    const itemCount = itemsArray.length;
+                    let numRows = 1;
+                    if (itemCount > 6) numRows = 3;
+                    else if (itemCount > 3) numRows = 2;
+                    
+                    const numCols = Math.ceil(itemCount / numRows);
+                    
+                    const defaultInstanceHtml = `<div class="array-instance" data-instance-index="0"><div class="array-instance-fields" data-cols="${numCols}">${itemsHtml}</div><button type="button" class="array-instance-delete" title="Delete this row">×</button></div>`;
+                    
+                    html += `
+                        <div class="array-field-container">
+                            <div class="array-field-header">
+                                <label>${displayName}</label>
+                                <button type="button" class="btn btn-blue array-add-btn" data-array-name="${config.field_name}" data-array-id="${arrayId}" style="width: auto;">Add</button>
+                            </div>
+                            <div class="array-instances" id="${arrayId}" data-array-name="${config.field_name}">
+                                ${defaultInstanceHtml}
+                            </div>
+                        </div>
+                    `;
+                }
+
+                html += '</div>';
+                return html;
+            }
+            
+            // ========================================
+            // END renderFieldHTML FUNCTION DEFINITION
+            // ========================================
+            
             
             console.log('>>> renderForm: fieldConfigs count:', fieldConfigs.length);
             console.log('>>> renderForm: columnCount:', columnCount);
@@ -1348,8 +2099,27 @@
                 }
             });
             
-            // Evaluate conditional visibility on initial load
-            evaluateConditionalVisibility(fieldConfigs);
+
+        /**
+         * Helper to get value by path string (e.g., "data.users[0].name")
+         * Added as utility since RewstLib might not have it
+         */
+        if (!RewstLib.utils.getValueByPath) {
+            RewstLib.utils.getValueByPath = function(obj, path) {
+                if (!path) return obj;
+                return path.split('.').reduce((current, prop) => {
+                    if (!current) return undefined;
+                    // Handle array notation like "users[0]"
+                    const match = prop.match(/^(\w+)\[(\d+)\]$/);
+                    if (match) {
+                        const [, key, index] = match;
+                        return current[key] && current[key][parseInt(index)];
+                    }
+                    return current[prop];
+                }, obj);
+            };
+        }
+
             
             // Enable fields and set up interactive listeners
             console.log(`>>> Total fields in fieldConfigs: ${fieldConfigs.length}`);
@@ -1368,6 +2138,30 @@
                     // Add change listener to trigger dependent fields (for any field type)
                     const changeHandler = () => {
                         console.log(`>>> Change event fired for: ${config.field_name}`);
+                        
+                        // If this is a dropdown with result_var, update the page variable with full object
+                        if ((config.type === 'dropdown_mysql' || config.type === 'dropdown_graphql' || 
+                             config.type === 'dropdown_mesh' || config.type === 'dropdown_prefetch' ||
+                             (config.type === 'dropdown' && config.workflow_id)) && config.result_var) {
+                            
+                            // Get the selected value(s)
+                            let selectedValues;
+                            if (config.multi_select) {
+                                const multiSelect = document.querySelector(`[data-field-name="${config.field_name}"] .multi-select-container`);
+                                if (multiSelect) {
+                                    selectedValues = Array.from(multiSelect.querySelectorAll('[data-selected="true"]'))
+                                        .map(el => el.getAttribute('data-value'));
+                                } else {
+                                    selectedValues = [];
+                                }
+                            } else {
+                                const select = document.querySelector(`select[name="${config.field_name}"]`);
+                                selectedValues = select ? select.value : '';
+                            }
+                            
+                            setPageVariableFromDropdown(config, selectedValues);
+                        }
+                        
                         // First, evaluate conditional visibility to ensure fields are visible/hidden based on conditions
                         console.log(`>>> About to evaluate conditional visibility for all fields`);
                         evaluateConditionalVisibility(fieldConfigs);
@@ -1889,9 +2683,176 @@
             throw lastError || new Error('Failed after retries');
         }
 
+        // ============================================
+        // UTILITY FUNCTIONS FOR [[ ]] VARIABLE REPLACEMENT
+        // (Accessible to loadFieldOptions and other outer-scope functions)
+        // ============================================
+
+        /**
+         * Recursively scan object/string for [[ ]] variable references
+         * Returns Set of varNames found
+         */
+        const scanPropertyForReferences = (value) => {
+            const varNames = new Set();
+            
+            if (typeof value === 'string') {
+                const regex = /\[\[\s*(\w+)(?:\.([^\]]+))?\s*\]\]/g;
+                let match;
+                while ((match = regex.exec(value)) !== null) {
+                    varNames.add(match[1]);
+                }
+            } else if (typeof value === 'object' && value !== null) {
+                Object.values(value).forEach(val => {
+                    scanPropertyForReferences(val).forEach(v => varNames.add(v));
+                });
+            }
+            
+            return varNames;
+        };
+
+        /**
+         * Universal function to replace [[ ]] references in ANY value
+         * Handles strings, objects (recursive), and arrays
+         */
+        const replaceReferencesInValue = (value, replaceFunc) => {
+            if (typeof value === 'string') {
+                return replaceFunc(value);
+            } else if (typeof value === 'object' && value !== null) {
+                if (Array.isArray(value)) {
+                    return value.map(item => replaceReferencesInValue(item, replaceFunc));
+                } else {
+                    const replaced = {};
+                    Object.keys(value).forEach(key => {
+                        replaced[key] = replaceReferencesInValue(value[key], replaceFunc);
+                    });
+                    return replaced;
+                }
+            }
+            return value;
+        };
+
+        /**
+         * Check if a field has [[ ]] refs in any execution parameters
+         */
+        const hasExecutionParameterReferences = (config) => {
+            const executionProps = ['workflow_input', 'graphql_op_variables', 'query', 'command', 'node_query'];
+            for (const prop of executionProps) {
+                if (!config[prop]) continue;
+                const varNames = scanPropertyForReferences(config[prop]);
+                if (varNames.size > 0) {
+                    return true;
+                }
+            }
+            return false;
+        };
+
+        /**
+         * Get a copy of the field config with all [[ ]] references replaced
+         * Uses outer-scope replaceReferencesInValue for value resolution
+         */
+        const getResolvedFieldConfig = (config) => {
+            const resolved = { ...config };
+            
+            // Replace in execution parameters using outer-scope function
+            const executionProps = ['workflow_input', 'graphql_op_variables', 'query', 'command', 'node_query'];
+            executionProps.forEach(prop => {
+                if (resolved[prop]) {
+                    resolved[prop] = replaceReferencesInValue(config[prop], (str) => {
+                        // Replace [[ varName.property ]] with values from window.pageVariables
+                        return str.replace(/\[\[\s*(\w+)(?:\.([^\]]+))?\s*\]\]/g, (match, varName, propertyPath) => {
+                            if (!propertyPath) {
+                                // [[ varName ]] - whole object
+                                const val = window.pageVariables[varName];
+                                return val !== undefined ? JSON.stringify(val) : match;
+                            } else {
+                                // [[ varName.property ]]
+                                const pageVar = window.pageVariables[varName];
+                                if (pageVar === undefined) return match;
+                                
+                                const trimmedPath = propertyPath.trim();
+                                const parts = trimmedPath.split('.');
+                                let current = pageVar;
+                                for (const part of parts) {
+                                    if (current && typeof current === 'object') {
+                                        current = current[part];
+                                    } else {
+                                        return match;
+                                    }
+                                }
+                                return current !== undefined ? String(current) : match;
+                            }
+                        });
+                    });
+                }
+            });
+            
+            // Replace in display parameters
+            ['default_value', 'default_select', 'description', 'content', 'field_displayname'].forEach(prop => {
+                if (resolved[prop] && typeof resolved[prop] === 'string') {
+                    resolved[prop] = resolved[prop].replace(/\[\[\s*(\w+)(?:\.([^\]]+))?\s*\]\]/g, (match, varName, propertyPath) => {
+                        if (!propertyPath) {
+                            const val = window.pageVariables[varName];
+                            return val !== undefined ? JSON.stringify(val) : match;
+                        } else {
+                            const pageVar = window.pageVariables[varName];
+                            if (pageVar === undefined) return match;
+                            const trimmedPath = propertyPath.trim();
+                            const parts = trimmedPath.split('.');
+                            let current = pageVar;
+                            for (const part of parts) {
+                                if (current && typeof current === 'object') {
+                                    current = current[part];
+                                } else {
+                                    return match;
+                                }
+                            }
+                            return current !== undefined ? String(current) : match;
+                        }
+                    });
+                }
+            });
+            
+            return resolved;
+        };
+
         function loadFieldOptions(config, allFieldConfigs = [], formConfig = {}, preselectedValues = []) {
             const formGroup = document.querySelector(`[data-field-name="${config.field_name}"]`);
             console.log(`>>> formGroup found?`, !!formGroup);
+            
+            // Get resolved config with all [[ ]] variable references replaced
+            // This is used for execution-time replacement
+            const resolvedConfig = getResolvedFieldConfig(config);
+            
+            // Check for unresolved [[ ]] variable references in execution parameters
+            // If field has refs in query/command/workflow_input and page variables aren't ready, skip execution
+            if (hasExecutionParameterReferences(config)) {
+                console.log(`[PAGE_VAR_EXEC] Field ${config.field_name} has variable refs in execution params, checking if ready...`);
+                
+                // Scan to see which variables are referenced
+                const executionProps = ['workflow_input', 'graphql_op_variables', 'query', 'command', 'node_query'];
+                let hasUnresolvedRef = false;
+                
+                for (const prop of executionProps) {
+                    if (!config[prop]) continue;
+                    const varNames = scanPropertyForReferences(config[prop]);
+                    for (const varName of varNames) {
+                        if (window.pageVariables[varName] === undefined) {
+                            console.log(`[PAGE_VAR_EXEC] Field ${config.field_name} waiting for ${varName}`);
+                            hasUnresolvedRef = true;
+                            break;
+                        }
+                    }
+                    if (hasUnresolvedRef) break;
+                }
+                
+                if (hasUnresolvedRef) {
+                    console.log(`[PAGE_VAR_EXEC] Field ${config.field_name} has unresolved refs, showing waiting state`);
+                    if (formGroup) {
+                        RewstLib.utils.showWaitingMessage(formGroup, config);
+                    }
+                    return Promise.resolve();
+                }
+            }
             
             // Handle data_retrieval fields
             if (config.type === 'data_retrieval') {
@@ -1936,6 +2897,16 @@
                         }
                     }
                 }
+                
+                // Store metadata about this dropdown's data source (points to data_retrieval)
+                dropdownSourceMetadata[config.field_name] = {
+                    cacheType: 'data_retrieval',
+                    sourceFieldName: sourceFieldName,
+                    resultPath: resultPath,
+                    valueName: valueField,
+                    labelName: labelField,
+                    data: options
+                };
                 
                 // Populate the dropdown
                 if (config.multi_select) {
@@ -2105,8 +3076,8 @@
                     }
                 }
                 
-                // Create cache key based on operation + variables
-                const cacheKey = getGraphQLCacheKey(config.graphql_op, config.graphql_op_variables || {});
+                // Create cache key based on operation + resolved variables
+                const cacheKey = getGraphQLCacheKey(resolvedConfig.graphql_op, resolvedConfig.graphql_op_variables || {});
                 
                 // Helper function to populate dropdown with data
                 const populateDropdownWithData = (data) => {
@@ -2114,6 +3085,15 @@
                     if (input) {
                         // Handle both array results (list_orgs) and single object results (get_org_var)
                         const itemsArray = Array.isArray(data) ? data : (data ? [data] : []);
+                        
+                        // Store metadata about this dropdown's data source
+                        dropdownSourceMetadata[config.field_name] = {
+                            cacheType: 'graphql',
+                            cacheKey: cacheKey,
+                            valueName: config.value_name || 'id',
+                            labelName: config.label_name || 'name',
+                            data: itemsArray
+                        };
                         
                         if (itemsArray.length > 0) {
                             input.innerHTML = `<option value="">${RewstLib.utils.getGrammaticalPhrase(config.field_displayname)}</option>`;
@@ -2164,8 +3144,8 @@
                     });
                 }
                 
-                // Execute GraphQL query
-                const graphqlPromise = RewstLib.utils.loadGraphQLDropdownOptions(config, formConfig);
+                // Execute GraphQL query with resolved config
+                const graphqlPromise = RewstLib.utils.loadGraphQLDropdownOptions(resolvedConfig, formConfig);
                 
                 // Store in-flight promise
                 if (!skipCache) {
@@ -2225,6 +3205,15 @@
                         return;
                     }
                     
+                    // Store metadata about this dropdown's data source
+                    dropdownSourceMetadata[config.field_name] = {
+                        cacheType: 'mysql',
+                        cacheKey: cacheKey,
+                        valueName: config.value_field || 'id',
+                        labelName: config.label_field || 'name',
+                        data: data
+                    };
+                    
                     // For multi-select, use the library function
                     if (config.multi_select) {
                         const options = data.map(item => ({
@@ -2270,7 +3259,7 @@
                 // Execute query and return promise
                 return (async () => {
                     try {
-                        const queryResult = await executeQueryWithRetry('proxy_api_mysql', config.query, 2);
+                        const queryResult = await executeQueryWithRetry('proxy_api_mysql', resolvedConfig.query, 2);
                         
                         if (formGroup) RewstLib.utils.hideLoadingMessage(formGroup, config);
                         
@@ -2320,10 +3309,10 @@
                 // Skip cache if node_selection_type is 'query' and has variables (since results depend on variable values)
                 const hasQueryVariables = config.node_selection_type === 'query' && config.node_query && config.node_query.includes('[[');
                 const cacheKey = isNodesMode 
-                    ? `mesh_nodes_${config.node_query}`
+                    ? `mesh_nodes_${resolvedConfig.node_query}`
                     : config.node_selection_type === 'query'
-                    ? `mesh_command_query_${config.node_query}_${config.command}`
-                    : `mesh_command_${config.node_id}_${config.command}`;
+                    ? `mesh_command_query_${resolvedConfig.node_query}_${resolvedConfig.command}`
+                    : `mesh_command_${resolvedConfig.node_id}_${resolvedConfig.command}`;
                 
                 // Helper function to populate dropdown with data
                 const populateMeshDropdown = (data) => {
@@ -2331,6 +3320,15 @@
                         console.error(`[MESH] Data is not an array`);
                         return;
                     }
+                    
+                    // Store metadata about this dropdown's data source
+                    dropdownSourceMetadata[config.field_name] = {
+                        cacheType: 'mesh',
+                        cacheKey: cacheKey,
+                        valueName: config.value_field || 'id',
+                        labelName: config.label_field || 'name',
+                        data: data
+                    };
                     
                     // For multi-select, use the library function
                     if (config.multi_select) {
@@ -2412,7 +3410,7 @@
                         if (isNodesMode) {
                             // Get nodes matching the query
                             const nodesResult = await ProxyLib.getNodes(sessionToken, REWST_USER, {
-                                query: config.node_query
+                                query: resolvedConfig.node_query
                             });
                             
                             // Flatten the nested mesh group structure
@@ -2423,48 +3421,11 @@
                             console.log(`[MESH] Command execution block - node_id from config: "${nodeId}"`);
                             
                             // Handle node_selection_type: "query" - resolve node_id from getNodes query
-                            if (config.node_selection_type === 'query' && config.node_query) {
-                                console.log(`[MESH] Node selection type is "query", processing query: ${config.node_query}`);
-                                
-                                // Handle variable substitution for [[field_name]] patterns in node_query
-                                let resolvedQuery = config.node_query;
-                                if (resolvedQuery.includes('[[')) {
-                                    console.log(`[MESH] Processing variable substitution in node_query`);
-                                    
-                                    // Collect current form values
-                                    const formData = {};
-                                    console.log(`[MESH] Collecting form values from ${allFieldConfigs.length} fields`);
-                                    
-                                    if (allFieldConfigs && Array.isArray(allFieldConfigs)) {
-                                        allFieldConfigs.forEach(fc => {
-                                            const input = document.querySelector(`input[name="${fc.field_name}"], select[name="${fc.field_name}"], textarea[name="${fc.field_name}"]`);
-                                            if (input) {
-                                                if (input.type === 'checkbox') {
-                                                    formData[fc.field_name] = input.checked;
-                                                } else if (input.type === 'radio') {
-                                                    const checkedRadio = document.querySelector(`input[name="${fc.field_name}"]:checked`);
-                                                    formData[fc.field_name] = checkedRadio ? checkedRadio.value : null;
-                                                } else {
-                                                    formData[fc.field_name] = input.value;
-                                                }
-                                            }
-                                        });
-                                    }
-                                    
-                                    console.log(`[MESH] Form data collected:`, formData);
-                                    
-                                    // Replace [[field_name]] patterns with actual values
-                                    resolvedQuery = resolvedQuery.replace(/\[\[(\w+)\]\]/g, (match, fieldName) => {
-                                        const value = formData[fieldName];
-                                        console.log(`[MESH] Substituting [[${fieldName}]] -> "${value}"`);
-                                        return value !== undefined && value !== null && value !== '' ? value : match;
-                                    });
-                                    
-                                    console.log(`[MESH] After query substitution: "${resolvedQuery}"`);
-                                }
+                            if (config.node_selection_type === 'query' && resolvedConfig.node_query) {
+                                console.log(`[MESH] Node selection type is "query", processing query: ${resolvedConfig.node_query}`);
                                 
                                 const nodesResult = await ProxyLib.getNodes(sessionToken, REWST_USER, {
-                                    query: resolvedQuery
+                                    query: resolvedConfig.node_query
                                 });
                                 
                                 // Flatten the results to get an array of nodes
@@ -2480,43 +3441,10 @@
                                 // Extract node_id from the single matching node
                                 nodeId = queryNodes[0]._id;
                                 console.log(`[MESH] Resolved node_id from query: "${nodeId}"`);
-                            }
-                            // Handle variable substitution for [[field_name]] patterns (for fixed selection type)
-                            else if (nodeId && nodeId.includes('[[')) {
-                                console.log(`[MESH] Processing variable substitution in node_id: ${nodeId}`);
-                                
-                                // Collect current form values
-                                const formData = {};
-                                console.log(`[MESH] Collecting form values from ${allFieldConfigs.length} fields`);
-                                
-                                if (allFieldConfigs && Array.isArray(allFieldConfigs)) {
-                                    allFieldConfigs.forEach(fc => {
-                                        const input = document.querySelector(`input[name="${fc.field_name}"], select[name="${fc.field_name}"], textarea[name="${fc.field_name}"]`);
-                                        if (input) {
-                                            if (input.type === 'checkbox') {
-                                                formData[fc.field_name] = input.checked;
-                                            } else if (input.type === 'radio') {
-                                                const checkedRadio = document.querySelector(`input[name="${fc.field_name}"]:checked`);
-                                                formData[fc.field_name] = checkedRadio ? checkedRadio.value : null;
-                                            } else {
-                                                formData[fc.field_name] = input.value;
-                                            }
-                                        }
-                                    });
-                                }
-                                
-                                console.log(`[MESH] Form data collected:`, formData);
-                                
-                                // Replace [[field_name]] patterns with actual values
-                                nodeId = nodeId.replace(/\[\[(\w+)\]\]/g, (match, fieldName) => {
-                                    const value = formData[fieldName];
-                                    console.log(`[MESH] Substituting [[${fieldName}]] -> "${value}"`);
-                                    return value !== undefined && value !== null && value !== '' ? value : match;
-                                });
-                                
-                                console.log(`[MESH] After substitution: "${nodeId}"`);
                             } else {
-                                console.log(`[MESH] No variable substitution needed (nodeId: "${nodeId}")`);
+                                // Use node_id from resolved config (which has all [[ ]] refs replaced)
+                                nodeId = resolvedConfig.node_id;
+                                console.log(`[MESH] Using resolved node_id: "${nodeId}"`);
                             }
                             
                             // Determine command type based on mode or explicit config
@@ -2531,10 +3459,10 @@
                                 } else if (config.mode === 'cmd') {
                                     commandType = 1;
                                     console.log('[MESH] Mode is cmd, using type 1 (CMD)');
-                                } else if (config.command) {
+                                } else if (resolvedConfig.command) {
                                     // Auto-detect: if command contains PowerShell-specific keywords, use type 2
                                     const psKeywords = ['Import-Module', 'Write-Output', 'Get-', 'Set-', '$', 'Write-Error', 'ConvertTo-Json'];
-                                    if (psKeywords.some(kw => config.command.includes(kw))) {
+                                    if (psKeywords.some(kw => resolvedConfig.command.includes(kw))) {
                                         commandType = 2;
                                         console.log('[MESH] Auto-detected PowerShell command, using type 2');
                                     } else {
@@ -2550,7 +3478,7 @@
                                 sessionToken, 
                                 REWST_USER, 
                                 nodeId, 
-                                config.command, 
+                                resolvedConfig.command, 
                                 commandType
                             );
                             
@@ -2852,8 +3780,11 @@
             
             // Only execute workflow for fields that are not form_extend
             if (config.type !== 'form_extend' && config.workflow_id) {
-                // Use cached workflow execution, passing the already-prepared workflowInput with dependencies
-                return getOrExecuteWorkflow(config, workflowInput, allFieldConfigs, formConfig).then(() => {
+                // Resolve any [[ varName.property ]] page variable references in workflowInput
+                const resolvedWorkflowInput = replaceReferencesInValue(workflowInput);
+                
+                // Use cached workflow execution, passing the resolved workflowInput
+                return getOrExecuteWorkflow(config, resolvedWorkflowInput, allFieldConfigs, formConfig).then(() => {
                     // Workflow completed successfully, hide loading message
                     if (formGroup) RewstLib.utils.hideLoadingMessage(formGroup, config);
                 }).catch(error => {
@@ -3134,6 +4065,13 @@
                     throw new Error(`Unsupported data_source_type: ${config.data_source_type}`);
                 }
                 
+                // Resolve any [[ ]] variable references in the config
+                const resolvedConfig = getResolvedFieldConfig(config);
+                console.log('[DATA_RETRIEVAL] Resolved config before execution:', {
+                    command: resolvedConfig.command,
+                    node_query: resolvedConfig.node_query
+                });
+                
                 // Map data_source_type to appropriate API key
                 const apiKeyName = config.data_source_type === 'mesh_powershell' ? 'proxy_api_meshcentral' : 'proxy_api_key';
                 
@@ -3143,9 +4081,9 @@
                 // Handle node selection
                 let nodeId = config.node_id;
                 
-                if (config.node_selection_type === 'query' && config.node_query) {
+                if (config.node_selection_type === 'query' && resolvedConfig.node_query) {
                     // Substitute variables in node_query
-                    let nodeQuery = config.node_query;
+                    let nodeQuery = resolvedConfig.node_query;
                     const formValues = {};
                     allFieldConfigs.forEach(fc => {
                         const input = document.querySelector(`input[name="${fc.field_name}"], select[name="${fc.field_name}"], textarea[name="${fc.field_name}"]`);
@@ -3202,7 +4140,7 @@
                 
                 // Execute the command (with retry on 401)
                 const commandType = config.command_type || 2;  // Default to PowerShell (2) if not specified
-                const commandResult = await executeCommandWithRetryLogic('proxy_api_meshcentral', nodeId, config.command, commandType, 2);
+                const commandResult = await executeCommandWithRetryLogic('proxy_api_meshcentral', nodeId, resolvedConfig.command, commandType, 2);
                 
                 // Parse result
                 let resultData = commandResult.result;
@@ -3371,6 +4309,15 @@
                         conductor: result.conductor
                     };
                     
+                    // Store metadata about this dropdown's data source
+                    dropdownSourceMetadata[config.field_name] = {
+                        cacheType: 'workflow',
+                        cacheKey: cacheKey,
+                        valueName: config.value_name || 'id',
+                        labelName: config.label_name || 'name',
+                        data: options
+                    };
+                    
                     console.log(`[WORKFLOW CACHE] Cached results for ${config.field_name} (${options.length} options)`);
                     
                     return workflowCache.results[cacheKey];
@@ -3399,6 +4346,15 @@
             if (!input) return;
             
             const options = cachedData.options || [];
+            
+            // Store metadata about this dropdown's data source
+            dropdownSourceMetadata[config.field_name] = {
+                cacheType: 'workflow',
+                cacheKey: getWorkflowCacheKey(config.workflow_id, {}), // Note: may not be exact for subsequent calls, but field_name is what matters
+                valueName: config.value_name || 'id',
+                labelName: config.label_name || 'name',
+                data: options
+            };
             
             if (options.length > 0) {
                 if (config.multi_select) {
@@ -3758,360 +4714,6 @@
             });
         }
 
-        function renderFieldHTML(config, allFieldConfigs) {
-            if (config.field_name === 'dropdown_2') {
-                console.log(`[RENDER-FIELD] renderFieldHTML called for dropdown_2. Stack:`, new Error().stack.split('\n').slice(1, 5).join(' <- '));
-            }
-            // Handle data_retrieval fields - rendered but hidden, with waiting/loading messages
-            if (config.type === 'data_retrieval') {
-                const fieldId = `field_${config.field_name}_${Math.random().toString(36).substr(2, 5)}`;
-                let html = `<div class="form-group" data-field-name="${config.field_name}" style="display: none !important; margin-bottom: 0 !important;">`;
-                html += `<div class="field-loading-message" style="display: none;"><span class="spinner"></span> Loading...</div>`;
-                html += `<div class="field-waiting-message" style="display: none;">Waiting for dependencies...</div>`;
-                html += `</div>`;
-                return html;
-            }
-            
-            // Determine if field should be hidden based on hidden property
-            let isHidden = config.hidden === true;
-            let styleAttr = isHidden ? ' style="display: none !important; margin-bottom: 0 !important;"' : '';
-            
-            // Debug logging for form_extend
-            if (config.field_name === 'form_extend') {
-                console.log(`[DEBUG] renderFieldHTML for form_extend:`, {
-                    field_name: config.field_name,
-                    hidden: config.hidden,
-                    isHidden: isHidden,
-                    styleAttr: styleAttr
-                });
-            }
-            
-            let html = `<div class="form-group" data-field-name="${config.field_name}"${styleAttr}>`;
-            
-            // Add " - Required" to display name if field is required
-            const displayName = config.required ? `${config.field_displayname} <span style="color: #999; font-size: 12px;">- Required</span>` : config.field_displayname;
-            
-            // Generate a unique ID for this field
-            const fieldId = `field_${config.field_name}_${Math.random().toString(36).substr(2, 5)}`;
-
-            if (config.type === 'checkbox') {
-                html += `
-                    <div class="checkbox-wrapper">
-                        <input type="checkbox" id="${fieldId}" name="${config.field_name}" ${config.default_checked ? 'checked' : ''}>
-                        <div>
-                            <label for="${fieldId}">${displayName}</label>
-                            ${config.description ? `<div class="field-description">${escapeHtml(config.description)}</div>` : ''}
-                        </div>
-                    </div>
-                `;
-            } else if (config.type === 'text') {
-                html += `
-                    <label for="${fieldId}">${displayName}</label>
-                    ${config.description ? `<div class="field-description">${escapeHtml(config.description)}</div>` : ''}
-                    <input type="text" id="${fieldId}" name="${config.field_name}" value="${escapeHtml(config.default_value || '')}">
-                `;
-            } else if (config.type === 'textarea') {
-                html += `
-                    <label>${displayName}</label>
-                    ${config.description ? `<div class="field-description">${escapeHtml(config.description)}</div>` : ''}
-                    <textarea name="${config.field_name}">${escapeHtml(config.default_value || '')}</textarea>
-                `;
-            } else if (config.type === 'date') {
-                html += `
-                    <label>${displayName}</label>
-                    ${config.description ? `<div class="field-description">${escapeHtml(config.description)}</div>` : ''}
-                    <input type="date" name="${config.field_name}" value="${escapeHtml(config.default_value || '')}">
-                `;
-            } else if (config.type === 'date_time') {
-                html += `
-                    <label>${displayName}</label>
-                    ${config.description ? `<div class="field-description">${escapeHtml(config.description)}</div>` : ''}
-                    <input type="datetime-local" name="${config.field_name}" value="${escapeHtml(config.default_value || '')}">
-                `;
-            } else if (config.type === 'radio') {
-                html += `
-                    <label>${displayName}</label>
-                    ${config.description ? `<div class="field-description">${escapeHtml(config.description)}</div>` : ''}
-                    <div class="radio-group">
-                `;
-                
-                if (config.options && typeof config.options === 'object') {
-                    Object.entries(config.options).forEach(([key, value]) => {
-                        const isChecked = config.default_select === key ? 'checked' : '';
-                        const radioId = `field_${config.field_name}_${value}_${Math.random().toString(36).substr(2, 5)}`;
-                        html += `
-                            <div class="radio-item">
-                                <input type="radio" id="${radioId}" name="${config.field_name}" value="${value}" ${isChecked}>
-                                <label for="${radioId}">${escapeHtml(key)}</label>
-                            </div>
-                        `;
-                    });
-                }
-                
-                html += '</div>';
-            } else if (config.type === 'dropdown_static') {
-                if (config.multi_select) {
-                    // Custom multi-select component
-                    html += RewstLib.utils.renderMultiSelectContainer(config.field_name, displayName, config.description);
-                } else {
-                    // Single select (original logic)
-                    html += `
-                        <label>${displayName}</label>
-                        ${config.description ? `<div class="field-description">${escapeHtml(config.description)}</div>` : ''}
-                        <select name="${config.field_name}">
-                            <option value="">${RewstLib.utils.getGrammaticalPhrase(config.field_displayname)}</option>
-                    `;
-                    
-                    if (config.options && typeof config.options === 'object') {
-                        Object.entries(config.options).forEach(([key, value]) => {
-                            const isSelected = config.default_value === value ? 'selected' : '';
-                            html += `<option value="${escapeHtml(value)}" ${isSelected}>${escapeHtml(key)}</option>`;
-                        });
-                    }
-                    
-                    html += '</select>';
-                }
-            } else if (config.type === 'dropdown') {
-                if (config.multi_select) {
-                    // Custom multi-select component with refresh button - use library to generate structure
-                    html += `
-                        <div class="field-loading-message" style="display: none;"><span class="spinner"></span> Loading...</div>
-                        <div class="field-waiting-message" style="display: none;">Waiting for dependencies...</div>
-                        <div class="dropdown-refresh-container">
-                            <div style="flex: 1;">
-                                ${RewstLib.utils.renderMultiSelectContainer(config.field_name, displayName, config.description)}
-                            </div>
-                            <button type="button" class="dropdown-refresh-btn" data-field-name="${config.field_name}" title="Refresh options">↻</button>
-                        </div>
-                    `;
-                } else {
-                    // Single select with refresh button
-                    html += `
-                        <label>${displayName}</label>
-                        ${config.description ? `<div class="field-description">${escapeHtml(config.description)}</div>` : ''}
-                        <div class="field-loading-message" style="display: none;"><span class="spinner"></span> Loading...</div>
-                        <div class="field-waiting-message" style="display: none;">Waiting for dependencies...</div>
-                        <div class="dropdown-refresh-container">
-                            <select name="${config.field_name}">
-                                <option value="">${RewstLib.utils.getGrammaticalPhrase(config.field_displayname)}</option>
-                            </select>
-                            <button type="button" class="dropdown-refresh-btn" data-field-name="${config.field_name}" title="Refresh options">↻</button>
-                        </div>
-                    `;
-                }
-            } else if (config.type === 'dropdown_graphql') {
-                if (config.multi_select) {
-                    // Custom multi-select component with refresh button - use library to generate structure
-                    html += `
-                        <div class="field-loading-message" style="display: none;"><span class="spinner"></span> Loading...</div>
-                        <div class="field-waiting-message" style="display: none;">Waiting for dependencies...</div>
-                        <div class="dropdown-refresh-container">
-                            <div style="flex: 1;">
-                                ${RewstLib.utils.renderMultiSelectContainer(config.field_name, displayName, config.description)}
-                            </div>
-                            <button type="button" class="dropdown-refresh-btn" data-field-name="${config.field_name}" title="Refresh options">↻</button>
-                        </div>
-                    `;
-                } else {
-                    // Single select with refresh button
-                    html += `
-                        <label>${displayName}</label>
-                        ${config.description ? `<div class="field-description">${escapeHtml(config.description)}</div>` : ''}
-                        <div class="field-loading-message" style="display: none;"><span class="spinner"></span> Loading...</div>
-                        <div class="field-waiting-message" style="display: none;">Waiting for dependencies...</div>
-                        <div class="dropdown-refresh-container">
-                            <select name="${config.field_name}">
-                                <option value="">${RewstLib.utils.getGrammaticalPhrase(config.field_displayname)}</option>
-                            </select>
-                            <button type="button" class="dropdown-refresh-btn" data-field-name="${config.field_name}" title="Refresh options">↻</button>
-                        </div>
-                    `;
-                }
-            } else if (config.type === 'dropdown_mysql') {
-                if (config.multi_select) {
-                    // Custom multi-select component with refresh button - use library to generate structure
-                    html += `
-                        <div class="field-loading-message" style="display: none;"><span class="spinner"></span> Loading...</div>
-                        <div class="field-waiting-message" style="display: none;">Waiting for dependencies...</div>
-                        <div class="dropdown-refresh-container">
-                            <div style="flex: 1;">
-                                ${RewstLib.utils.renderMultiSelectContainer(config.field_name, displayName, config.description)}
-                            </div>
-                            <button type="button" class="dropdown-refresh-btn" data-field-name="${config.field_name}" title="Refresh options">↻</button>
-                        </div>
-                    `;
-                } else {
-                    // Single select with refresh button
-                    html += `
-                        <label>${displayName}</label>
-                        ${config.description ? `<div class="field-description">${escapeHtml(config.description)}</div>` : ''}
-                        <div class="field-loading-message" style="display: none;"><span class="spinner"></span> Loading...</div>
-                        <div class="field-waiting-message" style="display: none;">Waiting for dependencies...</div>
-                        <div class="dropdown-refresh-container">
-                            <select name="${config.field_name}">
-                                <option value="">${RewstLib.utils.getGrammaticalPhrase(config.field_displayname)}</option>
-                            </select>
-                            <button type="button" class="dropdown-refresh-btn" data-field-name="${config.field_name}" title="Refresh options">↻</button>
-                        </div>
-                    `;
-                }
-            } else if (config.type === 'dropdown_mesh') {
-                if (config.multi_select) {
-                    // Custom multi-select component with refresh button - use library to generate structure
-                    html += `
-                        <div class="field-loading-message" style="display: none;"><span class="spinner"></span> Loading...</div>
-                        <div class="field-waiting-message" style="display: none;">Waiting for dependencies...</div>
-                        <div class="dropdown-refresh-container">
-                            <div style="flex: 1;">
-                                ${RewstLib.utils.renderMultiSelectContainer(config.field_name, displayName, config.description)}
-                            </div>
-                            <button type="button" class="dropdown-refresh-btn" data-field-name="${config.field_name}" title="Refresh options">↻</button>
-                        </div>
-                    `;
-                } else {
-                    // Single select with refresh button
-                    html += `
-                        <label>${displayName}</label>
-                        ${config.description ? `<div class="field-description">${escapeHtml(config.description)}</div>` : ''}
-                        <div class="field-loading-message" style="display: none;"><span class="spinner"></span> Loading...</div>
-                        <div class="field-waiting-message" style="display: none;">Waiting for dependencies...</div>
-                        <div class="dropdown-refresh-container">
-                            <select name="${config.field_name}">
-                                <option value="">${RewstLib.utils.getGrammaticalPhrase(config.field_displayname)}</option>
-                            </select>
-                            <button type="button" class="dropdown-refresh-btn" data-field-name="${config.field_name}" title="Refresh options">↻</button>
-                        </div>
-                    `;
-                }
-            } else if (config.type === 'dropdown_prefetch') {
-                // Dropdown prefetch - populates from cached data_retrieval results
-                const sourceFieldName = config.source_element_name || config.source_element_uid;
-                const resultPath = config.result_path;
-                const labelField = config.label_field || 'label';
-                const valueField = config.value_field || 'value';
-                
-                // Get cached data from data_retrieval field
-                let options = [];
-                if (proxyCache.dataRetrievalResults[sourceFieldName]) {
-                    const sourceData = proxyCache.dataRetrievalResults[sourceFieldName];
-                    if (sourceData && sourceData[resultPath]) {
-                        const results = sourceData[resultPath];
-                        if (Array.isArray(results)) {
-                            options = results.map(item => ({
-                                label: item[labelField] || item.name || String(item.id),
-                                value: item[valueField] || item.id || ''
-                            }));
-                        }
-                    }
-                }
-                
-                if (config.multi_select) {
-                    // Custom multi-select component for prefetch - use library to generate structure
-                    html += `
-                        <div class="field-loading-message" style="display: none;"><span class="spinner"></span> Loading...</div>
-                        <div class="field-waiting-message" style="display: none;">Waiting for dependencies...</div>
-                        <div class="dropdown-refresh-container">
-                            <div style="flex: 1;">
-                                ${RewstLib.utils.renderMultiSelectContainer(config.field_name, displayName, config.description)}
-                            </div>
-                            <button type="button" class="btn btn-small dropdown-refresh-btn" data-field-name="${config.field_name}" data-source-field="${sourceFieldName}" title="Refresh options">↻</button>
-                        </div>
-                    `;
-                } else {
-                    // Single select dropdown for prefetch - wrap in container for consistent hiding/showing
-                    const optionsHtml = options.map(opt => 
-                        `<option value="${escapeHtml(String(opt.value))}">${escapeHtml(String(opt.label))}</option>`
-                    ).join('');
-                    
-                    html += `
-                        <label>${displayName}</label>
-                        ${config.description ? `<div class="field-description">${escapeHtml(config.description)}</div>` : ''}
-                        <div class="field-loading-message" style="display: none;"><span class="spinner"></span> Loading...</div>
-                        <div class="field-waiting-message" style="display: none;">Waiting for dependencies...</div>
-                        <div class="dropdown-refresh-container">
-                            <select name="${config.field_name}">
-                                <option value="">${RewstLib.utils.getGrammaticalPhrase(config.field_displayname)}</option>
-                                ${optionsHtml}
-                            </select>
-                            <button type="button" class="btn btn-small dropdown-refresh-btn" data-field-name="${config.field_name}" data-source-field="${sourceFieldName}" title="Refresh options">↻</button>
-                        </div>
-                    `;
-                }
-            } else if (config.type === 'html') {
-                // Render HTML content directly with label color styling
-                html += `<div class="html-field">${config.content || ''}</div>`;
-            } else if (config.type === 'horizontal_line') {
-                // Render horizontal line (content field contains the HR element or styling)
-                html += `${config.content || '<hr>'}`;
-            } else if (config.type === 'array') {
-                // Array field with add/remove functionality
-                const arrayId = `array_${config.field_name}_${Math.random().toString(36).substr(2, 5)}`;
-                const itemsArray = Array.isArray(config.items) ? config.items : [];
-                
-                // Generate default instance - render each field based on its type
-                const itemsHtml = itemsArray.map((itemConfig) => {
-                    const fieldName = itemConfig.name;
-                    const displayName = itemConfig.display_name || fieldName;
-                    const fieldId = `${config.field_name}_${fieldName}_0`;
-                    
-                    let fieldHtml = '';
-                    
-                    if (itemConfig.type === 'dropdown_static') {
-                        // Static dropdown with predefined options
-                        const options = itemConfig.options || {};
-                        const optionsHtml = Object.entries(options)
-                            .map(([label, value]) => `<option value="${escapeHtml(String(value))}">${escapeHtml(label)}</option>`)
-                            .join('');
-                        fieldHtml = `<select name="${fieldId}" id="${fieldId}" data-array-field="${fieldName}"><option value="">-- Select --</option>${optionsHtml}</select>`;
-                    } 
-                    else if (itemConfig.type === 'dropdown_workflow') {
-                        // Workflow dropdown - will load options asynchronously
-                        fieldHtml = `<div style="display: flex; gap: 8px; align-items: center;">
-                            <select name="${fieldId}" id="${fieldId}" data-array-field="${fieldName}" style="flex: 1;"><option value="">Loading options...</option></select>
-                            <button type="button" class="btn btn-small dropdown-refresh-btn" data-field-name="${fieldId}" style="width: auto; padding: 0.2rem 0.15rem;">↻</button>
-                        </div>`;
-                    }
-                    else if (itemConfig.type === 'dropdown_graphql') {
-                        // GraphQL dropdown - will load options asynchronously
-                        fieldHtml = `<div style="display: flex; gap: 8px; align-items: center;">
-                            <select name="${fieldId}" id="${fieldId}" data-array-field="${fieldName}" style="flex: 1;"><option value="">Loading options...</option></select>
-                            <button type="button" class="btn btn-small dropdown-refresh-btn" data-field-name="${fieldId}" style="width: auto; padding: 0.2rem 0.15rem;">↻</button>
-                        </div>`;
-                    }
-                    else {
-                        // Default to text input for unknown types
-                        fieldHtml = `<input type="text" name="${fieldId}" id="${fieldId}" data-array-field="${fieldName}" placeholder="${escapeHtml(displayName)}">`;
-                    }
-                    
-                    return `<div class="array-instance-field" data-field-name="${fieldId}"><label>${escapeHtml(displayName)}</label>${fieldHtml}</div>`;
-                }).join('');
-                
-                // Calculate grid layout for default instance
-                const itemCount = itemsArray.length;
-                let numRows = 1;
-                if (itemCount > 6) numRows = 3;
-                else if (itemCount > 3) numRows = 2;
-                
-                const numCols = Math.ceil(itemCount / numRows);
-                
-                const defaultInstanceHtml = `<div class="array-instance" data-instance-index="0"><div class="array-instance-fields" data-cols="${numCols}">${itemsHtml}</div><button type="button" class="array-instance-delete" title="Delete this row">×</button></div>`;
-                
-                html += `
-                    <div class="array-field-container">
-                        <div class="array-field-header">
-                            <label>${displayName}</label>
-                            <button type="button" class="btn btn-blue array-add-btn" data-array-name="${config.field_name}" data-array-id="${arrayId}" style="width: auto;">Add</button>
-                        </div>
-                        <div class="array-instances" id="${arrayId}" data-array-name="${config.field_name}">
-                            ${defaultInstanceHtml}
-                        </div>
-                    </div>
-                `;
-            }
-
-            html += '</div>';
-            return html;
-        }
 
         // ============================================
         // PAGE LOAD - FETCH FORMS IMMEDIATELY
