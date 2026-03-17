@@ -433,6 +433,9 @@ const ELEMENT_TYPE_DEFAULTS = {
         multi_select: false,
         default_value: null,
         result_var: ''
+    },
+    'datatable': {
+        data_variable: ''               // Variable name/path to JSON array
     }
 };
 
@@ -456,7 +459,8 @@ const PALETTE_DISPLAY = {
     'date': 'Date',
     'date_time': 'Date Time',
     'dropdown': 'Dropdown',  // Consolidates dropdown, dropdown_static, dropdown_graphql, dropdown_mysql, dropdown_mesh, dropdown_prefetch
-    'data_retrieval': 'Data Retrieval'
+    'data_retrieval': 'Data Retrieval',
+    'datatable': 'Datatable'
 };
 
 // ============================================
@@ -1026,6 +1030,9 @@ function saveTypeSpecificFields(fieldConfig) {
             fieldConfig.value_field = document.getElementById('prefetch_value_field')?.value || '';
             fieldConfig.multi_select = document.getElementById('multi_select')?.checked || false;
             fieldConfig.result_var = document.getElementById('result_var')?.value || '';
+        } else if (elementType === 'datatable') {
+            // Save datatable fields
+            fieldConfig.data_variable = document.getElementById('datatable_data_variable')?.value || '';
         } else if (elementType === 'form_extend') {
             fieldConfig.extend_var = document.getElementById('extend_var')?.value || null;
             
@@ -2984,6 +2991,15 @@ function showElementSettings(elementUid) {
                 <input type='text' id='prefetch_value_field' value='${fieldConfig.value_field || ''}' placeholder='e.g., id' style='width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box;'>
             </div>
         `;
+    } else if (fieldConfig.type === 'datatable') {
+        // Datatable element - display data in table format
+        formHTML += `
+            <div style='margin-bottom: 15px;'>
+                <label style='display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;'>Data Variable</label>
+                <input type='text' id='datatable_data_variable' value='${fieldConfig.data_variable || ''}' placeholder='e.g., ad_users or data.users' style='width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box;'>
+                <div style='color: #999; font-size: 12px; margin-top: 6px;'>Path to the JSON array to display. Use dot notation for nested structures (e.g., "ad_users" or "data.users").</div>
+            </div>
+        `;
     }
     let dependantFieldsHTML = '';
     
@@ -3655,6 +3671,17 @@ function showElementSettings(elementUid) {
         }
     }
     
+    // Add listeners for datatable
+    if (fieldConfig.type === 'datatable') {
+        const dataVariableInput = document.getElementById('datatable_data_variable');
+        if (dataVariableInput) {
+            dataVariableInput.addEventListener('input', () => {
+                formHasBeenModified = true;
+                updateElementSettingsSaveButtonVisibility();
+            });
+        }
+    }
+    
     if (fieldConfig.type === 'array') {
         const editArrayItemsBtn = document.getElementById('editArrayItemsBtn');
         if (editArrayItemsBtn) {
@@ -4235,6 +4262,13 @@ function validateFormExtendSettings() {
             const dependantFieldsValue = dependantFieldsInput?.value;
             if (!dependantFieldsValue) {
                 return 'Form Extend elements must have at least one Dependent Field selected.';
+            }
+        }
+        if (fieldConfig && fieldConfig.type === 'datatable') {
+            const dataVariableInput = document.getElementById('datatable_data_variable');
+            const dataVariableValue = dataVariableInput?.value?.trim();
+            if (!dataVariableValue) {
+                return 'Datatable elements must have a Data Variable specified.';
             }
         }
     }
