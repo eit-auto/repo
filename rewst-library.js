@@ -1339,10 +1339,14 @@ const GRAPHQL_OPERATIONS = {
    * @param {object} config - Field configuration
    * @param {Array} fieldConfigs - All field configurations
    */
-  function showWaitingMessage(formGroup, config, fieldConfigs) {
+  function showWaitingMessage(formGroup, config, fieldConfigs, blockingFieldNames) {
     // Handle both object (new format) and string (old format) for dependant_fields
+    // If blockingFieldNames is provided (from variable refs), use that; otherwise extract from config
     let depFields;
-    if (config.dependant_fields && typeof config.dependant_fields === 'object') {
+    if (blockingFieldNames) {
+      // Runtime-provided blocking field names (e.g., from variable reference)
+      depFields = Array.isArray(blockingFieldNames) ? blockingFieldNames : [blockingFieldNames];
+    } else if (config.dependant_fields && typeof config.dependant_fields === 'object') {
       depFields = Object.keys(config.dependant_fields);
     } else if (config.dependant_fields && typeof config.dependant_fields === 'string') {
       depFields = config.dependant_fields.split(',').map(f => f.trim());
