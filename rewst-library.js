@@ -1391,6 +1391,7 @@ const GRAPHQL_OPERATIONS = {
       // Apply gold styling for data_retrieval
       if (config.type === 'data_retrieval') {
         waitingBox.classList.add('data-retrieval-waiting');
+        formGroup.style.minHeight = '37px';
       } else {
         waitingBox.classList.remove('data-retrieval-waiting');
       }
@@ -1400,6 +1401,7 @@ const GRAPHQL_OPERATIONS = {
       waitingBox.className = 'field-waiting-message';
       if (config.type === 'data_retrieval') {
         waitingBox.classList.add('data-retrieval-waiting');
+        formGroup.style.minHeight = '37px';
       }
       waitingBox.setAttribute('data-field-name', config.field_name);
       waitingBox.innerHTML = messageText;
@@ -1478,6 +1480,11 @@ const GRAPHQL_OPERATIONS = {
     // Hide waiting message instead of removing it
     const waitingBox = formGroup.querySelector('.field-waiting-message');
     if (waitingBox) waitingBox.style.display = 'none';
+    
+    // Remove min-height for data_retrieval fields
+    if (config && config.type === 'data_retrieval') {
+      formGroup.style.minHeight = '';
+    }
     
     // Show multi-select display or regular input
     const multiSelectDisplay = formGroup.querySelector('.multi-select-display');
