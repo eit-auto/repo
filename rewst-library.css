@@ -869,7 +869,9 @@
     line-height: 1.0;
     height: 37px;
     box-sizing: border-box;
+    flex: 1;
   }
+
   .field-waiting-message {
     padding: 0.35rem 0.75rem;
     border: 2px solid #999999;
@@ -885,6 +887,7 @@
     line-height: 1.0;
     height: 37px;
     box-sizing: border-box;
+    flex: 1;
   }
   .field-waiting-message.data-retrieval-waiting {
     background: #f9d86c;
