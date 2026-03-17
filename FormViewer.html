@@ -1158,6 +1158,119 @@
         window.pageVariables = {};
         // Dropdown metadata storage (global but cleared on each form render)
         let dropdownSourceMetadata = {}; // Maps field_name -> {cacheType, cacheKey, valueName, labelName, ...}
+        
+        // FormManager: Maintains current form execution context for callbacks
+        const FormManager = {
+            currentContext: null,
+            
+            setContext(context) {
+                this.currentContext = context;
+            },
+            
+            rebuildDependentFields(varName) {
+                if (!this.currentContext || !this.currentContext.rebuildDependentFieldsFn) {
+                    console.warn('[FormManager] No current context or rebuild function available');
+                    return;
+                }
+                this.currentContext.rebuildDependentFieldsFn(varName);
+            }
+        };
+        
+        window.FormManager = FormManager;
+
+        /**
+         * Parse data_variable from datatable config
+         * Removes [[ ]] and spaces to get pure variable path
+         * Examples: "so_data.products" or "[[ so_data.products ]]" both become "so_data.products"
+         */
+        function parseDataVariable(dataVar) {
+            if (!dataVar) return null;
+            // Remove [[ and ]] and trim spaces
+            return dataVar.replace(/^\[\[\s*/, '').replace(/\s*\]\]$/, '').trim();
+        }
+
+        /**
+         * Get value from page variables using dot notation
+         * Examples: "so_data" or "so_data.products" or "org.address.street"
+         */
+        function getPageVariableValue(variablePath) {
+            if (!variablePath) return undefined;
+            
+            const parts = variablePath.split('.');
+            let current = window.pageVariables[parts[0]];
+            
+            for (let i = 1; i < parts.length; i++) {
+                if (current && typeof current === 'object') {
+                    current = current[parts[i]];
+                } else {
+                    return undefined;
+                }
+            }
+            
+            return current;
+        }
+
+        /**
+         * Render a datatable from an array of objects
+         * Returns HTML table or error message
+         */
+        function renderDatatable(data) {
+            // Validate data is an array of objects
+            if (!Array.isArray(data)) {
+                return `<div style="color: #dc3545; font-size: 0.9rem; padding: 1rem; text-align: center;">Invalid data object</div>`;
+            }
+            
+            if (data.length === 0) {
+                return `<div style="color: #888; font-size: 0.9rem; padding: 1rem; text-align: center;">No data</div>`;
+            }
+            
+            // Extract column names from first object
+            const firstItem = data[0];
+            if (typeof firstItem !== 'object' || firstItem === null) {
+                return `<div style="color: #dc3545; font-size: 0.9rem; padding: 1rem; text-align: center;">Invalid data object</div>`;
+            }
+            
+            const columns = Object.keys(firstItem);
+            
+            // Create table HTML
+            let tableHtml = `<table style="width: 100%; border-collapse: collapse; margin-top: 0.5rem;">
+                <thead style="background: #32373e;">
+                    <tr>`;
+            
+            // Add sortable headers
+            columns.forEach(col => {
+                tableHtml += `<th style="padding: 0.75rem; text-align: left; font-weight: 700; color: #ffffff; border-bottom: 2px solid #556870; cursor: pointer; user-select: none;" data-sort-col="${col}" title="Click to sort">${escapeHtml(col)}</th>`;
+            });
+            
+            tableHtml += `</tr>
+                </thead>
+                <tbody>`;
+            
+            // Add rows
+            data.forEach((item, idx) => {
+                tableHtml += `<tr style="background: ${idx % 2 === 0 ? 'rgba(0, 0, 0, 0.25)' : 'rgba(0, 0, 0, 0.15)'};">`;
+                
+                columns.forEach(col => {
+                    const value = item[col];
+                    const displayValue = value === null || value === undefined ? '' : String(value);
+                    tableHtml += `<td style="padding: 0.75rem; border-bottom: 1px solid #314a59; color: #e0e0e0; font-size: 0.9rem; word-wrap: break-word;">${escapeHtml(displayValue)}</td>`;
+                });
+                
+                tableHtml += `</tr>`;
+            });
+            
+            tableHtml += `</tbody>
+            </table>`;
+            
+            return tableHtml;
+        }
+
+        /**
+         * Assign renderMultiSelectContainer to RewstLib BEFORE renderForm is called
+         * so it's available when renderFieldHTML needs it
+         */
+        // renderMultiSelectContainer already exists in RewstLib - don't overwrite
+        // Instead, we'll inject the waiting message div after the container is rendered
 
         async function renderForm(form) {
             console.log('>>> renderForm STARTED');
@@ -1266,6 +1379,24 @@
                             }
                         });
                     });
+                    
+                    // Special handling for datatable's data_variable
+                    if (config.type === 'datatable' && config.data_variable) {
+                        const dataVarPath = parseDataVariable(config.data_variable);
+                        console.log(`[DATATABLE_DEPS] Field: ${config.field_name}, data_variable: ${config.data_variable}, parsed: ${dataVarPath}`);
+                        if (dataVarPath) {
+                            // Extract the root variable name (e.g., "so_data" from "so_data.products")
+                            const rootVarName = dataVarPath.split('.')[0];
+                            console.log(`[DATATABLE_DEPS] Extracted root variable: ${rootVarName}`);
+                            if (!dependencies[rootVarName]) {
+                                dependencies[rootVarName] = [];
+                            }
+                            if (!dependencies[rootVarName].includes(config.field_name)) {
+                                dependencies[rootVarName].push(config.field_name);
+                                console.log(`[DATATABLE_DEPS] Registered ${config.field_name} as dependent on ${rootVarName}`);
+                            }
+                        }
+                    }
                     
                     // Recursively scan array item configs
                     if (config.type === 'array' && Array.isArray(config.items)) {
@@ -1440,11 +1571,9 @@
             };
 
             /**
-             * Rebuild fields that depend on a specific page variable
-             * Handles both display updates and re-execution of dependent fields
-             */
             const rebuildDependentFields = (varName) => {
                 const dependentFieldNames = pageVarDependencies[varName] || [];
+                console.log(`[PAGE_VAR] Variable "${varName}" changed, dependent fields:`, dependentFieldNames);
                 
                 dependentFieldNames.forEach(fieldName => {
                     const config = fieldConfigs.find(f => f.field_name === fieldName);
@@ -1508,6 +1637,28 @@
                             }
                             if (waitingMsg) waitingMsg.style.display = 'none';
                         }
+                    } else if (config.type === 'datatable') {
+                        // Datatable field - update with data from page variable
+                        const dataVarPath = parseDataVariable(config.data_variable);
+                        const datatableData = dataVarPath ? getPageVariableValue(dataVarPath) : undefined;
+                        const isWaiting = !datatableData;
+                        
+                        console.log(`[PAGE_VAR_DATATABLE] Rebuilding ${fieldName}: dataVarPath=${dataVarPath}, hasData=${!!datatableData}, isWaiting=${isWaiting}`);
+                        
+                        const waitingMsg = formGroup.querySelector('.field-waiting-message');
+                        const contentDiv = formGroup.querySelector('.datatable-content');
+                        
+                        if (isWaiting) {
+                            if (contentDiv) contentDiv.style.visibility = 'hidden';
+                            if (waitingMsg) waitingMsg.style.display = 'flex';
+                        } else {
+                            if (contentDiv) {
+                                // Render the table with data
+                                contentDiv.innerHTML = renderDatatable(datatableData);
+                                contentDiv.style.visibility = 'visible';
+                            }
+                            if (waitingMsg) waitingMsg.style.display = 'none';
+                        }
                     }
                     
                     // Check if field has execution parameters that need re-evaluation
@@ -1524,6 +1675,11 @@
                     }
                 });
             };
+            
+            // Set up FormManager context for callbacks that need access to form functions
+            FormManager.setContext({
+                rebuildDependentFieldsFn: rebuildDependentFields
+            });
             
             /**
              * Set a page variable with the full object(s) associated with a dropdown selection
@@ -1594,7 +1750,12 @@
                 }
                 
                 // Rebuild any fields that depend on this page variable
-                rebuildDependentFields(config.result_var);
+                console.log(`[PAGE_VAR_REBUILD] Calling rebuildDependentFields for: ${config.result_var}`);
+                if (FormManager && typeof FormManager.rebuildDependentFields === 'function') {
+                    FormManager.rebuildDependentFields(config.result_var);
+                } else {
+                    console.warn(`[PAGE_VAR_REBUILD] FormManager not available`);
+                }
             };
             
             // ========================================
@@ -1732,7 +1893,13 @@
                     }
                 } else if (config.type === 'dropdown') {
                     if (config.multi_select) {
-                        html += RewstLib.utils.renderMultiSelectContainer(config.field_name, displayName, config.description);
+                        console.log(`[RENDER_MULTISELECT] Calling for ${config.field_name}, description:`, !!config.description);
+                        const multiSelectHtml = RewstLib.utils.renderMultiSelectContainer(config.field_name, displayName, config.description);
+                        const hasWaitingMsg = multiSelectHtml.includes('field-waiting-message');
+                        const substr = multiSelectHtml.substring(0, 300);
+                        console.log(`[RENDER_MULTISELECT] ${config.field_name}: has waiting msg =`, hasWaitingMsg);
+                        console.log(`[RENDER_MULTISELECT] substring:`, substr);
+                        html += multiSelectHtml;
                     } else {
                         html += `
                             <label>${displayName}</label>
@@ -1925,6 +2092,27 @@
                             </div>
                         </div>
                     `;
+                } else if (config.type === 'datatable') {
+                    // Datatable field - displays data from a page variable
+                    const dataVarPath = parseDataVariable(config.data_variable);
+                    const datatableData = dataVarPath ? getPageVariableValue(dataVarPath) : undefined;
+                    const hasData = Array.isArray(datatableData) && datatableData.length > 0;
+                    const isWaiting = !datatableData;
+                    
+                    console.log(`[RENDER_DATATABLE] Field: ${config.field_name}, dataVarPath: ${dataVarPath}, hasData: ${hasData}, isWaiting: ${isWaiting}`);
+                    
+                    const displayName = config.field_displayname || 'Table';
+                    
+                    html += `
+                        <label>${displayName}</label>
+                        ${config.description ? `<div class="field-description">${escapeHtml(config.description)}</div>` : ''}
+                        <div class="datatable-container" style="position: relative; overflow-x: auto; border: 1px solid #404040; border-radius: 4px; background: #1a3540;">
+                            ${isWaiting ? `<div class="field-waiting-message" style="display: flex; position: absolute; top: 0; left: 0; right: 0; bottom: 0; margin: 0; z-index: 10; background: rgba(26, 53, 64, 0.9);">Waiting for dependencies...</div>` : ''}
+                            <div class="datatable-content" style="padding: 0.75rem; ${isWaiting ? 'visibility: hidden;' : ''}">
+                                ${hasData ? renderDatatable(datatableData) : (datatableData !== undefined ? renderDatatable(datatableData) : '')}
+                            </div>
+                        </div>
+                    `;
                 }
 
                 html += '</div>';
@@ -2083,6 +2271,31 @@
             previewContent.innerHTML = formContainerHtml;
             console.log('>>> renderForm: HTML written to previewContent, length:', html.length);
             
+            // Inject waiting message divs into multi-select containers (that were rendered by renderMultiSelectContainer)
+            fieldConfigs.forEach(config => {
+                if (config.multi_select) {
+                    const formGroup = document.querySelector(`[data-field-name="${config.field_name}"]`);
+                    if (!formGroup) return;
+                    
+                    let multiSelect = formGroup.querySelector('.multi-select-container');
+                    if (multiSelect && !multiSelect.querySelector('.field-waiting-message')) {
+                        const waitingDiv = document.createElement('div');
+                        waitingDiv.className = 'field-waiting-message';
+                        // Position absolutely within the multi-select container - let CSS class handle colors/styling
+                        waitingDiv.style.position = 'absolute';
+                        waitingDiv.style.top = '0';
+                        waitingDiv.style.left = '0';
+                        waitingDiv.style.right = '0';
+                        waitingDiv.style.margin = '0';
+                        waitingDiv.style.zIndex = '10';
+                        waitingDiv.style.display = 'none';
+                        waitingDiv.textContent = 'Waiting for dependencies...';
+                        multiSelect.style.position = 'relative';
+                        multiSelect.appendChild(waitingDiv);
+                    }
+                }
+            });
+
             // Initialize multi-select components
             fieldConfigs.forEach(config => {
                 if (config.multi_select && config.type !== 'dropdown_graphql' && !config.workflow_id) {
@@ -2266,6 +2479,9 @@
             // Setup array field handlers
             setupArrayFieldHandlers(fieldConfigs, formConfig);
             
+            // Setup datatable sorting handlers
+            setupDatatableSortHandlers(fieldConfigs);
+            
             // Initialize field UI states - show waiting for dependent fields
             RewstLib.utils.initializeDependentFields(fieldConfigs);
             
@@ -2347,92 +2563,9 @@
         /**
          * Show "Waiting for..." message in a form group
          */
-        function showWaitingMessage(formGroup, config, allFieldConfigs) {
-            if (!formGroup) return;
-            console.log(`[WAITING] Showing waiting message for ${config.field_name}`);
-            const msg = formGroup.querySelector('.field-waiting-message');
-            const container = formGroup.querySelector('.dropdown-refresh-container');
-            console.log(`[WAITING] Found msg=${!!msg}, container=${!!container}`);
-            
-            if (msg) {
-                // Build custom message based on blocking dependencies
-                let messageText = `Waiting for selection...`;
-                if (config.dependant_fields && allFieldConfigs) {
-                    const blockingDeps = Object.entries(config.dependant_fields)
-                        .filter(([fieldName, depConfig]) => depConfig.blocking === true)
-                        .map(([fieldName]) => fieldName);
-                    
-                    if (blockingDeps.length > 0) {
-                        const depFieldName = blockingDeps[0]; // Use first blocking dependency
-                        const depField = allFieldConfigs.find(fc => fc.field_name === depFieldName);
-                        if (depField) {
-                            // Don't add "Selection" suffix if the dependency is a data_retrieval field
-                            const suffix = depField.type === 'data_retrieval' ? '' : ' Selection';
-                            messageText = `Waiting on ${depField.field_displayname}${suffix}`;
-                            
-                            // Only prepend field name for data_retrieval type
-                            if (config.type === 'data_retrieval') {
-                                messageText = `${config.field_displayname} Retrieval - ${messageText}`;
-                            }
-                            console.log(`[WAITING] Built custom message: "${messageText}"`);
-                        }
-                    }
-                }
-                
-                msg.textContent = messageText;
-                msg.style.display = 'flex';
-                
-                // Add light gold background for data_retrieval waiting messages
-                if (config.type === 'data_retrieval') {
-                    msg.classList.add('data-retrieval-waiting');
-                } else {
-                    msg.classList.remove('data-retrieval-waiting');
-                }
-                
-                console.log(`[WAITING] Set message display to flex`);
-            }
-            if (container) {
-                container.style.display = 'none';
-                console.log(`[WAITING] Hid container`);
-            }
-        }
+        // showWaitingMessage and hideWaitingMessage are now in RewstLib (rewst-library.js)
+        // Just use RewstLib.utils.showWaitingMessage() and RewstLib.utils.hideWaitingMessage()
 
-        /**
-         * Hide "Waiting for..." message and show field again
-         */
-        function hideWaitingMessage(formGroup, config) {
-            if (!formGroup) return;
-            console.log(`[HIDE_WAITING] Hiding waiting message for ${config.field_name}`);
-            const msg = formGroup.querySelector('.field-waiting-message');
-            const container = formGroup.querySelector('.dropdown-refresh-container');
-            const select = formGroup.querySelector('select:not(.multi-select-hidden-select)');
-            const multiSelect = formGroup.querySelector('.multi-select-container');
-            const refreshBtn = formGroup.querySelector('.dropdown-refresh-btn');
-            
-            console.log(`[HIDE_WAITING] Found: msg=${!!msg}, container=${!!container}, select=${!!select}, multiSelect=${!!multiSelect}`);
-            
-            if (msg) {
-                msg.style.display = 'none';
-                msg.classList.remove('data-retrieval-waiting');
-                console.log(`[HIDE_WAITING] Hid message`);
-            }
-            if (container) {
-                container.style.display = 'flex';
-                console.log(`[HIDE_WAITING] Showed container`);
-            }
-            if (select) {
-                select.style.display = 'block';
-                console.log(`[HIDE_WAITING] Showed select`);
-            }
-            if (multiSelect) {
-                multiSelect.style.display = 'block';
-                console.log(`[HIDE_WAITING] Showed multiSelect`);
-            }
-            if (refreshBtn) {
-                refreshBtn.style.display = 'block';
-                console.log(`[HIDE_WAITING] Showed refreshBtn`);
-            }
-        }
 
         /**
          * Check if all dependencies for a field are met
@@ -2527,10 +2660,10 @@
                         const allDepsMet = areDependenciesMet(config, fieldConfigs);
                         if (!allDepsMet) {
                             console.log(`[INIT_DEPS] Field ${config.field_name} dependencies not met, showing waiting message`);
-                            showWaitingMessage(formGroup, config, fieldConfigs);
+                            RewstLib.utils.showWaitingMessage(formGroup, config, fieldConfigs);
                         } else {
                             console.log(`[INIT_DEPS] Field ${config.field_name} dependencies met on init`);
-                            hideWaitingMessage(formGroup, config);
+                            RewstLib.utils.hideWaitingMessage(formGroup, config);
                         }
                     }
                 }
@@ -2597,8 +2730,7 @@
         // Extend RewstLib.utils with form-specific utilities
         RewstLib.utils.showLoadingMessage = showLoadingMessage;
         RewstLib.utils.hideLoadingMessage = hideLoadingMessage;
-        RewstLib.utils.showWaitingMessage = showWaitingMessage;
-        RewstLib.utils.hideWaitingMessage = hideWaitingMessage;
+        // showWaitingMessage and hideWaitingMessage are now in rewst-library.js
         RewstLib.utils.areDependenciesMet = areDependenciesMet;
         RewstLib.utils.getDependencyValues = getDependencyValues;
         RewstLib.utils.initializeDependentFields = initializeDependentFields;
@@ -2831,6 +2963,7 @@
                 // Scan to see which variables are referenced
                 const executionProps = ['workflow_input', 'graphql_op_variables', 'query', 'command', 'node_query'];
                 let hasUnresolvedRef = false;
+                let unresolvedVarName = null;
                 
                 for (const prop of executionProps) {
                     if (!config[prop]) continue;
@@ -2839,6 +2972,7 @@
                         if (window.pageVariables[varName] === undefined) {
                             console.log(`[PAGE_VAR_EXEC] Field ${config.field_name} waiting for ${varName}`);
                             hasUnresolvedRef = true;
+                            unresolvedVarName = varName;
                             break;
                         }
                     }
@@ -2848,7 +2982,7 @@
                 if (hasUnresolvedRef) {
                     console.log(`[PAGE_VAR_EXEC] Field ${config.field_name} has unresolved refs, showing waiting state`);
                     if (formGroup) {
-                        RewstLib.utils.showWaitingMessage(formGroup, config);
+                        RewstLib.utils.showWaitingMessage(formGroup, config, allFieldConfigs, unresolvedVarName);
                     }
                     return Promise.resolve();
                 }
@@ -3918,6 +4052,88 @@
             });
         }
 
+        /**
+         * Setup sorting handlers for datatable fields
+         * Allows clicking on column headers to sort ascending/descending
+         */
+        function setupDatatableSortHandlers(fieldConfigs) {
+            // Store current sort state for each datatable
+            if (!window.datatableSortState) {
+                window.datatableSortState = {};
+            }
+            
+            fieldConfigs.forEach(config => {
+                if (config.type !== 'datatable') return;
+                
+                const formGroup = document.querySelector(`[data-field-name="${config.field_name}"]`);
+                if (!formGroup) return;
+                
+                const table = formGroup.querySelector('table');
+                if (!table) return;
+                
+                const headers = table.querySelectorAll('th[data-sort-col]');
+                
+                headers.forEach(header => {
+                    header.addEventListener('click', (e) => {
+                        const colName = header.getAttribute('data-sort-col');
+                        
+                        // Get current sort state
+                        const sortKey = `${config.field_name}__${colName}`;
+                        const currentSort = window.datatableSortState[sortKey];
+                        const isAscending = currentSort?.direction === 'asc' ? false : true;
+                        
+                        // Update sort state
+                        window.datatableSortState[sortKey] = {
+                            column: colName,
+                            direction: isAscending ? 'asc' : 'desc'
+                        };
+                        
+                        // Get data from page variable
+                        const dataVarPath = parseDataVariable(config.data_variable);
+                        const datatableData = dataVarPath ? getPageVariableValue(dataVarPath) : undefined;
+                        
+                        if (!Array.isArray(datatableData) || datatableData.length === 0) {
+                            return;
+                        }
+                        
+                        // Sort the data
+                        const sortedData = [...datatableData].sort((a, b) => {
+                            const aVal = a[colName];
+                            const bVal = b[colName];
+                            
+                            // Handle null/undefined
+                            if (aVal === null || aVal === undefined) return isAscending ? 1 : -1;
+                            if (bVal === null || bVal === undefined) return isAscending ? -1 : 1;
+                            
+                            // Numeric comparison
+                            if (typeof aVal === 'number' && typeof bVal === 'number') {
+                                return isAscending ? aVal - bVal : bVal - aVal;
+                            }
+                            
+                            // String comparison
+                            const aStr = String(aVal).toLowerCase();
+                            const bStr = String(bVal).toLowerCase();
+                            
+                            if (isAscending) {
+                                return aStr.localeCompare(bStr);
+                            } else {
+                                return bStr.localeCompare(aStr);
+                            }
+                        });
+                        
+                        // Re-render table with sorted data
+                        const contentDiv = formGroup.querySelector('.datatable-content');
+                        if (contentDiv) {
+                            contentDiv.innerHTML = renderDatatable(sortedData);
+                            
+                            // Re-attach sort handlers to new table
+                            setupDatatableSortHandlers(fieldConfigs);
+                        }
+                    });
+                });
+            });
+        }
+
 
         function reloadArrayWorkflowDropdowns(fieldConfigs, formConfig) {
             console.log(`[ARRAY WORKFLOW] Checking which array workflows need to reload`);
@@ -4480,7 +4696,7 @@
                                 const formGroup = document.querySelector(`[data-field-name="${fc.field_name}"]`);
                                 if (formGroup) {
                                     hideLoadingMessage(formGroup, fc);
-                                    showWaitingMessage(formGroup, fc, fieldConfigs);
+                                    RewstLib.utils.showWaitingMessage(formGroup, fc, fieldConfigs);
                                 }
                             }
                         });
