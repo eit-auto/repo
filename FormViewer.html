@@ -1905,20 +1905,30 @@
                     }
                 } else if (config.type === 'dropdown') {
                     if (config.multi_select) {
-                        console.log(`[RENDER_MULTISELECT] Calling for ${config.field_name}, description:`, !!config.description);
-                        const multiSelectHtml = RewstLib.utils.renderMultiSelectContainer(config.field_name, displayName, config.description);
-                        const hasWaitingMsg = multiSelectHtml.includes('field-waiting-message');
-                        const substr = multiSelectHtml.substring(0, 300);
-                        console.log(`[RENDER_MULTISELECT] ${config.field_name}: has waiting msg =`, hasWaitingMsg);
-                        console.log(`[RENDER_MULTISELECT] substring:`, substr);
-                        html += multiSelectHtml;
+                        const multiSelectId = `ms_${config.field_name}`;
+                        html += `
+                            <label>${displayName}</label>
+                            ${config.description ? `<div class="field-description">${escapeHtml(config.description)}</div>` : ''}
+                            <div class="dropdown-refresh-container" style="position: relative; width: 100%;">
+                                <div class="field-loading-message" style="display: none; width: 100%; margin: 0; z-index: 10;"><span class="spinner"></span> Loading...</div>
+                                <div class="field-waiting-message" style="display: none; width: 100%; margin: 0; z-index: 10;">Waiting for dependencies...</div>
+                                <div class="multi-select-container" id="${multiSelectId}" style="width: 100%;">
+                                    <div class="multi-select-display">
+                                        <div class="multi-select-tags"></div>
+                                        <div class="multi-select-toggle">▼</div>
+                                    </div>
+                                    <div class="multi-select-options"></div>
+                                    <select name="${config.field_name}" class="multi-select-hidden-select" multiple="multiple" data-selected-values="[]"></select>
+                                </div>
+                            </div>
+                        `;
                     } else {
                         html += `
                             <label>${displayName}</label>
                             ${config.description ? `<div class="field-description">${escapeHtml(config.description)}</div>` : ''}
-                            <div style="position: relative;">
-                                <div class="field-loading-message" style="display: none; position: relative; left: 0; right: 0; margin: 0; z-index: 10;"><span class="spinner"></span> Loading...</div>
-                                <div class="field-waiting-message" style="display: none; position: relative; left: 0; right: 0; margin: 0; z-index: 10;">Waiting for dependencies...</div>
+                            <div class="dropdown-refresh-container" style="position: relative; width: 100%;">
+                                <div class="field-loading-message" style="display: none; width: 100%; margin: 0; z-index: 10;"><span class="spinner"></span> Loading...</div>
+                                <div class="field-waiting-message" style="display: none; width: 100%; margin: 0; z-index: 10;">Waiting for dependencies...</div>
                                 <select name="${config.field_name}" style="width: 100%; box-sizing: border-box;">
                                     <option value="">Loading...</option>
                                 </select>
@@ -1927,14 +1937,30 @@
                     }
                 } else if (config.type === 'dropdown_mysql') {
                     if (config.multi_select) {
-                        html += RewstLib.utils.renderMultiSelectContainer(config.field_name, displayName, config.description);
+                        const multiSelectId = `ms_${config.field_name}`;
+                        html += `
+                            <label>${displayName}</label>
+                            ${config.description ? `<div class="field-description">${escapeHtml(config.description)}</div>` : ''}
+                            <div class="dropdown-refresh-container" style="position: relative; width: 100%;">
+                                <div class="field-loading-message" style="display: none; width: 100%; margin: 0; z-index: 10;"><span class="spinner"></span> Loading...</div>
+                                <div class="field-waiting-message" style="display: none; width: 100%; margin: 0; z-index: 10;">Waiting for dependencies...</div>
+                                <div class="multi-select-container" id="${multiSelectId}" style="width: 100%;">
+                                    <div class="multi-select-display">
+                                        <div class="multi-select-tags"></div>
+                                        <div class="multi-select-toggle">▼</div>
+                                    </div>
+                                    <div class="multi-select-options"></div>
+                                    <select name="${config.field_name}" class="multi-select-hidden-select" multiple="multiple" data-selected-values="[]"></select>
+                                </div>
+                            </div>
+                        `;
                     } else {
                         html += `
                             <label>${displayName}</label>
                             ${config.description ? `<div class="field-description">${escapeHtml(config.description)}</div>` : ''}
-                            <div style="position: relative;">
-                                <div class="field-loading-message" style="display: none; position: relative; left: 0; right: 0; margin: 0; z-index: 10;"><span class="spinner"></span> Loading...</div>
-                                <div class="field-waiting-message" style="display: none; position: relative; left: 0; right: 0; margin: 0; z-index: 10;">Waiting for dependencies...</div>
+                            <div class="dropdown-refresh-container" style="position: relative; width: 100%;">
+                                <div class="field-loading-message" style="display: none; width: 100%; margin: 0; z-index: 10;"><span class="spinner"></span> Loading...</div>
+                                <div class="field-waiting-message" style="display: none; width: 100%; margin: 0; z-index: 10;">Waiting for dependencies...</div>
                                 <select name="${config.field_name}" style="width: 100%; box-sizing: border-box;">
                                     <option value="">Loading...</option>
                                 </select>
@@ -1943,14 +1969,30 @@
                     }
                 } else if (config.type === 'dropdown_graphql') {
                     if (config.multi_select) {
-                        html += RewstLib.utils.renderMultiSelectContainer(config.field_name, displayName, config.description);
+                        const multiSelectId = `ms_${config.field_name}`;
+                        html += `
+                            <label>${displayName}</label>
+                            ${config.description ? `<div class="field-description">${escapeHtml(config.description)}</div>` : ''}
+                            <div class="dropdown-refresh-container" style="position: relative; width: 100%;">
+                                <div class="field-loading-message" style="display: none; width: 100%; margin: 0; z-index: 10;"><span class="spinner"></span> Loading...</div>
+                                <div class="field-waiting-message" style="display: none; width: 100%; margin: 0; z-index: 10;">Waiting for dependencies...</div>
+                                <div class="multi-select-container" id="${multiSelectId}" style="width: 100%;">
+                                    <div class="multi-select-display">
+                                        <div class="multi-select-tags"></div>
+                                        <div class="multi-select-toggle">▼</div>
+                                    </div>
+                                    <div class="multi-select-options"></div>
+                                    <select name="${config.field_name}" class="multi-select-hidden-select" multiple="multiple" data-selected-values="[]"></select>
+                                </div>
+                            </div>
+                        `;
                     } else {
                         html += `
                             <label>${displayName}</label>
                             ${config.description ? `<div class="field-description">${escapeHtml(config.description)}</div>` : ''}
-                            <div style="position: relative;">
-                                <div class="field-loading-message" style="display: none; position: relative; left: 0; right: 0; margin: 0; z-index: 10;"><span class="spinner"></span> Loading...</div>
-                                <div class="field-waiting-message" style="display: none; position: relative; left: 0; right: 0; margin: 0; z-index: 10;">Waiting for dependencies...</div>
+                            <div class="dropdown-refresh-container" style="position: relative; width: 100%;">
+                                <div class="field-loading-message" style="display: none; width: 100%; margin: 0; z-index: 10;"><span class="spinner"></span> Loading...</div>
+                                <div class="field-waiting-message" style="display: none; width: 100%; margin: 0; z-index: 10;">Waiting for dependencies...</div>
                                 <select name="${config.field_name}" style="width: 100%; box-sizing: border-box;">
                                     <option value="">Loading...</option>
                                 </select>
@@ -1959,14 +2001,30 @@
                     }
                 } else if (config.type === 'dropdown_mesh') {
                     if (config.multi_select) {
-                        html += RewstLib.utils.renderMultiSelectContainer(config.field_name, displayName, config.description);
+                        const multiSelectId = `ms_${config.field_name}`;
+                        html += `
+                            <label>${displayName}</label>
+                            ${config.description ? `<div class="field-description">${escapeHtml(config.description)}</div>` : ''}
+                            <div class="dropdown-refresh-container" style="position: relative; width: 100%;">
+                                <div class="field-loading-message" style="display: none; width: 100%; margin: 0; z-index: 10;"><span class="spinner"></span> Loading...</div>
+                                <div class="field-waiting-message" style="display: none; width: 100%; margin: 0; z-index: 10;">Waiting for dependencies...</div>
+                                <div class="multi-select-container" id="${multiSelectId}" style="width: 100%;">
+                                    <div class="multi-select-display">
+                                        <div class="multi-select-tags"></div>
+                                        <div class="multi-select-toggle">▼</div>
+                                    </div>
+                                    <div class="multi-select-options"></div>
+                                    <select name="${config.field_name}" class="multi-select-hidden-select" multiple="multiple" data-selected-values="[]"></select>
+                                </div>
+                            </div>
+                        `;
                     } else {
                         html += `
                             <label>${displayName}</label>
                             ${config.description ? `<div class="field-description">${escapeHtml(config.description)}</div>` : ''}
-                            <div style="position: relative;">
-                                <div class="field-loading-message" style="display: none; position: relative; left: 0; right: 0; margin: 0; z-index: 10;"><span class="spinner"></span> Loading...</div>
-                                <div class="field-waiting-message" style="display: none; position: relative; left: 0; right: 0; margin: 0; z-index: 10;">Waiting for dependencies...</div>
+                            <div class="dropdown-refresh-container" style="position: relative; width: 100%;">
+                                <div class="field-loading-message" style="display: none; width: 100%; margin: 0; z-index: 10;"><span class="spinner"></span> Loading...</div>
+                                <div class="field-waiting-message" style="display: none; width: 100%; margin: 0; z-index: 10;">Waiting for dependencies...</div>
                                 <select name="${config.field_name}" style="width: 100%; box-sizing: border-box;">
                                     <option value="">Loading...</option>
                                 </select>
