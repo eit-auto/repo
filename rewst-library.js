@@ -1371,7 +1371,18 @@ const GRAPHQL_OPERATIONS = {
     
     // Check if waiting message already exists - if so, update it instead of creating duplicate
     let waitingBox = formGroup.querySelector('.field-waiting-message');
-    const messageText = `Waiting for ${parentFieldLabels.join(' and ')} selection`;
+    // Build message based on field type
+    let messageText;
+    if (config.type === 'dropdown_prefetch') {
+      // Prefetch: no "selection" word
+      messageText = `Waiting for ${parentFieldLabels.join(' and ')}`;
+    } else if (config.type === 'data_retrieval') {
+      // Data retrieval: include own field name
+      messageText = `${config.field_displayname}: Waiting for ${parentFieldLabels.join(' and ')} selection`;
+    } else {
+      // Other dropdowns: standard format
+      messageText = `Waiting for ${parentFieldLabels.join(' and ')} selection`;
+    }
     
     if (waitingBox) {
       // Update existing message and ensure it's visible
