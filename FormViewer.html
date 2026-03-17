@@ -1737,15 +1737,27 @@
                     
                     window.pageVariables[config.result_var] = results;
                     console.log(`[PAGE_VAR] Set ${config.result_var} (multi-select) with ${results.length} objects`, results);
+                    
+                    // Also set field_name variable with array of selected values
+                    window.pageVariables[config.field_name] = values;
+                    console.log(`[PAGE_VAR] Set ${config.field_name} (multi-select values) =`, values);
                 } else {
                     // For single-select, return single object or null
                     if (values.length > 0) {
                         const result = sourceData.find(item => String(item[valueName]) === String(values[0]) || String(item.id) === String(values[0]));
                         window.pageVariables[config.result_var] = result || null;
                         console.log(`[PAGE_VAR] Set ${config.result_var} (single-select)`, result);
+                        
+                        // Also set field_name variable with the selected value
+                        window.pageVariables[config.field_name] = values[0];
+                        console.log(`[PAGE_VAR] Set ${config.field_name} (field value) =`, values[0]);
                     } else {
                         window.pageVariables[config.result_var] = null;
                         console.log(`[PAGE_VAR] Cleared ${config.result_var} (no selection)`);
+                        
+                        // Clear field_name variable too
+                        window.pageVariables[config.field_name] = null;
+                        console.log(`[PAGE_VAR] Cleared ${config.field_name} (field value)`);
                     }
                 }
                 
@@ -1820,7 +1832,7 @@
                         <label for="${fieldId}">${displayName}</label>
                         ${config.description ? `<div class="field-description">${escapeHtml(config.description)}</div>` : ''}
                         <div style="position: relative;">
-                            ${hasUnresolved ? `<div class="field-waiting-message" style="display: flex; position: absolute; top: 0; left: 0; right: 0; margin: 0; z-index: 10;">Waiting for dependencies...</div>` : ''}
+                            ${hasUnresolved ? `<div class="field-waiting-message" style="display: flex; position: relative; left: 0; right: 0; margin: 0; z-index: 10;">Waiting for dependencies...</div>` : ''}
                             <input type="text" id="${fieldId}" name="${config.field_name}" value="${escapeHtml(displayValue)}" style="${hasUnresolved ? 'visibility: hidden;' : ''}">
                         </div>
                     `;
@@ -1832,7 +1844,7 @@
                         <label>${displayName}</label>
                         ${config.description ? `<div class="field-description">${escapeHtml(config.description)}</div>` : ''}
                         <div style="position: relative;">
-                            ${hasUnresolved ? `<div class="field-waiting-message" style="display: flex; position: absolute; top: 0; left: 0; right: 0; margin: 0; z-index: 10;">Waiting for dependencies...</div>` : ''}
+                            ${hasUnresolved ? `<div class="field-waiting-message" style="display: flex; position: relative; left: 0; right: 0; margin: 0; z-index: 10;">Waiting for dependencies...</div>` : ''}
                             <textarea name="${config.field_name}" style="${hasUnresolved ? 'visibility: hidden;' : ''}">${escapeHtml(displayValue)}</textarea>
                         </div>
                     `;
@@ -1905,8 +1917,8 @@
                             <label>${displayName}</label>
                             ${config.description ? `<div class="field-description">${escapeHtml(config.description)}</div>` : ''}
                             <div style="position: relative;">
-                                <div class="field-loading-message" style="display: none; position: absolute; top: 0; left: 0; right: 0; margin: 0; z-index: 10;"><span class="spinner"></span> Loading...</div>
-                                <div class="field-waiting-message" style="display: none; position: absolute; top: 0; left: 0; right: 0; margin: 0; z-index: 10;">Waiting for dependencies...</div>
+                                <div class="field-loading-message" style="display: none; position: relative; left: 0; right: 0; margin: 0; z-index: 10;"><span class="spinner"></span> Loading...</div>
+                                <div class="field-waiting-message" style="display: none; position: relative; left: 0; right: 0; margin: 0; z-index: 10;">Waiting for dependencies...</div>
                                 <select name="${config.field_name}" style="width: 100%; box-sizing: border-box;">
                                     <option value="">Loading...</option>
                                 </select>
@@ -1921,8 +1933,8 @@
                             <label>${displayName}</label>
                             ${config.description ? `<div class="field-description">${escapeHtml(config.description)}</div>` : ''}
                             <div style="position: relative;">
-                                <div class="field-loading-message" style="display: none; position: absolute; top: 0; left: 0; right: 0; margin: 0; z-index: 10;"><span class="spinner"></span> Loading...</div>
-                                <div class="field-waiting-message" style="display: none; position: absolute; top: 0; left: 0; right: 0; margin: 0; z-index: 10;">Waiting for dependencies...</div>
+                                <div class="field-loading-message" style="display: none; position: relative; left: 0; right: 0; margin: 0; z-index: 10;"><span class="spinner"></span> Loading...</div>
+                                <div class="field-waiting-message" style="display: none; position: relative; left: 0; right: 0; margin: 0; z-index: 10;">Waiting for dependencies...</div>
                                 <select name="${config.field_name}" style="width: 100%; box-sizing: border-box;">
                                     <option value="">Loading...</option>
                                 </select>
@@ -1937,8 +1949,8 @@
                             <label>${displayName}</label>
                             ${config.description ? `<div class="field-description">${escapeHtml(config.description)}</div>` : ''}
                             <div style="position: relative;">
-                                <div class="field-loading-message" style="display: none; position: absolute; top: 0; left: 0; right: 0; margin: 0; z-index: 10;"><span class="spinner"></span> Loading...</div>
-                                <div class="field-waiting-message" style="display: none; position: absolute; top: 0; left: 0; right: 0; margin: 0; z-index: 10;">Waiting for dependencies...</div>
+                                <div class="field-loading-message" style="display: none; position: relative; left: 0; right: 0; margin: 0; z-index: 10;"><span class="spinner"></span> Loading...</div>
+                                <div class="field-waiting-message" style="display: none; position: relative; left: 0; right: 0; margin: 0; z-index: 10;">Waiting for dependencies...</div>
                                 <select name="${config.field_name}" style="width: 100%; box-sizing: border-box;">
                                     <option value="">Loading...</option>
                                 </select>
@@ -1953,8 +1965,8 @@
                             <label>${displayName}</label>
                             ${config.description ? `<div class="field-description">${escapeHtml(config.description)}</div>` : ''}
                             <div style="position: relative;">
-                                <div class="field-loading-message" style="display: none; position: absolute; top: 0; left: 0; right: 0; margin: 0; z-index: 10;"><span class="spinner"></span> Loading...</div>
-                                <div class="field-waiting-message" style="display: none; position: absolute; top: 0; left: 0; right: 0; margin: 0; z-index: 10;">Waiting for dependencies...</div>
+                                <div class="field-loading-message" style="display: none; position: relative; left: 0; right: 0; margin: 0; z-index: 10;"><span class="spinner"></span> Loading...</div>
+                                <div class="field-waiting-message" style="display: none; position: relative; left: 0; right: 0; margin: 0; z-index: 10;">Waiting for dependencies...</div>
                                 <select name="${config.field_name}" style="width: 100%; box-sizing: border-box;">
                                     <option value="">Loading...</option>
                                 </select>
@@ -1986,8 +1998,8 @@
                         // Custom multi-select component for prefetch - use library to generate structure
                         html += `
                             <div class="dropdown-refresh-container" style="position: relative;">
-                                <div class="field-loading-message" style="display: none; position: absolute; top: 0; left: 0; right: 0; margin: 0; z-index: 10;"><span class="spinner"></span> Loading...</div>
-                                <div class="field-waiting-message" style="display: none; position: absolute; top: 0; left: 0; right: 0; margin: 0; z-index: 10;">Waiting for dependencies...</div>
+                                <div class="field-loading-message" style="display: none; position: relative; left: 0; right: 0; margin: 0; z-index: 10;"><span class="spinner"></span> Loading...</div>
+                                <div class="field-waiting-message" style="display: none; position: relative; left: 0; right: 0; margin: 0; z-index: 10;">Waiting for dependencies...</div>
                                 <div style="flex: 1;">
                                     ${RewstLib.utils.renderMultiSelectContainer(config.field_name, displayName, config.description)}
                                 </div>
@@ -2004,8 +2016,8 @@
                             <label>${displayName}</label>
                             ${config.description ? `<div class="field-description">${escapeHtml(config.description)}</div>` : ''}
                             <div class="dropdown-refresh-container" style="position: relative;">
-                                <div class="field-loading-message" style="display: none; position: absolute; top: 0; left: 0; right: 0; margin: 0; z-index: 10;"><span class="spinner"></span> Loading...</div>
-                                <div class="field-waiting-message" style="display: none; position: absolute; top: 0; left: 0; right: 0; margin: 0; z-index: 10;">Waiting for dependencies...</div>
+                                <div class="field-loading-message" style="display: none; position: relative; left: 0; right: 0; margin: 0; z-index: 10;"><span class="spinner"></span> Loading...</div>
+                                <div class="field-waiting-message" style="display: none; position: relative; left: 0; right: 0; margin: 0; z-index: 10;">Waiting for dependencies...</div>
                                 <select name="${config.field_name}" style="width: 100%; box-sizing: border-box;">
                                     <option value="">${RewstLib.utils.getGrammaticalPhrase(config.field_displayname)}</option>
                                     ${optionsHtml}
@@ -2021,7 +2033,7 @@
                     
                     html += `
                         <div style="position: relative;">
-                            ${hasUnresolved ? `<div class="field-waiting-message" style="display: flex; position: absolute; top: 0; left: 0; right: 0; margin: 0; z-index: 10;">Waiting for dependencies...</div>` : ''}
+                            ${hasUnresolved ? `<div class="field-waiting-message" style="display: flex; position: relative; left: 0; right: 0; margin: 0; z-index: 10;">Waiting for dependencies...</div>` : ''}
                             <div class="html-field" data-html-content style="${hasUnresolved ? 'visibility: hidden;' : ''}">${displayValue}</div>
                         </div>
                     `;
@@ -2107,7 +2119,7 @@
                         <label>${displayName}</label>
                         ${config.description ? `<div class="field-description">${escapeHtml(config.description)}</div>` : ''}
                         <div class="datatable-container" style="position: relative; overflow-x: auto; border: 1px solid #404040; border-radius: 4px; background: #1a3540;">
-                            ${isWaiting ? `<div class="field-waiting-message" style="display: flex; position: absolute; top: 0; left: 0; right: 0; bottom: 0; margin: 0; z-index: 10; background: rgba(26, 53, 64, 0.9);">Waiting for dependencies...</div>` : ''}
+                            ${isWaiting ? `<div class="field-waiting-message" style="display: flex; position: relative; left: 0; right: 0; margin: 0; z-index: 10; background: rgba(26, 53, 64, 0.9);">Waiting for dependencies...</div>` : ''}
                             <div class="datatable-content" style="padding: 0.75rem; ${isWaiting ? 'visibility: hidden;' : ''}">
                                 ${hasData ? renderDatatable(datatableData) : (datatableData !== undefined ? renderDatatable(datatableData) : '')}
                             </div>
@@ -2281,11 +2293,8 @@
                     if (multiSelect && !multiSelect.querySelector('.field-waiting-message')) {
                         const waitingDiv = document.createElement('div');
                         waitingDiv.className = 'field-waiting-message';
-                        // Position absolutely within the multi-select container - let CSS class handle colors/styling
-                        waitingDiv.style.position = 'absolute';
-                        waitingDiv.style.top = '0';
-                        waitingDiv.style.left = '0';
-                        waitingDiv.style.right = '0';
+                        // Position relatively within the multi-select container - flows naturally without overlap
+                        waitingDiv.style.position = 'relative';
                         waitingDiv.style.margin = '0';
                         waitingDiv.style.zIndex = '10';
                         waitingDiv.style.display = 'none';
@@ -2351,6 +2360,36 @@
                     // Add change listener to trigger dependent fields (for any field type)
                     const changeHandler = () => {
                         console.log(`>>> Change event fired for: ${config.field_name}`);
+                        
+                        // Set field_name as page variable with current value for ALL field types
+                        let fieldValue;
+                        const formGroup = document.querySelector(`[data-field-name="${config.field_name}"]`);
+                        
+                        if (config.multi_select) {
+                            // Multi-select: array of selected values
+                            const multiSelect = formGroup?.querySelector('.multi-select-container');
+                            if (multiSelect) {
+                                fieldValue = Array.from(multiSelect.querySelectorAll('[data-selected="true"]'))
+                                    .map(el => el.getAttribute('data-value'));
+                            } else {
+                                fieldValue = [];
+                            }
+                        } else if (config.type === 'checkbox') {
+                            // Checkbox: boolean value
+                            const checkbox = formGroup?.querySelector('input[type="checkbox"]');
+                            fieldValue = checkbox ? checkbox.checked : false;
+                        } else if (config.type === 'radio') {
+                            // Radio: selected value
+                            const radio = formGroup?.querySelector('input[type="radio"]:checked');
+                            fieldValue = radio ? radio.value : null;
+                        } else {
+                            // Text, textarea, dropdown, etc: input value
+                            const input = formGroup?.querySelector('input:not([type="checkbox"]):not([type="radio"]), select, textarea');
+                            fieldValue = input ? input.value : '';
+                        }
+                        
+                        window.pageVariables[config.field_name] = fieldValue;
+                        console.log(`[PAGE_VAR] Set ${config.field_name} (field value) =`, fieldValue);
                         
                         // If this is a dropdown with result_var, update the page variable with full object
                         if ((config.type === 'dropdown_mysql' || config.type === 'dropdown_graphql' || 
@@ -2518,6 +2557,41 @@
             
             // Load array field dropdowns (workflow and GraphQL)
             reloadArrayWorkflowDropdowns(fieldConfigs, formConfig);
+            
+            // Initialize page variables for all fields with their current values
+            fieldConfigs.forEach(config => {
+                let fieldValue;
+                const formGroup = document.querySelector(`[data-field-name="${config.field_name}"]`);
+                if (!formGroup) return;
+                
+                if (config.multi_select) {
+                    // Multi-select: array of selected values
+                    const multiSelect = formGroup.querySelector('.multi-select-container');
+                    if (multiSelect) {
+                        fieldValue = Array.from(multiSelect.querySelectorAll('[data-selected="true"]'))
+                            .map(el => el.getAttribute('data-value'));
+                    } else {
+                        fieldValue = [];
+                    }
+                } else if (config.type === 'checkbox') {
+                    // Checkbox: boolean value
+                    const checkbox = formGroup.querySelector('input[type="checkbox"]');
+                    fieldValue = checkbox ? checkbox.checked : false;
+                } else if (config.type === 'radio') {
+                    // Radio: selected value
+                    const radio = formGroup.querySelector('input[type="radio"]:checked');
+                    fieldValue = radio ? radio.value : null;
+                } else if (config.type !== 'horizontal_line' && config.type !== 'data_retrieval') {
+                    // Text, textarea, dropdown, etc: input value (skip non-data fields)
+                    const input = formGroup.querySelector('input:not([type="checkbox"]):not([type="radio"]), select, textarea');
+                    fieldValue = input ? input.value : '';
+                } else {
+                    return; // Skip non-data fields
+                }
+                
+                window.pageVariables[config.field_name] = fieldValue;
+                console.log(`[PAGE_VAR_INIT] Set ${config.field_name} =`, fieldValue);
+            });
             
             // Show buttons and set up form submission
             formButtonsContainer.style.display = 'flex';
@@ -3915,7 +3989,32 @@
             // Only execute workflow for fields that are not form_extend
             if (config.type !== 'form_extend' && config.workflow_id) {
                 // Resolve any [[ varName.property ]] page variable references in workflowInput
-                const resolvedWorkflowInput = replaceReferencesInValue(workflowInput);
+                const resolvedWorkflowInput = replaceReferencesInValue(workflowInput, (str) => {
+                    // Replace [[ varName.property ]] with values from window.pageVariables
+                    return str.replace(/\[\[\s*(\w+)(?:\.([^\]]+))?\s*\]\]/g, (match, varName, propertyPath) => {
+                        if (!propertyPath) {
+                            // [[ varName ]] - whole object
+                            const val = window.pageVariables[varName];
+                            return val !== undefined ? JSON.stringify(val) : match;
+                        } else {
+                            // [[ varName.property ]]
+                            const pageVar = window.pageVariables[varName];
+                            if (pageVar === undefined) return match;
+                            
+                            const trimmedPath = propertyPath.trim();
+                            const parts = trimmedPath.split('.');
+                            let current = pageVar;
+                            for (const part of parts) {
+                                if (current && typeof current === 'object') {
+                                    current = current[part];
+                                } else {
+                                    return match;
+                                }
+                            }
+                            return current !== undefined ? JSON.stringify(current) : match;
+                        }
+                    });
+                });
                 
                 // Use cached workflow execution, passing the resolved workflowInput
                 return getOrExecuteWorkflow(config, resolvedWorkflowInput, allFieldConfigs, formConfig).then(() => {
