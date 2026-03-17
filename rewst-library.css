@@ -869,7 +869,13 @@
     line-height: 1.0;
     height: 37px;
     box-sizing: border-box;
-    flex: 1;
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    width: 100%;
+    margin: 0;
+    z-index: 10;
   }
 
   .field-waiting-message {
@@ -887,7 +893,13 @@
     line-height: 1.0;
     height: 37px;
     box-sizing: border-box;
-    flex: 1;
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    width: 100%;
+    margin: 0;
+    z-index: 10;
   }
   .field-waiting-message.data-retrieval-waiting {
     background: #f9d86c;
