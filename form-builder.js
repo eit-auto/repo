@@ -2476,12 +2476,6 @@ function showElementSettings(elementUid) {
                 <input type="checkbox" id="multi_select" ${fieldConfig.multi_select ? 'checked' : ''} class="checkbox-input">
                 <label for="multi_select" style="margin: 0; color: #ffffff; font-weight: 600; font-size: 14px; cursor: pointer;">Multi-select</label>
             </div>
-            
-            <div style='margin-bottom: 15px;'>
-                <label style='display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;'>Results Variable Name</label>
-                <input type='text' id='result_var' value='${fieldConfig.result_var || fieldConfig.field_name + '_data' || ''}' placeholder='e.g., dropdown_1_data' style='width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box;'>
-                <div style='color: #999; font-size: 12px; margin-top: 6px;'>Variable name to store the dropdown results. Defaults to {field_name}_data</div>
-            </div>
         `;
     }
     
@@ -2542,6 +2536,13 @@ function showElementSettings(elementUid) {
             <input type="checkbox" id="required" ${fieldConfig.required ? 'checked' : ''} class="checkbox-input">
             <label for="required" style="margin: 0; color: #ffffff; font-weight: 600; font-size: 14px; cursor: pointer;">Required</label>
         </div>
+        ${['dropdown_static', 'dropdown', 'dropdown_graphql', 'dropdown_mysql', 'dropdown_mesh', 'dropdown_prefetch'].includes(fieldConfig.type) ? `
+        <div style='margin-bottom: 15px;'>
+            <label style='display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;'>Results Variable Name</label>
+            <input type='text' id='result_var' value='${fieldConfig.result_var || fieldConfig.field_name + '_data' || ''}' placeholder='e.g., dropdown_1_data' style='width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box;'>
+            <div style='color: #999; font-size: 12px; margin-top: 6px;'>Variable name to store the dropdown results. Defaults to {field_name}_data</div>
+        </div>
+        ` : ''}
     `;
     }
     
