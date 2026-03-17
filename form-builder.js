@@ -376,7 +376,8 @@ const ELEMENT_TYPE_DEFAULTS = {
             option3: 'Value 3'
         },
         default_value: null,
-        multi_select: false
+        multi_select: false,
+        result_var: ''
     },
     'dropdown': {
         workflow_id: '',
@@ -384,20 +385,23 @@ const ELEMENT_TYPE_DEFAULTS = {
         label_name: 'name',
         value_name: 'id',
         default_selector: 'default',
-        multi_select: false
+        multi_select: false,
+        result_var: ''
     },
     'dropdown_graphql': {
         graphql_op: '',
         label_name: 'name',
         value_name: 'id',
-        multi_select: false
+        multi_select: false,
+        result_var: ''
     },
     'dropdown_mysql': {
         query: '',
         label_field: '',
         value_field: '',
         multi_select: false,
-        default_value: null
+        default_value: null,
+        result_var: ''
     },
     'dropdown_mesh': {
         mode: 'powershell',             // 'cmd' | 'powershell' | 'nodes'
@@ -408,7 +412,8 @@ const ELEMENT_TYPE_DEFAULTS = {
         label_field: '',
         value_field: '',
         multi_select: false,
-        default_value: null
+        default_value: null,
+        result_var: ''
     },
     'data_retrieval': {
         data_source_type: 'mesh_powershell',        // 'mesh_cmd' | 'mesh_powershell' | 'mesh_nodes' | 'mysql' | 'workflow' | 'graphql'
@@ -426,7 +431,8 @@ const ELEMENT_TYPE_DEFAULTS = {
         label_field: '',
         value_field: '',
         multi_select: false,
-        default_value: null
+        default_value: null,
+        result_var: ''
     }
 };
 
@@ -877,6 +883,7 @@ function saveTypeSpecificFields(fieldConfig) {
         } else if (elementType === 'dropdown_static') {
             fieldConfig.default_value = document.getElementById('default_value')?.value || null;
             fieldConfig.multi_select = document.getElementById('multi_select')?.checked || false;
+            fieldConfig.result_var = document.getElementById('result_var')?.value || '';
             
             // Collect options from individual text fields
             const optionRows = document.querySelectorAll('.option-row');
@@ -899,6 +906,7 @@ function saveTypeSpecificFields(fieldConfig) {
             fieldConfig.value_name = document.getElementById('value_name')?.value || null;
             fieldConfig.default_selector = document.getElementById('default_selector')?.value || 'default';
             fieldConfig.multi_select = document.getElementById('multi_select')?.checked || false;
+            fieldConfig.result_var = document.getElementById('result_var')?.value || '';
             
             // Collect workflow inputs from individual text fields
             const workflowInputRows = document.querySelectorAll('.workflow-input-row');
@@ -928,6 +936,7 @@ function saveTypeSpecificFields(fieldConfig) {
             fieldConfig.label_name = document.getElementById('label_name')?.value || 'name';
             fieldConfig.value_name = document.getElementById('value_name')?.value || 'id';
             fieldConfig.multi_select = document.getElementById('multi_select')?.checked || false;
+            fieldConfig.result_var = document.getElementById('result_var')?.value || '';
             
             // Collect graphql operation variable values from dynamic inputs
             fieldConfig.graphql_op_variables = {};
@@ -952,6 +961,7 @@ function saveTypeSpecificFields(fieldConfig) {
             fieldConfig.label_field = document.getElementById('mysql_label_field')?.value || '';
             fieldConfig.value_field = document.getElementById('mysql_value_field')?.value || '';
             fieldConfig.multi_select = document.getElementById('multi_select')?.checked || false;
+            fieldConfig.result_var = document.getElementById('result_var')?.value || '';
         } else if (elementType === 'dropdown_mesh') {
             // Save mode from dropdown
             fieldConfig.mode = document.getElementById('mesh_mode')?.value || 'powershell';
@@ -983,6 +993,7 @@ function saveTypeSpecificFields(fieldConfig) {
             fieldConfig.label_field = document.getElementById('mesh_label_field')?.value || '';
             fieldConfig.value_field = document.getElementById('mesh_value_field')?.value || '';
             fieldConfig.multi_select = document.getElementById('multi_select')?.checked || false;
+            fieldConfig.result_var = document.getElementById('result_var')?.value || '';
         } else if (elementType === 'data_retrieval') {
             // Save data retrieval fields
             fieldConfig.data_source_type = document.getElementById('retrieval_type')?.value || 'mesh_powershell';
@@ -1014,6 +1025,7 @@ function saveTypeSpecificFields(fieldConfig) {
             fieldConfig.label_field = document.getElementById('prefetch_label_field')?.value || '';
             fieldConfig.value_field = document.getElementById('prefetch_value_field')?.value || '';
             fieldConfig.multi_select = document.getElementById('multi_select')?.checked || false;
+            fieldConfig.result_var = document.getElementById('result_var')?.value || '';
         } else if (elementType === 'form_extend') {
             fieldConfig.extend_var = document.getElementById('extend_var')?.value || null;
             
@@ -2464,6 +2476,12 @@ function showElementSettings(elementUid) {
                 <input type="checkbox" id="multi_select" ${fieldConfig.multi_select ? 'checked' : ''} class="checkbox-input">
                 <label for="multi_select" style="margin: 0; color: #ffffff; font-weight: 600; font-size: 14px; cursor: pointer;">Multi-select</label>
             </div>
+            
+            <div style='margin-bottom: 15px;'>
+                <label style='display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;'>Results Variable Name</label>
+                <input type='text' id='result_var' value='${fieldConfig.result_var || fieldConfig.field_name + '_data' || ''}' placeholder='e.g., dropdown_1_data' style='width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box;'>
+                <div style='color: #999; font-size: 12px; margin-top: 6px;'>Variable name to store the dropdown results. Defaults to {field_name}_data</div>
+            </div>
         `;
     }
     
@@ -3623,6 +3641,19 @@ function showElementSettings(elementUid) {
             }
         });
     }
+    
+    // Add listener for result_var (all dropdown types)
+    const isDropdownType = ['dropdown_static', 'dropdown', 'dropdown_graphql', 'dropdown_mysql', 'dropdown_mesh', 'dropdown_prefetch'].includes(fieldConfig.type);
+    if (isDropdownType) {
+        const resultVarInput = document.getElementById('result_var');
+        if (resultVarInput) {
+            resultVarInput.addEventListener('input', () => {
+                formHasBeenModified = true;
+                updateElementSettingsSaveButtonVisibility();
+            });
+        }
+    }
+    
     if (fieldConfig.type === 'array') {
         const editArrayItemsBtn = document.getElementById('editArrayItemsBtn');
         if (editArrayItemsBtn) {
