@@ -1374,14 +1374,16 @@ const GRAPHQL_OPERATIONS = {
     const messageText = `Waiting for ${parentFieldLabels.join(' and ')} selection`;
     
     if (waitingBox) {
-      // Update existing message
+      // Update existing message and ensure it's visible
       waitingBox.innerHTML = messageText;
+      waitingBox.style.display = 'flex';
     } else {
       // Create new message
       waitingBox = document.createElement('div');
       waitingBox.className = 'field-waiting-message';
       waitingBox.setAttribute('data-field-name', config.field_name);
       waitingBox.innerHTML = messageText;
+      waitingBox.style.display = 'flex';
       formGroup.appendChild(waitingBox);
     }
   }
