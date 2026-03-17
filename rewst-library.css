@@ -178,6 +178,7 @@
     align-items: center;
     gap: 8px;
     width: 100%;
+    overflow: hidden;
   }
 
   .dropdown-refresh-btn {
@@ -877,7 +878,6 @@
     margin: 0;
     z-index: 10;
   }
-
   .field-waiting-message {
     padding: 0.35rem 0.75rem;
     border: 2px solid #999999;
