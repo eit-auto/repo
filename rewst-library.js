@@ -1388,10 +1388,19 @@ const GRAPHQL_OPERATIONS = {
       // Update existing message and ensure it's visible
       waitingBox.innerHTML = messageText;
       waitingBox.style.display = 'flex';
+      // Apply gold styling for data_retrieval
+      if (config.type === 'data_retrieval') {
+        waitingBox.classList.add('data-retrieval-waiting');
+      } else {
+        waitingBox.classList.remove('data-retrieval-waiting');
+      }
     } else {
       // Create new message
       waitingBox = document.createElement('div');
       waitingBox.className = 'field-waiting-message';
+      if (config.type === 'data_retrieval') {
+        waitingBox.classList.add('data-retrieval-waiting');
+      }
       waitingBox.setAttribute('data-field-name', config.field_name);
       waitingBox.innerHTML = messageText;
       waitingBox.style.display = 'flex';
