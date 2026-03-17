@@ -1392,6 +1392,7 @@ const GRAPHQL_OPERATIONS = {
       if (config.type === 'data_retrieval') {
         waitingBox.classList.add('data-retrieval-waiting');
         formGroup.style.minHeight = '37px';
+        formGroup.style.display = '';
       } else {
         waitingBox.classList.remove('data-retrieval-waiting');
       }
@@ -1402,6 +1403,7 @@ const GRAPHQL_OPERATIONS = {
       if (config.type === 'data_retrieval') {
         waitingBox.classList.add('data-retrieval-waiting');
         formGroup.style.minHeight = '37px';
+        formGroup.style.display = '';
       }
       waitingBox.setAttribute('data-field-name', config.field_name);
       waitingBox.innerHTML = messageText;
@@ -1451,6 +1453,11 @@ const GRAPHQL_OPERATIONS = {
     const loadingBox = formGroup.querySelector('.field-loading-message');
     if (loadingBox) loadingBox.style.display = 'none';
     
+    // Hide form-group for data_retrieval fields (they have no visible controls)
+    if (config && config.type === 'data_retrieval') {
+      formGroup.style.display = 'none';
+    }
+    
     // Re-enable refresh button and restore original text
     const refreshBtn = formGroup.querySelector('.dropdown-refresh-btn');
     if (refreshBtn) {
@@ -1481,9 +1488,10 @@ const GRAPHQL_OPERATIONS = {
     const waitingBox = formGroup.querySelector('.field-waiting-message');
     if (waitingBox) waitingBox.style.display = 'none';
     
-    // Remove min-height for data_retrieval fields
+    // Remove min-height and hide form-group for data_retrieval fields
     if (config && config.type === 'data_retrieval') {
       formGroup.style.minHeight = '';
+      formGroup.style.display = 'none';
     }
     
     // Show multi-select display or regular input
