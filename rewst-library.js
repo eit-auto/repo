@@ -1369,11 +1369,21 @@ const GRAPHQL_OPERATIONS = {
       input.style.display = 'none';
     }
     
-    const waitingBox = document.createElement('div');
-    waitingBox.className = 'field-waiting-message';
-    waitingBox.setAttribute('data-field-name', config.field_name);
-    waitingBox.innerHTML = `Waiting for ${parentFieldLabels.join(' and ')} selection`;
-    formGroup.appendChild(waitingBox);
+    // Check if waiting message already exists - if so, update it instead of creating duplicate
+    let waitingBox = formGroup.querySelector('.field-waiting-message');
+    const messageText = `Waiting for ${parentFieldLabels.join(' and ')} selection`;
+    
+    if (waitingBox) {
+      // Update existing message
+      waitingBox.innerHTML = messageText;
+    } else {
+      // Create new message
+      waitingBox = document.createElement('div');
+      waitingBox.className = 'field-waiting-message';
+      waitingBox.setAttribute('data-field-name', config.field_name);
+      waitingBox.innerHTML = messageText;
+      formGroup.appendChild(waitingBox);
+    }
   }
 
   /**
