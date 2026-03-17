@@ -1342,10 +1342,12 @@ const GRAPHQL_OPERATIONS = {
   function showWaitingMessage(formGroup, config, fieldConfigs) {
     // Handle both object (new format) and string (old format) for dependant_fields
     let depFields;
-    if (typeof config.dependant_fields === 'object') {
+    if (config.dependant_fields && typeof config.dependant_fields === 'object') {
       depFields = Object.keys(config.dependant_fields);
-    } else {
+    } else if (config.dependant_fields && typeof config.dependant_fields === 'string') {
       depFields = config.dependant_fields.split(',').map(f => f.trim());
+    } else {
+      depFields = [];
     }
     
     const parentFieldLabels = depFields.map(fieldName => {
