@@ -435,7 +435,8 @@ const ELEMENT_TYPE_DEFAULTS = {
         result_var: ''
     },
     'datatable': {
-        data_variable: ''               // Variable name/path to JSON array
+        data_variable: '',              // Variable name/path to JSON array
+        list_view: false                // true = list format, false = table format
     }
 };
 
@@ -1033,6 +1034,7 @@ function saveTypeSpecificFields(fieldConfig) {
         } else if (elementType === 'datatable') {
             // Save datatable fields
             fieldConfig.data_variable = document.getElementById('datatable_data_variable')?.value || '';
+            fieldConfig.list_view = document.getElementById('datatable_list_view')?.checked || false;
         } else if (elementType === 'form_extend') {
             fieldConfig.extend_var = document.getElementById('extend_var')?.value || null;
             
@@ -2999,6 +3001,11 @@ function showElementSettings(elementUid) {
                 <input type='text' id='datatable_data_variable' value='${fieldConfig.data_variable || ''}' placeholder='e.g., ad_users or data.users' style='width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box;'>
                 <div style='color: #999; font-size: 12px; margin-top: 6px;'>Path to the JSON array to display. Use dot notation for nested structures (e.g., "ad_users" or "data.users").</div>
             </div>
+            
+            <div style="margin-bottom: 15px; display: flex; align-items: center; gap: 10px;">
+                <input type="checkbox" id="datatable_list_view" ${fieldConfig.list_view ? 'checked' : ''} class="checkbox-input">
+                <label for="datatable_list_view" style="margin: 0; color: #ffffff; font-weight: 600; font-size: 14px; cursor: pointer;">List View</label>
+            </div>
         `;
     }
     let dependantFieldsHTML = '';
@@ -3674,8 +3681,17 @@ function showElementSettings(elementUid) {
     // Add listeners for datatable
     if (fieldConfig.type === 'datatable') {
         const dataVariableInput = document.getElementById('datatable_data_variable');
+        const listViewCheckbox = document.getElementById('datatable_list_view');
+        
         if (dataVariableInput) {
             dataVariableInput.addEventListener('input', () => {
+                formHasBeenModified = true;
+                updateElementSettingsSaveButtonVisibility();
+            });
+        }
+        
+        if (listViewCheckbox) {
+            listViewCheckbox.addEventListener('change', () => {
                 formHasBeenModified = true;
                 updateElementSettingsSaveButtonVisibility();
             });
