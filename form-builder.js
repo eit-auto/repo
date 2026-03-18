@@ -3067,9 +3067,8 @@ function showElementSettings(elementUid) {
         </div>
     `;
     
-    // Set Show/Hide Conditions only for non-form_extend elements
-    if (fieldConfig.type !== 'form_extend') {
-        formHTML += `
+    // Set Show/Hide Conditions for all element types
+    formHTML += `
         
         <div class="mb-15">
             <label style="display: flex; align-items: center; gap: 8px; color: #ffffff; font-weight: 600; font-size: 14px; margin-bottom: 0; cursor: pointer;">
@@ -3108,7 +3107,6 @@ function showElementSettings(elementUid) {
             </div>
         </div>
     `;
-    }
     
     settingsForm.innerHTML = formHTML;
     
