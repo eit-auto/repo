@@ -1214,7 +1214,7 @@
          * Render a datatable from an array of objects
          * Returns HTML table or error message
          */
-        function renderDatatable(data) {
+        function renderDatatable(data, config) {
             // Validate data is an array of objects
             if (!Array.isArray(data)) {
                 return `<div style="color: #dc3545; font-size: 0.9rem; padding: 1rem; text-align: center;">Invalid data object</div>`;
@@ -1224,45 +1224,70 @@
                 return `<div style="color: #888; font-size: 0.9rem; padding: 1rem; text-align: center;">No data</div>`;
             }
             
-            // Extract column names from first object
+            // Validate first item
             const firstItem = data[0];
             if (typeof firstItem !== 'object' || firstItem === null) {
                 return `<div style="color: #dc3545; font-size: 0.9rem; padding: 1rem; text-align: center;">Invalid data object</div>`;
             }
             
             const columns = Object.keys(firstItem);
+            const listView = config?.list_view === true;
             
-            // Create table HTML
-            let tableHtml = `<table style="width: 100%; border-collapse: collapse; margin-top: 0.5rem;">
-                <thead style="background: #32373e;">
-                    <tr>`;
-            
-            // Add sortable headers
-            columns.forEach(col => {
-                tableHtml += `<th style="padding: 0.75rem; text-align: left; font-weight: 700; color: #ffffff; border-bottom: 2px solid #556870; cursor: pointer; user-select: none;" data-sort-col="${col}" title="Click to sort">${escapeHtml(col)}</th>`;
-            });
-            
-            tableHtml += `</tr>
-                </thead>
-                <tbody>`;
-            
-            // Add rows
-            data.forEach((item, idx) => {
-                tableHtml += `<tr style="background: ${idx % 2 === 0 ? 'rgba(0, 0, 0, 0.25)' : 'rgba(0, 0, 0, 0.15)'};">`;
+            if (listView) {
+                // Card view: each row becomes a vertical card with 2-column property layout
+                let cardsHtml = `<div style="display: flex; flex-direction: column; gap: 1rem; margin-top: 0.5rem;">`;
                 
-                columns.forEach(col => {
-                    const value = item[col];
-                    const displayValue = value === null || value === undefined ? '' : String(value);
-                    tableHtml += `<td style="padding: 0.75rem; border-bottom: 1px solid #314a59; color: #e0e0e0; font-size: 0.9rem; word-wrap: break-word;">${escapeHtml(displayValue)}</td>`;
+                data.forEach((item, idx) => {
+                    cardsHtml += `<div style="background: rgba(0, 0, 0, 0.25); border: 1px solid #556870; border-radius: 4px; padding: 1rem;">`;
+                    cardsHtml += `<div style="display: grid; grid-template-columns: repeat(3, auto); gap: 1rem;">`;
+                    
+                    columns.forEach(col => {
+                        const value = item[col];
+                        const displayValue = value === null || value === undefined ? '' : String(value);
+                        cardsHtml += `<div>
+                            <div style="font-weight: 700; color: #a0a0a0; font-size: 0.85rem; margin-bottom: 0.25rem;">${escapeHtml(col)}</div>
+                            <div style="color: #e0e0e0; font-size: 0.9rem; word-wrap: break-word;">${escapeHtml(displayValue)}</div>
+                        </div>`;
+                    });
+                    
+                    cardsHtml += `</div></div>`;
                 });
                 
-                tableHtml += `</tr>`;
-            });
-            
-            tableHtml += `</tbody>
-            </table>`;
-            
-            return tableHtml;
+                cardsHtml += `</div>`;
+                return cardsHtml;
+            } else {
+                // Table view: current horizontal table layout
+                let tableHtml = `<table style="width: 100%; border-collapse: collapse; margin-top: 0.5rem;">
+                    <thead style="background: #32373e;">
+                        <tr>`;
+                
+                // Add sortable headers
+                columns.forEach(col => {
+                    tableHtml += `<th style="padding: 0.75rem; text-align: left; font-weight: 700; color: #ffffff; border-bottom: 2px solid #556870; cursor: pointer; user-select: none;" data-sort-col="${col}" title="Click to sort">${escapeHtml(col)}</th>`;
+                });
+                
+                tableHtml += `</tr>
+                    </thead>
+                    <tbody>`;
+                
+                // Add rows
+                data.forEach((item, idx) => {
+                    tableHtml += `<tr style="background: ${idx % 2 === 0 ? 'rgba(0, 0, 0, 0.25)' : 'rgba(0, 0, 0, 0.15)'};">`;
+                    
+                    columns.forEach(col => {
+                        const value = item[col];
+                        const displayValue = value === null || value === undefined ? '' : String(value);
+                        tableHtml += `<td style="padding: 0.75rem; border-bottom: 1px solid #314a59; color: #e0e0e0; font-size: 0.9rem; word-wrap: break-word;">${escapeHtml(displayValue)}</td>`;
+                    });
+                    
+                    tableHtml += `</tr>`;
+                });
+                
+                tableHtml += `</tbody>
+                </table>`;
+                
+                return tableHtml;
+            }
         }
 
         /**
@@ -1654,7 +1679,7 @@
                         } else {
                             if (contentDiv) {
                                 // Render the table with data
-                                contentDiv.innerHTML = renderDatatable(datatableData);
+                                contentDiv.innerHTML = renderDatatable(datatableData, config);
                                 contentDiv.style.visibility = 'visible';
                             }
                             if (waitingMsg) waitingMsg.style.display = 'none';
@@ -1800,7 +1825,7 @@
                                     if (waitingMsg) waitingMsg.style.display = 'flex';
                                 } else {
                                     if (contentDiv) {
-                                        contentDiv.innerHTML = renderDatatable(datatableData);
+                                        contentDiv.innerHTML = renderDatatable(datatableData, dtConfig);
                                         contentDiv.style.visibility = 'visible';
                                     }
                                     if (waitingMsg) waitingMsg.style.display = 'none';
@@ -2210,7 +2235,7 @@
                         <div class="datatable-container" style="position: relative; overflow-x: auto; border: 1px solid #404040; border-radius: 4px; background: #1a3540;">
                             ${isWaiting ? `<div class="field-waiting-message" style="display: flex; position: relative; left: 0; right: 0; margin: 0; z-index: 10; background: rgba(26, 53, 64, 0.9);">Waiting for dependencies...</div>` : ''}
                             <div class="datatable-content" style="padding: 0.75rem; ${isWaiting ? 'visibility: hidden;' : ''}">
-                                ${hasData ? renderDatatable(datatableData) : (datatableData !== undefined ? renderDatatable(datatableData) : '')}
+                                ${hasData ? renderDatatable(datatableData, config) : (datatableData !== undefined ? renderDatatable(datatableData, config) : '')}
                             </div>
                         </div>
                     `;
@@ -4333,7 +4358,7 @@
                         // Re-render table with sorted data
                         const contentDiv = formGroup.querySelector('.datatable-content');
                         if (contentDiv) {
-                            contentDiv.innerHTML = renderDatatable(sortedData);
+                            contentDiv.innerHTML = renderDatatable(sortedData, config);
                             
                             // Re-attach sort handlers to new table
                             setupDatatableSortHandlers(fieldConfigs);
