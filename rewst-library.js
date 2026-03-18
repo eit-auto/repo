@@ -1340,23 +1340,30 @@ const GRAPHQL_OPERATIONS = {
    * @param {Array} fieldConfigs - All field configurations
    */
   function showWaitingMessage(formGroup, config, fieldConfigs, blockingFieldNames) {
+    console.log(`[WAITING_MSG] Called for field: ${config.field_name}, blockingFieldNames:`, blockingFieldNames);
     // Handle both object (new format) and string (old format) for dependant_fields
     // If blockingFieldNames is provided (from variable refs), use that; otherwise extract from config
     let depFields;
     if (blockingFieldNames) {
       // Runtime-provided blocking field names (e.g., from variable reference)
       depFields = Array.isArray(blockingFieldNames) ? blockingFieldNames : [blockingFieldNames];
+      console.log(`[WAITING_MSG] Using blockingFieldNames, depFields:`, depFields);
     } else if (config.dependant_fields && typeof config.dependant_fields === 'object') {
       depFields = Object.keys(config.dependant_fields);
+      console.log(`[WAITING_MSG] Using config.dependant_fields (object), depFields:`, depFields);
     } else if (config.dependant_fields && typeof config.dependant_fields === 'string') {
       depFields = config.dependant_fields.split(',').map(f => f.trim());
+      console.log(`[WAITING_MSG] Using config.dependant_fields (string), depFields:`, depFields);
     } else {
       depFields = [];
+      console.log(`[WAITING_MSG] No deps found, depFields: []`);
     }
     
     const parentFieldLabels = depFields.map(fieldName => {
       const parentConfig = fieldConfigs.find(f => f.field_name === fieldName);
-      return parentConfig ? parentConfig.field_displayname : fieldName;
+      const label = parentConfig ? parentConfig.field_displayname : fieldName;
+      console.log(`[WAITING_MSG] Field name "${fieldName}" -> label "${label}"`);
+      return label;
     });
     
     // Hide multi-select display or regular input
