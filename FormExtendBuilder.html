@@ -4,6 +4,29 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>REWST Form Builder v2</title>
+    <!-- ============================================
+         USER CONTEXT & SECURITY INITIALIZATION
+         Populates variables for later use:
+         - rewstUser (Elements: username, id, roleIds, orgId)
+         - allUserRoles (List Item elements: label, value)
+         For config-based pages, leave pagePermissions empty.
+         For hardcoded permission pages, set pagePermissions array.
+         ============================================ -->
+    <style>
+        #page-content { display: none !important; }
+    </style>
+    <script>
+        const rawUserData = `{{ CTX.user }}`;
+        let pagePermissions = ['role-admin', 'c401ac8f-d0e3-4baf-b349-ebd65fef66b3']; // Blank for config-based pages.
+        window.ORG_ID = '019176c2-059f-7391-afbc-97b201efbd93';
+    </script>
+    <script src="https://eit-auto.github.io/repo/security.js?v=1.0"></script>
+    <script>
+        // Check hardcoded permissions if pagePermissions is set
+        if (pagePermissions.length > 0) {
+            checkPagePermission(pagePermissions);
+        }
+    </script>
     <link rel="stylesheet" href="https://eit-auto.github.io/repo/rewst-library.css">
     <link rel="stylesheet" href="https://eit-auto.github.io/repo/form-builder.css">
 </head>
@@ -12,6 +35,7 @@
     <script>
         window.ORG_ID = '019176c2-059f-7391-afbc-97b201efbd93';
     </script>
+    <div id="page-content">
     <script src="https://eit-auto.github.io/repo/rewst-library.js?v=2.1"></script>
     
     <div class="modal-overlay" id="executionModal">
@@ -379,6 +403,7 @@
         // Set username after raw block - Jinja will process this
         userName = "{{ CTX.user.username }}";
     </script>
+    </div>
     </div>
 </body>
 </html>
