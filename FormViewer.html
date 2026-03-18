@@ -1700,6 +1700,7 @@
 
                 const { cacheType, cacheKey, valueName, labelName, sourceFieldName, resultPath } = metadata;
                 let sourceData = null;
+                let fullResult = null;
 
                 // Retrieve data from appropriate cache based on source type
                 if (cacheType === 'mysql') {
@@ -1718,10 +1719,26 @@
                         sourceData = retrievedData;
                     }
                 } else if (cacheType === 'workflow') {
-                    sourceData = workflowCache[cacheKey];
+                    const cachedResult = workflowCache.results[cacheKey];
+                    sourceData = cachedResult?.options;  // Extract the options array
                 }
 
-                if (!sourceData || !Array.isArray(sourceData)) {
+                // If sourceData is not an array, store the entire result as the page variable
+                if (!Array.isArray(sourceData)) {
+                    if (fullResult) {
+                        // For workflow results that are objects, store the entire result
+                        window.pageVariables[config.result_var] = fullResult;
+                        console.log(`[PAGE_VAR] Set ${config.result_var} (full workflow result)`, fullResult);
+                        
+                        // Also set field_name variable with the selected value
+                        const values = Array.isArray(selectedValues) ? selectedValues : (selectedValues ? [selectedValues] : []);
+                        if (values.length > 0) {
+                            window.pageVariables[config.field_name] = values[0];
+                            console.log(`[PAGE_VAR] Set ${config.field_name} (field value) =`, values[0]);
+                        }
+                        return;
+                    }
+                    
                     console.warn(`[PAGE_VAR] Source data not found or not an array for ${config.field_name}`, { cacheType, cacheKey });
                     return;
                 }
@@ -1761,6 +1778,40 @@
                     }
                 }
                 
+                // After setting page variable, trigger rebuild for any datatables that depend on it
+                fieldConfigs.forEach(dtConfig => {
+                    if (dtConfig.type === 'datatable' && dtConfig.data_variable) {
+                        const dataVarPath = parseDataVariable(dtConfig.data_variable);
+                        const baseVarName = dataVarPath ? dataVarPath.split('.')[0] : null;
+                        
+                        // If this datatable depends on the variable we just set
+                        if (baseVarName === config.result_var) {
+                            console.log(`[PAGE_VAR] Triggering datatable rebuild for ${dtConfig.field_name} due to ${config.result_var} update`);
+                            
+                            const formGroup = document.querySelector(`[data-field-name="${dtConfig.field_name}"]`);
+                            if (formGroup) {
+                                const datatableData = getPageVariableValue(dataVarPath);
+                                const isWaiting = !datatableData;
+                                const waitingMsg = formGroup.querySelector('.field-waiting-message');
+                                const contentDiv = formGroup.querySelector('.datatable-content');
+                                
+                                if (isWaiting) {
+                                    if (contentDiv) contentDiv.style.visibility = 'hidden';
+                                    if (waitingMsg) waitingMsg.style.display = 'flex';
+                                } else {
+                                    if (contentDiv) {
+                                        contentDiv.innerHTML = renderDatatable(datatableData);
+                                        contentDiv.style.visibility = 'visible';
+                                    }
+                                    if (waitingMsg) waitingMsg.style.display = 'none';
+                                    // Re-attach sort handlers to the newly rendered table
+                                    setupDatatableSortHandlers(fieldConfigs);
+                                }
+                            }
+                        }
+                    }
+                });
+                
                 // Rebuild any fields that depend on this page variable
                 console.log(`[PAGE_VAR_REBUILD] Calling rebuildDependentFields for: ${config.result_var}`);
                 if (FormManager && typeof FormManager.rebuildDependentFields === 'function') {
@@ -1784,8 +1835,8 @@
                 }
                 // Handle data_retrieval fields - rendered but hidden, with waiting/loading messages
                 if (config.type === 'data_retrieval') {
-                    const fieldId = `field_${config.field_name}_${Math.random().toString(36).substr(2, 5)}`;
-                    let html = `<div class="form-group" data-field-name="${config.field_name}" style="display: none !important; margin-bottom: 0 !important;">`;
+                    const fieldId = `field_${config.field_name}_${Math.random().toString(36).substr(2, 9)}`;
+                    let html = `<div class="form-group" data-field-name="${config.field_name}" style="position: relative; margin: 0 !important; padding: 0 !important; display: none !important;">`;
                     html += `<div class="field-loading-message" style="display: none;"><span class="spinner"></span> Loading...</div>`;
                     html += `<div class="field-waiting-message" style="display: none;">Waiting for dependencies...</div>`;
                     html += `</div>`;
@@ -1904,133 +1955,113 @@
                         html += '</select>';
                     }
                 } else if (config.type === 'dropdown') {
+                    const multiSelectId = `ms_${config.field_name}`;
+                    let fieldControlHtml = '';
                     if (config.multi_select) {
-                        const multiSelectId = `ms_${config.field_name}`;
-                        html += `
-                            <label>${displayName}</label>
-                            ${config.description ? `<div class="field-description">${escapeHtml(config.description)}</div>` : ''}
-                            <div class="dropdown-refresh-container" style="position: relative; width: 100%;">
-                                <div class="field-loading-message" style="display: none; width: 100%; margin: 0; z-index: 10;"><span class="spinner"></span> Loading...</div>
-                                <div class="field-waiting-message" style="display: none; width: 100%; margin: 0; z-index: 10;">Waiting for dependencies...</div>
-                                <div class="multi-select-container" id="${multiSelectId}" style="width: 100%;">
-                                    <div class="multi-select-display">
-                                        <div class="multi-select-tags"></div>
-                                        <div class="multi-select-toggle">▼</div>
-                                    </div>
-                                    <div class="multi-select-options"></div>
-                                    <select name="${config.field_name}" class="multi-select-hidden-select" multiple="multiple" data-selected-values="[]"></select>
+                        fieldControlHtml = `
+                            <div class="multi-select-container" id="${multiSelectId}">
+                                <div class="multi-select-display">
+                                    <div class="multi-select-tags"></div>
+                                    <div class="multi-select-toggle">▼</div>
                                 </div>
+                                <div class="multi-select-options"></div>
+                                <select name="${config.field_name}" class="multi-select-hidden-select" multiple="multiple" data-selected-values="[]"></select>
                             </div>
                         `;
                     } else {
-                        html += `
-                            <label>${displayName}</label>
-                            ${config.description ? `<div class="field-description">${escapeHtml(config.description)}</div>` : ''}
-                            <div class="dropdown-refresh-container" style="position: relative; width: 100%;">
-                                <div class="field-loading-message" style="display: none; width: 100%; margin: 0; z-index: 10;"><span class="spinner"></span> Loading...</div>
-                                <div class="field-waiting-message" style="display: none; width: 100%; margin: 0; z-index: 10;">Waiting for dependencies...</div>
-                                <select name="${config.field_name}" style="width: 100%; box-sizing: border-box;">
-                                    <option value="">Loading...</option>
-                                </select>
-                            </div>
-                        `;
+                        fieldControlHtml = `<select name="${config.field_name}" style="width: 100%; box-sizing: border-box;"><option value="">Loading...</option></select>`;
                     }
+                    html += `
+                        <label>${displayName}</label>
+                        ${config.description ? `<div class="field-description">${escapeHtml(config.description)}</div>` : ''}
+                        <div class="dropdown-refresh-container">
+                            <div class="field-loading-message" style="display: none;"><span class="spinner"></span> Loading...</div>
+                            <div class="field-waiting-message" style="display: none;">Waiting for dependencies...</div>
+                            ${fieldControlHtml}
+                            <button type="button" class="btn btn-small dropdown-refresh-btn" data-field-name="${config.field_name}" title="Refresh options">↻</button>
+                        </div>
+                    `;
                 } else if (config.type === 'dropdown_mysql') {
+                    const multiSelectId = `ms_${config.field_name}`;
+                    let fieldControlHtml = '';
                     if (config.multi_select) {
-                        const multiSelectId = `ms_${config.field_name}`;
-                        html += `
-                            <label>${displayName}</label>
-                            ${config.description ? `<div class="field-description">${escapeHtml(config.description)}</div>` : ''}
-                            <div class="dropdown-refresh-container" style="position: relative; width: 100%;">
-                                <div class="field-loading-message" style="display: none; width: 100%; margin: 0; z-index: 10;"><span class="spinner"></span> Loading...</div>
-                                <div class="field-waiting-message" style="display: none; width: 100%; margin: 0; z-index: 10;">Waiting for dependencies...</div>
-                                <div class="multi-select-container" id="${multiSelectId}" style="width: 100%;">
-                                    <div class="multi-select-display">
-                                        <div class="multi-select-tags"></div>
-                                        <div class="multi-select-toggle">▼</div>
-                                    </div>
-                                    <div class="multi-select-options"></div>
-                                    <select name="${config.field_name}" class="multi-select-hidden-select" multiple="multiple" data-selected-values="[]"></select>
+                        fieldControlHtml = `
+                            <div class="multi-select-container" id="${multiSelectId}">
+                                <div class="multi-select-display">
+                                    <div class="multi-select-tags"></div>
+                                    <div class="multi-select-toggle">▼</div>
                                 </div>
+                                <div class="multi-select-options"></div>
+                                <select name="${config.field_name}" class="multi-select-hidden-select" multiple="multiple" data-selected-values="[]"></select>
                             </div>
                         `;
                     } else {
-                        html += `
-                            <label>${displayName}</label>
-                            ${config.description ? `<div class="field-description">${escapeHtml(config.description)}</div>` : ''}
-                            <div class="dropdown-refresh-container" style="position: relative; width: 100%;">
-                                <div class="field-loading-message" style="display: none; width: 100%; margin: 0; z-index: 10;"><span class="spinner"></span> Loading...</div>
-                                <div class="field-waiting-message" style="display: none; width: 100%; margin: 0; z-index: 10;">Waiting for dependencies...</div>
-                                <select name="${config.field_name}" style="width: 100%; box-sizing: border-box;">
-                                    <option value="">Loading...</option>
-                                </select>
-                            </div>
-                        `;
+                        fieldControlHtml = `<select name="${config.field_name}" style="width: 100%; box-sizing: border-box;"><option value="">Loading...</option></select>`;
                     }
+                    html += `
+                        <label>${displayName}</label>
+                        ${config.description ? `<div class="field-description">${escapeHtml(config.description)}</div>` : ''}
+                        <div class="dropdown-refresh-container">
+                            <div class="field-loading-message" style="display: none;"><span class="spinner"></span> Loading...</div>
+                            <div class="field-waiting-message" style="display: none;">Waiting for dependencies...</div>
+                            ${fieldControlHtml}
+                            <button type="button" class="btn btn-small dropdown-refresh-btn" data-field-name="${config.field_name}" title="Refresh options">↻</button>
+                        </div>
+                    `;
                 } else if (config.type === 'dropdown_graphql') {
+                    const multiSelectId = `ms_${config.field_name}`;
+                    let fieldControlHtml = '';
                     if (config.multi_select) {
-                        const multiSelectId = `ms_${config.field_name}`;
-                        html += `
-                            <label>${displayName}</label>
-                            ${config.description ? `<div class="field-description">${escapeHtml(config.description)}</div>` : ''}
-                            <div class="dropdown-refresh-container" style="position: relative; width: 100%;">
-                                <div class="field-loading-message" style="display: none; width: 100%; margin: 0; z-index: 10;"><span class="spinner"></span> Loading...</div>
-                                <div class="field-waiting-message" style="display: none; width: 100%; margin: 0; z-index: 10;">Waiting for dependencies...</div>
-                                <div class="multi-select-container" id="${multiSelectId}" style="width: 100%;">
-                                    <div class="multi-select-display">
-                                        <div class="multi-select-tags"></div>
-                                        <div class="multi-select-toggle">▼</div>
-                                    </div>
-                                    <div class="multi-select-options"></div>
-                                    <select name="${config.field_name}" class="multi-select-hidden-select" multiple="multiple" data-selected-values="[]"></select>
+                        fieldControlHtml = `
+                            <div class="multi-select-container" id="${multiSelectId}">
+                                <div class="multi-select-display">
+                                    <div class="multi-select-tags"></div>
+                                    <div class="multi-select-toggle">▼</div>
                                 </div>
+                                <div class="multi-select-options"></div>
+                                <select name="${config.field_name}" class="multi-select-hidden-select" multiple="multiple" data-selected-values="[]"></select>
                             </div>
                         `;
                     } else {
-                        html += `
-                            <label>${displayName}</label>
-                            ${config.description ? `<div class="field-description">${escapeHtml(config.description)}</div>` : ''}
-                            <div class="dropdown-refresh-container" style="position: relative; width: 100%;">
-                                <div class="field-loading-message" style="display: none; width: 100%; margin: 0; z-index: 10;"><span class="spinner"></span> Loading...</div>
-                                <div class="field-waiting-message" style="display: none; width: 100%; margin: 0; z-index: 10;">Waiting for dependencies...</div>
-                                <select name="${config.field_name}" style="width: 100%; box-sizing: border-box;">
-                                    <option value="">Loading...</option>
-                                </select>
-                            </div>
-                        `;
+                        fieldControlHtml = `<select name="${config.field_name}" style="width: 100%; box-sizing: border-box;"><option value="">Loading...</option></select>`;
                     }
+                    html += `
+                        <label>${displayName}</label>
+                        ${config.description ? `<div class="field-description">${escapeHtml(config.description)}</div>` : ''}
+                        <div class="dropdown-refresh-container">
+                            <div class="field-loading-message" style="display: none;"><span class="spinner"></span> Loading...</div>
+                            <div class="field-waiting-message" style="display: none;">Waiting for dependencies...</div>
+                            ${fieldControlHtml}
+                            <button type="button" class="btn btn-small dropdown-refresh-btn" data-field-name="${config.field_name}" title="Refresh options">↻</button>
+                        </div>
+                    `;
                 } else if (config.type === 'dropdown_mesh') {
+                    const multiSelectId = `ms_${config.field_name}`;
+                    let fieldControlHtml = '';
                     if (config.multi_select) {
-                        const multiSelectId = `ms_${config.field_name}`;
-                        html += `
-                            <label>${displayName}</label>
-                            ${config.description ? `<div class="field-description">${escapeHtml(config.description)}</div>` : ''}
-                            <div class="dropdown-refresh-container" style="position: relative; width: 100%;">
-                                <div class="field-loading-message" style="display: none; width: 100%; margin: 0; z-index: 10;"><span class="spinner"></span> Loading...</div>
-                                <div class="field-waiting-message" style="display: none; width: 100%; margin: 0; z-index: 10;">Waiting for dependencies...</div>
-                                <div class="multi-select-container" id="${multiSelectId}" style="width: 100%;">
-                                    <div class="multi-select-display">
-                                        <div class="multi-select-tags"></div>
-                                        <div class="multi-select-toggle">▼</div>
-                                    </div>
-                                    <div class="multi-select-options"></div>
-                                    <select name="${config.field_name}" class="multi-select-hidden-select" multiple="multiple" data-selected-values="[]"></select>
+                        fieldControlHtml = `
+                            <div class="multi-select-container" id="${multiSelectId}">
+                                <div class="multi-select-display">
+                                    <div class="multi-select-tags"></div>
+                                    <div class="multi-select-toggle">▼</div>
                                 </div>
+                                <div class="multi-select-options"></div>
+                                <select name="${config.field_name}" class="multi-select-hidden-select" multiple="multiple" data-selected-values="[]"></select>
                             </div>
                         `;
                     } else {
-                        html += `
-                            <label>${displayName}</label>
-                            ${config.description ? `<div class="field-description">${escapeHtml(config.description)}</div>` : ''}
-                            <div class="dropdown-refresh-container" style="position: relative; width: 100%;">
-                                <div class="field-loading-message" style="display: none; width: 100%; margin: 0; z-index: 10;"><span class="spinner"></span> Loading...</div>
-                                <div class="field-waiting-message" style="display: none; width: 100%; margin: 0; z-index: 10;">Waiting for dependencies...</div>
-                                <select name="${config.field_name}" style="width: 100%; box-sizing: border-box;">
-                                    <option value="">Loading...</option>
-                                </select>
-                            </div>
-                        `;
+                        fieldControlHtml = `<select name="${config.field_name}" style="width: 100%; box-sizing: border-box;"><option value="">Loading...</option></select>`;
                     }
+                    html += `
+                        <label>${displayName}</label>
+                        ${config.description ? `<div class="field-description">${escapeHtml(config.description)}</div>` : ''}
+                        <div class="dropdown-refresh-container">
+                            <div class="field-loading-message" style="display: none;"><span class="spinner"></span> Loading...</div>
+                            <div class="field-waiting-message" style="display: none;">Waiting for dependencies...</div>
+                            ${fieldControlHtml}
+                            <button type="button" class="btn btn-small dropdown-refresh-btn" data-field-name="${config.field_name}" title="Refresh options">↻</button>
+                        </div>
+                    `;
                 } else if (config.type === 'dropdown_prefetch') {
                     // Get the source field config
                     const sourceFieldName = config.source_element_name;
@@ -2052,38 +2083,38 @@
                         }
                     }
                     
+                    const multiSelectId = `ms_${config.field_name}`;
+                    const waitingMsg = `Waiting for ${sourceFieldName}`;
+                    let fieldControlHtml = '';
+                    
                     if (config.multi_select) {
-                        // Custom multi-select component for prefetch - use library to generate structure
-                        html += `
-                            <div class="dropdown-refresh-container" style="position: relative;">
-                                <div class="field-loading-message" style="display: none; position: relative; left: 0; right: 0; margin: 0; z-index: 10;"><span class="spinner"></span> Loading...</div>
-                                <div class="field-waiting-message" style="display: none; position: relative; left: 0; right: 0; margin: 0; z-index: 10;">Waiting for dependencies...</div>
-                                <div style="flex: 1;">
-                                    ${RewstLib.utils.renderMultiSelectContainer(config.field_name, displayName, config.description)}
+                        fieldControlHtml = `
+                            <div class="multi-select-container" id="${multiSelectId}">
+                                <div class="multi-select-display">
+                                    <div class="multi-select-tags"></div>
+                                    <div class="multi-select-toggle">▼</div>
                                 </div>
-                                <button type="button" class="btn btn-small dropdown-refresh-btn" data-field-name="${config.field_name}" data-source-field="${sourceFieldName}" title="Refresh options">↻</button>
+                                <div class="multi-select-options"></div>
+                                <select name="${config.field_name}" class="multi-select-hidden-select" multiple="multiple" data-selected-values="[]"></select>
                             </div>
                         `;
                     } else {
-                        // Single select dropdown for prefetch - wrap in container for consistent hiding/showing
                         const optionsHtml = options.map(opt => 
                             `<option value="${escapeHtml(String(opt.value))}">${escapeHtml(String(opt.label))}</option>`
                         ).join('');
-                        
-                        html += `
-                            <label>${displayName}</label>
-                            ${config.description ? `<div class="field-description">${escapeHtml(config.description)}</div>` : ''}
-                            <div class="dropdown-refresh-container" style="position: relative;">
-                                <div class="field-loading-message" style="display: none; position: relative; left: 0; right: 0; margin: 0; z-index: 10;"><span class="spinner"></span> Loading...</div>
-                                <div class="field-waiting-message" style="display: none; position: relative; left: 0; right: 0; margin: 0; z-index: 10;">Waiting for dependencies...</div>
-                                <select name="${config.field_name}" style="width: 100%; box-sizing: border-box;">
-                                    <option value="">${RewstLib.utils.getGrammaticalPhrase(config.field_displayname)}</option>
-                                    ${optionsHtml}
-                                </select>
-                                <button type="button" class="btn btn-small dropdown-refresh-btn" data-field-name="${config.field_name}" data-source-field="${sourceFieldName}" title="Refresh options">↻</button>
-                            </div>
-                        `;
+                        fieldControlHtml = `<select name="${config.field_name}" style="width: 100%; box-sizing: border-box;"><option value="">${RewstLib.utils.getGrammaticalPhrase(config.field_displayname)}</option>${optionsHtml}</select>`;
                     }
+                    
+                    html += `
+                        <label>${displayName}</label>
+                        ${config.description ? `<div class="field-description">${escapeHtml(config.description)}</div>` : ''}
+                        <div class="dropdown-refresh-container">
+                            <div class="field-loading-message" style="display: none;"><span class="spinner"></span> Loading...</div>
+                            <div class="field-waiting-message" style="display: none;">${waitingMsg}</div>
+                            ${fieldControlHtml}
+                            <button type="button" class="btn btn-small dropdown-refresh-btn" data-field-name="${config.field_name}" data-source-field="${sourceFieldName}" title="Refresh options">↻</button>
+                        </div>
+                    `;
                 } else if (config.type === 'html') {
                     // Render HTML content directly with label color styling
                     const hasUnresolved = hasUnresolvedPageVariables(config);
@@ -2477,6 +2508,9 @@
                         evaluateConditionalVisibility(fieldConfigs);
                         console.log(`>>> Conditional visibility evaluation complete`);
                         
+                        // Re-initialize dependent fields to update waiting messages based on new visibility
+                        RewstLib.utils.initializeDependentFields(fieldConfigs);
+                        
                         // Clear caches for dependent fields if this field has dependents
                         const hasDependents = fieldConfigs.some(fc => 
                           fc.dependant_fields && 
@@ -2579,6 +2613,9 @@
             // Setup datatable sorting handlers
             setupDatatableSortHandlers(fieldConfigs);
             
+            // Evaluate field conditions to show/hide based on defaults BEFORE initializing dependent fields
+            evaluateConditionalVisibility(fieldConfigs);
+            
             // Initialize field UI states - show waiting for dependent fields
             RewstLib.utils.initializeDependentFields(fieldConfigs);
             
@@ -2669,9 +2706,12 @@
         function showLoadingMessage(formGroup, config) {
             if (!formGroup) return;
             const msg = formGroup.querySelector('.field-loading-message');
-            const container = formGroup.querySelector('.dropdown-refresh-container');
+            const multiSelect = formGroup.querySelector('.multi-select-container');
+            const select = formGroup.querySelector('select:not(.multi-select-hidden-select)');
+            
             if (msg) msg.style.display = 'flex';
-            if (container) container.style.display = 'none';
+            if (multiSelect) multiSelect.style.display = 'none';
+            if (select) select.style.display = 'none';
         }
 
         /**
@@ -2680,16 +2720,12 @@
         function hideLoadingMessage(formGroup, config) {
             if (!formGroup) return;
             const msg = formGroup.querySelector('.field-loading-message');
-            const container = formGroup.querySelector('.dropdown-refresh-container');
-            const select = formGroup.querySelector('select:not(.multi-select-hidden-select)');
             const multiSelect = formGroup.querySelector('.multi-select-container');
-            const refreshBtn = formGroup.querySelector('.dropdown-refresh-btn');
+            const select = formGroup.querySelector('select:not(.multi-select-hidden-select)');
             
             if (msg) msg.style.display = 'none';
-            if (container) container.style.display = 'flex';
-            if (select) select.style.display = 'block';
             if (multiSelect) multiSelect.style.display = 'block';
-            if (refreshBtn) refreshBtn.style.display = 'block';
+            if (select) select.style.display = 'block';
         }
 
         /**
@@ -2729,6 +2765,16 @@
                 const input = document.querySelector(`input[name="${depFieldName}"], select[name="${depFieldName}"], textarea[name="${depFieldName}"]`);
                 
                 if (!input) continue;
+                
+                // Check if the dependency field is hidden and should not block
+                const depFieldFormGroup = document.querySelector(`[data-field-name="${depFieldName}"]`);
+                const isDepFieldHidden = depFieldFormGroup && (depFieldFormGroup.offsetParent === null || window.getComputedStyle(depFieldFormGroup).display === 'none');
+                
+                // If field is hidden and block_hidden is false, skip this dependency
+                if (isDepFieldHidden && depConfig.block_hidden === false) {
+                    console.log(`[DEPS] Skipping hidden dependency ${depFieldName} (block_hidden=false)`);
+                    continue;
+                }
                 
                 let value = '';
                 if (input.type === 'checkbox') {
@@ -3027,7 +3073,10 @@
                             if (!propertyPath) {
                                 // [[ varName ]] - whole object
                                 const val = window.pageVariables[varName];
-                                return val !== undefined ? JSON.stringify(val) : match;
+                                // For strings, return raw value; for objects/arrays, stringify; otherwise stringify
+                                if (val === undefined) return match;
+                                if (typeof val === 'string') return val;
+                                return JSON.stringify(val);
                             } else {
                                 // [[ varName.property ]]
                                 const pageVar = window.pageVariables[varName];
@@ -3056,7 +3105,10 @@
                     resolved[prop] = resolved[prop].replace(/\[\[\s*(\w+)(?:\.([^\]]+))?\s*\]\]/g, (match, varName, propertyPath) => {
                         if (!propertyPath) {
                             const val = window.pageVariables[varName];
-                            return val !== undefined ? JSON.stringify(val) : match;
+                            // For display params, strings can be raw, objects stringify
+                            if (val === undefined) return match;
+                            if (typeof val === 'string') return val;
+                            return JSON.stringify(val);
                         } else {
                             const pageVar = window.pageVariables[varName];
                             if (pageVar === undefined) return match;
@@ -4649,7 +4701,7 @@
                     console.log(`[WORKFLOW CACHE] Found cached results for ${config.field_name}, using cache`);
                     // Use cached results directly
                     const cachedData = workflowCache.results[cacheKey];
-                    return populateFieldFromCachedResults(config, cachedData);
+                    return populateFieldFromCachedResults(config, cachedData, cacheKey);
                 }
                 
                 // Check if this workflow is currently executing (in-flight)
@@ -4659,7 +4711,7 @@
                     try {
                         const cachedData = await workflowCache.inFlight[cacheKey];
                         console.log(`[WORKFLOW CACHE] In-flight workflow completed for ${config.field_name}, using results`);
-                        return populateFieldFromCachedResults(config, cachedData);
+                        return populateFieldFromCachedResults(config, cachedData, cacheKey);
                     } catch (error) {
                         console.error(`[WORKFLOW CACHE] In-flight workflow failed for ${config.field_name}:`, error);
                         throw error;
@@ -4675,10 +4727,12 @@
                 try {
                     const result = await RewstLib.workflows.execute(config.workflow_id, workflowInput, { skip_cache: true });
                     const options = result.conductor?.output?.options || [];
+                    const fullOutput = result.conductor?.output || {};
                     
-                    // Cache the results
+                    // Cache the results - store BOTH options and full output
                     workflowCache.results[cacheKey] = {
                         options: options,
+                        output: fullOutput,
                         conductor: result.conductor
                     };
                     
@@ -4691,7 +4745,7 @@
                         data: options
                     };
                     
-                    console.log(`[WORKFLOW CACHE] Cached results for ${config.field_name} (${options.length} options)`);
+                    console.log(`[WORKFLOW CACHE] Cached results for ${config.field_name} (${options.length} options)`, { fullOutput });
                     
                     return workflowCache.results[cacheKey];
                 } catch (error) {
@@ -4705,14 +4759,14 @@
             
             try {
                 const cachedData = await executionPromise;
-                return populateFieldFromCachedResults(config, cachedData);
+                return populateFieldFromCachedResults(config, cachedData, cacheKey);
             } finally {
                 // Remove from in-flight after completion
                 delete workflowCache.inFlight[cacheKey];
             }
         }
         
-        function populateFieldFromCachedResults(config, cachedData) {
+        function populateFieldFromCachedResults(config, cachedData, cacheKey) {
             const formGroup = document.querySelector(`[data-field-name="${config.field_name}"]`);
             const input = document.querySelector(`select[name="${config.field_name}"]`);
             
@@ -4723,7 +4777,7 @@
             // Store metadata about this dropdown's data source
             dropdownSourceMetadata[config.field_name] = {
                 cacheType: 'workflow',
-                cacheKey: getWorkflowCacheKey(config.workflow_id, {}), // Note: may not be exact for subsequent calls, but field_name is what matters
+                cacheKey: cacheKey,  // Use the actual cacheKey that was used to store results
                 valueName: config.value_name || 'id',
                 labelName: config.label_name || 'name',
                 data: options
