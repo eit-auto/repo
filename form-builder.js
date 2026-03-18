@@ -5210,7 +5210,20 @@ if (saveConfirmYes) {
             if (loadedFormId) {
                 // Update existing variable
                 console.log('[SAVE HANDLER] Updating existing org variable');
-                await RewstLib.orgVariables.update(orgVariableUUID, orgVariableName, orgVariableValue);
+                
+                // For FormExtend updates, switch to client org context
+                if (isFormExtend) {
+                    const originalOrgId = window.ORG_ID;
+                    window.ORG_ID = targetOrgId;
+                    
+                    try {
+                        await RewstLib.orgVariables.update(orgVariableUUID, orgVariableName, orgVariableValue);
+                    } finally {
+                        window.ORG_ID = originalOrgId;
+                    }
+                } else {
+                    await RewstLib.orgVariables.update(orgVariableUUID, orgVariableName, orgVariableValue);
+                }
             } else {
                 // Create new variable
                 console.log('[SAVE HANDLER] Creating new org variable under org:', targetOrgId);
