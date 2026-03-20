@@ -727,7 +727,7 @@
     border: 2px solid var(--form-border-color);
     border-radius: 4px;
     background: var(--form-bg-color);
-    color: inherit;
+    color: var(--form-text-color);
     font-size: 0.95rem;
     line-height: 1.0;
     transition: all 0.2s ease;
@@ -749,7 +749,7 @@
     border: 2px solid var(--form-border-color);
     border-radius: 4px;
     background: var(--form-bg-color);
-    color: inherit;
+    color: var(--form-text-color);
     font-size: 0.95rem;
     line-height: 1.0;
     transition: all 0.2s ease;
@@ -766,7 +766,7 @@
     border: 2px solid var(--form-border-color);
     border-radius: 4px;
     background: var(--form-bg-color);
-    color: inherit;
+    color: var(--form-text-color);
     font-size: 0.95rem;
     line-height: 1.0;
     transition: all 0.2s ease;
@@ -781,7 +781,7 @@
     border: 2px solid var(--form-border-color);
     border-radius: 4px;
     background: var(--form-bg-color);
-    color: inherit;
+    color: var(--form-text-color);
     font-size: 0.95rem;
     line-height: 1.4;
     transition: all 0.2s ease;
