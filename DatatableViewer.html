@@ -3112,9 +3112,56 @@ async function renderInputVarDropdowns() {
             }
 
             console.log('[INPUT_VAR] Final neededDropdowns list:', neededDropdowns);
+            
+            // Prune dependencies whose dependents are already satisfied
+            // e.g., if audit_id is satisfied from URL, rewst_org_id (its dependency) isn't needed
+            const prunedNeededDropdowns = neededDropdowns.filter(dropdownVar => {
+                // Find all variables that depend on this dropdown var
+                const dependentVars = inputVarConfig.filter(v => {
+                    if (v.name === dropdownVar) return false; // Skip self
+                    
+                    let hasDependency = false;
+                    
+                    // Check input_var dependencies
+                    if (v.input_var) {
+                        const { dependencies } = parseInputVar(v.input_var);
+                        if (dependencies.includes(dropdownVar)) {
+                            hasDependency = true;
+                        }
+                    }
+                    
+                    // Check proxy_query dependencies
+                    if (!hasDependency && v.proxy_query) {
+                        const varPattern = /\[\[(\w+)\]\]/g;
+                        let match;
+                        while ((match = varPattern.exec(v.proxy_query)) !== null) {
+                            if (match[1] === dropdownVar) {
+                                hasDependency = true;
+                                break;
+                            }
+                        }
+                    }
+                    
+                    return hasDependency;
+                });
+                
+                // Keep this dropdown if it has at least one unsatisfied dependent
+                const hasUnsatisfiedDependent = dependentVars.some(depVar => {
+                    const value = getInputVarValue(depVar.name);
+                    return !value;
+                });
+                
+                if (!hasUnsatisfiedDependent) {
+                    console.log('[INPUT_VAR] Pruning', dropdownVar, '- all dependents are satisfied');
+                }
+                
+                return hasUnsatisfiedDependent;
+            });
+            
+            console.log('[INPUT_VAR] After pruning:', prunedNeededDropdowns);
 
             // If no dropdowns needed, skip to loading data
-            if (neededDropdowns.length === 0) {
+            if (prunedNeededDropdowns.length === 0) {
                 console.log('[INPUT_VAR] No dropdowns needed, loading data directly');
                 container.style.display = 'none';
                 await loadDataTable();
@@ -3125,8 +3172,8 @@ async function renderInputVarDropdowns() {
             container.style.display = 'block';
             const dropdownVars = orderedVars.filter(v => {
                 if (v.from_dataset !== true) return false;
-                if (!neededDropdowns.includes(v.name)) {
-                    console.log('[INPUT_VAR] Skipping', v.name, '- not in neededDropdowns');
+                if (!prunedNeededDropdowns.includes(v.name)) {
+                    console.log('[INPUT_VAR] Skipping', v.name, '- not in prunedNeededDropdowns');
                     return false;
                 }
                 return true;
