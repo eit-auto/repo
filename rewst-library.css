@@ -1008,6 +1008,8 @@
   }
   .edit-section {
     position: fixed;
+    left: 50%;
+    top: 50%;
     background: #191A24;
     padding: 1.5rem;
     border-radius: 8px;
