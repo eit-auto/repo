@@ -735,6 +735,10 @@
     height: 37px;
     box-sizing: border-box;
   }
+  .form-group input:disabled {
+    opacity: 0.7;
+    cursor: not-allowed;
+  }
   .form-group input[type="date"]::-webkit-calendar-picker-indicator,
   .form-group input[type="datetime-local"]::-webkit-calendar-picker-indicator {
     filter: invert(1);
