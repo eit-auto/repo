@@ -2245,9 +2245,8 @@
                 return html;
             }
             
-            // ========================================
-            // END renderFieldHTML FUNCTION DEFINITION
-            // ========================================
+            // Make renderFieldHTML available to form_extend code in loadFieldOptions
+            window.formViewerRenderFieldHTML = renderFieldHTML;
             
             
             console.log('>>> renderForm: fieldConfigs count:', fieldConfigs.length);
@@ -2901,13 +2900,14 @@
                 
                 console.log(`[UPDATE_DEPS] Field ${config.field_name} depends on ${changedFieldName}, reloading`);
                 
-                // Reload options for dropdown fields and data_retrieval fields
+                // Reload options for dropdown fields, data_retrieval, and form_extend fields
                 if ((config.type === 'dropdown' && config.workflow_id) || 
                     config.type === 'dropdown_graphql' || 
                     config.type === 'dropdown_mesh' || 
                     config.type === 'dropdown_mysql' ||
                     config.type === 'data_retrieval' ||
-                    config.type === 'dropdown_prefetch') {
+                    config.type === 'dropdown_prefetch' ||
+                    config.type === 'form_extend') {
                     if (loadFieldOptionsFn) {
                         loadFieldOptionsFn(config, fieldConfigs, formConfig);
                     }
@@ -3177,6 +3177,7 @@
                 for (const prop of executionProps) {
                     if (!config[prop]) continue;
                     const varNames = scanPropertyForReferences(config[prop]);
+                    console.log(`[PAGE_VAR_EXEC] Scanning ${prop} for ${config.field_name}, found vars:`, Array.from(varNames));
                     for (const varName of varNames) {
                         if (window.pageVariables[varName] === undefined) {
                             console.log(`[PAGE_VAR_EXEC] Field ${config.field_name} waiting for ${varName}`);
@@ -3190,8 +3191,22 @@
                 
                 if (hasUnresolvedRef) {
                     console.log(`[PAGE_VAR_EXEC] Field ${config.field_name} has unresolved refs, showing waiting state`);
+                    console.log(`[PAGE_VAR_EXEC] Unresolved variable name: "${unresolvedVarName}"`);
+                    console.log(`[PAGE_VAR_EXEC] Looking for field with result_var: "${unresolvedVarName}"`);
                     if (formGroup) {
-                        RewstLib.utils.showWaitingMessage(formGroup, config, allFieldConfigs, unresolvedVarName);
+                        // Convert variable name to source field name for better waiting message
+                        // e.g., if waiting for "org_data", find the field with result_var: "org_data"
+                        let blockingFieldName = unresolvedVarName;
+                        const sourceField = allFieldConfigs.find(fc => fc.result_var === unresolvedVarName);
+                        console.log(`[PAGE_VAR_EXEC] Source field found:`, sourceField ? sourceField.field_name : 'NOT FOUND');
+                        if (sourceField) {
+                            blockingFieldName = sourceField.field_name;
+                            console.log(`[PAGE_VAR_EXEC] Resolved variable "${unresolvedVarName}" to field "${blockingFieldName}"`);
+                        } else {
+                            console.log(`[PAGE_VAR_EXEC] No field with result_var="${unresolvedVarName}" found, using variable name directly`);
+                        }
+                        console.log(`[PAGE_VAR_EXEC] Calling showWaitingMessage with blockingFieldName: "${blockingFieldName}"`);
+                        RewstLib.utils.showWaitingMessage(formGroup, config, allFieldConfigs, blockingFieldName);
                     }
                     return Promise.resolve();
                 }
@@ -3288,7 +3303,8 @@
             
             // Skip loading options if the field is hidden
             // Use offsetParent check - if null, element is hidden via CSS or display:none
-            if (formGroup && (formGroup.offsetParent === null || window.getComputedStyle(formGroup).display === 'none')) {
+            // Exception: form_extend fields need to load their org variable even when hidden
+            if (formGroup && config.type !== 'form_extend' && (formGroup.offsetParent === null || window.getComputedStyle(formGroup).display === 'none')) {
                 console.log(`>>> Field ${config.field_name} is hidden, skipping loadFieldOptions`);
                 return Promise.resolve();
             }
@@ -4079,7 +4095,7 @@
                                 const existingField = document.querySelector(`[data-field-name="${config.field_name}"]`);
                                 if (!existingField) {
                                     console.log(`[FORM_EXTEND] Rendering field: ${config.field_name}`);
-                                    const fieldHTML = renderFieldHTML(config, [...formConfig.field_configs, ...extendedFields]);
+                                    const fieldHTML = window.formViewerRenderFieldHTML(config, [...formConfig.field_configs, ...extendedFields]);
                                     columnDiv.innerHTML += fieldHTML;
                                 }
                             });
@@ -4130,7 +4146,10 @@
                         if (!propertyPath) {
                             // [[ varName ]] - whole object
                             const val = window.pageVariables[varName];
-                            return val !== undefined ? JSON.stringify(val) : match;
+                            if (val !== undefined) {
+                                return (typeof val === 'object') ? JSON.stringify(val) : String(val);
+                            }
+                            return match;
                         } else {
                             // [[ varName.property ]]
                             const pageVar = window.pageVariables[varName];
@@ -4146,7 +4165,11 @@
                                     return match;
                                 }
                             }
-                            return current !== undefined ? JSON.stringify(current) : match;
+                            // Only stringify objects/arrays; return primitives as-is (will be stringified at the parent level)
+                            if (current !== undefined) {
+                                return (typeof current === 'object') ? JSON.stringify(current) : String(current);
+                            }
+                            return match;
                         }
                     });
                 });
