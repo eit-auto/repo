@@ -2231,6 +2231,7 @@
                                 workflow_id: workflowId,
                                 input_var: varConfig.input_var || '',
                                 proxy_query: varConfig.proxy_query || '',
+                                graphql_operation: varConfig.graphql_operation || '',
                                 output_var: varConfig.output_var || '',
                                 output_id: varConfig.output_id || 'id',
                                 output_label: varConfig.output_label || 'name'
@@ -3104,6 +3105,7 @@
                 workflow_id: '',
                 input_var: '',
                 proxy_query: '',
+                graphql_operation: '',
                 output_var: '',
                 output_id: 'id',
                 output_label: 'name'
@@ -3183,6 +3185,7 @@
                         <select onchange="updateInputVariable(${idx}, 'dataset_source', this.value)" class="form-input">
                             <option value="workflow" ${iv.dataset_source === 'workflow' ? 'selected' : ''}>Workflow</option>
                             <option value="mysql" ${iv.dataset_source === 'mysql' ? 'selected' : ''}>MySQL Query</option>
+                            <option value="graphql" ${iv.dataset_source === 'graphql' ? 'selected' : ''}>GraphQL Query</option>
                         </select>
                         
                         ${iv.dataset_source === 'workflow' ? `
@@ -3207,7 +3210,7 @@
                                     </div>
                                 </div>
                             </div>
-                        ` : `
+                        ` : iv.dataset_source === 'mysql' ? `
                             <div style="margin-top: 0.5rem;">
                                 <label style="color: #888; font-size: 0.75rem; text-transform: uppercase;">SQL Query</label>
                                 <textarea onchange="updateInputVariable(${idx}, 'proxy_query', this.value)" 
@@ -3215,7 +3218,24 @@
                                           class="form-input" 
                                           style="min-height: 80px; margin-top: 0.25rem; font-family: monospace; font-size: 0.85rem;">${iv.proxy_query || ''}</textarea>
                             </div>
-                        `}
+                        ` : iv.dataset_source === 'graphql' ? `
+                            <div style="margin-top: 0.5rem;">
+                                <label style="color: #888; font-size: 0.75rem; text-transform: uppercase;">GraphQL Operation</label>
+                                <select onchange="updateInputVariable(${idx}, 'graphql_operation', this.value)" class="form-input" style="margin-top: 0.25rem;">
+                                    <option value="">-- Select Operation --</option>
+                                    ${(() => {
+                                        if (typeof RewstLib !== 'undefined' && RewstLib.graphqlOperations) {
+                                            const allOps = RewstLib.graphqlOperations.getAll();
+                                            return Object.entries(allOps)
+                                                .filter(([key, op]) => op.type === 'form_field')
+                                                .map(([key, op]) => `<option value="${key}" ${iv.graphql_operation === key ? 'selected' : ''}>${op.name}</option>`)
+                                                .join('');
+                                        }
+                                        return '';
+                                    })()}
+                                </select>
+                            </div>
+                        ` : ''}
                         
                         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; margin-top: 0.5rem;">
                             <div style="display: flex; flex-direction: column;">
@@ -3424,6 +3444,8 @@
                                 if (iv.output_var) varConfig.output_var = iv.output_var;
                             } else if (iv.dataset_source === 'mysql') {
                                 if (iv.proxy_query) varConfig.proxy_query = iv.proxy_query;
+                            } else if (iv.dataset_source === 'graphql') {
+                                if (iv.graphql_operation) varConfig.graphql_operation = iv.graphql_operation;
                             }
                             if (iv.output_id) varConfig.output_id = iv.output_id;
                             if (iv.output_label) varConfig.output_label = iv.output_label;
@@ -3544,19 +3566,31 @@
                 errors.push(`Duplicate input variable name${duplicateNames.length > 1 ? 's' : ''}: ${duplicateNames.join(', ')}`);
             }
             
-            // Validate fromDataset requires workflow
-            const datasetVarsWithoutWorkflow = inputVariables.filter(iv => iv.fromDataset && (!iv.workflow || iv.workflow.trim() === ''));
-            if (datasetVarsWithoutWorkflow.length > 0) {
-                errors.push(`Input Variable${datasetVarsWithoutWorkflow.length > 1 ? 's' : ''} with "From Dataset Selector" checked must have a Dataset Selector Workflow selected`);
+            // Validate fromDataset based on dataset_source
+            // Workflow source: requires workflow and output_var
+            const workflowVarsWithoutWorkflow = inputVariables.filter(iv => iv.fromDataset && iv.dataset_source === 'workflow' && (!iv.workflow || iv.workflow.trim() === ''));
+            if (workflowVarsWithoutWorkflow.length > 0) {
+                errors.push(`Input Variable${workflowVarsWithoutWorkflow.length > 1 ? 's' : ''} with Workflow dataset source must have a Dataset Selector Workflow selected`);
             }
             
-            // Validate fromDataset requires output_var
-            const datasetVarsWithoutOutputVar = inputVariables.filter(iv => iv.fromDataset && (!iv.output_var || iv.output_var.trim() === ''));
-            if (datasetVarsWithoutOutputVar.length > 0) {
-                errors.push(`Input Variable${datasetVarsWithoutOutputVar.length > 1 ? 's' : ''} with "From Dataset Selector" checked must have a Workflow Output Variable specified`);
+            const workflowVarsWithoutOutputVar = inputVariables.filter(iv => iv.fromDataset && iv.dataset_source === 'workflow' && (!iv.output_var || iv.output_var.trim() === ''));
+            if (workflowVarsWithoutOutputVar.length > 0) {
+                errors.push(`Input Variable${workflowVarsWithoutOutputVar.length > 1 ? 's' : ''} with Workflow dataset source must have a Workflow Output Variable specified`);
             }
             
-            // Validate fromDataset requires output_id
+            // MySQL source: requires proxy_query
+            const mysqlVarsWithoutQuery = inputVariables.filter(iv => iv.fromDataset && iv.dataset_source === 'mysql' && (!iv.proxy_query || iv.proxy_query.trim() === ''));
+            if (mysqlVarsWithoutQuery.length > 0) {
+                errors.push(`Input Variable${mysqlVarsWithoutQuery.length > 1 ? 's' : ''} with MySQL Query dataset source must have a SQL Query specified`);
+            }
+            
+            // GraphQL source: requires graphql_operation
+            const graphqlVarsWithoutOp = inputVariables.filter(iv => iv.fromDataset && iv.dataset_source === 'graphql' && (!iv.graphql_operation || iv.graphql_operation.trim() === ''));
+            if (graphqlVarsWithoutOp.length > 0) {
+                errors.push(`Input Variable${graphqlVarsWithoutOp.length > 1 ? 's' : ''} with GraphQL Query dataset source must have a GraphQL Operation selected`);
+            }
+            
+            // All dataset sources require: output_id and output_label
             const datasetVarsWithoutOutputId = inputVariables.filter(iv => iv.fromDataset && (!iv.output_id || iv.output_id.trim() === ''));
             if (datasetVarsWithoutOutputId.length > 0) {
                 errors.push(`Input Variable${datasetVarsWithoutOutputId.length > 1 ? 's' : ''} with "From Dataset Selector" checked must have an Output ID Variable specified`);
