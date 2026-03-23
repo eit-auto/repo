@@ -1434,6 +1434,7 @@
                 fieldConfigs.forEach(config => scanConfig(config));
                 
                 console.log('[PAGE_VAR_DEPS] Universal dependency map:', dependencies);
+                console.log('[PAGE_VAR_DEPS] Specifically, org_data depends on:', dependencies['org_data']);
                 return dependencies;
             };
             
@@ -1595,10 +1596,10 @@
                 return false;
             };
 
-            /**
             const rebuildDependentFields = (varName) => {
                 const dependentFieldNames = pageVarDependencies[varName] || [];
                 console.log(`[PAGE_VAR] Variable "${varName}" changed, dependent fields:`, dependentFieldNames);
+                console.log(`[PAGE_VAR] Full dependency map:`, pageVarDependencies);
                 
                 dependentFieldNames.forEach(fieldName => {
                     const config = fieldConfigs.find(f => f.field_name === fieldName);
@@ -1695,8 +1696,11 @@
                         
                         // Re-load the field with resolved parameters
                         // This will re-execute workflows, re-fetch queries, etc.
+                        console.log(`[PAGE_VAR_EXEC] Calling loadFieldOptions for ${fieldName} with resolved config`);
                         loadFieldOptions(resolvedConfig, fieldConfigs, formConfig, [])
                             .catch(err => console.error(`[PAGE_VAR_EXEC] Error re-loading field ${fieldName}:`, err));
+                    } else {
+                        console.log(`[PAGE_VAR_EXEC] Field ${fieldName}: hasUnresolved=${hasUnresolved}, hasExecParams=${hasExecutionParameterReferences(config)} - skipping re-execution`);
                     }
                 });
             };
@@ -1705,6 +1709,7 @@
             FormManager.setContext({
                 rebuildDependentFieldsFn: rebuildDependentFields
             });
+            console.log('[FORM_MANAGER] Context set, rebuildDependentFieldsFn available:', typeof FormManager.currentContext?.rebuildDependentFieldsFn);
             
             /**
              * Set a page variable with the full object(s) associated with a dropdown selection
@@ -1839,11 +1844,7 @@
                 
                 // Rebuild any fields that depend on this page variable
                 console.log(`[PAGE_VAR_REBUILD] Calling rebuildDependentFields for: ${config.result_var}`);
-                if (FormManager && typeof FormManager.rebuildDependentFields === 'function') {
-                    FormManager.rebuildDependentFields(config.result_var);
-                } else {
-                    console.warn(`[PAGE_VAR_REBUILD] FormManager not available`);
-                }
+                rebuildDependentFields(config.result_var);
             };
             
             // ========================================
@@ -4534,16 +4535,62 @@
                     }
                 }
                 
-                if (config.data_source_type !== 'mesh_powershell') {
-                    throw new Error(`Unsupported data_source_type: ${config.data_source_type}`);
-                }
-                
                 // Resolve any [[ ]] variable references in the config
                 const resolvedConfig = getResolvedFieldConfig(config);
                 console.log('[DATA_RETRIEVAL] Resolved config before execution:', {
+                    data_source_type: resolvedConfig.data_source_type,
+                    query: resolvedConfig.query,
                     command: resolvedConfig.command,
                     node_query: resolvedConfig.node_query
                 });
+                
+                // Handle MySQL data source
+                if (config.data_source_type === 'mysql') {
+                    console.log('[DATA_RETRIEVAL] Executing MySQL query:', resolvedConfig.query);
+                    
+                    try {
+                        const queryResult = await executeQueryWithRetry('proxy_api_mysql', resolvedConfig.query, 2);
+                        const result = queryResult.result;
+                        console.log('[DATA_RETRIEVAL] MySQL query result:', result);
+                        
+                        // Store result in page variables and cache
+                        window.pageVariables[config.field_name] = result;
+                        proxyCache.dataRetrievalResults[config.field_name] = result;
+                        
+                        // Update the datatable or other dependent fields
+                        const dependentFields = allFieldConfigs.filter(fc => 
+                            fc.type === 'datatable' && fc.data_variable === config.field_name
+                        );
+                        
+                        dependentFields.forEach(fc => {
+                            const depFormGroup = document.querySelector(`[data-field-name="${fc.field_name}"]`);
+                            if (depFormGroup) {
+                                const contentDiv = depFormGroup.querySelector('.datatable-content');
+                                if (contentDiv) {
+                                    contentDiv.innerHTML = renderDatatable(result, fc);
+                                    contentDiv.style.visibility = 'visible';
+                                }
+                                const waitingMsg = depFormGroup.querySelector('.field-waiting-message');
+                                if (waitingMsg) waitingMsg.style.display = 'none';
+                            }
+                        });
+                        
+                        if (formGroup) {
+                            RewstLib.utils.hideLoadingMessage(formGroup, config);
+                        }
+                        return;
+                    } catch (error) {
+                        console.error('[DATA_RETRIEVAL] MySQL query error:', error);
+                        if (formGroup) {
+                            RewstLib.utils.hideLoadingMessage(formGroup, config);
+                        }
+                        throw error;
+                    }
+                }
+                
+                if (config.data_source_type !== 'mesh_powershell') {
+                    throw new Error(`Unsupported data_source_type: ${config.data_source_type}`);
+                }
                 
                 // Map data_source_type to appropriate API key
                 const apiKeyName = config.data_source_type === 'mesh_powershell' ? 'proxy_api_meshcentral' : 'proxy_api_key';
