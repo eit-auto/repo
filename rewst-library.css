@@ -1017,7 +1017,6 @@
     display: none;
     z-index: 1000;
     width: 500px;
-    max-width: 500px;
     height: auto;
     overflow-y: auto;
     box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
