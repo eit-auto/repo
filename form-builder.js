@@ -336,7 +336,9 @@ const fieldConfigs = [];
 // Centralized configuration for all element types
 const ELEMENT_TYPE_DEFAULTS = {
     'array': {
-        items: {}
+        items: {},
+        repeating_input_mode: false,
+        source: ''
     },
     'checkbox': {
         default_checked: false
@@ -1060,7 +1062,10 @@ function saveTypeSpecificFields(fieldConfig) {
             // Array items are saved via the modal (saveArrayItems)
             // fieldConfig.items is already updated when user clicks Confirm in modal
             // No need to re-collect from DOM since they're no longer there
+            fieldConfig.repeating_input_mode = document.getElementById('repeating_input_mode')?.checked || false;
+            fieldConfig.source = document.getElementById('repeating_input_source')?.value || '';
             console.log('[SAVE] Array items already saved via modal:', fieldConfig.items);
+            console.log('[SAVE] Repeating input mode:', fieldConfig.repeating_input_mode, 'Source:', fieldConfig.source);
         }
     } catch (error) {
         console.error('Error saving type-specific fields:', error);
@@ -2558,9 +2563,20 @@ function showElementSettings(elementUid) {
     // Add type-specific fields
     if (fieldConfig.type === 'array') {
         formHTML += `
-            <div class="mb-20">
+            <div style="margin-bottom: 15px; display: flex; align-items: center; gap: 10px;">
+                <input type="checkbox" id="repeating_input_mode" ${fieldConfig.repeating_input_mode ? 'checked' : ''} class="checkbox-input">
+                <label for="repeating_input_mode" style="margin: 0; color: #ffffff; font-weight: 600; font-size: 14px; cursor: pointer;">Repeating Input Mode</label>
+            </div>
+            
+            <div id="items_section" style="display: ${fieldConfig.repeating_input_mode ? 'none' : 'block'}; margin-bottom: 20px;">
                 <label style="color: #ffffff; font-weight: 600; font-size: 14px; margin: 0 0 8px 0; display: block;">Items</label>
                 <button type="button" id="editArrayItemsBtn" class="btn btn-blue" style="width: 100%;">Edit Array</button>
+            </div>
+            
+            <div id="source_section" style="display: ${fieldConfig.repeating_input_mode ? 'block' : 'none'}; margin-bottom: 15px;">
+                <label style='display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;'>Source</label>
+                <input type='text' id='repeating_input_source' value='${fieldConfig.source || ''}' placeholder='e.g., script_data.detail2.parameters' style='width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box;'>
+                <div style='color: #999; font-size: 12px; margin-top: 6px;'>This mode generates input fields from an array source. Each array item becomes a parameter with name and value fields.</div>
             </div>
         `;
     }
@@ -3698,10 +3714,40 @@ function showElementSettings(elementUid) {
     
     if (fieldConfig.type === 'array') {
         const editArrayItemsBtn = document.getElementById('editArrayItemsBtn');
+        const repeatingInputModeCheckbox = document.getElementById('repeating_input_mode');
+        const itemsSection = document.getElementById('items_section');
+        const sourceSection = document.getElementById('source_section');
+        const sourceInput = document.getElementById('repeating_input_source');
+        
         if (editArrayItemsBtn) {
             editArrayItemsBtn.addEventListener('click', (e) => {
                 e.preventDefault();
                 openArrayItemsModal(fieldConfig);
+            });
+        }
+        
+        if (repeatingInputModeCheckbox) {
+            repeatingInputModeCheckbox.addEventListener('change', () => {
+                const isRepeatingMode = repeatingInputModeCheckbox.checked;
+                
+                // Toggle visibility of Items and Source sections
+                if (itemsSection) {
+                    itemsSection.style.display = isRepeatingMode ? 'none' : 'block';
+                }
+                if (sourceSection) {
+                    sourceSection.style.display = isRepeatingMode ? 'block' : 'none';
+                }
+                
+                // Trigger form modification
+                formHasBeenModified = true;
+                updateElementSettingsSaveButtonVisibility();
+            });
+        }
+        
+        if (sourceInput) {
+            sourceInput.addEventListener('input', () => {
+                formHasBeenModified = true;
+                updateElementSettingsSaveButtonVisibility();
             });
         }
     }
