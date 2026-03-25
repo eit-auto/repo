@@ -5479,8 +5479,36 @@
                         const input = formGroup.querySelector('input[type="text"], input[type="email"], input[type="date"], input[type="datetime-local"], select, textarea');
                         const checkboxInput = formGroup.querySelector('input[type="checkbox"]');
                         const radioInput = formGroup.querySelector('input[type="radio"]');
+                        const multiSelectContainer = formGroup.querySelector('.multi-select-container');
+                        const hiddenSelect = formGroup.querySelector('select[style*="display: none"]');
                         
-                        if (checkboxInput) {
+                        if (multiSelectContainer) {
+                            // Custom multi-select: extract checked values from the container
+                            const selectedValues = [];
+                            const checkboxes = multiSelectContainer.querySelectorAll('input[type="checkbox"]:not(.select-all-checkbox)');
+                            checkboxes.forEach(cb => {
+                                if (cb.checked) {
+                                    selectedValues.push(cb.value);
+                                }
+                            });
+                            formData[fieldName] = selectedValues;
+                            console.log(`[SUBMIT] Multi-select ${fieldName}: ${selectedValues.length} items selected`, selectedValues);
+                        } else if (hiddenSelect) {
+                            // Fallback: get values from the hidden select element (in case container is not ready yet - race condition)
+                            const dataAttr = hiddenSelect.getAttribute('data-selected-values');
+                            if (dataAttr) {
+                                try {
+                                    const selectedValues = JSON.parse(dataAttr);
+                                    formData[fieldName] = selectedValues;
+                                    console.log(`[SUBMIT] Multi-select ${fieldName} (fallback from hidden select): ${selectedValues.length} items selected`, selectedValues);
+                                } catch (e) {
+                                    console.error(`[SUBMIT] Failed to parse data-selected-values for ${fieldName}:`, e);
+                                    formData[fieldName] = [];
+                                }
+                            } else {
+                                formData[fieldName] = [];
+                            }
+                        } else if (checkboxInput && config.type !== 'dropdown') {
                             formData[fieldName] = checkboxInput.checked;
                         } else if (radioInput) {
                             const checkedRadio = formGroup.querySelector('input[type="radio"]:checked');
