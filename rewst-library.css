@@ -924,12 +924,12 @@
   }
 
   /* Position waiting message below label for repeating input arrays */
-  .form-group:has(.array-field-container[data-repeating-input-mode="true"]) .field-waiting-message {
-    position: absolute;
-    top: 2.5rem;
-    left: 0;
-    right: 0;
-    width: 100%;
+  .form-group.repeating-input-array .field-waiting-message {
+    position: absolute !important;
+    top: 2.5rem !important;
+    left: 0 !important;
+    right: 0 !important;
+    width: 100% !important;
   }
 
   .modal-overlay {
