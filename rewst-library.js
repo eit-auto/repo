@@ -1395,6 +1395,7 @@ const GRAPHQL_OPERATIONS = {
       // Update existing message and ensure it's visible
       waitingBox.innerHTML = messageText;
       waitingBox.style.display = 'flex';
+      formGroup.classList.add('is-waiting');
       // Apply gold styling for data_retrieval
       if (config.type === 'data_retrieval') {
         waitingBox.classList.add('data-retrieval-waiting');
@@ -1415,6 +1416,7 @@ const GRAPHQL_OPERATIONS = {
       waitingBox.setAttribute('data-field-name', config.field_name);
       waitingBox.innerHTML = messageText;
       waitingBox.style.display = 'flex';
+      formGroup.classList.add('is-waiting');
       formGroup.appendChild(waitingBox);
     }
   }
@@ -1494,6 +1496,9 @@ const GRAPHQL_OPERATIONS = {
     // Hide waiting message instead of removing it
     const waitingBox = formGroup.querySelector('.field-waiting-message');
     if (waitingBox) waitingBox.style.display = 'none';
+    
+    // Remove is-waiting class
+    formGroup.classList.remove('is-waiting');
     
     // Remove min-height and hide form-group for data_retrieval fields
     if (config && config.type === 'data_retrieval') {
