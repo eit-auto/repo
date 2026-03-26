@@ -222,6 +222,90 @@
         .array-instance-delete:hover {
             background: #dc3545;
         }
+
+        /* ============================================
+           MOBILE RESPONSIVE LAYOUT
+           Collapse multi-column forms to single column
+           on screens under 768px (tablets and phones)
+           ============================================ */
+        @media (max-width: 768px) {
+            /* Collapse flex containers (columns) to vertical stack */
+            .form-container > div[style*="display: flex"],
+            #preview-content > div > div[style*="display: flex"] {
+                flex-direction: column !important;
+                gap: 0 !important;
+                margin: 0 !important;
+            }
+            
+            /* Ensure button container always displays properly on mobile */
+            #formButtonsContainer[style*="display: flex"] {
+                display: flex !important;
+                flex-direction: row !important;
+                gap: 10px !important;
+                margin-top: 20px !important;
+                justify-content: center !important;
+                align-items: center !important;
+                position: relative !important;
+                flex-wrap: wrap !important;
+                width: 100% !important;
+                z-index: 100 !important;
+            }
+            
+            /* Hide vertical separator lines on mobile */
+            .form-container div[style*="width: 1px; background"],
+            #preview-content div[style*="width: 1px; background"] {
+                display: none !important;
+            }
+            
+            /* Ensure column divs take full width on mobile */
+            .form-container > div > div[style*="flex: 1"],
+            #preview-content > div > div > div[style*="flex: 1"] {
+                width: 100% !important;
+                min-width: 100% !important;
+                max-width: 100% !important;
+                flex: 0 0 auto !important;
+            }
+            
+            /* Add spacing between stacked columns on mobile */
+            .form-container > div > div[style*="flex: 1"]:not(:last-child),
+            #preview-content > div > div > div[style*="flex: 1"]:not(:last-child) {
+                margin-bottom: 20px;
+            }
+            
+            /* Reduce padding on smaller screens */
+            body {
+                padding: 10px !important;
+            }
+            
+            /* Bottom margin on mobile to ensure space below buttons */
+            #formButtonsContainer {
+                margin-bottom: 75px !important;
+            }
+            
+            /* Array fields: stack to single column on very small screens */
+            @media (max-width: 480px) {
+                .array-instance-fields {
+                    grid-template-columns: repeat(1, 1fr) !important;
+                    gap: 0.25rem !important;
+                }
+                
+                /* Adjust button sizes on very small screens */
+                .array-instance-delete {
+                    width: 24px !important;
+                    height: 32px !important;
+                    font-size: 0.9rem !important;
+                }
+                
+                /* Buttons stack on very small screens */
+                #formButtonsContainer {
+                    flex-direction: column !important;
+                }
+                
+                #formButtonsContainer button {
+                    width: 100% !important;
+                }
+            }
+        }
     </style>
     <!-- Rewst Library JavaScript (must load before loadFormConfigEarly) -->
     <script src="https://eit-auto.github.io/repo/rewst-library.js?v=2.1.3"></script>
@@ -332,7 +416,7 @@
                     </div>
                 </div>
                 <!-- Form Action Buttons -->
-                <div id="formButtonsContainer" style="display: none; margin-top: 20px; display: flex; gap: 10px; justify-content: center; align-items: center; position: relative;">
+                <div id="formButtonsContainer" style="display: none; margin-top: 20px; gap: 10px; justify-content: center; align-items: center; position: relative; flex-wrap: wrap;">
                     <button id="resetFormBtn" class="btn btn-gold">Reset</button>
                     <button id="submitFormBtn" class="btn btn-blue">Submit</button>
                     <div id="workflowExecutingBox" style="position: absolute; right: 0; width: auto; padding: 12px 16px; background: #fff3cd; border: 1px solid #ffeeba; border-radius: 6px; text-align: center; color: #856404; font-size: 14px; font-weight: 600; cursor: pointer; display: none; white-space: nowrap;">
@@ -2156,11 +2240,54 @@
                     // Render horizontal line (content field contains the HR element or styling)
                     html += `${config.content || '<hr>'}`;
                 } else if (config.type === 'array') {
-                    // Array field with add/remove functionality
-                    const arrayId = `array_${config.field_name}_${Math.random().toString(36).substr(2, 5)}`;
-                    const itemsArray = Array.isArray(config.items) ? config.items : [];
-                    
-                    // Generate default instance - render each field based on its type
+                    // Check if this is repeating_input_mode (dynamic parameters from a source)
+                    if (config.repeating_input_mode === true && config.source) {
+                        // Check if there are blocking dependencies that might not be resolved yet
+                        const hasBlockingDependencies = config.dependant_fields && 
+                            Object.keys(config.dependant_fields).some(depField => 
+                                config.dependant_fields[depField].blocking === true
+                            );
+                        
+                        // Repeating input mode: generate inputs from source array
+                        const sourceVarPath = parseDataVariable(config.source);
+                        const sourceArray = sourceVarPath ? getPageVariableValue(sourceVarPath) : undefined;
+                        
+                        if (!Array.isArray(sourceArray)) {
+                            // If source not found and there are blocking dependencies, skip rendering
+                            // (field will be hidden/shown by dependency logic)
+                            if (hasBlockingDependencies) {
+                                // Don't render anything - let the dependency system handle visibility
+                            } else {
+                                html += `<div style="color: #dc3545; font-size: 0.9rem; padding: 1rem;">Error: Source array not found or not an array (${config.source})</div>`;
+                            }
+                        } else {
+                            // Generate compact input fields for each parameter
+                            const parametersHtml = sourceArray.map((paramName, idx) => {
+                                const fieldId = `${config.field_name}_param_${idx}`;
+                                const displayName = paramName || `Parameter ${idx + 1}`;
+                                return `
+                                    <div style="display: flex; gap: 10px; align-items: center; margin-bottom: 0.35rem;">
+                                        <label style="flex: 0 0 auto; min-width: 180px; color: #a0a0a0; font-weight: 600; font-size: 0.9rem;">${escapeHtml(displayName)}:</label>
+                                        <input type="text" id="${fieldId}" data-field-name="${config.field_name}" data-param-name="${escapeHtml(displayName)}" data-param-index="${idx}" placeholder="Enter value" style="flex: 1; padding: 0.5rem; border: 1px solid #404040; border-radius: 4px; background: #1a1a1a; color: #e0e0e0;">
+                                    </div>
+                                `;
+                            }).join('');
+                            
+                            html += `
+                                <div class="array-field-container" data-repeating-input-mode="true" data-array-name="${config.field_name}">
+                                    <label style="display: block; margin-bottom: 1rem; color: #ffffff; font-weight: 600;">${displayName}</label>
+                                    <div style="background: #2a2a2a; padding: 1rem; border: 1px solid #404040; border-radius: 4px; display: flex; flex-direction: column; gap: 0;">
+                                        ${parametersHtml}
+                                    </div>
+                                </div>
+                            `;
+                        }
+                    } else {
+                        // Normal array mode: add/remove functionality
+                        const arrayId = `array_${config.field_name}_${Math.random().toString(36).substr(2, 5)}`;
+                        const itemsArray = Array.isArray(config.items) ? config.items : [];
+                        
+                        // Generate default instance - render each field based on its type
                     const itemsHtml = itemsArray.map((itemConfig) => {
                         const fieldName = itemConfig.name;
                         const displayName = itemConfig.display_name || fieldName;
@@ -2219,6 +2346,7 @@
                             </div>
                         </div>
                     `;
+                    }
                 } else if (config.type === 'datatable') {
                     // Datatable field - displays data from a page variable
                     const dataVarPath = parseDataVariable(config.data_variable);
@@ -2901,14 +3029,15 @@
                 
                 console.log(`[UPDATE_DEPS] Field ${config.field_name} depends on ${changedFieldName}, reloading`);
                 
-                // Reload options for dropdown fields, data_retrieval, and form_extend fields
+                // Reload options for dropdown fields, data_retrieval, array (repeating_input_mode), and form_extend fields
                 if ((config.type === 'dropdown' && config.workflow_id) || 
                     config.type === 'dropdown_graphql' || 
                     config.type === 'dropdown_mesh' || 
                     config.type === 'dropdown_mysql' ||
                     config.type === 'data_retrieval' ||
                     config.type === 'dropdown_prefetch' ||
-                    config.type === 'form_extend') {
+                    config.type === 'form_extend' ||
+                    (config.type === 'array' && config.repeating_input_mode === true)) {
                     if (loadFieldOptionsFn) {
                         loadFieldOptionsFn(config, fieldConfigs, formConfig);
                     }
@@ -3216,6 +3345,35 @@
             // Handle data_retrieval fields
             if (config.type === 'data_retrieval') {
                 return executeDataRetrievalField(config, allFieldConfigs, formConfig);
+            }
+            
+            // Handle array fields with repeating_input_mode
+            if (config.type === 'array' && config.repeating_input_mode === true) {
+                const formGroup = document.querySelector(`[data-field-name="${config.field_name}"]`);
+                
+                // Check if dependencies are met
+                if (config.dependant_fields) {
+                    const allDepsMet = RewstLib.utils.areDependenciesMet(config, allFieldConfigs);
+                    if (!allDepsMet) {
+                        if (formGroup) {
+                            RewstLib.utils.hideLoadingMessage(formGroup, config);
+                            RewstLib.utils.showWaitingMessage(formGroup, config, allFieldConfigs);
+                        }
+                        return;
+                    } else {
+                        if (formGroup) {
+                            RewstLib.utils.hideWaitingMessage(formGroup, config);
+                        }
+                    }
+                }
+                
+                // Re-render the repeating_input_mode array field with fresh data
+                if (formGroup) {
+                    const newFieldHtml = window.formViewerRenderFieldHTML(config, allFieldConfigs);
+                    formGroup.innerHTML = newFieldHtml;
+                    console.log(`[UPDATE_DEPS] Re-rendered repeating_input_mode array field: ${config.field_name}`);
+                }
+                return;
             }
             
             // Handle dropdown_prefetch fields - populate from cached data_retrieval results
@@ -5362,6 +5520,33 @@
                 if (formConfig && formConfig.field_configs) {
                     formConfig.field_configs.forEach(config => {
                         if (config.type === 'array') {
+                            // Check if this is repeating_input_mode
+                            if (config.repeating_input_mode === true && config.source) {
+                                // Repeating input mode: collect parameter values
+                                const sourceVarPath = parseDataVariable(config.source);
+                                const sourceArray = sourceVarPath ? getPageVariableValue(sourceVarPath) : undefined;
+                                
+                                if (Array.isArray(sourceArray)) {
+                                    const parametersArray = sourceArray.map((paramName, idx) => {
+                                        const fieldId = `${config.field_name}_param_${idx}`;
+                                        const inputField = document.getElementById(fieldId);
+                                        const paramValue = inputField ? inputField.value : '';
+                                        
+                                        return {
+                                            param_name: paramName,
+                                            param_value: paramValue
+                                        };
+                                    });
+                                    
+                                    formData[config.field_name] = parametersArray;
+                                    console.log(`[SUBMIT] Repeating input ${config.field_name}: ${parametersArray.length} parameters`, parametersArray);
+                                } else {
+                                    console.warn(`[SUBMIT] Repeating input source not found: ${config.source}`);
+                                    formData[config.field_name] = [];
+                                }
+                                return; // Skip normal array processing
+                            }
+                            
                             // Collect array field data
                             // Use more specific selector to target .array-instances div, not the button which also has data-array-name
                             const arrayContainer = document.querySelector(`.array-instances[data-array-name="${config.field_name}"]`);
@@ -6122,6 +6307,55 @@
             }
             console.log('===========================');
         }
+    </script>
+    <!-- Global function for collapsing content in HTML fields -->
+    <script>
+        /**
+         * Collapse/expand content based on line count
+         * Usage in HTML field: <script>window.collapseNotesContent('selector-or-id', 10);
+         */
+        function collapseNotesContent(selector, maxLines = 10) {
+            const element = typeof selector === 'string' 
+                ? document.querySelector(selector)
+                : selector;
+            
+            if (!element) {
+                console.warn(`[COLLAPSE_NOTES] Element not found: ${selector}`);
+                return;
+            }
+            
+            const fullContent = element.textContent;
+            const lines = fullContent.split('\n');
+            
+            if (lines.length <= maxLines) {
+                return; // Not enough lines to collapse
+            }
+            
+            const firstLines = lines.slice(0, maxLines).join('\n');
+            const remainingLines = lines.slice(maxLines).join('\n');
+            
+            element.textContent = firstLines;
+            element.style.position = 'relative';
+            
+            const button = document.createElement('button');
+            button.textContent = 'Show More';
+            button.style.cssText = 'padding: 0.5rem 1rem; margin-top: 0.5rem; background: #5a9fb8; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: 600;';
+            button.onclick = function(e) {
+                e.preventDefault();
+                if (button.textContent === 'Show More') {
+                    element.textContent = fullContent;
+                    button.textContent = 'Show Less';
+                } else {
+                    element.textContent = firstLines;
+                    button.textContent = 'Show More';
+                }
+            };
+            
+            element.parentNode.insertBefore(button, element.nextSibling);
+        }
+
+        // Expose to window for use in HTML field content
+        window.collapseNotesContent = collapseNotesContent;
     </script>
 </div>
 </body>
