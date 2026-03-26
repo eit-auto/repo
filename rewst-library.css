@@ -922,6 +922,20 @@
     border-color: #d4a017;
     color: #000000;
   }
+
+  /* Position waiting message below label for repeating input arrays */
+  .array-field-container[data-repeating-input-mode="true"] {
+    position: relative;
+  }
+
+  .array-field-container[data-repeating-input-mode="true"] .field-waiting-message {
+    position: absolute;
+    top: 2.5rem;
+    left: 0;
+    right: 0;
+    width: 100%;
+  }
+
   .modal-overlay {
     position: fixed;
     top: 0;
