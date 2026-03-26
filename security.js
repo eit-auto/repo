@@ -75,6 +75,12 @@ try {
     console.log('[Security] User ID:', rewstUser.id);
     console.log('[Security] Assigned roles:', rewstUser.roleIds);
     
+    // Also add to pageVariables if it exists
+    if (typeof window.pageVariables !== 'undefined') {
+        window.pageVariables.rewstUser = rewstUser;
+        console.log('[Security] rewstUser added to pageVariables');
+    }
+    
 } catch (error) {
     console.error('[Security] Failed to initialize user:', error.message);
     if (typeof rawUserData !== 'undefined') {
