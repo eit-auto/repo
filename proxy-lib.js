@@ -419,6 +419,52 @@ const ProxyLib = (() => {
     }
     
     /**
+     * Execute CWA/LabTech MySQL query
+     * @param {string} sessionToken - Session token (from authenticate)
+     * @param {string} user - Username
+     * @param {string} query - SQL query to execute
+     * @param {object} options - Optional config
+     * @returns {Promise<{success, result, rowCount}>}
+     */
+    async function executeCwaQuery(sessionToken, user, query, options = {}) {
+        try {
+            if (!sessionToken || !user || !query) {
+                throw new Error('sessionToken, user, and query are required');
+            }
+            
+            console.log('[ProxyLib] Executing CWA query');
+            
+            const response = await fetch(`${PROXY_URL}/cwaquery`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Session-Token': sessionToken
+                },
+                body: JSON.stringify({
+                    query: query,
+                    user: user
+                })
+            });
+            
+            const data = await response.json();
+            
+            if (!response.ok) {
+                throw new Error(data.error || `HTTP ${response.status}`);
+            }
+            
+            if (!data.success) {
+                throw new Error(data.errors || 'CWA query execution failed');
+            }
+            
+            console.log('[ProxyLib] CWA query executed successfully, returned', data.rowCount, 'rows');
+            return data;
+        } catch (error) {
+            console.error('[ProxyLib] executeCwaQuery error:', error);
+            throw error;
+        }
+    }
+    
+    /**
      * Authenticate with UI handling
      * Convenience wrapper that handles authentication and updates UI elements
      * @param {string} user - Username
@@ -526,6 +572,7 @@ const ProxyLib = (() => {
         validateSession,
         executeCommand,
         executeQuery,
+        executeCwaQuery,
         getNodes,
         getStatus,
         escapeHtml,
