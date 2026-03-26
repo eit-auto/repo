@@ -960,23 +960,22 @@
 
   /* Keep regular array field header with label visible when waiting */
   .form-group.is-waiting .array-field-header {
-    display: flex !important;
-    align-items: center !important;
-    gap: 8px !important;
+    display: block !important;
+    margin: 0 !important;
+    padding: 0 !important;
   }
 
   .form-group.is-waiting .array-field-header label {
     display: block !important;
     position: relative;
     z-index: 10;
+    margin: 0 !important;
+    margin-bottom: 0 !important;
   }
 
   /* Reduce Add button size when waiting */
   .form-group.is-waiting .array-add-btn {
-    padding: 4px 8px !important;
-    font-size: 12px !important;
-    font-weight: 500 !important;
-    display: inline-block !important;
+    display: none !important;
   }
 
   /* Hide refresh buttons when waiting */
@@ -995,12 +994,16 @@
   /* Repeating array specific - hide inner panel but keep label visible */
   .form-group.is-waiting .array-field-container {
     display: block !important;
+    margin: 0 !important;
+    padding: 0 !important;
   }
 
   .form-group.is-waiting .array-field-container label {
     display: block !important;
     position: relative;
     z-index: 10;
+    margin: 0 !important;
+    margin-bottom: 0 !important;
   }
 
   .form-group.is-waiting .array-field-container .inner-panel {
