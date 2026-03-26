@@ -928,6 +928,46 @@
     position: relative;
   }
 
+  /* When waiting, hide all field content except label and waiting message */
+  .form-group.is-waiting .field-description {
+    display: none !important;
+  }
+
+  .form-group.is-waiting .dropdown-refresh-container > *:not(.field-waiting-message) {
+    display: none !important;
+  }
+
+  .form-group.is-waiting .inner-panel {
+    display: none !important;
+  }
+
+  .form-group.is-waiting .datatable-container {
+    display: none !important;
+  }
+
+  .form-group.is-waiting .radio-group {
+    display: none !important;
+  }
+
+  .form-group.is-waiting .checkbox-wrapper input,
+  .form-group.is-waiting .checkbox-wrapper > div {
+    display: none !important;
+  }
+
+  .form-group.is-waiting input:not(.multi-select-hidden-select),
+  .form-group.is-waiting select,
+  .form-group.is-waiting textarea {
+    display: none !important;
+  }
+
+  .form-group.is-waiting .multi-select-container {
+    display: none !important;
+  }
+
+  .form-group.is-waiting .array-field-container {
+    display: none !important;
+  }
+
   /* Position waiting message below label for all field types */
   .form-group .field-waiting-message {
     position: absolute !important;
