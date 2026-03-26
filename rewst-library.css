@@ -973,7 +973,7 @@
     margin-bottom: 0 !important;
   }
 
-  /* Reduce Add button size when waiting */
+  /* Hide Add button when waiting */
   .form-group.is-waiting .array-add-btn {
     display: none !important;
   }
