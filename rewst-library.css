@@ -699,6 +699,12 @@
     display: flex;
     flex-direction: column;
   }
+
+  /* Reduce margin for repeating input arrays */
+  .form-group.repeating-input-array {
+    margin-bottom: 0.5rem;
+  }
+
   .form-group-vert {
     display: flex;
     flex-direction: column;
