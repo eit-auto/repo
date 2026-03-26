@@ -405,6 +405,14 @@ const ELEMENT_TYPE_DEFAULTS = {
         default_value: null,
         result_var: ''
     },
+    'dropdown_cwa_mysql': {
+        query: '',
+        label_field: '',
+        value_field: '',
+        multi_select: false,
+        default_value: null,
+        result_var: ''
+    },
     'dropdown_mesh': {
         mode: 'powershell',             // 'cmd' | 'powershell' | 'nodes'
         node_selection_type: 'fixed',   // 'fixed' | 'query' (for cmd/powershell modes)
@@ -418,7 +426,7 @@ const ELEMENT_TYPE_DEFAULTS = {
         result_var: ''
     },
     'data_retrieval': {
-        data_source_type: 'mesh_powershell',        // 'mesh_cmd' | 'mesh_powershell' | 'mesh_nodes' | 'mysql' | 'workflow' | 'graphql'
+        data_source_type: 'mesh_powershell',        // 'mesh_cmd' | 'mesh_powershell' | 'mesh_nodes' | 'mysql' | 'cwa_mysql' | 'workflow' | 'graphql'
         // Mesh fields
         node_selection_type: 'fixed',
         node_id: '',
@@ -792,7 +800,7 @@ function saveTypeSpecificFields(fieldConfig) {
     
     try {
         // For dropdowns, clean up fields that don't belong to the selected type
-        if (['dropdown', 'dropdown_static', 'dropdown_graphql', 'dropdown_mysql', 'dropdown_mesh'].includes(elementType)) {
+        if (['dropdown', 'dropdown_static', 'dropdown_graphql', 'dropdown_mysql', 'dropdown_cwa_mysql', 'dropdown_mesh'].includes(elementType)) {
             if (elementType === 'dropdown_static') {
                 // Static: clear workflow, graphql, mysql, and mesh fields
                 delete fieldConfig.workflow_id;
@@ -835,6 +843,19 @@ function saveTypeSpecificFields(fieldConfig) {
                 delete fieldConfig.command_type;
             } else if (elementType === 'dropdown_mysql') {
                 // MySQL: clear static, workflow, graphql, and mesh fields
+                delete fieldConfig.options;
+                delete fieldConfig.workflow_id;
+                delete fieldConfig.label_name;
+                delete fieldConfig.value_name;
+                delete fieldConfig.default_selector;
+                delete fieldConfig.workflow_input;
+                delete fieldConfig.graphql_op;
+                delete fieldConfig.graphql_op_variables;
+                delete fieldConfig.node_id;
+                delete fieldConfig.command;
+                delete fieldConfig.command_type;
+            } else if (elementType === 'dropdown_cwa_mysql') {
+                // CWA MySQL: clear static, workflow, graphql, and mesh fields
                 delete fieldConfig.options;
                 delete fieldConfig.workflow_id;
                 delete fieldConfig.label_name;
@@ -969,6 +990,12 @@ function saveTypeSpecificFields(fieldConfig) {
             fieldConfig.value_field = document.getElementById('mysql_value_field')?.value || '';
             fieldConfig.multi_select = document.getElementById('multi_select')?.checked || false;
             fieldConfig.result_var = document.getElementById('result_var')?.value || '';
+        } else if (elementType === 'dropdown_cwa_mysql') {
+            fieldConfig.query = document.getElementById('cwa_mysql_query')?.value || '';
+            fieldConfig.label_field = document.getElementById('cwa_mysql_label_field')?.value || '';
+            fieldConfig.value_field = document.getElementById('cwa_mysql_value_field')?.value || '';
+            fieldConfig.multi_select = document.getElementById('multi_select')?.checked || false;
+            fieldConfig.result_var = document.getElementById('result_var')?.value || '';
         } else if (elementType === 'dropdown_mesh') {
             // Save mode from dropdown
             fieldConfig.mode = document.getElementById('mesh_mode')?.value || 'powershell';
@@ -1021,6 +1048,11 @@ function saveTypeSpecificFields(fieldConfig) {
                 fieldConfig.query = '';
             } else if (fieldConfig.data_source_type === 'mysql') {
                 fieldConfig.query = document.getElementById('retrieval_query')?.value || '';
+                fieldConfig.node_id = '';
+                fieldConfig.node_query = '';
+                fieldConfig.command = '';
+            } else if (fieldConfig.data_source_type === 'cwa_mysql') {
+                fieldConfig.query = document.getElementById('retrieval_cwa_query')?.value || '';
                 fieldConfig.node_id = '';
                 fieldConfig.node_query = '';
                 fieldConfig.command = '';
@@ -2472,7 +2504,7 @@ function showElementSettings(elementUid) {
     let formHTML = ``;
     
     // Add Dropdown Type selector for dropdown elements
-    if (['dropdown', 'dropdown_static', 'dropdown_graphql', 'dropdown_mysql', 'dropdown_mesh', 'dropdown_prefetch'].includes(fieldConfig.type)) {
+    if (['dropdown', 'dropdown_static', 'dropdown_graphql', 'dropdown_mysql', 'dropdown_cwa_mysql', 'dropdown_mesh', 'dropdown_prefetch'].includes(fieldConfig.type)) {
         formHTML += `
             <div class="mb-15">
                 <label class="form-label">Dropdown Type</label>
@@ -2481,6 +2513,7 @@ function showElementSettings(elementUid) {
                     <option value="dropdown_static" ${fieldConfig.type === 'dropdown_static' ? 'selected' : ''}>Static</option>
                     <option value="dropdown_graphql" ${fieldConfig.type === 'dropdown_graphql' ? 'selected' : ''}>GraphQL</option>
                     <option value="dropdown_mysql" ${fieldConfig.type === 'dropdown_mysql' ? 'selected' : ''}>MySQL Query</option>
+                    <option value="dropdown_cwa_mysql" ${fieldConfig.type === 'dropdown_cwa_mysql' ? 'selected' : ''}>CWA MySQL Query</option>
                     <option value="dropdown_mesh" ${fieldConfig.type === 'dropdown_mesh' ? 'selected' : ''}>MeshCentral Command</option>
                     <option value="dropdown_prefetch" ${fieldConfig.type === 'dropdown_prefetch' ? 'selected' : ''}>Pre-fetched Data</option>
                 </select>
@@ -2550,7 +2583,7 @@ function showElementSettings(elementUid) {
             <input type="checkbox" id="required" ${fieldConfig.required ? 'checked' : ''} class="checkbox-input">
             <label for="required" style="margin: 0; color: #ffffff; font-weight: 600; font-size: 14px; cursor: pointer;">Required</label>
         </div>
-        ${['dropdown_static', 'dropdown', 'dropdown_graphql', 'dropdown_mysql', 'dropdown_mesh', 'dropdown_prefetch'].includes(fieldConfig.type) ? `
+        ${['dropdown_static', 'dropdown', 'dropdown_graphql', 'dropdown_mysql', 'dropdown_cwa_mysql', 'dropdown_mesh', 'dropdown_prefetch'].includes(fieldConfig.type) ? `
         <div style='margin-bottom: 15px;'>
             <label style='display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;'>Results Variable Name</label>
             <input type='text' id='result_var' value='${fieldConfig.result_var || fieldConfig.field_name + '_data' || ''}' placeholder='e.g., dropdown_1_data' style='width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box;'>
@@ -2842,6 +2875,22 @@ function showElementSettings(elementUid) {
                 <input type='text' id='mysql_value_field' value='${fieldConfig.value_field || ''}' placeholder='e.g., id' style='width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box;'>
             </div>
         `;
+    } else if (fieldConfig.type === 'dropdown_cwa_mysql') {
+        formHTML += `
+            <div style='margin-bottom: 15px;'>
+                <label style='display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;'>CWA SQL Query</label>
+                <textarea id='cwa_mysql_query' style='width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box; font-family: monospace; font-size: 13px; min-height: 120px;'>${fieldConfig.query || ''}</textarea>
+                <div style='color: #999; font-size: 12px; margin-top: 6px;'>CWA/LabTech MySQL query. Use [[field_name]] for form field placeholders, e.g.: SELECT id, name FROM table WHERE org = [[org_field]]</div>
+            </div>
+            <div style='margin-bottom: 15px;'>
+                <label style='display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;'>Label Field (Column Name)</label>
+                <input type='text' id='cwa_mysql_label_field' value='${fieldConfig.label_field || ''}' placeholder='e.g., name' style='width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box;'>
+            </div>
+            <div style='margin-bottom: 15px;'>
+                <label style='display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;'>Value Field (Column Name)</label>
+                <input type='text' id='cwa_mysql_value_field' value='${fieldConfig.value_field || ''}' placeholder='e.g., id' style='width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box;'>
+            </div>
+        `;
     } else if (fieldConfig.type === 'dropdown_mesh') {
         formHTML += `
             <div style='margin-bottom: 15px;'>
@@ -2924,6 +2973,7 @@ function showElementSettings(elementUid) {
                     <option value='mesh_powershell' ${fieldConfig.data_source_type === 'mesh_powershell' ? 'selected' : ''}>MeshCentral PowerShell</option>
                     <option value='mesh_nodes' ${fieldConfig.data_source_type === 'mesh_nodes' ? 'selected' : ''}>MeshCentral Nodes</option>
                     <option value='mysql' ${fieldConfig.data_source_type === 'mysql' ? 'selected' : ''}>MySQL Query</option>
+                    <option value='cwa_mysql' ${fieldConfig.data_source_type === 'cwa_mysql' ? 'selected' : ''}>CWA MySQL Query</option>
                     <option value='workflow' ${fieldConfig.data_source_type === 'workflow' ? 'selected' : ''}>Workflow</option>
                     <option value='graphql' ${fieldConfig.data_source_type === 'graphql' ? 'selected' : ''}>GraphQL</option>
                 </select>
@@ -2972,6 +3022,14 @@ function showElementSettings(elementUid) {
                     <label style='display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;'>SQL Query</label>
                     <textarea id='retrieval_query' style='width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box; font-family: monospace; font-size: 13px; min-height: 120px;'>${fieldConfig.query || ''}</textarea>
                     <div style='color: #999; font-size: 12px; margin-top: 6px;'>Use [[field_name]] placeholders. Should return an array or object with arrays.</div>
+                </div>
+            `;
+        } else if (fieldConfig.data_source_type === 'cwa_mysql') {
+            formHTML += `
+                <div style='margin-bottom: 15px;'>
+                    <label style='display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;'>CWA SQL Query</label>
+                    <textarea id='retrieval_cwa_query' style='width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box; font-family: monospace; font-size: 13px; min-height: 120px;'>${fieldConfig.query || ''}</textarea>
+                    <div style='color: #999; font-size: 12px; margin-top: 6px;'>Use [[field_name]] placeholders. Executes against CWA/LabTech MySQL. Should return an array or object with arrays.</div>
                 </div>
             `;
         }
@@ -3175,6 +3233,19 @@ function showElementSettings(elementUid) {
                 delete fieldConfig.command_type;
             } else if (newType === 'dropdown_mysql') {
                 // MySQL dropdown: keep mysql fields, clear static, workflow, graphql, and mesh fields
+                delete fieldConfig.options;
+                delete fieldConfig.workflow_id;
+                delete fieldConfig.label_name;
+                delete fieldConfig.value_name;
+                delete fieldConfig.default_selector;
+                delete fieldConfig.workflow_input;
+                delete fieldConfig.graphql_op;
+                delete fieldConfig.graphql_op_variables;
+                delete fieldConfig.node_id;
+                delete fieldConfig.command;
+                delete fieldConfig.command_type;
+            } else if (newType === 'dropdown_cwa_mysql') {
+                // CWA MySQL dropdown: keep cwa mysql fields, clear static, workflow, graphql, and mesh fields
                 delete fieldConfig.options;
                 delete fieldConfig.workflow_id;
                 delete fieldConfig.label_name;
@@ -3574,6 +3645,22 @@ function showElementSettings(elementUid) {
         });
     }
     
+    // Add listeners for dropdown_cwa_mysql
+    if (fieldConfig.type === 'dropdown_cwa_mysql') {
+        const cwaQueryInput = document.getElementById('cwa_mysql_query');
+        const cwaLabelFieldInput = document.getElementById('cwa_mysql_label_field');
+        const cwaValueFieldInput = document.getElementById('cwa_mysql_value_field');
+        
+        [cwaQueryInput, cwaLabelFieldInput, cwaValueFieldInput].forEach(input => {
+            if (input) {
+                input.addEventListener('input', () => {
+                    formHasBeenModified = true;
+                    updateElementSettingsSaveButtonVisibility();
+                });
+            }
+        });
+    }
+    
     // Add listeners for dropdown_mesh
     if (fieldConfig.type === 'dropdown_mesh') {
         const meshModeSelect = document.getElementById('mesh_mode');
@@ -3681,7 +3768,7 @@ function showElementSettings(elementUid) {
     }
     
     // Add listener for result_var (all dropdown types)
-    const isDropdownType = ['dropdown_static', 'dropdown', 'dropdown_graphql', 'dropdown_mysql', 'dropdown_mesh', 'dropdown_prefetch'].includes(fieldConfig.type);
+    const isDropdownType = ['dropdown_static', 'dropdown', 'dropdown_graphql', 'dropdown_mysql', 'dropdown_cwa_mysql', 'dropdown_mesh', 'dropdown_prefetch'].includes(fieldConfig.type);
     if (isDropdownType) {
         const resultVarInput = document.getElementById('result_var');
         if (resultVarInput) {
