@@ -75,6 +75,14 @@ try {
     console.log('[Security] User ID:', rewstUser.id);
     console.log('[Security] Assigned roles:', rewstUser.roleIds);
     
+    // Add shortusername (username before @ symbol)
+    if (rewstUser.username && rewstUser.username.includes('@')) {
+        rewstUser.shortusername = rewstUser.username.split('@')[0];
+    } else {
+        rewstUser.shortusername = rewstUser.username;
+    }
+    console.log('[Security] Short username:', rewstUser.shortusername);
+    
     // Also add to pageVariables if it exists
     if (typeof window.pageVariables !== 'undefined') {
         window.pageVariables.rewstUser = rewstUser;
