@@ -958,6 +958,11 @@
     display: none !important;
   }
 
+  /* Hide refresh buttons when waiting */
+  .form-group.is-waiting .dropdown-refresh-btn {
+    display: none !important;
+  }
+
   /* Keep regular array field header with label visible when waiting */
   .form-group.is-waiting .array-field-header {
     display: block !important;
@@ -978,8 +983,13 @@
     display: none !important;
   }
 
-  /* Hide refresh buttons when waiting */
-  .form-group.is-waiting .dropdown-refresh-btn {
+  /* Hide HTML field content when waiting */
+  .form-group.is-waiting .html-field {
+    display: none !important;
+  }
+
+  /* Hide horizontal line content when waiting */
+  .form-group.is-waiting .horizontal-line-content {
     display: none !important;
   }
 
