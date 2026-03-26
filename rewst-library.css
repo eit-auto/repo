@@ -955,9 +955,21 @@
     display: none !important;
   }
 
-  /* Hide refresh buttons when waiting */
-  .form-group.is-waiting .dropdown-refresh-btn {
+  /* Hide array instances and add button when waiting */
+  .form-group.is-waiting .array-instances,
+  .form-group.is-waiting .array-add-btn {
     display: none !important;
+  }
+
+  /* Keep regular array field header with label visible when waiting */
+  .form-group.is-waiting .array-field-header {
+    display: block !important;
+  }
+
+  .form-group.is-waiting .array-field-header label {
+    display: block !important;
+    position: relative;
+    z-index: 10;
   }
 
   /* Keep field-waiting-message and labels visible */
