@@ -18,8 +18,9 @@
     </style>
     <script>
         const rawUserData = `{{ CTX.user }}`;
-        let pagePermissions = ['role-admin', 'c401ac8f-d0e3-4baf-b349-ebd65fef66b3']; // FormBuilder requires admin roles
+        let pagePermissions = []; // Changed to 'let' to allow reassignment from config
         window.ORG_ID = '019176c2-059f-7391-afbc-97b201efbd93';
+        window.pageVariables = {}; // Initialize for use across scripts
     </script>
     <script src="https://eit-auto.github.io/repo/security.js?v=1.0"></script>
     <script>
