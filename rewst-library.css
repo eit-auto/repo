@@ -949,27 +949,39 @@
   .form-group.is-waiting .checkbox-wrapper input,
   .form-group.is-waiting .checkbox-wrapper > div,
   .form-group.is-waiting .inner-panel,
-  .form-group.is-waiting .datatable-container,
-  .form-group.is-waiting .array-instances,
-  .form-group.is-waiting .array-field-header {
+  .form-group.is-waiting .datatable-container {
     display: none !important;
   }
 
-  /* Hide array instances and add button when waiting */
-  .form-group.is-waiting .array-instances,
-  .form-group.is-waiting .array-add-btn {
+  /* Hide array instances when waiting */
+  .form-group.is-waiting .array-instances {
     display: none !important;
   }
 
   /* Keep regular array field header with label visible when waiting */
   .form-group.is-waiting .array-field-header {
-    display: block !important;
+    display: flex !important;
+    align-items: center !important;
+    gap: 8px !important;
   }
 
   .form-group.is-waiting .array-field-header label {
     display: block !important;
     position: relative;
     z-index: 10;
+  }
+
+  /* Reduce Add button size when waiting */
+  .form-group.is-waiting .array-add-btn {
+    padding: 4px 8px !important;
+    font-size: 12px !important;
+    font-weight: 500 !important;
+    display: inline-block !important;
+  }
+
+  /* Hide refresh buttons when waiting */
+  .form-group.is-waiting .dropdown-refresh-btn {
+    display: none !important;
   }
 
   /* Keep field-waiting-message and labels visible */
