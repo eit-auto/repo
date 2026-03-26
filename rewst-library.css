@@ -923,10 +923,15 @@
     color: #000000;
   }
 
+  /* Position relative context for repeating input arrays waiting message */
+  .form-group.repeating-input-array {
+    position: relative;
+  }
+
   /* Position waiting message below label for repeating input arrays */
   .form-group.repeating-input-array .field-waiting-message {
     position: absolute !important;
-    top: 2.5rem !important;
+    top: 1.4rem !important;
     left: 0 !important;
     right: 0 !important;
     width: 100% !important;
