@@ -1282,7 +1282,7 @@ const GRAPHQL_OPERATIONS = {
    * @param {Array} optionsArray - Array of {value, label} objects
    * @param {Array} selectedValues - Optional array of pre-selected values
    */
-  function initializeDropdownMultiSelect(fieldName, optionsArray, selectedValues = [], searchable = false) {
+  function initializeDropdownMultiSelect(fieldName, optionsArray, selectedValues = []) {
     const multiSelectId = `ms_${fieldName}`;
     const container = document.getElementById(multiSelectId);
     if (container && optionsArray && optionsArray.length > 0) {
@@ -1291,7 +1291,7 @@ const GRAPHQL_OPERATIONS = {
       const containerRef = `[DOM@${container.offsetParent ? 'visible' : 'hidden'}]`;
       const containerPath = `${container.parentElement?.className || 'no-parent'} > ${container.id}`;
       console.log(`[INIT-DROPDOWN-MS] Called for ${fieldName} with ${optionsArray.length} options. Container: ${containerRef} Path: ${containerPath}. Stack: ${stack}`);
-      initializeMultiSelect(container, optionsArray, selectedValues, null, searchable);
+      initializeMultiSelect(container, optionsArray, selectedValues);
       console.log(`[MULTI-SELECT] Initialized for: ${fieldName} with ${optionsArray.length} options and ${selectedValues.length} pre-selected values`);
     } else {
       if (!container) console.log(`[INIT-DROPDOWN-MS] SKIPPED for ${fieldName}: container not found (id=${multiSelectId})`);
@@ -1305,9 +1305,8 @@ const GRAPHQL_OPERATIONS = {
    * @param {string} fieldName - Field name
    * @param {Array} options - Array of {value, label} objects
    * @param {Array} preselectedValues - Optional array of pre-selected values
-   * @param {boolean} searchable - Whether the dropdown should be searchable
    */
-  function repopulateMultiSelectField(fieldName, options, preselectedValues = [], searchable = false) {
+  function repopulateMultiSelectField(fieldName, options, preselectedValues = []) {
     const multiSelectContainer = document.querySelector(`[data-field-name="${fieldName}"] .multi-select-container`);
     if (!multiSelectContainer) {
       console.error(`[REPOPULATE] Multi-select container not found for ${fieldName}`);
@@ -1316,7 +1315,7 @@ const GRAPHQL_OPERATIONS = {
     
     // Initialize the multi-select component with pre-selected values
     // This will handle updating the hidden select, tags, and dropdown display
-    initializeDropdownMultiSelect(fieldName, options, preselectedValues, searchable);
+    initializeDropdownMultiSelect(fieldName, options, preselectedValues);
   }
 
   /**
@@ -1860,7 +1859,7 @@ const GRAPHQL_OPERATIONS = {
    * @param {function} onChange - Callback when selection changes
    */
   let initializeMultiSelectCallCount = 0;
-  function initializeMultiSelect(container, options, selectedValues = [], onChange = null, searchable = false) {
+  function initializeMultiSelect(container, options, selectedValues = [], onChange = null) {
     const callId = ++initializeMultiSelectCallCount;
     if (!container) {
       console.error('[MULTI-SELECT] Container not provided');
@@ -1973,39 +1972,13 @@ const GRAPHQL_OPERATIONS = {
     }
 
     // Populate dropdown options
-    function populateDropdown(filterTerm = '') {
+    function populateDropdown() {
       const optionsContainer = dropdown;
       const oldChildCount = optionsContainer.children.length;
       const stackTrace = new Error().stack.split('\n').slice(1, 3).map(line => line.trim().split(' (')[0]).join(' <- ');
       console.log(`[POPULATE] [CALL #${callId}] Starting populateDropdown. Container had ${oldChildCount} children, options.length=${options.length}. Caller: ${stackTrace}`);
       optionsContainer.innerHTML = '';
       console.log(`[POPULATE] [CALL #${callId}] Cleared container, now has ${optionsContainer.children.length} children`);
-
-      // Add search input if searchable
-      if (searchable) {
-        const searchWrapper = document.createElement('div');
-        searchWrapper.style.padding = '8px';
-        searchWrapper.style.borderBottom = '1px solid #556870';
-        
-        const searchInput = document.createElement('input');
-        searchInput.type = 'text';
-        searchInput.placeholder = 'Search options...';
-        searchInput.value = filterTerm;
-        searchInput.className = 'search-input';
-        searchInput.style.width = '100%';
-        searchInput.style.boxSizing = 'border-box';
-        
-        searchInput.addEventListener('input', (e) => {
-          populateDropdown(e.target.value);
-        });
-        
-        searchInput.addEventListener('click', (e) => {
-          e.stopPropagation(); // Don't close dropdown when clicking search input
-        });
-        
-        searchWrapper.appendChild(searchInput);
-        optionsContainer.appendChild(searchWrapper);
-      }
 
       // Add SELECT ALL checkbox at the top
       const selectAllDiv = document.createElement('div');
@@ -2037,14 +2010,7 @@ const GRAPHQL_OPERATIONS = {
       separator.style.borderBottom = '1px solid #556870';
       optionsContainer.appendChild(separator);
 
-      // Filter options based on search term
-      const filteredOptions = filterTerm.trim() === '' 
-        ? options 
-        : options.filter(opt => 
-            String(opt.label).toLowerCase().includes(filterTerm.toLowerCase())
-          );
-
-      filteredOptions.forEach(option => {
+      options.forEach(option => {
         const optionDiv = document.createElement('div');
         optionDiv.className = 'multi-select-option';
         const optId = 'opt_' + Math.random().toString(36).substr(2, 9);
@@ -2148,173 +2114,6 @@ const GRAPHQL_OPERATIONS = {
     console.log(`[INIT-MULTI-SELECT] [CALL #${callId}] Initialization complete. Dropdown container now has ${dropdown.children.length} children`);
   }
 
-  /**
-   * Initialize a searchable single-select dropdown
-   * Replaces a native <select> with a custom component that has search capability
-   * @param {string} fieldName - Name of the form field
-   * @param {Array} options - Array of {value, label} objects
-   * @param {string} selectedValue - Currently selected value
-   * @param {function} onChange - Callback when selection changes
-   */
-  function initializeSearchableSingleSelect(fieldName, options, selectedValue = '', onChange = null) {
-    const formGroup = document.querySelector(`[data-field-name="${fieldName}"]`);
-    if (!formGroup) {
-      console.error(`[SEARCHABLE-SELECT] Form group not found for field: ${fieldName}`);
-      return;
-    }
-
-    // Find the native select element
-    const nativeSelect = formGroup.querySelector('select:not(.multi-select-hidden-select)');
-    if (!nativeSelect) {
-      console.error(`[SEARCHABLE-SELECT] Native select not found for field: ${fieldName}`);
-      return;
-    }
-
-    // Create searchable container
-    const container = document.createElement('div');
-    container.className = 'searchable-select-wrapper';
-    container.style.position = 'relative';
-    container.style.width = '100%';
-
-    // Create search input
-    const searchInput = document.createElement('input');
-    searchInput.type = 'text';
-    searchInput.className = 'search-input searchable-select-input';
-    searchInput.placeholder = 'Search...';
-    searchInput.style.width = '100%';
-    searchInput.style.boxSizing = 'border-box';
-    
-    // Set initial display value from selected option
-    const selectedOption = options.find(o => String(o.value) === String(selectedValue));
-    if (selectedOption) {
-      searchInput.value = selectedOption.label;
-    }
-
-    // Create dropdown options container
-    const optionsDropdown = document.createElement('div');
-    optionsDropdown.className = 'searchable-select-options';
-    optionsDropdown.style.display = 'none';
-    optionsDropdown.style.position = 'absolute';
-    optionsDropdown.style.top = '100%';
-    optionsDropdown.style.left = '0';
-    optionsDropdown.style.right = '0';
-    optionsDropdown.style.marginTop = '4px';
-    optionsDropdown.style.backgroundColor = 'var(--form-bg-color, #2a2a2a)';
-    optionsDropdown.style.border = '1px solid var(--form-border-color, #404040)';
-    optionsDropdown.style.borderRadius = '4px';
-    optionsDropdown.style.maxHeight = '200px';
-    optionsDropdown.style.overflowY = 'auto';
-    optionsDropdown.style.zIndex = '1000';
-
-    // Function to render filtered options
-    function renderOptions(filterTerm = '') {
-      optionsDropdown.innerHTML = '';
-      
-      const filteredOptions = filterTerm.trim() === ''
-        ? options
-        : options.filter(opt =>
-            String(opt.label).toLowerCase().includes(filterTerm.toLowerCase())
-          );
-
-      if (filteredOptions.length === 0) {
-        const noResults = document.createElement('div');
-        noResults.style.padding = '10px';
-        noResults.style.color = '#888';
-        noResults.style.textAlign = 'center';
-        noResults.textContent = 'No results';
-        optionsDropdown.appendChild(noResults);
-        return;
-      }
-
-      filteredOptions.forEach(option => {
-        const optionDiv = document.createElement('div');
-        optionDiv.style.padding = '10px';
-        optionDiv.style.cursor = 'pointer';
-        optionDiv.style.color = 'var(--form-text-color, #e0e0e0)';
-        optionDiv.style.borderBottom = '1px solid #556870';
-        optionDiv.style.transition = 'background 0.2s';
-        optionDiv.textContent = option.label;
-
-        optionDiv.addEventListener('mouseenter', () => {
-          optionDiv.style.background = '#444';
-        });
-
-        optionDiv.addEventListener('mouseleave', () => {
-          optionDiv.style.background = 'transparent';
-        });
-
-        optionDiv.addEventListener('click', () => {
-          // Update search input and native select
-          searchInput.value = option.label;
-          nativeSelect.value = option.value;
-
-          // Update selectedValue
-          selectedValue = String(option.value);
-
-          // Close dropdown
-          optionsDropdown.style.display = 'none';
-
-          // Trigger change callback
-          if (onChange) {
-            onChange(option.value, option.label);
-          }
-
-          // Trigger native change event
-          const event = new Event('change', { bubbles: true });
-          nativeSelect.dispatchEvent(event);
-        });
-
-        optionsDropdown.appendChild(optionDiv);
-      });
-    }
-
-    // Search input event listener
-    searchInput.addEventListener('input', (e) => {
-      renderOptions(e.target.value);
-    });
-
-    searchInput.addEventListener('focus', () => {
-      optionsDropdown.style.display = 'block';
-      renderOptions(searchInput.value);
-    });
-
-    searchInput.addEventListener('click', (e) => {
-      e.stopPropagation();
-      optionsDropdown.style.display = 'block';
-      renderOptions(searchInput.value);
-    });
-
-    // Close dropdown on blur
-    searchInput.addEventListener('blur', () => {
-      setTimeout(() => {
-        optionsDropdown.style.display = 'none';
-        // Reset search input to show selected option label
-        const selectedOption = options.find(o => String(o.value) === String(nativeSelect.value));
-        if (selectedOption) {
-          searchInput.value = selectedOption.label;
-        }
-      }, 200);
-    });
-
-    // Close on document click
-    document.addEventListener('click', (e) => {
-      if (!container.contains(e.target)) {
-        optionsDropdown.style.display = 'none';
-      }
-    });
-
-    // Build container
-    container.appendChild(searchInput);
-    container.appendChild(optionsDropdown);
-
-    // Replace native select with custom component
-    nativeSelect.style.display = 'none';
-    nativeSelect.parentNode.insertBefore(container, nativeSelect.nextSibling);
-
-    // Initial render
-    renderOptions();
-  }
-
   return {
     // Configuration
     config: {
@@ -2372,8 +2171,7 @@ const GRAPHQL_OPERATIONS = {
       formatTaskName,
       renderMultiSelectContainer,
       initializeDropdownMultiSelect,
-      repopulateMultiSelectField,
-      initializeSearchableSingleSelect
+      repopulateMultiSelectField
     },
     // Utilities
     utils: {
@@ -2392,7 +2190,6 @@ const GRAPHQL_OPERATIONS = {
       renderMultiSelectContainer,
       initializeDropdownMultiSelect,
       repopulateMultiSelectField,
-      initializeSearchableSingleSelect,
       mapResultsToOptions,
       showWaitingMessage,
       showLoadingMessage,
