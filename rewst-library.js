@@ -2114,6 +2114,129 @@ const GRAPHQL_OPERATIONS = {
     console.log(`[INIT-MULTI-SELECT] [CALL #${callId}] Initialization complete. Dropdown container now has ${dropdown.children.length} children`);
   }
 
+  /**
+   * Initialize a searchable single-select dropdown
+   * Replicates the form-builder workflow search pattern
+   * @param {string} fieldName - Name of the form field
+   * @param {Array} options - Array of {value, label} objects
+   * @param {string} selectedValue - Currently selected value
+   * @param {function} onChange - Callback when selection changes
+   */
+  function initializeSearchableSingleSelect(fieldName, options, selectedValue = '', onChange = null) {
+    // Find or create the search input (text input showing label)
+    let searchInput = document.querySelector(`[data-field-name="${fieldName}"] .searchable-select-input`);
+    
+    // Find or create the hidden select (stores actual value)
+    let hiddenSelect = document.querySelector(`[data-field-name="${fieldName}"] select`);
+    
+    // Find or create the dropdown container
+    let dropdown = document.querySelector(`[data-field-name="${fieldName}"] .searchable-select-dropdown`);
+    
+    if (!searchInput || !hiddenSelect || !dropdown) {
+      console.error(`[SEARCHABLE-SELECT] Missing elements for field: ${fieldName}`);
+      return;
+    }
+
+    // Set initial display value
+    const selectedOption = options.find(o => String(o.value) === String(selectedValue));
+    if (selectedOption) {
+      searchInput.value = selectedOption.label;
+    }
+
+    // Function to render filtered options
+    function renderOptions(filterTerm = '') {
+      dropdown.innerHTML = '';
+      
+      const matches = filterTerm.trim() === ''
+        ? options
+        : options.filter(o =>
+            String(o.label).toLowerCase().includes(filterTerm.toLowerCase())
+          );
+
+      if (matches.length === 0 && filterTerm.length > 0) {
+        dropdown.innerHTML = '<div style="padding: 10px; color: #999; text-align: center;">No results</div>';
+        dropdown.style.display = 'block';
+        return;
+      }
+
+      matches.forEach(option => {
+        const optionDiv = document.createElement('div');
+        optionDiv.style.padding = '10px';
+        optionDiv.style.cursor = 'pointer';
+        optionDiv.style.color = '#ffffff';
+        optionDiv.style.borderBottom = '1px solid #555';
+        optionDiv.style.transition = 'background 0.2s';
+        optionDiv.textContent = option.label;
+
+        optionDiv.addEventListener('mouseover', () => {
+          optionDiv.style.background = '#444';
+        });
+
+        optionDiv.addEventListener('mouseout', () => {
+          optionDiv.style.background = 'transparent';
+        });
+
+        optionDiv.addEventListener('click', () => {
+          // Update search input (display) and hidden select (value)
+          searchInput.value = option.label;
+          hiddenSelect.value = option.value;
+
+          // Hide dropdown
+          dropdown.style.display = 'none';
+
+          // Trigger change callback
+          if (onChange) {
+            onChange(option.value, option.label);
+          }
+
+          // Trigger native change event on hidden select
+          const event = new Event('change', { bubbles: true });
+          hiddenSelect.dispatchEvent(event);
+        });
+
+        dropdown.appendChild(optionDiv);
+      });
+    }
+
+    // Show dropdown on focus if empty
+    searchInput.addEventListener('focus', () => {
+      if (searchInput.value.length === 0) {
+        renderOptions();
+        dropdown.style.display = 'block';
+      }
+    });
+
+    // Filter on input
+    searchInput.addEventListener('input', (e) => {
+      const searchTerm = e.target.value.toLowerCase();
+      if (searchTerm.length > 0) {
+        renderOptions(e.target.value);
+      } else {
+        dropdown.style.display = 'none';
+      }
+    });
+
+    // Hide dropdown on blur
+    searchInput.addEventListener('blur', () => {
+      setTimeout(() => {
+        dropdown.style.display = 'none';
+        // Reset to show selected option label
+        const selectedOption = options.find(o => String(o.value) === String(hiddenSelect.value));
+        if (selectedOption) {
+          searchInput.value = selectedOption.label;
+        }
+      }, 200);
+    });
+
+    // Close on document click
+    document.addEventListener('click', (e) => {
+      const formGroup = document.querySelector(`[data-field-name="${fieldName}"]`);
+      if (formGroup && !formGroup.contains(e.target)) {
+        dropdown.style.display = 'none';
+      }
+    });
+  }
+
   return {
     // Configuration
     config: {
@@ -2171,7 +2294,8 @@ const GRAPHQL_OPERATIONS = {
       formatTaskName,
       renderMultiSelectContainer,
       initializeDropdownMultiSelect,
-      repopulateMultiSelectField
+      repopulateMultiSelectField,
+      initializeSearchableSingleSelect
     },
     // Utilities
     utils: {
@@ -2190,6 +2314,7 @@ const GRAPHQL_OPERATIONS = {
       renderMultiSelectContainer,
       initializeDropdownMultiSelect,
       repopulateMultiSelectField,
+      initializeSearchableSingleSelect,
       mapResultsToOptions,
       showWaitingMessage,
       showLoadingMessage,
