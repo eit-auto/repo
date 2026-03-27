@@ -20,6 +20,7 @@
         const rawUserData = `{{ CTX.user }}`;
         let pagePermissions = []; // Changed to 'let' to allow reassignment from config
         window.ORG_ID = '019176c2-059f-7391-afbc-97b201efbd93';
+        window.pageVariables = {}; // Initialize for use across scripts
     </script>
     <script src="https://eit-auto.github.io/repo/security.js?v=1.0"></script>
     <script>
@@ -44,6 +45,16 @@
             text-align: center;
             padding: 60px 20px;
             font-size: 16px;
+        }
+
+        /* Ensure data-retrieval fields are always hidden and take no space */
+        .data-retrieval-field {
+            display: none !important;
+            height: 0 !important;
+            overflow: hidden !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            border: none !important;
         }
 
         .modal-status {
@@ -96,8 +107,9 @@
 
         .array-add-btn {
             margin-left: auto;
-            padding: 6px 12px !important;
-            font-size: 0.9rem !important;
+            padding: 4px 8px !important;
+            font-size: 12px !important;
+            font-weight: 500 !important;
         }
 
         .array-instances {
@@ -313,6 +325,26 @@
     <script src="https://eit-auto.github.io/repo/proxy-lib.js?v=1.0"></script>
     <!-- Load form config and check permissions before rendering body -->
     <script>
+        /**
+         * Utility: Get nested property value from object using dot notation
+         * Supports both "prop.nested.path" and "array[0]" notation
+         */
+        if (!RewstLib.utils.getValueByPath) {
+            RewstLib.utils.getValueByPath = function(obj, path) {
+                if (!path) return obj;
+                return path.split('.').reduce((current, prop) => {
+                    if (!current) return undefined;
+                    // Handle array notation like "users[0]"
+                    const match = prop.match(/^(\w+)\[(\d+)\]$/);
+                    if (match) {
+                        const [, key, index] = match;
+                        return current[key]?.[parseInt(index)];
+                    }
+                    return current[prop];
+                }, obj);
+            };
+        }
+
         /**
          * Load form config from org variables before body renders
          * This allows permission checking before page content is shown
@@ -1238,8 +1270,6 @@
             dataRetrievalResults: {}  // Cached data_retrieval field results by field_name
         };
 
-        // Page variables storage (global)
-        window.pageVariables = {};
         // Dropdown metadata storage (global but cleared on each form render)
         let dropdownSourceMetadata = {}; // Maps field_name -> {cacheType, cacheKey, valueName, labelName, ...}
         
@@ -1631,13 +1661,44 @@
                 console.log(`[REPLACE_VARS] Input text: "${text}"`);
                 console.log(`[REPLACE_VARS] window.pageVariables:`, window.pageVariables);
                 
-                const result = text.replace(/\[\[\s*(\w+)(?:\.([^\]]+))?\s*\]\]/g, (match, varName, propertyPath) => {
+                // Handle sources without brackets but with operators (e.g., "script_info.Parameters|split")
+                if (text.includes('|') && !text.includes('[[')) {
+                    console.log(`[REPLACE_VARS] Detected operator syntax without brackets: "${text}"`);
+                    const parts = text.split('|');
+                    const varPath = parts[0].trim();
+                    const operator = parts[1]?.trim();
+                    
+                    const dotParts = varPath.split('.');
+                    const varName = dotParts[0];
+                    const propertyPath = dotParts.slice(1).join('.');
+                    
+                    let resolvedValue = window.pageVariables[varName];
+                    if (resolvedValue && propertyPath) {
+                        resolvedValue = RewstLib.utils.getValueByPath(resolvedValue, propertyPath);
+                    }
+                    
+                    if (resolvedValue === undefined) {
+                        console.log(`[REPLACE_VARS] Variable "${varName}" not found`);
+                        return text; // Return original if not found
+                    }
+                    
+                    if (operator === 'split' && typeof resolvedValue === 'string') {
+                        const splitResult = resolvedValue.split(',').map(item => item.trim()).filter(item => item !== '');
+                        console.log(`[REPLACE_VARS] Split result:`, splitResult);
+                        return splitResult;
+                    }
+                    
+                    return resolvedValue;
+                }
+                
+                // Handle bracket syntax (e.g., "[[varName.property|operator]]")
+                const result = text.replace(/\[\[\s*(\w+)(?:\.([^\]|]+))?(?:\|([a-z_]+))?\s*\]\]/g, (match, varName, propertyPath, operator) => {
                     // Trim propertyPath to remove leading/trailing spaces
                     if (propertyPath) {
                         propertyPath = propertyPath.trim();
                     }
                     
-                    console.log(`[REPLACE_VARS] Found ref: match="${match}", varName="${varName}", propertyPath="${propertyPath}"`);
+                    console.log(`[REPLACE_VARS] Found ref: match="${match}", varName="${varName}", propertyPath="${propertyPath}", operator="${operator}"`);
                     
                     const value = window.pageVariables[varName];
                     console.log(`[REPLACE_VARS] Looked up ${varName}:`, value);
@@ -1647,14 +1708,32 @@
                         return match; // Leave placeholder if not found
                     }
                     
+                    let resolvedValue = value;
+                    
                     if (propertyPath) {
                         console.log(`[REPLACE_VARS] Getting nested path: ${propertyPath}`);
-                        const nestedValue = RewstLib.utils.getValueByPath(value, propertyPath);
-                        console.log(`[REPLACE_VARS] Nested value:`, nestedValue);
-                        return nestedValue !== undefined ? String(nestedValue) : match;
+                        resolvedValue = RewstLib.utils.getValueByPath(value, propertyPath);
+                        console.log(`[REPLACE_VARS] Nested value:`, resolvedValue);
+                        if (resolvedValue === undefined) return match;
                     }
                     
-                    return String(value);
+                    // Apply operator if specified
+                    if (operator) {
+                        console.log(`[REPLACE_VARS] Applying operator: ${operator}`);
+                        if (operator === 'split') {
+                            // Split comma-separated string into array
+                            if (typeof resolvedValue === 'string') {
+                                resolvedValue = resolvedValue.split(',').map(item => item.trim()).filter(item => item !== '');
+                                console.log(`[REPLACE_VARS] Split result:`, resolvedValue);
+                            }
+                        }
+                    }
+                    
+                    // Return the resolved value (as-is if it's an array, or as string)
+                    if (Array.isArray(resolvedValue)) {
+                        return resolvedValue;
+                    }
+                    return String(resolvedValue);
                 });
                 
                 console.log(`[REPLACE_VARS] Output text: "${result}"`);
@@ -1946,7 +2025,7 @@
                 // Handle data_retrieval fields - rendered but hidden, with waiting/loading messages
                 if (config.type === 'data_retrieval') {
                     const fieldId = `field_${config.field_name}_${Math.random().toString(36).substr(2, 9)}`;
-                    let html = `<div class="form-group" data-field-name="${config.field_name}" style="position: relative; margin: 0 !important; padding: 0 !important; display: none !important;">`;
+                    let html = `<div class="form-group data-retrieval-field" data-field-name="${config.field_name}" style="position: relative; margin: 0 !important; padding: 0 !important; display: none !important; height: 0 !important; overflow: hidden !important;">`;
                     html += `<div class="field-loading-message" style="display: none;"><span class="spinner"></span> Loading...</div>`;
                     html += `<div class="field-waiting-message" style="display: none;">Waiting for dependencies...</div>`;
                     html += `</div>`;
@@ -1967,7 +2046,8 @@
                     });
                 }
                 
-                let html = `<div class="form-group" data-field-name="${config.field_name}"${styleAttr}>`;
+                let html = `<div class="form-group${config.type === 'array' && config.repeating_input_mode ? ' repeating-input-array' : ''}" data-field-name="${config.field_name}"${styleAttr}>`;
+
                 
                 // Add " - Required" to display name if field is required
                 const displayName = config.required ? `${config.field_displayname} <span style="color: #999; font-size: 12px;">- Required</span>` : config.field_displayname;
@@ -2118,6 +2198,33 @@
                             <button type="button" class="btn btn-small dropdown-refresh-btn" data-field-name="${config.field_name}" title="Refresh options">↻</button>
                         </div>
                     `;
+                } else if (config.type === 'dropdown_cwa_mysql') {
+                    const multiSelectId = `ms_${config.field_name}`;
+                    let fieldControlHtml = '';
+                    if (config.multi_select) {
+                        fieldControlHtml = `
+                            <div class="multi-select-container" id="${multiSelectId}">
+                                <div class="multi-select-display">
+                                    <div class="multi-select-tags"></div>
+                                    <div class="multi-select-toggle">▼</div>
+                                </div>
+                                <div class="multi-select-options"></div>
+                                <select name="${config.field_name}" class="multi-select-hidden-select" multiple="multiple" data-selected-values="[]"></select>
+                            </div>
+                        `;
+                    } else {
+                        fieldControlHtml = `<select name="${config.field_name}" style="width: 100%; box-sizing: border-box;"><option value="">Loading...</option></select>`;
+                    }
+                    html += `
+                        <label>${displayName}</label>
+                        ${config.description ? `<div class="field-description">${escapeHtml(config.description)}</div>` : ''}
+                        <div class="dropdown-refresh-container">
+                            <div class="field-loading-message" style="display: none;"><span class="spinner"></span> Loading...</div>
+                            <div class="field-waiting-message" style="display: none;">Waiting for dependencies...</div>
+                            ${fieldControlHtml}
+                            <button type="button" class="btn btn-small dropdown-refresh-btn" data-field-name="${config.field_name}" title="Refresh options">↻</button>
+                        </div>
+                    `;
                 } else if (config.type === 'dropdown_graphql') {
                     const multiSelectId = `ms_${config.field_name}`;
                     let fieldControlHtml = '';
@@ -2238,7 +2345,7 @@
                     `;
                 } else if (config.type === 'horizontal_line') {
                     // Render horizontal line (content field contains the HR element or styling)
-                    html += `${config.content || '<hr>'}`;
+                    html += `<div class="horizontal-line-content">${config.content || '<hr>'}</div>`;
                 } else if (config.type === 'array') {
                     // Check if this is repeating_input_mode (dynamic parameters from a source)
                     if (config.repeating_input_mode === true && config.source) {
@@ -2248,15 +2355,28 @@
                                 config.dependant_fields[depField].blocking === true
                             );
                         
-                        // Repeating input mode: generate inputs from source array
-                        const sourceVarPath = parseDataVariable(config.source);
-                        const sourceArray = sourceVarPath ? getPageVariableValue(sourceVarPath) : undefined;
+                        // Repeating input mode: resolve source with page variable references and operators
+                        let sourceArray;
+                        if (config.source.includes('|') || (config.source.includes('[[') && config.source.includes(']]'))) {
+                            // Source contains operators or page variable references - resolve them
+                            const resolved = replacePageVariableReferences(config.source);
+                            sourceArray = Array.isArray(resolved) ? resolved : undefined;
+                        } else {
+                            // Fallback to original parseDataVariable for non-variable sources
+                            const sourceVarPath = parseDataVariable(config.source);
+                            sourceArray = sourceVarPath ? getPageVariableValue(sourceVarPath) : undefined;
+                        }
                         
                         if (!Array.isArray(sourceArray)) {
-                            // If source not found and there are blocking dependencies, skip rendering
-                            // (field will be hidden/shown by dependency logic)
+                            // If source not found and there are blocking dependencies, still render the container with label
                             if (hasBlockingDependencies) {
-                                // Don't render anything - let the dependency system handle visibility
+                                // Render empty container with label - waiting message will be added by dependency logic
+                                html += `
+                                    <div class="array-field-container" data-repeating-input-mode="true" data-array-name="${config.field_name}">
+                                        <label style="display: block; margin-bottom: 2px; color: #ffffff; font-weight: 600;">${displayName}</label>
+                                        <div class="inner-panel" style="gap: 0; padding: 10px;"></div>
+                                    </div>
+                                `;
                             } else {
                                 html += `<div style="color: #dc3545; font-size: 0.9rem; padding: 1rem;">Error: Source array not found or not an array (${config.source})</div>`;
                             }
@@ -2275,8 +2395,8 @@
                             
                             html += `
                                 <div class="array-field-container" data-repeating-input-mode="true" data-array-name="${config.field_name}">
-                                    <label style="display: block; margin-bottom: 1rem; color: #ffffff; font-weight: 600;">${displayName}</label>
-                                    <div style="background: #2a2a2a; padding: 1rem; border: 1px solid #404040; border-radius: 4px; display: flex; flex-direction: column; gap: 0;">
+                                    <label style="display: block; margin-bottom: 2px; color: #ffffff; font-weight: 600;">${displayName}</label>
+                                    <div class="inner-panel" style="gap: 0; padding: 10px;">
                                         ${parametersHtml}
                                     </div>
                                 </div>
@@ -2564,27 +2684,6 @@
             });
             
 
-        /**
-         * Helper to get value by path string (e.g., "data.users[0].name")
-         * Added as utility since RewstLib might not have it
-         */
-        if (!RewstLib.utils.getValueByPath) {
-            RewstLib.utils.getValueByPath = function(obj, path) {
-                if (!path) return obj;
-                return path.split('.').reduce((current, prop) => {
-                    if (!current) return undefined;
-                    // Handle array notation like "users[0]"
-                    const match = prop.match(/^(\w+)\[(\d+)\]$/);
-                    if (match) {
-                        const [, key, index] = match;
-                        return current[key] && current[key][parseInt(index)];
-                    }
-                    return current[prop];
-                }, obj);
-            };
-        }
-
-            
             // Enable fields and set up interactive listeners
             console.log(`>>> Total fields in fieldConfigs: ${fieldConfigs.length}`);
             fieldConfigs.forEach((fc, idx) => {
@@ -2634,7 +2733,7 @@
                         console.log(`[PAGE_VAR] Set ${config.field_name} (field value) =`, fieldValue);
                         
                         // If this is a dropdown with result_var, update the page variable with full object
-                        if ((config.type === 'dropdown_mysql' || config.type === 'dropdown_graphql' || 
+                        if ((config.type === 'dropdown_mysql' || config.type === 'dropdown_cwa_mysql' || config.type === 'dropdown_graphql' || 
                              config.type === 'dropdown_mesh' || config.type === 'dropdown_prefetch' ||
                              (config.type === 'dropdown' && config.workflow_id)) && config.result_var) {
                             
@@ -2786,6 +2885,10 @@
                 }
                 if (config.type === 'dropdown_mysql' && !config.dependant_fields) {
                     console.log(`Dropdown_mysql ${config.field_name} has no dependencies, loading options immediately`);
+                    loadFieldOptions(config, fieldConfigs, formConfig);
+                }
+                if (config.type === 'dropdown_cwa_mysql' && !config.dependant_fields) {
+                    console.log(`Dropdown_cwa_mysql ${config.field_name} has no dependencies, loading options immediately`);
                     loadFieldOptions(config, fieldConfigs, formConfig);
                 }
                 if (config.type === 'dropdown_mesh' && !config.dependant_fields) {
@@ -3029,14 +3132,16 @@
                 
                 console.log(`[UPDATE_DEPS] Field ${config.field_name} depends on ${changedFieldName}, reloading`);
                 
-                // Reload options for dropdown fields, data_retrieval, array (repeating_input_mode), and form_extend fields
+                // Reload options for dropdown fields, data_retrieval, array (repeating_input_mode), form_extend, and html fields
                 if ((config.type === 'dropdown' && config.workflow_id) || 
                     config.type === 'dropdown_graphql' || 
                     config.type === 'dropdown_mesh' || 
                     config.type === 'dropdown_mysql' ||
+                    config.type === 'dropdown_cwa_mysql' ||
                     config.type === 'data_retrieval' ||
                     config.type === 'dropdown_prefetch' ||
                     config.type === 'form_extend' ||
+                    config.type === 'html' ||
                     (config.type === 'array' && config.repeating_input_mode === true)) {
                     if (loadFieldOptionsFn) {
                         loadFieldOptionsFn(config, fieldConfigs, formConfig);
@@ -3085,6 +3190,32 @@
                     const is401 = error.message && (error.message.includes('401') || error.message.includes('HTTP 401'));
                     if (is401 && attempt < maxRetries) {
                         console.log(`[MYSQL] Got 401 error on attempt ${attempt}, clearing token cache and retrying...`);
+                        proxyCache.sessions = proxyCache.sessions || {};
+                        delete proxyCache.sessions[apiKeyName];
+                        await new Promise(resolve => setTimeout(resolve, 500 * attempt));
+                        continue;
+                    }
+                    throw error;
+                }
+            }
+            throw lastError || new Error('Failed after retries');
+        }
+
+        async function executeCwaQueryWithRetry(apiKeyName, query, maxRetries = 2) {
+            let lastError = null;
+            for (let attempt = 1; attempt <= maxRetries; attempt++) {
+                try {
+                    console.log(`[CWA_MYSQL] executeCwaQuery attempt ${attempt}/${maxRetries}`);
+                    const sessionToken = await getProxySessionToken(apiKeyName);
+                    const result = await ProxyLib.executeCwaQuery(sessionToken, REWST_USER, query, {});
+                    if (result && result.result) return result;
+                    if (result?.error?.toString().includes('401')) throw new Error('Invalid session token (401)');
+                    throw new Error('Failed to execute CWA query: ' + (result?.error || 'Unknown error'));
+                } catch (error) {
+                    lastError = error;
+                    const is401 = error.message && (error.message.includes('401') || error.message.includes('HTTP 401'));
+                    if (is401 && attempt < maxRetries) {
+                        console.log(`[CWA_MYSQL] Got 401 error on attempt ${attempt}, clearing token cache and retrying...`);
                         proxyCache.sessions = proxyCache.sessions || {};
                         delete proxyCache.sessions[apiKeyName];
                         await new Promise(resolve => setTimeout(resolve, 500 * attempt));
@@ -3347,6 +3478,27 @@
                 return executeDataRetrievalField(config, allFieldConfigs, formConfig);
             }
             
+            // Handle HTML fields - re-render with resolved page variables
+            if (config.type === 'html') {
+                const formGroup = document.querySelector(`[data-field-name="${config.field_name}"]`);
+                if (!formGroup) return;
+                
+                // Get resolved config which handles [[ ]] variable replacements
+                const resolvedConfig = getResolvedFieldConfig(config);
+                
+                // Re-render the HTML field content with now-available page variables
+                const htmlContentDiv = formGroup.querySelector('.html-field[data-html-content]');
+                if (htmlContentDiv) {
+                    htmlContentDiv.innerHTML = resolvedConfig.content || '';
+                    htmlContentDiv.style.visibility = 'visible';
+                    console.log(`[HTML_FIELD] Re-rendered ${config.field_name} with resolved content`);
+                }
+                
+                // Hide waiting message
+                RewstLib.utils.hideWaitingMessage(formGroup, config);
+                return;
+            }
+            
             // Handle array fields with repeating_input_mode
             if (config.type === 'array' && config.repeating_input_mode === true) {
                 const formGroup = document.querySelector(`[data-field-name="${config.field_name}"]`);
@@ -3404,14 +3556,18 @@
                 let options = [];
                 if (proxyCache.dataRetrievalResults[sourceFieldName]) {
                     const sourceData = proxyCache.dataRetrievalResults[sourceFieldName];
-                    if (sourceData && sourceData[resultPath]) {
-                        const results = sourceData[resultPath];
-                        if (Array.isArray(results)) {
-                            options = results.map(item => ({
-                                label: item[labelField] || item.name || String(item.id),
-                                value: item[valueField] || item.id || ''
-                            }));
-                        }
+                    
+                    // If result_path is empty, use entire sourceData as array; otherwise extract via path
+                    let results = sourceData;
+                    if (resultPath && resultPath.trim() !== '') {
+                        results = sourceData[resultPath];
+                    }
+                    
+                    if (Array.isArray(results)) {
+                        options = results.map(item => ({
+                            label: item[labelField] || item.name || String(item.id),
+                            value: item[valueField] || item.id || ''
+                        }));
                     }
                 }
                 
@@ -3456,6 +3612,9 @@
                     RewstLib.utils.hideLoadingMessage(formGroup, config);
                     RewstLib.utils.hideWaitingMessage(formGroup, config);
                 }
+                
+                // Update refresh button state based on source data availability
+                updateRefreshButtonState(config.field_name, config, allFieldConfigs);
                 
                 return Promise.resolve();
             }
@@ -3789,6 +3948,111 @@
                         populateMysqlDropdown(queryResult.result);
                     } catch (error) {
                         console.error(`[MYSQL] Error executing query for ${config.field_name}:`, error);
+                        if (formGroup) RewstLib.utils.hideLoadingMessage(formGroup, config);
+                        if (config.multi_select) {
+                            // Error occurred in multi-select field - cannot display error in multi-select
+                        } else {
+                            const input = document.querySelector(`select[name="${config.field_name}"]`);
+                            if (input) input.innerHTML = `<option value="">-- Error loading options --</option>`;
+                        }
+                    }
+                })();
+            }
+            
+            // Handle dropdown_cwa_mysql - execute CWA MySQL query and populate dropdown
+            if (config.type === 'dropdown_cwa_mysql') {
+                const cacheKey = getQueryCacheKey(config.query, config.query_variables || {});
+                
+                // Check if dependencies are met (for fields that have blocking dependencies)
+                if (config.dependant_fields) {
+                    const depsMet = RewstLib.utils.areDependenciesMet(config, allFieldConfigs);
+                    
+                    if (!depsMet) {
+                        if (formGroup) {
+                            RewstLib.utils.showWaitingMessage(formGroup, config, allFieldConfigs);
+                        }
+                        return Promise.resolve();
+                    } else {
+                        // Dependencies are met, hide the waiting message
+                        if (formGroup) {
+                            RewstLib.utils.hideWaitingMessage(formGroup, config);
+                        }
+                    }
+                }
+                
+                // Helper function to populate dropdown with data
+                const populateCwaDropdown = (data) => {
+                    if (!Array.isArray(data)) {
+                        console.error(`[CWA_MYSQL] Data is not an array`);
+                        return;
+                    }
+                    
+                    // Store metadata about this dropdown's data source
+                    dropdownSourceMetadata[config.field_name] = {
+                        cacheType: 'cwa_mysql',
+                        cacheKey: cacheKey,
+                        valueName: config.value_field || 'id',
+                        labelName: config.label_field || 'name',
+                        data: data
+                    };
+                    
+                    // For multi-select, use the library function
+                    if (config.multi_select) {
+                        const options = data.map(item => ({
+                            value: item[config.value_field] || item.id,
+                            label: item[config.label_field] || item.name
+                        }));
+                        RewstLib.utils.repopulateMultiSelectField(config.field_name, options, preselectedValues);
+                    } else {
+                        // Single-select: populate the select element
+                        const input = document.querySelector(`select[name="${config.field_name}"]`);
+                        if (!input) {
+                            console.error(`[CWA_MYSQL] SELECT element not found for ${config.field_name}`);
+                            return;
+                        }
+                        
+                        if (data.length > 0) {
+                            input.innerHTML = `<option value="">${RewstLib.utils.getGrammaticalPhrase(config.field_displayname)}</option>`;
+                            let successCount = 0;
+                            data.forEach((item) => {
+                                const value = item[config.value_field] || item.id;
+                                const label = item[config.label_field] || item.name;
+                                if (value && label) {
+                                    const opt = document.createElement('option');
+                                    opt.value = value;
+                                    opt.textContent = label;
+                                    input.appendChild(opt);
+                                    successCount++;
+                                }
+                            });
+                        } else {
+                            input.innerHTML = `<option value="">-- No results --</option>`;
+                        }
+                    }
+                };
+                
+                // Check cache
+                if (!skipCache && proxyCache.queryResults[cacheKey]) {
+                    if (formGroup) RewstLib.utils.hideLoadingMessage(formGroup, config);
+                    populateCwaDropdown(proxyCache.queryResults[cacheKey]);
+                    return Promise.resolve();
+                }
+                
+                // Execute query and return promise
+                return (async () => {
+                    try {
+                        const queryResult = await executeCwaQueryWithRetry('proxy_api_cwamysql', resolvedConfig.query, 2);
+                        
+                        if (formGroup) RewstLib.utils.hideLoadingMessage(formGroup, config);
+                        
+                        // Cache the result
+                        if (!skipCache && queryResult.result) {
+                            proxyCache.queryResults[cacheKey] = queryResult.result;
+                        }
+                        
+                        populateCwaDropdown(queryResult.result);
+                    } catch (error) {
+                        console.error(`[CWA_MYSQL] Error executing query for ${config.field_name}:`, error);
                         if (formGroup) RewstLib.utils.hideLoadingMessage(formGroup, config);
                         if (config.multi_select) {
                             // Error occurred in multi-select field - cannot display error in multi-select
@@ -4350,7 +4614,15 @@
             const btn = document.querySelector(`.dropdown-refresh-btn[data-field-name="${fieldName}"]`);
             if (!btn) return;
             
-            // Only check if blocking dependencies are met
+            // Special handling for dropdown_prefetch: check if source data is cached
+            if (config.type === 'dropdown_prefetch') {
+                const sourceFieldName = config.source_element_name || config.source_element_uid;
+                const hasSourceData = proxyCache.dataRetrievalResults && proxyCache.dataRetrievalResults[sourceFieldName];
+                btn.disabled = !hasSourceData;
+                return;
+            }
+            
+            // For other dropdowns: only check if blocking dependencies are met
             // Loading state is managed separately during refresh click
             const depsMet = RewstLib.utils.areDependenciesMet(config, allFieldConfigs);
             
@@ -4576,7 +4848,7 @@
                 // Check each array item for workflow, GraphQL, MySQL, and Mesh dropdowns
                 const itemsArray = Array.isArray(arrayConfig.items) ? arrayConfig.items : [];
                 itemsArray.forEach(itemConfig => {
-                    if (itemConfig.type !== 'dropdown_workflow' && itemConfig.type !== 'dropdown_graphql' && itemConfig.type !== 'dropdown_mysql' && itemConfig.type !== 'dropdown_mesh') return;
+                    if (itemConfig.type !== 'dropdown_workflow' && itemConfig.type !== 'dropdown_graphql' && itemConfig.type !== 'dropdown_mysql' && itemConfig.type !== 'dropdown_cwa_mysql' && itemConfig.type !== 'dropdown_mesh') return;
                     
                     const fieldName = itemConfig.name;
                     
@@ -4733,6 +5005,9 @@
                             }
                         });
                         
+                        // Notify all dependent fields (HTML fields, dropdowns, etc.) that this data_retrieval is complete
+                        updateDependentFields(config.field_name, allFieldConfigs, formConfig, loadFieldOptions);
+                        
                         if (formGroup) {
                             RewstLib.utils.hideLoadingMessage(formGroup, config);
                         }
@@ -4746,7 +5021,54 @@
                     }
                 }
                 
-                if (config.data_source_type !== 'mesh_powershell') {
+                // Handle CWA MySQL data source
+                if (config.data_source_type === 'cwa_mysql') {
+                    console.log('[DATA_RETRIEVAL] Executing CWA MySQL query:', resolvedConfig.query);
+                    
+                    try {
+                        const queryResult = await executeCwaQueryWithRetry('proxy_api_cwamysql', resolvedConfig.query, 2);
+                        const result = queryResult.result;
+                        console.log('[DATA_RETRIEVAL] CWA MySQL query result:', result);
+                        
+                        // Store result in page variables and cache
+                        window.pageVariables[config.field_name] = result;
+                        proxyCache.dataRetrievalResults[config.field_name] = result;
+                        
+                        // Update the datatable or other dependent fields
+                        const dependentFields = allFieldConfigs.filter(fc => 
+                            fc.type === 'datatable' && fc.data_variable === config.field_name
+                        );
+                        
+                        dependentFields.forEach(fc => {
+                            const depFormGroup = document.querySelector(`[data-field-name="${fc.field_name}"]`);
+                            if (depFormGroup) {
+                                const contentDiv = depFormGroup.querySelector('.datatable-content');
+                                if (contentDiv) {
+                                    contentDiv.innerHTML = renderDatatable(result, fc);
+                                    contentDiv.style.visibility = 'visible';
+                                }
+                                const waitingMsg = depFormGroup.querySelector('.field-waiting-message');
+                                if (waitingMsg) waitingMsg.style.display = 'none';
+                            }
+                        });
+                        
+                        // Notify all dependent fields (HTML fields, dropdowns, etc.) that this data_retrieval is complete
+                        updateDependentFields(config.field_name, allFieldConfigs, formConfig, loadFieldOptions);
+                        
+                        if (formGroup) {
+                            RewstLib.utils.hideLoadingMessage(formGroup, config);
+                        }
+                        return;
+                    } catch (error) {
+                        console.error('[DATA_RETRIEVAL] CWA MySQL query error:', error);
+                        if (formGroup) {
+                            RewstLib.utils.hideLoadingMessage(formGroup, config);
+                        }
+                        throw error;
+                    }
+                }
+                
+                if (config.data_source_type !== 'mesh_powershell' && config.data_source_type !== 'mysql' && config.data_source_type !== 'cwa_mysql') {
                     throw new Error(`Unsupported data_source_type: ${config.data_source_type}`);
                 }
                 
@@ -5085,7 +5407,7 @@
                         const itemsArray = Array.isArray(arrayConfig.items) ? arrayConfig.items : [];
                         const itemConfig = itemsArray.find(i => i.name === itemFieldName);
                         
-                        if (itemConfig && (itemConfig.type === 'dropdown_workflow' || itemConfig.type === 'dropdown_graphql' || itemConfig.type === 'dropdown_mysql' || itemConfig.type === 'dropdown_mesh')) {
+                        if (itemConfig && (itemConfig.type === 'dropdown_workflow' || itemConfig.type === 'dropdown_graphql' || itemConfig.type === 'dropdown_mysql' || itemConfig.type === 'dropdown_cwa_mysql' || itemConfig.type === 'dropdown_mesh')) {
                             // Create pseudo-config for array dropdown field
                             config = {
                                 field_name: fieldName,
@@ -5523,8 +5845,16 @@
                             // Check if this is repeating_input_mode
                             if (config.repeating_input_mode === true && config.source) {
                                 // Repeating input mode: collect parameter values
-                                const sourceVarPath = parseDataVariable(config.source);
-                                const sourceArray = sourceVarPath ? getPageVariableValue(sourceVarPath) : undefined;
+                                let sourceArray;
+                                if (config.source.includes('|') || (config.source.includes('[[') && config.source.includes(']]'))) {
+                                    // Source contains operators or page variable references - resolve them
+                                    const resolved = replacePageVariableReferences(config.source);
+                                    sourceArray = Array.isArray(resolved) ? resolved : undefined;
+                                } else {
+                                    // Fallback to original parseDataVariable for non-variable sources
+                                    const sourceVarPath = parseDataVariable(config.source);
+                                    sourceArray = sourceVarPath ? getPageVariableValue(sourceVarPath) : undefined;
+                                }
                                 
                                 if (Array.isArray(sourceArray)) {
                                     const parametersArray = sourceArray.map((paramName, idx) => {
