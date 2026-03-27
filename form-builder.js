@@ -379,6 +379,7 @@ const ELEMENT_TYPE_DEFAULTS = {
         },
         default_value: null,
         multi_select: false,
+        searchable: true,
         result_var: ''
     },
     'dropdown': {
@@ -388,6 +389,7 @@ const ELEMENT_TYPE_DEFAULTS = {
         value_name: 'id',
         default_selector: 'default',
         multi_select: false,
+        searchable: true,
         result_var: ''
     },
     'dropdown_graphql': {
@@ -395,6 +397,7 @@ const ELEMENT_TYPE_DEFAULTS = {
         label_name: 'name',
         value_name: 'id',
         multi_select: false,
+        searchable: true,
         result_var: ''
     },
     'dropdown_mysql': {
@@ -403,6 +406,7 @@ const ELEMENT_TYPE_DEFAULTS = {
         value_field: '',
         multi_select: false,
         default_value: null,
+        searchable: true,
         result_var: ''
     },
     'dropdown_cwa_mysql': {
@@ -411,6 +415,7 @@ const ELEMENT_TYPE_DEFAULTS = {
         value_field: '',
         multi_select: false,
         default_value: null,
+        searchable: true,
         result_var: ''
     },
     'dropdown_mesh': {
@@ -423,6 +428,7 @@ const ELEMENT_TYPE_DEFAULTS = {
         value_field: '',
         multi_select: false,
         default_value: null,
+        searchable: true,
         result_var: ''
     },
     'data_retrieval': {
@@ -442,6 +448,7 @@ const ELEMENT_TYPE_DEFAULTS = {
         value_field: '',
         multi_select: false,
         default_value: null,
+        searchable: true,
         result_var: ''
     },
     'datatable': {
@@ -911,6 +918,7 @@ function saveTypeSpecificFields(fieldConfig) {
         } else if (elementType === 'dropdown_static') {
             fieldConfig.default_value = document.getElementById('default_value')?.value || null;
             fieldConfig.multi_select = document.getElementById('multi_select')?.checked || false;
+            fieldConfig.searchable = document.getElementById('searchable')?.checked !== false;
             fieldConfig.result_var = document.getElementById('result_var')?.value || '';
             
             // Collect options from individual text fields
@@ -934,6 +942,7 @@ function saveTypeSpecificFields(fieldConfig) {
             fieldConfig.value_name = document.getElementById('value_name')?.value || null;
             fieldConfig.default_selector = document.getElementById('default_selector')?.value || 'default';
             fieldConfig.multi_select = document.getElementById('multi_select')?.checked || false;
+            fieldConfig.searchable = document.getElementById('searchable')?.checked !== false;
             fieldConfig.result_var = document.getElementById('result_var')?.value || '';
             
             // Collect workflow inputs from individual text fields
@@ -964,6 +973,7 @@ function saveTypeSpecificFields(fieldConfig) {
             fieldConfig.label_name = document.getElementById('label_name')?.value || 'name';
             fieldConfig.value_name = document.getElementById('value_name')?.value || 'id';
             fieldConfig.multi_select = document.getElementById('multi_select')?.checked || false;
+            fieldConfig.searchable = document.getElementById('searchable')?.checked !== false;
             fieldConfig.result_var = document.getElementById('result_var')?.value || '';
             
             // Collect graphql operation variable values from dynamic inputs
@@ -989,12 +999,14 @@ function saveTypeSpecificFields(fieldConfig) {
             fieldConfig.label_field = document.getElementById('mysql_label_field')?.value || '';
             fieldConfig.value_field = document.getElementById('mysql_value_field')?.value || '';
             fieldConfig.multi_select = document.getElementById('multi_select')?.checked || false;
+            fieldConfig.searchable = document.getElementById('searchable')?.checked !== false;
             fieldConfig.result_var = document.getElementById('result_var')?.value || '';
         } else if (elementType === 'dropdown_cwa_mysql') {
             fieldConfig.query = document.getElementById('cwa_mysql_query')?.value || '';
             fieldConfig.label_field = document.getElementById('cwa_mysql_label_field')?.value || '';
             fieldConfig.value_field = document.getElementById('cwa_mysql_value_field')?.value || '';
             fieldConfig.multi_select = document.getElementById('multi_select')?.checked || false;
+            fieldConfig.searchable = document.getElementById('searchable')?.checked !== false;
             fieldConfig.result_var = document.getElementById('result_var')?.value || '';
         } else if (elementType === 'dropdown_mesh') {
             // Save mode from dropdown
@@ -1027,6 +1039,7 @@ function saveTypeSpecificFields(fieldConfig) {
             fieldConfig.label_field = document.getElementById('mesh_label_field')?.value || '';
             fieldConfig.value_field = document.getElementById('mesh_value_field')?.value || '';
             fieldConfig.multi_select = document.getElementById('multi_select')?.checked || false;
+            fieldConfig.searchable = document.getElementById('searchable')?.checked !== false;
             fieldConfig.result_var = document.getElementById('result_var')?.value || '';
         } else if (elementType === 'data_retrieval') {
             // Save data retrieval fields
@@ -1064,6 +1077,7 @@ function saveTypeSpecificFields(fieldConfig) {
             fieldConfig.label_field = document.getElementById('prefetch_label_field')?.value || '';
             fieldConfig.value_field = document.getElementById('prefetch_value_field')?.value || '';
             fieldConfig.multi_select = document.getElementById('multi_select')?.checked || false;
+            fieldConfig.searchable = document.getElementById('searchable')?.checked !== false;
             fieldConfig.result_var = document.getElementById('result_var')?.value || '';
         } else if (elementType === 'datatable') {
             // Save datatable fields
@@ -2523,6 +2537,11 @@ function showElementSettings(elementUid) {
                 <input type="checkbox" id="multi_select" ${fieldConfig.multi_select ? 'checked' : ''} class="checkbox-input">
                 <label for="multi_select" style="margin: 0; color: #ffffff; font-weight: 600; font-size: 14px; cursor: pointer;">Multi-select</label>
             </div>
+            
+            <div style="margin-bottom: 15px; display: flex; align-items: center; gap: 10px;">
+                <input type="checkbox" id="searchable" ${fieldConfig.searchable !== false ? 'checked' : ''} class="checkbox-input">
+                <label for="searchable" style="margin: 0; color: #ffffff; font-weight: 600; font-size: 14px; cursor: pointer;">Searchable</label>
+            </div>
         `;
     }
     
@@ -3773,6 +3792,14 @@ function showElementSettings(elementUid) {
         const resultVarInput = document.getElementById('result_var');
         if (resultVarInput) {
             resultVarInput.addEventListener('input', () => {
+                formHasBeenModified = true;
+                updateElementSettingsSaveButtonVisibility();
+            });
+        }
+        
+        const searchableCheckbox = document.getElementById('searchable');
+        if (searchableCheckbox) {
+            searchableCheckbox.addEventListener('change', () => {
                 formHasBeenModified = true;
                 updateElementSettingsSaveButtonVisibility();
             });
