@@ -1282,7 +1282,7 @@ const GRAPHQL_OPERATIONS = {
    * @param {Array} optionsArray - Array of {value, label} objects
    * @param {Array} selectedValues - Optional array of pre-selected values
    */
-  function initializeDropdownMultiSelect(fieldName, optionsArray, selectedValues = []) {
+  function initializeDropdownMultiSelect(fieldName, optionsArray, selectedValues = [], searchable = false) {
     const multiSelectId = `ms_${fieldName}`;
     const container = document.getElementById(multiSelectId);
     if (container && optionsArray && optionsArray.length > 0) {
@@ -1291,7 +1291,7 @@ const GRAPHQL_OPERATIONS = {
       const containerRef = `[DOM@${container.offsetParent ? 'visible' : 'hidden'}]`;
       const containerPath = `${container.parentElement?.className || 'no-parent'} > ${container.id}`;
       console.log(`[INIT-DROPDOWN-MS] Called for ${fieldName} with ${optionsArray.length} options. Container: ${containerRef} Path: ${containerPath}. Stack: ${stack}`);
-      initializeMultiSelect(container, optionsArray, selectedValues);
+      initializeMultiSelect(container, optionsArray, selectedValues, null, searchable);
       console.log(`[MULTI-SELECT] Initialized for: ${fieldName} with ${optionsArray.length} options and ${selectedValues.length} pre-selected values`);
     } else {
       if (!container) console.log(`[INIT-DROPDOWN-MS] SKIPPED for ${fieldName}: container not found (id=${multiSelectId})`);
@@ -1305,8 +1305,9 @@ const GRAPHQL_OPERATIONS = {
    * @param {string} fieldName - Field name
    * @param {Array} options - Array of {value, label} objects
    * @param {Array} preselectedValues - Optional array of pre-selected values
+   * @param {boolean} searchable - Whether the dropdown should be searchable
    */
-  function repopulateMultiSelectField(fieldName, options, preselectedValues = []) {
+  function repopulateMultiSelectField(fieldName, options, preselectedValues = [], searchable = false) {
     const multiSelectContainer = document.querySelector(`[data-field-name="${fieldName}"] .multi-select-container`);
     if (!multiSelectContainer) {
       console.error(`[REPOPULATE] Multi-select container not found for ${fieldName}`);
@@ -1315,7 +1316,7 @@ const GRAPHQL_OPERATIONS = {
     
     // Initialize the multi-select component with pre-selected values
     // This will handle updating the hidden select, tags, and dropdown display
-    initializeDropdownMultiSelect(fieldName, options, preselectedValues);
+    initializeDropdownMultiSelect(fieldName, options, preselectedValues, searchable);
   }
 
   /**
