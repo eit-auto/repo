@@ -781,6 +781,33 @@
     width: 100%;
     cursor: pointer;
   }
+
+  /* Hidden select for searchable single-select dropdown */
+  .searchable-select-hidden-select {
+    display: none !important;
+    position: absolute;
+    pointer-events: none;
+    visibility: hidden;
+    width: 0;
+    height: 0;
+    opacity: 0;
+  }
+
+  /* Dropdown list for searchable single-select */
+  .searchable-select-dropdown {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    background: var(--form-bg-color);
+    border: 1px solid var(--form-border-color);
+    border-top: none;
+    border-radius: 0 0 4px 4px;
+    max-height: 300px;
+    overflow-y: auto;
+    z-index: 100;
+  }
+
   .form-group textarea {
     width: 100%;
     padding: 0.75rem;
