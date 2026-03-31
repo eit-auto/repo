@@ -2152,6 +2152,15 @@ const GRAPHQL_OPERATIONS = {
       value: String(opt.value || opt.id)
     }));
 
+    // Populate hidden select with option elements so that setting value works
+    hiddenSelect.innerHTML = '';
+    normalizedOptions.forEach(opt => {
+      const optElement = document.createElement('option');
+      optElement.value = opt.value;
+      optElement.textContent = opt.label;
+      hiddenSelect.appendChild(optElement);
+    });
+
     // Set initial selected value in hidden select and search input display
     if (selectedValue) {
       hiddenSelect.value = String(selectedValue);
