@@ -2244,7 +2244,7 @@ const GRAPHQL_OPERATIONS = {
 
     // Show dropdown on focus
     searchInput.addEventListener('focus', () => {
-      renderDropdownOptions(searchInput.value);
+      renderDropdownOptions('');  // Show all options on focus
       dropdownContainer.style.display = 'block';
     });
 
