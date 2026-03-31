@@ -2121,57 +2121,68 @@ const GRAPHQL_OPERATIONS = {
   }
 
   /**
-   * Initialize a searchable single-select dropdown
-   * Replicates the form-builder workflow search pattern
-   * @param {string} fieldName - Name of the form field
-   * @param {Array} options - Array of {value, label} objects
-   * @param {string} selectedValue - Currently selected value
-   * @param {function} onChange - Callback when selection changes
+   * Initialize searchable single-select dropdown component
+   * Replaces native select with custom text input + filtered dropdown
+   * @param {string} fieldName - Field name (for finding DOM elements via data-field-name)
+   * @param {Array} options - Array of {label, value} objects
+   * @param {string} selectedValue - Initial selected value
+   * @param {function} onChange - Optional callback when selection changes
    */
-  function initializeSearchableSingleSelect(fieldName, options, selectedValue = '', onChange = null) {
-    // Find or create the search input (text input showing label)
-    let searchInput = document.querySelector(`[data-field-name="${fieldName}"] .searchable-select-input`);
-    
-    // Find or create the hidden select (stores actual value)
-    let hiddenSelect = document.querySelector(`[data-field-name="${fieldName}"] select`);
-    
-    // Find or create the dropdown container
-    let dropdown = document.querySelector(`[data-field-name="${fieldName}"] .searchable-select-dropdown`);
-    
-    if (!searchInput || !hiddenSelect || !dropdown) {
-      console.error(`[SEARCHABLE-SELECT] Missing elements for field: ${fieldName}`);
+  function initializeSearchableSingleSelect(fieldName, options = [], selectedValue = '', onChange = null) {
+    const formGroup = document.querySelector(`[data-field-name="${fieldName}"]`);
+    if (!formGroup) {
+      console.error(`[SEARCHABLE-SELECT] Form group not found for field: ${fieldName}`);
       return;
     }
 
-    // Set initial display value
-    const selectedOption = options.find(o => String(o.value) === String(selectedValue));
-    if (selectedOption) {
-      searchInput.value = selectedOption.label;
+    const searchInput = formGroup.querySelector('.searchable-select-input');
+    const hiddenSelect = formGroup.querySelector('.searchable-select-hidden-select');
+    const dropdownContainer = formGroup.querySelector('.searchable-select-dropdown');
+
+    if (!searchInput || !hiddenSelect || !dropdownContainer) {
+      console.error(`[SEARCHABLE-SELECT] Missing required elements for field: ${fieldName}`);
+      return;
     }
 
-    // Function to render filtered options
-    function renderOptions(filterTerm = '') {
-      dropdown.innerHTML = '';
-      
-      const matches = filterTerm.trim() === ''
-        ? options
-        : options.filter(o =>
-            String(o.label).toLowerCase().includes(filterTerm.toLowerCase())
+    console.log(`[SEARCHABLE-SELECT] Initializing field "${fieldName}" with ${options.length} options`);
+
+    // Normalize options to ensure {label, value} structure
+    const normalizedOptions = options.map(opt => ({
+      label: String(opt.label || opt.name || opt.value),
+      value: String(opt.value || opt.id)
+    }));
+
+    // Set initial selected value in hidden select and search input display
+    if (selectedValue) {
+      hiddenSelect.value = String(selectedValue);
+      const selectedOpt = normalizedOptions.find(o => o.value === String(selectedValue));
+      if (selectedOpt) {
+        searchInput.value = selectedOpt.label;
+      }
+    }
+
+    // Render dropdown options based on filter term
+    function renderDropdownOptions(filterTerm = '') {
+      dropdownContainer.innerHTML = '';
+
+      const filteredOptions = filterTerm.trim() === ''
+        ? normalizedOptions
+        : normalizedOptions.filter(opt =>
+            String(opt.label).toLowerCase().includes(filterTerm.toLowerCase())
           );
 
-      if (matches.length === 0 && filterTerm.length > 0) {
-        dropdown.innerHTML = '<div style="padding: 10px; color: #999; text-align: center;">No results</div>';
-        dropdown.style.display = 'block';
+      if (filteredOptions.length === 0 && filterTerm.length > 0) {
+        dropdownContainer.innerHTML = '<div style="padding: 10px; color: #999; text-align: center;">No results</div>';
+        dropdownContainer.style.display = 'block';
         return;
       }
 
-      matches.forEach(option => {
+      filteredOptions.forEach(option => {
         const optionDiv = document.createElement('div');
         optionDiv.style.padding = '10px';
         optionDiv.style.cursor = 'pointer';
         optionDiv.style.color = '#ffffff';
         optionDiv.style.borderBottom = '1px solid #555';
-        optionDiv.style.transition = 'background 0.2s';
         optionDiv.textContent = option.label;
 
         optionDiv.addEventListener('mouseover', () => {
@@ -2183,62 +2194,51 @@ const GRAPHQL_OPERATIONS = {
         });
 
         optionDiv.addEventListener('click', () => {
-          // Update search input (display) and hidden select (value)
           searchInput.value = option.label;
           hiddenSelect.value = option.value;
+          dropdownContainer.style.display = 'none';
 
-          // Hide dropdown
-          dropdown.style.display = 'none';
-
-          // Trigger change callback
           if (onChange) {
             onChange(option.value, option.label);
           }
 
-          // Trigger native change event on hidden select
           const event = new Event('change', { bubbles: true });
           hiddenSelect.dispatchEvent(event);
         });
 
-        dropdown.appendChild(optionDiv);
+        dropdownContainer.appendChild(optionDiv);
       });
     }
 
-    // Show dropdown on focus if empty
+    // Show dropdown on focus
     searchInput.addEventListener('focus', () => {
-      if (searchInput.value.length === 0) {
-        renderOptions();
-        dropdown.style.display = 'block';
-      }
+      renderDropdownOptions(searchInput.value);
+      dropdownContainer.style.display = 'block';
     });
 
-    // Filter on input
+    // Filter options as user types
     searchInput.addEventListener('input', (e) => {
-      const searchTerm = e.target.value.toLowerCase();
-      if (searchTerm.length > 0) {
-        renderOptions(e.target.value);
-      } else {
-        dropdown.style.display = 'none';
-      }
+      const searchTerm = e.target.value;
+      renderDropdownOptions(searchTerm);
+      dropdownContainer.style.display = searchTerm.length > 0 ? 'block' : 'block';
     });
 
-    // Hide dropdown on blur
+    // Hide dropdown on blur (with delay to allow click)
     searchInput.addEventListener('blur', () => {
       setTimeout(() => {
-        dropdown.style.display = 'none';
+        dropdownContainer.style.display = 'none';
         // Reset to show selected option label
-        const selectedOption = options.find(o => String(o.value) === String(hiddenSelect.value));
-        if (selectedOption) {
-          searchInput.value = selectedOption.label;
+        const selectedOpt = normalizedOptions.find(o => o.value === hiddenSelect.value);
+        if (selectedOpt) {
+          searchInput.value = selectedOpt.label;
         }
       }, 200);
     });
 
-    // Close on document click
+    // Close on document click outside
     document.addEventListener('click', (e) => {
-      const formGroup = document.querySelector(`[data-field-name="${fieldName}"]`);
       if (formGroup && !formGroup.contains(e.target)) {
-        dropdown.style.display = 'none';
+        dropdownContainer.style.display = 'none';
       }
     });
   }
