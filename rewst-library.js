@@ -1898,6 +1898,12 @@ const GRAPHQL_OPERATIONS = {
       selectElem.className = 'multi-select-hidden-select';
       selectElem.setAttribute('multiple', 'multiple');
       selectElem.setAttribute('data-selected-values', '[]');
+      // Get field name from parent form-group
+      const formGroup = container.closest('[data-field-name]');
+      if (formGroup) {
+        const fieldName = formGroup.getAttribute('data-field-name');
+        selectElem.setAttribute('name', fieldName);
+      }
       container.appendChild(selectElem);
       
       console.log(`[INIT-MULTI-SELECT] [CALL #${callId}] Rebuilt container HTML, ready for fresh listener attachment`);
