@@ -688,6 +688,135 @@ const GRAPHQL_OPERATIONS = {
   function onDependencyFieldChanged(changedFieldName, allFieldConfigs, options = {}) {
     console.log(`[FORMS] Dependency field changed: ${changedFieldName}`);
     
+    // Helper function to recursively clear a field and its dependents
+    const clearFieldAndDependents = (fieldNameToClear) => {
+      // Find fields that depend on fieldNameToClear
+      const dependentsOfCleared = allFieldConfigs.filter(config => {
+        if (!config.dependant_fields) return false;
+        if (typeof config.dependant_fields === 'object') {
+          return config.dependant_fields.hasOwnProperty(fieldNameToClear);
+        }
+        return false;
+      });
+      
+      dependentsOfCleared.forEach(depConfig => {
+        const fieldName = depConfig.field_name;
+        const formGroup = document.querySelector(`[data-field-name="${fieldName}"]`);
+        
+        if (!formGroup) return;
+        
+        console.log(`[FORMS] Clearing dependent field: ${fieldName} (type: ${depConfig.type})`);
+        
+        // Clear cache based on field type
+        if (depConfig.type === 'data_retrieval') {
+          if (options.dataRetrievalCache) {
+            delete options.dataRetrievalCache[fieldName];
+          }
+          if (options.dataRetrievalResults) {
+            delete options.dataRetrievalResults[fieldName];
+          }
+        } else if (depConfig.type === 'dropdown' || depConfig.type === 'dropdown_workflow') {
+          if (options.workflowCache) {
+            Object.keys(options.workflowCache.results).forEach(cacheKey => {
+              if (cacheKey.startsWith(depConfig.workflow_id)) {
+                console.log(`[FORMS] Cleared workflow cache: ${cacheKey}`);
+                delete options.workflowCache.results[cacheKey];
+              }
+            });
+            Object.keys(options.workflowCache.inFlight).forEach(cacheKey => {
+              if (cacheKey.startsWith(depConfig.workflow_id)) {
+                console.log(`[FORMS] Cleared in-flight workflow: ${cacheKey}`);
+                delete options.workflowCache.inFlight[cacheKey];
+              }
+            });
+          }
+        } else if (depConfig.type === 'dropdown_graphql') {
+          if (options.graphqlCache && depConfig.graphql_op) {
+            Object.keys(options.graphqlCache.results).forEach(cacheKey => {
+              if (cacheKey.startsWith(depConfig.graphql_op)) {
+                console.log(`[FORMS] Cleared GraphQL cache: ${cacheKey}`);
+                delete options.graphqlCache.results[cacheKey];
+              }
+            });
+            Object.keys(options.graphqlCache.inFlight).forEach(cacheKey => {
+              if (cacheKey.startsWith(depConfig.graphql_op)) {
+                console.log(`[FORMS] Cleared in-flight GraphQL: ${cacheKey}`);
+                delete options.graphqlCache.inFlight[cacheKey];
+              }
+            });
+          }
+        } else if (depConfig.type === 'dropdown_mysql' || depConfig.type === 'dropdown_mesh' || depConfig.type === 'dropdown_prefetch') {
+          if (depConfig.type === 'dropdown_mysql' && options.proxyCache && options.proxyCache.queryResults) {
+            Object.keys(options.proxyCache.queryResults).forEach(queryId => {
+              if (queryId.includes(fieldName)) {
+                delete options.proxyCache.queryResults[queryId];
+              }
+            });
+          }
+        }
+        
+        // Clear UI - reset to initial state
+        if (depConfig.type === 'dropdown_prefetch' || depConfig.type === 'dropdown_mysql' || 
+            depConfig.type === 'dropdown_graphql' || depConfig.type === 'dropdown_mesh' || 
+            depConfig.type === 'dropdown' || depConfig.type === 'dropdown_workflow') {
+          
+          // Clear multi-select
+          if (depConfig.multi_select) {
+            const hiddenSelect = formGroup.querySelector('.multi-select-hidden-select');
+            const tagsContainer = formGroup.querySelector('.multi-select-tags');
+            const optionsDiv = formGroup.querySelector('.multi-select-options');
+            
+            if (hiddenSelect) {
+              hiddenSelect.innerHTML = '';
+              hiddenSelect.setAttribute('data-selected-values', '[]');
+            }
+            
+            if (tagsContainer) {
+              tagsContainer.innerHTML = '<span class="multi-select-placeholder">-- Select options --</span>';
+            }
+            
+            if (optionsDiv) {
+              optionsDiv.innerHTML = '';
+            }
+          } else if (depConfig.searchable) {
+            // Clear searchable single-select
+            const searchInput = formGroup.querySelector('.searchable-select-input');
+            const hiddenSelect = formGroup.querySelector('.searchable-select-hidden-select');
+            const dropdownContainer = formGroup.querySelector('.searchable-select-dropdown');
+            
+            if (searchInput) {
+              searchInput.value = '';
+            }
+            if (hiddenSelect) {
+              hiddenSelect.value = '';
+              hiddenSelect.innerHTML = '';
+            }
+            if (dropdownContainer) {
+              dropdownContainer.innerHTML = '';
+              dropdownContainer.style.display = 'none';
+            }
+          } else {
+            // Clear non-searchable single-select
+            const select = formGroup.querySelector('select:not(.multi-select-hidden-select)');
+            if (select) {
+              const placeholder = select.querySelector('option[value=""]');
+              select.innerHTML = '';
+              if (placeholder) {
+                select.appendChild(placeholder.cloneNode(true));
+              }
+              select.value = '';
+            }
+          }
+        }
+        
+        // Mark field for re-execution
+        formGroup.setAttribute('data-needs-refresh', 'true');
+        
+        // Recursively clear fields that depend on this cleared field
+        clearFieldAndDependents(fieldName);
+      });
+    };
+    
     // Find all fields that depend on the changed field
     const dependentFields = allFieldConfigs.filter(config => {
       if (!config.dependant_fields) return false;
@@ -701,122 +830,12 @@ const GRAPHQL_OPERATIONS = {
     
     console.log(`[FORMS] Found ${dependentFields.length} dependent field(s): ${dependentFields.map(f => f.field_name).join(', ')}`);
     
-    // For each dependent field:
-    // 1. Clear cache entries
-    // 2. Reset UI
-    // 3. Mark for re-execution
+    // Recursively clear each dependent field and its dependents
     dependentFields.forEach(depConfig => {
-      const fieldName = depConfig.field_name;
-      const formGroup = document.querySelector(`[data-field-name="${fieldName}"]`);
-      
-      if (!formGroup) {
-        console.warn(`[FORMS] Form group not found for dependent field: ${fieldName}`);
-        return;
-      }
-      
-      console.log(`[FORMS] Clearing dependent field: ${fieldName} (type: ${depConfig.type})`);
-      
-      // Clear cache based on field type
-      if (depConfig.type === 'data_retrieval') {
-        // For data_retrieval fields, clear the cache entry
-        if (options.dataRetrievalCache) {
-          delete options.dataRetrievalCache[fieldName];
-        }
-        if (options.dataRetrievalResults) {
-          delete options.dataRetrievalResults[fieldName];
-        }
-      } else if (depConfig.type === 'dropdown' || depConfig.type === 'dropdown_workflow') {
-        // For workflow-based dropdowns, clear workflow cache
-        if (options.workflowCache) {
-          // Clear all workflow cache entries for this field
-          // We can't reconstruct the exact cache key without the full input,
-          // so we clear all entries that might match
-          Object.keys(options.workflowCache.results).forEach(cacheKey => {
-            if (cacheKey.startsWith(depConfig.workflow_id)) {
-              console.log(`[FORMS] Cleared workflow cache: ${cacheKey}`);
-              delete options.workflowCache.results[cacheKey];
-            }
-          });
-          Object.keys(options.workflowCache.inFlight).forEach(cacheKey => {
-            if (cacheKey.startsWith(depConfig.workflow_id)) {
-              console.log(`[FORMS] Cleared in-flight workflow: ${cacheKey}`);
-              delete options.workflowCache.inFlight[cacheKey];
-            }
-          });
-        }
-      } else if (depConfig.type === 'dropdown_graphql') {
-        // For GraphQL dropdowns, clear GraphQL cache
-        if (options.graphqlCache && depConfig.graphql_op) {
-          // Clear all GraphQL cache entries for this operation
-          Object.keys(options.graphqlCache.results).forEach(cacheKey => {
-            if (cacheKey.startsWith(depConfig.graphql_op)) {
-              console.log(`[FORMS] Cleared GraphQL cache: ${cacheKey}`);
-              delete options.graphqlCache.results[cacheKey];
-            }
-          });
-          Object.keys(options.graphqlCache.inFlight).forEach(cacheKey => {
-            if (cacheKey.startsWith(depConfig.graphql_op)) {
-              console.log(`[FORMS] Cleared in-flight GraphQL: ${cacheKey}`);
-              delete options.graphqlCache.inFlight[cacheKey];
-            }
-          });
-        }
-      } else if (depConfig.type === 'dropdown_mysql' || depConfig.type === 'dropdown_mesh' || depConfig.type === 'dropdown_prefetch') {
-        // These are handled via data_retrieval or other mechanisms
-        // Clear proxy query cache if applicable
-        if (depConfig.type === 'dropdown_mysql' && options.proxyCache && options.proxyCache.queryResults) {
-          Object.keys(options.proxyCache.queryResults).forEach(queryId => {
-            if (queryId.includes(fieldName)) {
-              delete options.proxyCache.queryResults[queryId];
-            }
-          });
-        }
-      }
-      
-      // Clear UI - reset to initial state
-      if (depConfig.type === 'dropdown_prefetch' || depConfig.type === 'dropdown_mysql' || 
-          depConfig.type === 'dropdown_graphql' || depConfig.type === 'dropdown_mesh' || 
-          depConfig.type === 'dropdown' || depConfig.type === 'dropdown_workflow') {
-        
-        // Clear multi-select
-        if (depConfig.multi_select) {
-          const hiddenSelect = formGroup.querySelector('.multi-select-hidden-select');
-          const tagsContainer = formGroup.querySelector('.multi-select-tags');
-          const optionsDiv = formGroup.querySelector('.multi-select-options');
-          
-          if (hiddenSelect) {
-            hiddenSelect.innerHTML = '';
-            hiddenSelect.setAttribute('data-selected-values', '[]');
-          }
-          
-          if (tagsContainer) {
-            tagsContainer.innerHTML = '<span class="multi-select-placeholder">-- Select options --</span>';
-          }
-          
-          if (optionsDiv) {
-            optionsDiv.innerHTML = '';
-          }
-        } else {
-          // Clear single-select
-          const select = formGroup.querySelector('select:not(.multi-select-hidden-select)');
-          if (select) {
-            // Keep placeholder option if it exists
-            const placeholder = select.querySelector('option[value=""]');
-            select.innerHTML = '';
-            if (placeholder) {
-              select.appendChild(placeholder.cloneNode(true));
-            }
-            select.value = '';
-          }
-        }
-      }
-      
-      // Mark field for re-execution by removing any cached state
-      // This will be picked up by the field initialization logic on next update
-      formGroup.setAttribute('data-needs-refresh', 'true');
+      clearFieldAndDependents(depConfig.field_name);
     });
     
-    console.log(`[FORMS] Cleared ${dependentFields.length} dependent field(s)`);
+    console.log(`[FORMS] Cleared dependent field(s) and their downstream dependents`);
   }
   // ========================================
   // UTILITY FUNCTIONS
@@ -2168,6 +2187,10 @@ const GRAPHQL_OPERATIONS = {
       if (selectedOpt) {
         searchInput.value = selectedOpt.label;
       }
+    } else {
+      // Explicitly clear the value to prevent browser's auto-selection of first option
+      hiddenSelect.value = '';
+      searchInput.value = '';
     }
 
     // Render dropdown options based on filter term
