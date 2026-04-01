@@ -2368,6 +2368,24 @@ const GRAPHQL_OPERATIONS = {
   }
 
   /**
+   * Get a nested value from an object using dot notation path
+   * Example: getValueByPath({a: {b: {c: 'value'}}}, 'b.c') returns 'value'
+   */
+  function getValueByPath(obj, path) {
+    if (!path) return obj;
+    const parts = path.split('.');
+    let current = obj;
+    for (const part of parts) {
+      if (current && typeof current === 'object') {
+        current = current[part];
+      } else {
+        return undefined;
+      }
+    }
+    return current;
+  }
+
+  /**
    * Evaluate a condition string using window.pageVariables
    * Supports: ==, !=, ===, !==, >, <, >=, <=, &&, ||, and, or, parentheses
    */
@@ -2718,6 +2736,7 @@ const GRAPHQL_OPERATIONS = {
       formatCellValue,
       getUrlParameter,
       escapeHtml,
+      getValueByPath,
       initializeMultiSelect,
       renderMultiSelectContainer,
       initializeDropdownMultiSelect,
