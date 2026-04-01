@@ -745,6 +745,21 @@
     opacity: 0.7;
     cursor: not-allowed;
   }
+
+  /* Override browser autofill styling */
+  .form-group input:-webkit-autofill,
+  .form-group input:-webkit-autofill:hover,
+  .form-group input:-webkit-autofill:focus {
+    -webkit-box-shadow: 0 0 0 1000px var(--form-bg-color) inset !important;
+    -webkit-text-fill-color: var(--form-text-color) !important;
+    background-color: var(--form-bg-color) !important;
+    border-color: var(--form-border-color) !important;
+    border-radius: 4px !important;
+  }
+
+  .form-group input:-webkit-autofill {
+    -webkit-transition: background-color 5000s ease-in-out 0s !important;
+  }
   .form-group input[type="date"]::-webkit-calendar-picker-indicator,
   .form-group input[type="datetime-local"]::-webkit-calendar-picker-indicator {
     filter: invert(1);
