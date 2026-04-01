@@ -2140,6 +2140,67 @@ const GRAPHQL_OPERATIONS = {
   }
 
   /**
+   * Initialize single-select dropdown (searchable or normal)
+   * Automatically decides whether to use searchable or native select based on config.searchable
+   * @param {string} fieldName - Field name
+   * @param {Array} options - Array of {label, value} objects
+   * @param {object} config - Field config (must contain searchable property)
+   * @param {Array} preselectedValues - Array of preselected values (uses first element)
+   * @param {object} allFieldConfigs - All field configs (for error logging context)
+   */
+  function initializeSingleSelect(fieldName, options = [], config = {}, preselectedValues = [], allFieldConfigs = []) {
+    const selectedValue = preselectedValues && preselectedValues.length > 0 ? preselectedValues[0] : '';
+    
+    // Searchable is default unless explicitly set to false
+    if (config.searchable !== false) {
+      // Use searchable single-select
+      initializeSearchableSingleSelect(fieldName, options, selectedValue);
+    } else {
+      // Use native select
+      const formGroup = document.querySelector(`[data-field-name="${fieldName}"]`);
+      if (!formGroup) {
+        console.error(`[SINGLE-SELECT] Form group not found for field: ${fieldName}`);
+        return;
+      }
+      
+      const select = formGroup.querySelector('select:not(.multi-select-hidden-select):not(.searchable-select-hidden-select)');
+      if (!select) {
+        console.error(`[SINGLE-SELECT] SELECT element not found for ${fieldName}`);
+        return;
+      }
+      
+      // Populate native select
+      if (options.length > 0) {
+        const placeholder = select.querySelector('option[value=""]');
+        select.innerHTML = '';
+        
+        if (placeholder) {
+          select.appendChild(placeholder);
+        } else {
+          const opt = document.createElement('option');
+          opt.value = '';
+          opt.textContent = RewstLib.utils.getGrammaticalPhrase(config.field_displayname || fieldName);
+          select.appendChild(opt);
+        }
+        
+        options.forEach(opt => {
+          const option = document.createElement('option');
+          option.value = String(opt.value);
+          option.textContent = String(opt.label);
+          select.appendChild(option);
+        });
+        
+        // Set initial value if provided
+        if (selectedValue) {
+          select.value = String(selectedValue);
+        }
+      } else {
+        select.innerHTML = `<option value="">-- No results --</option>`;
+      }
+    }
+  }
+
+  /**
    * Initialize searchable single-select dropdown component
    * Replaces native select with custom text input + filtered dropdown
    * @param {string} fieldName - Field name (for finding DOM elements via data-field-name)
@@ -2383,6 +2444,7 @@ const GRAPHQL_OPERATIONS = {
       renderMultiSelectContainer,
       initializeDropdownMultiSelect,
       repopulateMultiSelectField,
+      initializeSingleSelect,
       initializeSearchableSingleSelect,
       mapResultsToOptions,
       showWaitingMessage,
