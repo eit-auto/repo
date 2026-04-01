@@ -705,6 +705,11 @@
     margin-bottom: 0.5rem;
   }
 
+  /* Remove bottom margin from last form-group in column */
+  .form-group:last-child {
+    margin-bottom: 0 !important;
+  }
+
   .form-group-vert {
     display: flex;
     flex-direction: column;
