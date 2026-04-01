@@ -774,6 +774,19 @@
   input:-webkit-autofill {
     -webkit-transition: background-color 5000s ease-in-out 0s !important;
   }
+
+  /* Prevent autocomplete dropdown from changing background on repeating array inputs */
+  input[data-param-index] {
+    background-color: #1a1a1a !important;
+  }
+
+  input[data-param-index]:focus,
+  input[data-param-index]:hover,
+  input[data-param-index]:-webkit-autofill,
+  input[data-param-index]:-webkit-autofill:focus,
+  input[data-param-index]:-webkit-autofill:hover {
+    background-color: #1a1a1a !important;
+  }
   .form-group input[type="date"]::-webkit-calendar-picker-indicator,
   .form-group input[type="datetime-local"]::-webkit-calendar-picker-indicator {
     filter: invert(1);
