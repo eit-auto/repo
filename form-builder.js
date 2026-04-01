@@ -3156,7 +3156,7 @@ function showElementSettings(elementUid) {
             <button type="button" id="editDependentFieldsBtn" class="btn btn-blue" style="width: 100%;">
                 ${currentDependantFields.length > 0 ? currentDependantFields.length + ' field(s) selected' : 'Select dependent fields...'}
             </button>
-            <input type="hidden" id="dependant_fields" value="${fieldConfig.dependant_fields && typeof fieldConfig.dependant_fields === 'object' ? RewstLib.utils.escapeHtml(JSON.stringify(fieldConfig.dependant_fields)) : ''}">
+            <input type="hidden" id="dependant_fields" value="${fieldConfig.dependant_fields && typeof fieldConfig.dependant_fields === 'object' ? JSON.stringify(fieldConfig.dependant_fields) : ''}">
         </div>
     `;
     
