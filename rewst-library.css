@@ -293,6 +293,7 @@
     cursor: pointer;
     white-space: nowrap;
     margin: 0;
+    margin-left: 0.375rem;
     pointer-events: auto;
     display: inline;
   }
@@ -974,6 +975,7 @@
   }
   .checkbox-wrapper label {
     margin-bottom: 0;
+    margin-left: 0.375rem;
   }
   .waiting-box {
     padding: 0.35rem 0.75rem;
