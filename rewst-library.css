@@ -778,6 +778,9 @@
   /* Prevent autocomplete dropdown from changing background on repeating array inputs */
   input[data-param-index] {
     background-color: #1a1a1a !important;
+    color: #e0e0e0 !important;
+    -webkit-text-fill-color: #e0e0e0 !important;
+    box-shadow: none !important;
   }
 
   input[data-param-index]:focus,
@@ -786,6 +789,10 @@
   input[data-param-index]:-webkit-autofill:focus,
   input[data-param-index]:-webkit-autofill:hover {
     background-color: #1a1a1a !important;
+    color: #e0e0e0 !important;
+    -webkit-text-fill-color: #e0e0e0 !important;
+    -webkit-box-shadow: none !important;
+    box-shadow: none !important;
   }
   .form-group input[type="date"]::-webkit-calendar-picker-indicator,
   .form-group input[type="datetime-local"]::-webkit-calendar-picker-indicator {
