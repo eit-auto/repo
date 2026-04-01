@@ -775,24 +775,15 @@
     -webkit-transition: background-color 5000s ease-in-out 0s !important;
   }
 
-  /* Prevent autocomplete dropdown from changing background on repeating array inputs */
-  input[data-param-index] {
-    background-color: #1a1a1a !important;
-    color: #e0e0e0 !important;
-    -webkit-text-fill-color: #e0e0e0 !important;
-    box-shadow: none !important;
+  input:-webkit-autofill {
+    -webkit-transition: background-color 5000s ease-in-out 0s !important;
   }
 
-  input[data-param-index]:focus,
-  input[data-param-index]:hover,
-  input[data-param-index]:-webkit-autofill,
-  input[data-param-index]:-webkit-autofill:focus,
-  input[data-param-index]:-webkit-autofill:hover {
-    background-color: #1a1a1a !important;
-    color: #e0e0e0 !important;
+  input:-webkit-autofill, input:-webkit-autofill:hover, input:-webkit-autofill:focus {
+    -webkit-box-shadow: 0 0 0 1000px #1a1a1a inset !important;
     -webkit-text-fill-color: #e0e0e0 !important;
-    -webkit-box-shadow: none !important;
-    box-shadow: none !important;
+    background-color: #1a1a1a !important;
+    border-color: #404040 !important;
   }
   .form-group input[type="date"]::-webkit-calendar-picker-indicator,
   .form-group input[type="datetime-local"]::-webkit-calendar-picker-indicator {
@@ -2055,6 +2046,18 @@
     color: #999;
     font-size: 12px;
     font-weight: 600;
+  }
+
+  /* CRITICAL: Override autofill styling on repeating array inputs - must be at end for highest specificity */
+  input[data-param-index]:-webkit-autofill,
+  input[data-param-index]:-webkit-autofill:hover,
+  input[data-param-index]:-webkit-autofill:focus,
+  input[data-param-index]:-webkit-autofill:active {
+    -webkit-box-shadow: none !important;
+    -webkit-text-fill-color: #e0e0e0 !important;
+    background-color: #1a1a1a !important;
+    color: #e0e0e0 !important;
+    border-color: #404040 !important;
   }
 
 /* Version 1.0.3 */
