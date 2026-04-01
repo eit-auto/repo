@@ -2368,14 +2368,132 @@ const GRAPHQL_OPERATIONS = {
   }
 
   /**
+   * Evaluate a condition string using window.pageVariables
+   * Supports: ==, !=, ===, !==, >, <, >=, <=, &&, ||, and, or, parentheses
+   */
+  function evaluateConditionalExpression(conditionString) {
+    if (!conditionString) return true;
+    
+    try {
+      let expression = conditionString;
+      
+      // Convert user-friendly operators
+      expression = expression.replace(/\band\b/g, '&&');
+      expression = expression.replace(/\bor\b/g, '||');
+      
+      // Replace field/variable references with their values
+      const sortedKeys = Object.keys(window.pageVariables || {}).sort((a, b) => b.length - a.length);
+      sortedKeys.forEach(key => {
+        const value = window.pageVariables[key];
+        const replacement = typeof value === 'string' ? `'${value}'` : value;
+        expression = expression.replace(new RegExp(`\\b${key}\\b`, 'g'), replacement);
+      });
+      
+      console.log('[CONDITIONAL] Evaluating:', expression);
+      return eval(expression);
+    } catch (e) {
+      console.error('[CONDITIONAL] Error evaluating:', conditionString, e);
+      return false;
+    }
+  }
+
+  /**
+   * Process [[ if ... ]][[ elif ... ]][[ else ]][[ endif ]] conditional blocks
+   * Supports flexible spacing: [[ if ... ]] or [[if...]]
+   */
+  function processConditionalBlocks(text) {
+    if (!text || typeof text !== 'string' || !text.includes('[[')) {
+      return text;
+    }
+
+    let result = text;
+    let iterations = 0;
+    const maxIterations = 100; // Prevent infinite loops with nested ifs
+
+    // Process from innermost to outermost (handle nested conditionals)
+    while (iterations < maxIterations && /\[\[\s*if\s+/.test(result)) {
+      iterations++;
+      
+      // Match one if/elif/else/endif block at a time (non-greedy)
+      const blockRegex = /\[\[\s*if\s+([^\]]+?)\s*\]\]([\s\S]*?)\[\[\s*endif\s*\]\]/;
+      
+      result = result.replace(blockRegex, (match, ifCondition, blockContent) => {
+        // Parse elif/else branches within this block
+        const branches = [];
+        
+        // Add the if branch
+        branches.push({
+          type: 'if',
+          condition: ifCondition.trim(),
+          content: ''
+        });
+
+        // Find all elif and else blocks
+        let currentIndex = 0;
+        const branchRegex = /\[\[\s*(elif|else)\s*(?:([^\]]*?))?\s*\]\]/g;
+        let branchMatch;
+
+        while ((branchMatch = branchRegex.exec(blockContent)) !== null) {
+          // Add content for the previous branch
+          branches[branches.length - 1].content = blockContent.substring(currentIndex, branchMatch.index);
+          
+          // Add new branch
+          if (branchMatch[1] === 'elif') {
+            branches.push({
+              type: 'elif',
+              condition: branchMatch[2].trim(),
+              content: ''
+            });
+          } else if (branchMatch[1] === 'else') {
+            branches.push({
+              type: 'else',
+              condition: 'true',
+              content: ''
+            });
+          }
+          
+          currentIndex = branchMatch.index + branchMatch[0].length;
+        }
+
+        // Add final content to last branch
+        branches[branches.length - 1].content = blockContent.substring(currentIndex);
+
+        // Evaluate branches in order
+        for (const branch of branches) {
+          const conditionResult = evaluateConditionalExpression(branch.condition);
+          console.log(`[CONDITIONAL] ${branch.type} (${branch.condition}) -> ${conditionResult}`);
+          
+          if (conditionResult) {
+            return branch.content;
+          }
+        }
+
+        // No branch matched, return empty
+        return '';
+      });
+    }
+
+    if (iterations >= maxIterations) {
+      console.warn('[CONDITIONAL] Max iterations reached, possible infinite loop');
+    }
+
+    return result;
+  }
+
+  /**
    * Replace [[ ]] variable references in text with actual values from pageVariables
    * Handles both [[varName.property|operator]] syntax and direct operator syntax (varName|operator)
+   * Also processes [[ if ... ]][[ endif ]] conditional blocks
    */
   function replacePageVariableReferences(text) {
     if (!text || typeof text !== 'string') return text;
     
     console.log(`[REPLACE_VARS] Input text: "${text}"`);
     console.log(`[REPLACE_VARS] window.pageVariables:`, window.pageVariables);
+    
+    // First, process conditional blocks
+    text = processConditionalBlocks(text);
+    console.log(`[REPLACE_VARS] After conditional processing: "${text}"`);
     
     // Handle sources without brackets but with operators (e.g., "script_info.Parameters|split")
     if (text.includes('|') && !text.includes('[[')) {
