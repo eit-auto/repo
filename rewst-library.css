@@ -951,7 +951,7 @@
   .radio-item {
     display: flex;
     align-items: center;
-    gap: 0.125rem;
+    gap: 0.5rem;
     margin-top: 0.25rem;
     margin-bottom: 0.25rem;
   }
@@ -963,7 +963,7 @@
   }
   .radio-item label {
     margin-bottom: 0;
-    margin-left: -2px;
+    margin-left: 0;
     font-weight: 400;
     cursor: pointer;
   }
