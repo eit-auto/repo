@@ -699,6 +699,7 @@
     margin-bottom: 1.125rem;
     display: flex;
     flex-direction: column;
+    position: relative;
   }
 
   /* Reduce margin for repeating input arrays */
