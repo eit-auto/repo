@@ -808,6 +808,26 @@
     z-index: 100;
   }
 
+  .searchable-select-toggle {
+    position: absolute;
+    right: 8px;
+    top: 50%;
+    transform: translateY(-50%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    color: #888;
+    transition: color 0.2s;
+    pointer-events: none;
+    font-size: 12px;
+  }
+
+  .form-group:hover .searchable-select-toggle {
+    color: var(--form-accent-color);
+  }
+
   .form-group textarea {
     width: 100%;
     padding: 0.75rem;
