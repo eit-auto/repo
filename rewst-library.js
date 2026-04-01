@@ -2367,6 +2367,166 @@ const GRAPHQL_OPERATIONS = {
     });
   }
 
+  /**
+   * Replace [[ ]] variable references in text with actual values from pageVariables
+   * Handles both [[varName.property|operator]] syntax and direct operator syntax (varName|operator)
+   */
+  function replacePageVariableReferences(text) {
+    if (!text || typeof text !== 'string') return text;
+    
+    console.log(`[REPLACE_VARS] Input text: "${text}"`);
+    console.log(`[REPLACE_VARS] window.pageVariables:`, window.pageVariables);
+    
+    // Handle sources without brackets but with operators (e.g., "script_info.Parameters|split")
+    if (text.includes('|') && !text.includes('[[')) {
+      console.log(`[REPLACE_VARS] Detected operator syntax without brackets: "${text}"`);
+      const parts = text.split('|');
+      const varPath = parts[0].trim();
+      const operator = parts[1]?.trim();
+      
+      const dotParts = varPath.split('.');
+      const varName = dotParts[0];
+      const propertyPath = dotParts.slice(1).join('.');
+      
+      let resolvedValue = window.pageVariables[varName];
+      if (resolvedValue && propertyPath) {
+        resolvedValue = getValueByPath(resolvedValue, propertyPath);
+      }
+      
+      if (resolvedValue === undefined) {
+        console.log(`[REPLACE_VARS] Variable "${varName}" not found`);
+        return text; // Return original if not found
+      }
+      
+      if (operator === 'split' && typeof resolvedValue === 'string') {
+        const splitResult = resolvedValue.split(',').map(item => item.trim()).filter(item => item !== '');
+        console.log(`[REPLACE_VARS] Split result:`, splitResult);
+        return splitResult;
+      }
+      
+      return resolvedValue;
+    }
+    
+    // Handle bracket syntax (e.g., "[[varName.property|operator]]")
+    const result = text.replace(/\[\[\s*(\w+)(?:\.([^\]|]+))?(?:\|([a-z_]+))?\s*\]\]/g, (match, varName, propertyPath, operator) => {
+      // Trim propertyPath to remove leading/trailing spaces
+      if (propertyPath) {
+        propertyPath = propertyPath.trim();
+      }
+      
+      console.log(`[REPLACE_VARS] Found ref: match="${match}", varName="${varName}", propertyPath="${propertyPath}", operator="${operator}"`);
+      
+      const value = window.pageVariables[varName];
+      console.log(`[REPLACE_VARS] Looked up ${varName}:`, value);
+      
+      if (value === undefined || value === null) {
+        console.log(`[REPLACE_VARS] Value is undefined/null, returning match`);
+        return match; // Leave placeholder if not found
+      }
+      
+      let resolvedValue = value;
+      
+      if (propertyPath) {
+        console.log(`[REPLACE_VARS] Getting nested path: ${propertyPath}`);
+        resolvedValue = getValueByPath(value, propertyPath);
+        console.log(`[REPLACE_VARS] Nested value:`, resolvedValue);
+        if (resolvedValue === undefined) return match;
+      }
+      
+      // Apply operator if specified
+      if (operator) {
+        console.log(`[REPLACE_VARS] Applying operator: ${operator}`);
+        if (operator === 'split') {
+          // Split comma-separated string into array
+          if (typeof resolvedValue === 'string') {
+            resolvedValue = resolvedValue.split(',').map(item => item.trim()).filter(item => item !== '');
+            console.log(`[REPLACE_VARS] Split result:`, resolvedValue);
+          }
+        }
+      }
+      
+      // Return the resolved value (as-is if it's an array, or as string)
+      if (Array.isArray(resolvedValue)) {
+        return resolvedValue;
+      }
+      return String(resolvedValue);
+    });
+    
+    console.log(`[REPLACE_VARS] Output text: "${result}"`);
+    return result;
+  }
+
+  /**
+   * Universal function to replace [[ ]] references in ANY value
+   * Handles strings, arrays, and nested objects
+   */
+  function replaceReferencesInValue(value) {
+    if (typeof value === 'string') {
+      return replacePageVariableReferences(value);
+    } else if (typeof value === 'object' && value !== null) {
+      if (Array.isArray(value)) {
+        // Recursively replace in array items
+        return value.map(item => replaceReferencesInValue(item));
+      } else {
+        // Recursively replace in object properties
+        const replaced = {};
+        Object.keys(value).forEach(key => {
+          replaced[key] = replaceReferencesInValue(value[key]);
+        });
+        return replaced;
+      }
+    }
+    // Return unchanged for non-string, non-object types
+    return value;
+  }
+
+  /**
+   * Extract [[ variable_name.property ]] references from a string
+   * Returns array of {fullMatch, varName, propertyPath}
+   */
+  function extractPageVariableReferences(text) {
+    if (!text || typeof text !== 'string') return [];
+    const regex = /\[\[\s*(\w+)(?:\.([^\]]+))?\s*\]\]/g;
+    const matches = [];
+    let match;
+    while ((match = regex.exec(text)) !== null) {
+      matches.push({
+        fullMatch: match[0],
+        varName: match[1],
+        propertyPath: match[2] ? match[2].trim() : ''
+      });
+    }
+    return matches;
+  }
+
+  /**
+   * Get a copy of the field config with all [[ ]] references replaced
+   * Used before executing workflows, queries, etc.
+   */
+  function getResolvedFieldConfig(config) {
+    const resolved = { ...config };
+    
+    // Replace in execution parameters
+    const executionProps = ['workflow_input', 'graphql_op_variables', 'query', 'command', 'node_query'];
+    executionProps.forEach(prop => {
+      if (resolved[prop]) {
+        resolved[prop] = replaceReferencesInValue(config[prop]);
+        if (resolved[prop] !== config[prop]) {
+          console.log(`[PAGE_VAR_EXEC] Resolved ${prop}:`, resolved[prop]);
+        }
+      }
+    });
+    
+    // Replace in display parameters
+    ['default_value', 'default_select', 'description', 'content', 'field_displayname'].forEach(prop => {
+      if (resolved[prop] && typeof resolved[prop] === 'string') {
+        resolved[prop] = replaceReferencesInValue(config[prop]);
+      }
+    });
+    
+    return resolved;
+  }
+
   return {
     // Configuration
     config: {
@@ -2457,7 +2617,11 @@ const GRAPHQL_OPERATIONS = {
       updateDependentFields,
       getDependencyValues,
       processGraphQLDropdownVariables,
-      loadGraphQLDropdownOptions
+      loadGraphQLDropdownOptions,
+      replacePageVariableReferences,
+      replaceReferencesInValue,
+      extractPageVariableReferences,
+      getResolvedFieldConfig
     },
     // GraphQL Operations
     graphqlOperations: {
