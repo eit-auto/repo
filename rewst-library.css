@@ -760,6 +760,20 @@
   .form-group input:-webkit-autofill {
     -webkit-transition: background-color 5000s ease-in-out 0s !important;
   }
+
+  /* Global autofill override for all inputs */
+  input:-webkit-autofill,
+  input:-webkit-autofill:hover,
+  input:-webkit-autofill:focus {
+    -webkit-box-shadow: 0 0 0 1000px #1a1a1a inset !important;
+    -webkit-text-fill-color: #e0e0e0 !important;
+    background-color: #1a1a1a !important;
+    border-color: #404040 !important;
+  }
+
+  input:-webkit-autofill {
+    -webkit-transition: background-color 5000s ease-in-out 0s !important;
+  }
   .form-group input[type="date"]::-webkit-calendar-picker-indicator,
   .form-group input[type="datetime-local"]::-webkit-calendar-picker-indicator {
     filter: invert(1);
