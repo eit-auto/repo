@@ -2157,8 +2157,9 @@ const GRAPHQL_OPERATIONS = {
     const searchInput = formGroup.querySelector('.searchable-select-input');
     const hiddenSelect = formGroup.querySelector('.searchable-select-hidden-select');
     const dropdownContainer = formGroup.querySelector('.searchable-select-dropdown');
+    const clearButton = formGroup.querySelector('.searchable-select-clear');
 
-    if (!searchInput || !hiddenSelect || !dropdownContainer) {
+    if (!searchInput || !hiddenSelect || !dropdownContainer || !clearButton) {
       console.error(`[SEARCHABLE-SELECT] Missing required elements for field: ${fieldName}`);
       return;
     }
@@ -2170,6 +2171,15 @@ const GRAPHQL_OPERATIONS = {
       label: String(opt.label || opt.name || opt.value),
       value: String(opt.value || opt.id)
     }));
+
+    // Update clear button visibility based on selected value
+    function updateClearButtonVisibility() {
+      if (hiddenSelect.value) {
+        clearButton.style.display = 'flex';
+      } else {
+        clearButton.style.display = 'none';
+      }
+    }
 
     // Populate hidden select with option elements so that setting value works
     hiddenSelect.innerHTML = '';
@@ -2192,6 +2202,9 @@ const GRAPHQL_OPERATIONS = {
       hiddenSelect.value = '';
       searchInput.value = '';
     }
+
+    // Update clear button visibility
+    updateClearButtonVisibility();
 
     // Render dropdown options based on filter term
     function renderDropdownOptions(filterTerm = '') {
@@ -2229,6 +2242,7 @@ const GRAPHQL_OPERATIONS = {
           searchInput.value = option.label;
           hiddenSelect.value = option.value;
           dropdownContainer.style.display = 'none';
+          updateClearButtonVisibility();
 
           if (onChange) {
             onChange(option.value, option.label);
@@ -2264,6 +2278,7 @@ const GRAPHQL_OPERATIONS = {
         if (selectedOpt) {
           searchInput.value = selectedOpt.label;
         }
+        updateClearButtonVisibility();
       }, 200);
     });
 
@@ -2272,6 +2287,22 @@ const GRAPHQL_OPERATIONS = {
       if (formGroup && !formGroup.contains(e.target)) {
         dropdownContainer.style.display = 'none';
       }
+    });
+
+    // Clear button click handler
+    clearButton.addEventListener('click', (e) => {
+      e.stopPropagation();
+      searchInput.value = '';
+      hiddenSelect.value = '';
+      dropdownContainer.style.display = 'none';
+      updateClearButtonVisibility();
+
+      if (onChange) {
+        onChange('', '');
+      }
+
+      const event = new Event('change', { bubbles: true });
+      hiddenSelect.dispatchEvent(event);
     });
   }
 
