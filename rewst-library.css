@@ -2139,8 +2139,8 @@
   }
   
   .tree-selected {
-    color: #a0d4ff;
-    font-weight: 500;
+    color: #e0e0e0;
+    font-weight: 400;
   }
   
   .tree-placeholder {
