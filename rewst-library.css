@@ -2147,4 +2147,8 @@
     color: #666666;
   }
 
+  .tree-hidden-select {
+    display: none !important;
+  }
+
 /* Version 1.0.3 */
