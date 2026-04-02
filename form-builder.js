@@ -451,6 +451,16 @@ const ELEMENT_TYPE_DEFAULTS = {
         searchable: true,
         result_var: ''
     },
+    'dropdown_tree': {
+        source_element_name: '',        // Field name of data_retrieval element
+        label_field: '',
+        value_field: '',
+        parent_field: '',               // Field that identifies parent for tree hierarchy
+        level_field: '',                // Field that indicates depth/level
+        default_value: null,
+        searchable: true,
+        result_var: ''
+    },
     'datatable': {
         data_variable: '',              // Variable name/path to JSON array
         list_view: false                // true = list format, false = table format
@@ -1077,6 +1087,15 @@ function saveTypeSpecificFields(fieldConfig) {
             fieldConfig.label_field = document.getElementById('prefetch_label_field')?.value || '';
             fieldConfig.value_field = document.getElementById('prefetch_value_field')?.value || '';
             fieldConfig.multi_select = document.getElementById('multi_select')?.checked || false;
+            fieldConfig.searchable = document.getElementById('searchable')?.checked !== false;
+            fieldConfig.result_var = document.getElementById('result_var')?.value || '';
+        } else if (elementType === 'dropdown_tree') {
+            // Save tree dropdown fields
+            fieldConfig.source_element_name = document.getElementById('tree_source_element_name')?.value || '';
+            fieldConfig.label_field = document.getElementById('tree_label_field')?.value || '';
+            fieldConfig.value_field = document.getElementById('tree_value_field')?.value || '';
+            fieldConfig.parent_field = document.getElementById('tree_parent_field')?.value || '';
+            fieldConfig.level_field = document.getElementById('tree_level_field')?.value || '';
             fieldConfig.searchable = document.getElementById('searchable')?.checked !== false;
             fieldConfig.result_var = document.getElementById('result_var')?.value || '';
         } else if (elementType === 'datatable') {
@@ -2518,7 +2537,7 @@ function showElementSettings(elementUid) {
     let formHTML = ``;
     
     // Add Dropdown Type selector for dropdown elements
-    if (['dropdown', 'dropdown_static', 'dropdown_graphql', 'dropdown_mysql', 'dropdown_cwa_mysql', 'dropdown_mesh', 'dropdown_prefetch'].includes(fieldConfig.type)) {
+    if (['dropdown', 'dropdown_static', 'dropdown_graphql', 'dropdown_mysql', 'dropdown_cwa_mysql', 'dropdown_mesh', 'dropdown_prefetch', 'dropdown_tree'].includes(fieldConfig.type)) {
         formHTML += `
             <div class="mb-15">
                 <label class="form-label">Dropdown Type</label>
@@ -2530,13 +2549,16 @@ function showElementSettings(elementUid) {
                     <option value="dropdown_cwa_mysql" ${fieldConfig.type === 'dropdown_cwa_mysql' ? 'selected' : ''}>CWA MySQL Query</option>
                     <option value="dropdown_mesh" ${fieldConfig.type === 'dropdown_mesh' ? 'selected' : ''}>MeshCentral Command</option>
                     <option value="dropdown_prefetch" ${fieldConfig.type === 'dropdown_prefetch' ? 'selected' : ''}>Pre-fetched Data</option>
+                    <option value="dropdown_tree" ${fieldConfig.type === 'dropdown_tree' ? 'selected' : ''}>Tree Data</option>
                 </select>
             </div>
             
+            ${['dropdown_static', 'dropdown', 'dropdown_graphql', 'dropdown_mysql', 'dropdown_cwa_mysql', 'dropdown_mesh', 'dropdown_prefetch'].includes(fieldConfig.type) ? `
             <div style="margin-bottom: 15px; display: flex; align-items: center; gap: 10px;">
                 <input type="checkbox" id="multi_select" ${fieldConfig.multi_select ? 'checked' : ''} class="checkbox-input">
                 <label for="multi_select" style="margin: 0; color: #ffffff; font-weight: 600; font-size: 14px; cursor: pointer;">Multi-select</label>
             </div>
+            ` : ''}
             
             <div style="margin-bottom: 15px; display: flex; align-items: center; gap: 10px;">
                 <input type="checkbox" id="searchable" ${fieldConfig.searchable !== false ? 'checked' : ''} class="checkbox-input">
@@ -2602,7 +2624,7 @@ function showElementSettings(elementUid) {
             <input type="checkbox" id="required" ${fieldConfig.required ? 'checked' : ''} class="checkbox-input">
             <label for="required" style="margin: 0; color: #ffffff; font-weight: 600; font-size: 14px; cursor: pointer;">Required</label>
         </div>
-        ${['dropdown_static', 'dropdown', 'dropdown_graphql', 'dropdown_mysql', 'dropdown_cwa_mysql', 'dropdown_mesh', 'dropdown_prefetch'].includes(fieldConfig.type) ? `
+        ${['dropdown_static', 'dropdown', 'dropdown_graphql', 'dropdown_mysql', 'dropdown_cwa_mysql', 'dropdown_mesh', 'dropdown_prefetch', 'dropdown_tree'].includes(fieldConfig.type) ? `
         <div style='margin-bottom: 15px;'>
             <label style='display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;'>Results Variable Name</label>
             <input type='text' id='result_var' value='${fieldConfig.result_var || fieldConfig.field_name + '_data' || ''}' placeholder='e.g., dropdown_1_data' style='width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box;'>
@@ -3084,6 +3106,45 @@ function showElementSettings(elementUid) {
             <div style='margin-bottom: 15px;'>
                 <label style='display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;'>Value Field</label>
                 <input type='text' id='prefetch_value_field' value='${fieldConfig.value_field || ''}' placeholder='e.g., id' style='width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box;'>
+            </div>
+        `;
+    } else if (fieldConfig.type === 'dropdown_tree') {
+        // Dropdown Tree element - uses hierarchical data from data_retrieval element
+        formHTML += `
+            <div style='margin-bottom: 15px;'>
+                <label style='display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;'>Data Source</label>
+                <select id='tree_source_element_name' style='width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box;'>
+                    <option value=''>-- Select Data Source --</option>
+        `;
+        
+        // Populate with available data_retrieval elements
+        const dataRetrievalElements = fieldConfigs.filter(f => f.type === 'data_retrieval');
+        dataRetrievalElements.forEach(el => {
+            const selected = fieldConfig.source_element_name === el.field_name ? 'selected' : '';
+            formHTML += `<option value='${el.field_name}' ${selected}>${el.field_name}</option>`;
+        });
+        
+        formHTML += `
+                </select>
+                <div style='color: #999; font-size: 12px; margin-top: 6px;'>Select a Data Retrieval element. Data will be fetched from formData.page_variables.{field_name}</div>
+            </div>
+            <div style='margin-bottom: 15px;'>
+                <label style='display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;'>Label Field</label>
+                <input type='text' id='tree_label_field' value='${fieldConfig.label_field || ''}' placeholder='e.g., Name' style='width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box;'>
+            </div>
+            <div style='margin-bottom: 15px;'>
+                <label style='display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;'>Value Field</label>
+                <input type='text' id='tree_value_field' value='${fieldConfig.value_field || ''}' placeholder='e.g., id' style='width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box;'>
+            </div>
+            <div style='margin-bottom: 15px;'>
+                <label style='display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;'>Parent Field</label>
+                <input type='text' id='tree_parent_field' value='${fieldConfig.parent_field || ''}' placeholder='e.g., ParentID' style='width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box;'>
+                <div style='color: #999; font-size: 12px; margin-top: 6px;'>Field that identifies the parent item for building tree hierarchy.</div>
+            </div>
+            <div style='margin-bottom: 15px;'>
+                <label style='display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;'>Level Field</label>
+                <input type='text' id='tree_level_field' value='${fieldConfig.level_field || ''}' placeholder='e.g., level' style='width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box;'>
+                <div style='color: #999; font-size: 12px; margin-top: 6px;'>Field that indicates the depth/level in the tree hierarchy.</div>
             </div>
         `;
     } else if (fieldConfig.type === 'datatable') {
@@ -3786,8 +3847,31 @@ function showElementSettings(elementUid) {
         });
     }
     
+    // Add listeners for dropdown_tree
+    if (fieldConfig.type === 'dropdown_tree') {
+        const treeSourceSelect = document.getElementById('tree_source_element_name');
+        const treeLabelFieldInput = document.getElementById('tree_label_field');
+        const treeValueFieldInput = document.getElementById('tree_value_field');
+        const treeParentFieldInput = document.getElementById('tree_parent_field');
+        const treeLevelFieldInput = document.getElementById('tree_level_field');
+        
+        // Input listeners
+        [treeSourceSelect, treeLabelFieldInput, treeValueFieldInput, treeParentFieldInput, treeLevelFieldInput].forEach(input => {
+            if (input) {
+                input.addEventListener('input', () => {
+                    formHasBeenModified = true;
+                    updateElementSettingsSaveButtonVisibility();
+                });
+                input.addEventListener('change', () => {
+                    formHasBeenModified = true;
+                    updateElementSettingsSaveButtonVisibility();
+                });
+            }
+        });
+    }
+    
     // Add listener for result_var (all dropdown types)
-    const isDropdownType = ['dropdown_static', 'dropdown', 'dropdown_graphql', 'dropdown_mysql', 'dropdown_cwa_mysql', 'dropdown_mesh', 'dropdown_prefetch'].includes(fieldConfig.type);
+    const isDropdownType = ['dropdown_static', 'dropdown', 'dropdown_graphql', 'dropdown_mysql', 'dropdown_cwa_mysql', 'dropdown_mesh', 'dropdown_prefetch', 'dropdown_tree'].includes(fieldConfig.type);
     if (isDropdownType) {
         const resultVarInput = document.getElementById('result_var');
         if (resultVarInput) {
@@ -4554,6 +4638,9 @@ function updateSaveButtonState() {
             } else if (f.type === 'dropdown_prefetch') {
                 // Check prefetch dropdown configuration
                 return !f.source_element_name || f.source_element_name === '' || !f.label_field || f.label_field === '' || !f.value_field || f.value_field === '';
+            } else if (f.type === 'dropdown_tree') {
+                // Check tree dropdown configuration
+                return !f.source_element_name || f.source_element_name === '' || !f.label_field || f.label_field === '' || !f.value_field || f.value_field === '' || !f.parent_field || f.parent_field === '' || !f.level_field || f.level_field === '';
             } else if (f.type === 'data_retrieval') {
                 // Check data retrieval configuration
                 if (f.data_source_type === 'mesh_cmd' || f.data_source_type === 'mesh_powershell') {
@@ -4639,6 +4726,9 @@ function updateSaveButtonState() {
                 } else if (f.type === 'dropdown_prefetch') {
                     // Check prefetch dropdown configuration
                     return !f.source_element_uid || f.source_element_uid === '' || !f.label_field || f.label_field === '' || !f.value_field || f.value_field === '';
+                } else if (f.type === 'dropdown_tree') {
+                    // Check tree dropdown configuration
+                    return !f.source_element_uid || f.source_element_uid === '' || !f.label_field || f.label_field === '' || !f.value_field || f.value_field === '' || !f.parent_field || f.parent_field === '' || !f.level_field || f.level_field === '';
                 }
                 return false;
             });
