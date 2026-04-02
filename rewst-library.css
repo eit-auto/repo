@@ -1035,7 +1035,6 @@
     top: 0;
     left: 0;
     right: 0;
-    width: 100%;
     margin: 0;
     z-index: 10;
   }
@@ -2066,6 +2065,86 @@
     background-color: #1a1a1a !important;
     color: #e0e0e0 !important;
     border-color: #404040 !important;
+  }
+
+  /* ========================================
+     DROPDOWN TREE STYLING
+     ======================================== */
+  
+  .tree-display-box {
+    transition: border-color 0.2s ease, background-color 0.2s ease;
+  }
+  
+  .tree-display-box:hover {
+    border-color: #666;
+    background-color: #1f4050;
+  }
+  
+  .tree-panel {
+    border: 1px solid #404040;
+    background: #1a1a1a;
+    border-radius: 4px;
+    margin-top: 2px;
+    max-height: 300px;
+    overflow-y: auto;
+    z-index: 100;
+    box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+  }
+  
+  .tree-item {
+    padding: 2px 0;
+  }
+  
+  .tree-item-content {
+    display: flex;
+    align-items: center;
+    padding: 4px 8px;
+    cursor: pointer;
+    user-select: none;
+  }
+  
+  .tree-item-content:hover {
+    background-color: #2a3a45;
+  }
+  
+  .tree-toggle {
+    width: 20px;
+    padding: 0;
+    margin-right: 4px;
+    background: none;
+    border: none;
+    color: #a0a0a0;
+    cursor: pointer;
+    font-size: 12px;
+    flex-shrink: 0;
+  }
+  
+  .tree-toggle:hover {
+    color: #e0e0e0;
+  }
+  
+  .tree-label {
+    cursor: pointer;
+    color: #e0e0e0;
+    user-select: none;
+    flex: 1;
+  }
+  
+  .tree-label:hover {
+    color: #ffffff;
+  }
+  
+  .tree-item-children {
+    margin-left: 0;
+  }
+  
+  .tree-selected {
+    color: #a0d4ff;
+    font-weight: 500;
+  }
+  
+  .tree-placeholder {
+    color: #666666;
   }
 
 /* Version 1.0.3 */
