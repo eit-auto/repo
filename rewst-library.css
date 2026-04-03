@@ -1078,7 +1078,10 @@
   .form-group.is-waiting .checkbox-wrapper input,
   .form-group.is-waiting .checkbox-wrapper > div,
   .form-group.is-waiting .inner-panel,
-  .form-group.is-waiting .datatable-container {
+  .form-group.is-waiting .datatable-container,
+  .form-group.is-waiting .tree-display-box,
+  .form-group.is-waiting .tree-panel,
+  .form-group.is-waiting .dropdown-refresh-btn {
     display: none !important;
   }
 
