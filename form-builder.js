@@ -1341,6 +1341,27 @@ function loadFormConfiguration(config) {
         hiddenGraphQLSubmitOp.value = graphqlOperationValue;
     }
     
+    // Load mysql_submit configuration
+    const mysqlTypeValue = config.mysql_submit?.type || 'mysql';
+    const mysqlQueryValue = config.mysql_submit?.query || '';
+    const hiddenMySQLType = document.getElementById('hidden_mysql_type') || (() => {
+        const field = document.createElement('input');
+        field.type = 'hidden';
+        field.id = 'hidden_mysql_type';
+        document.body.appendChild(field);
+        return field;
+    })();
+    hiddenMySQLType.value = mysqlTypeValue;
+    
+    const hiddenMySQLQuery = document.getElementById('hidden_mysql_query') || (() => {
+        const field = document.createElement('input');
+        field.type = 'hidden';
+        field.id = 'hidden_mysql_query';
+        document.body.appendChild(field);
+        return field;
+    })();
+    hiddenMySQLQuery.value = mysqlQueryValue;
+    
     // Load form permissions from config into permissionsSelect
     const permissionsSelect = document.getElementById('permissionsSelect');
     if (permissionsSelect) {
@@ -2048,6 +2069,10 @@ function updateFieldConfigsDisplay() {
             graphql_submit: {
                 operation: document.getElementById('hidden_graphql_submit_op') ? document.getElementById('hidden_graphql_submit_op').value : '',
                 variables: {}
+            },
+            mysql_submit: {
+                type: document.getElementById('hidden_mysql_type') ? document.getElementById('hidden_mysql_type').value : 'mysql',
+                query: document.getElementById('hidden_mysql_query') ? document.getElementById('hidden_mysql_query').value : ''
             },
             user: (typeof rewstUser !== 'undefined' && rewstUser ? rewstUser.username : 'unknown_user'),
             permissions: [],
@@ -4738,6 +4763,10 @@ function updateSaveButtonState() {
             submitIsValid = submitWorkflow !== '';
         } else if (submitType === 'graphql') {
             submitIsValid = graphqlOperation !== '';
+        } else if (submitType === 'mysql') {
+            const mysqlQueryElement = document.getElementById('hidden_mysql_query');
+            const mysqlQuery = mysqlQueryElement ? mysqlQueryElement.value : '';
+            submitIsValid = mysqlQuery !== '';
         }
         
         canSave = formName !== '' && submitIsValid && hasElements && allDropdownsConfigured && allFormExtendsHaveDependants;
@@ -4768,6 +4797,10 @@ function updateSaveButtonState() {
                 items.push({ label: 'Submit Workflow', valid: submitWorkflow !== '' });
             } else if (submitType === 'graphql') {
                 items.push({ label: 'GraphQL Operation', valid: graphqlOperation !== '' });
+            } else if (submitType === 'mysql') {
+                const mysqlQueryElement = document.getElementById('hidden_mysql_query');
+                const mysqlQuery = mysqlQueryElement ? mysqlQueryElement.value : '';
+                items.push({ label: 'MySQL Query', valid: mysqlQuery !== '' });
             }
             
             items.push({ label: 'Form Elements', valid: hasElements });
@@ -4969,16 +5002,130 @@ submitTypeRadios.forEach(radio => {
         if (e.target.value === 'workflow') {
             submitWorkflowSection.style.display = 'block';
             submitGraphQLSection.style.display = 'none';
+            const submitMySQLSection = document.getElementById('submit_mysql_section');
+            if (submitMySQLSection) submitMySQLSection.style.display = 'none';
             outputVarSection.style.display = 'block';
         } else if (e.target.value === 'graphql') {
             submitWorkflowSection.style.display = 'none';
             submitGraphQLSection.style.display = 'block';
+            const submitMySQLSection = document.getElementById('submit_mysql_section');
+            if (submitMySQLSection) submitMySQLSection.style.display = 'none';
+            outputVarSection.style.display = 'none';
+        } else if (e.target.value === 'mysql') {
+            submitWorkflowSection.style.display = 'none';
+            submitGraphQLSection.style.display = 'none';
+            const submitMySQLSection = document.getElementById('submit_mysql_section');
+            if (submitMySQLSection) submitMySQLSection.style.display = 'block';
             outputVarSection.style.display = 'none';
         }
         // Update button state when submit type changes
         updateSaveButtonState();
     });
 });
+
+// MySQL type radio button listeners
+const mysqlTypeRadios = document.querySelectorAll('input[name="mysql_type"]');
+mysqlTypeRadios.forEach(radio => {
+    radio.addEventListener('change', (e) => {
+        const hiddenMySQLType = document.getElementById('hidden_mysql_type') || (() => {
+            const field = document.createElement('input');
+            field.type = 'hidden';
+            field.id = 'hidden_mysql_type';
+            document.body.appendChild(field);
+            return field;
+        })();
+        hiddenMySQLType.value = e.target.value;
+        fullFormHasBeenModified = true;
+        updateSaveButtonState();
+    });
+});
+
+// MySQL Query button listener
+const mysqlQueryBtn = document.getElementById('mysql_query_button');
+const mysqlQueryModal = document.getElementById('mysqlQueryModal');
+const mysqlQueryModalClose = document.getElementById('mysqlQueryModalClose');
+const mysqlQueryTextarea = document.getElementById('mysql_query_textarea');
+const mysqlQuerySave = document.getElementById('mysqlQuerySave');
+const mysqlQueryCancel = document.getElementById('mysqlQueryCancel');
+
+if (mysqlQueryBtn) {
+    mysqlQueryBtn.addEventListener('click', () => {
+        console.log('[MYSQL] Opening MySQL Query modal');
+        
+        // Load existing query from hidden field
+        const hiddenMySQLQuery = document.getElementById('hidden_mysql_query') || (() => {
+            const field = document.createElement('input');
+            field.type = 'hidden';
+            field.id = 'hidden_mysql_query';
+            document.body.appendChild(field);
+            return field;
+        })();
+        
+        if (mysqlQueryTextarea) {
+            mysqlQueryTextarea.value = hiddenMySQLQuery.value || '';
+        }
+        
+        if (mysqlQueryModal) {
+            mysqlQueryModal.classList.add('active');
+        }
+    });
+}
+
+if (mysqlQueryModalClose) {
+    mysqlQueryModalClose.addEventListener('click', () => {
+        if (mysqlQueryModal) {
+            mysqlQueryModal.classList.remove('active');
+        }
+    });
+}
+
+if (mysqlQueryCancel) {
+    mysqlQueryCancel.addEventListener('click', () => {
+        if (mysqlQueryModal) {
+            mysqlQueryModal.classList.remove('active');
+        }
+    });
+}
+
+if (mysqlQuerySave) {
+    mysqlQuerySave.addEventListener('click', () => {
+        console.log('[MYSQL] Saving MySQL Query');
+        
+        const hiddenMySQLQuery = document.getElementById('hidden_mysql_query') || (() => {
+            const field = document.createElement('input');
+            field.type = 'hidden';
+            field.id = 'hidden_mysql_query';
+            document.body.appendChild(field);
+            return field;
+        })();
+        
+        if (mysqlQueryTextarea) {
+            const query = mysqlQueryTextarea.value.trim();
+            if (!query) {
+                alert('Please enter a MySQL query');
+                return;
+            }
+            hiddenMySQLQuery.value = query;
+            fullFormHasBeenModified = true;
+            updateSaveButtonState();
+        }
+        
+        if (mysqlQueryModal) {
+            mysqlQueryModal.classList.remove('active');
+        }
+    });
+}
+
+// MySQL modal outside click handler
+if (mysqlQueryModal) {
+    const handleMySQLOutsideClick = (event) => {
+        if (event.target === mysqlQueryModal) {
+            mysqlQueryModal.classList.remove('active');
+            mysqlQueryModal.removeEventListener('click', handleMySQLOutsideClick);
+        }
+    };
+    mysqlQueryModal.addEventListener('click', handleMySQLOutsideClick);
+}
 
 // Open modal and sync values from hidden fields to modal
 generalSettingsBtn.addEventListener('click', async () => {
@@ -5030,16 +5177,34 @@ generalSettingsBtn.addEventListener('click', async () => {
         // Show/hide sections based on submit type
         const submitWorkflowSection = document.getElementById('submit_workflow_section');
         const submitGraphQLSection = document.getElementById('submit_graphql_section');
+        const submitMySQLSection = document.getElementById('submit_mysql_section');
         const outputVarSection = document.getElementById('output_var_section');
         
         if (submitTypeValue === 'workflow') {
             if (submitWorkflowSection) submitWorkflowSection.style.display = 'block';
             if (submitGraphQLSection) submitGraphQLSection.style.display = 'none';
+            if (submitMySQLSection) submitMySQLSection.style.display = 'none';
             if (outputVarSection) outputVarSection.style.display = 'block';
         } else if (submitTypeValue === 'graphql') {
             if (submitWorkflowSection) submitWorkflowSection.style.display = 'none';
             if (submitGraphQLSection) submitGraphQLSection.style.display = 'block';
+            if (submitMySQLSection) submitMySQLSection.style.display = 'none';
             if (outputVarSection) outputVarSection.style.display = 'none';
+        } else if (submitTypeValue === 'mysql') {
+            if (submitWorkflowSection) submitWorkflowSection.style.display = 'none';
+            if (submitGraphQLSection) submitGraphQLSection.style.display = 'none';
+            if (submitMySQLSection) submitMySQLSection.style.display = 'block';
+            if (outputVarSection) outputVarSection.style.display = 'none';
+            
+            // Sync MySQL type and query
+            const mysqlTypeRadios = document.querySelectorAll('input[name="mysql_type"]');
+            const hiddenMySQLType = document.getElementById('hidden_mysql_type');
+            if (hiddenMySQLType && mysqlTypeRadios) {
+                const mysqlTypeValue = hiddenMySQLType.value || 'mysql';
+                mysqlTypeRadios.forEach(radio => {
+                    radio.checked = radio.value === mysqlTypeValue;
+                });
+            }
         }
     }
     
@@ -5238,8 +5403,9 @@ function validateFieldConfigs() {
         const submitType = document.getElementById('hidden_submit_type') ? document.getElementById('hidden_submit_type').value : 'workflow';
         const submitWorkflow = hiddenSubmitWorkflow ? hiddenSubmitWorkflow.value : '';
         const graphqlOperation = document.getElementById('hidden_graphql_submit_op') ? document.getElementById('hidden_graphql_submit_op').value : '';
+        const mysqlQuery = document.getElementById('hidden_mysql_query') ? document.getElementById('hidden_mysql_query').value : '';
         
-        console.log('[VALIDATE] submitType:', submitType, 'submitWorkflow:', submitWorkflow, 'graphqlOperation:', graphqlOperation);
+        console.log('[VALIDATE] submitType:', submitType, 'submitWorkflow:', submitWorkflow, 'graphqlOperation:', graphqlOperation, 'mysqlQuery:', mysqlQuery);
         
         if (submitType === 'workflow') {
             if (!submitWorkflow || submitWorkflow === '') {
@@ -5248,6 +5414,10 @@ function validateFieldConfigs() {
         } else if (submitType === 'graphql') {
             if (!graphqlOperation || graphqlOperation === '') {
                 errors.push('Please select a <strong>GraphQL Operation</strong> in General Settings.');
+            }
+        } else if (submitType === 'mysql') {
+            if (!mysqlQuery || mysqlQuery === '') {
+                errors.push('Please enter a <strong>MySQL Query</strong> in General Settings.');
             }
         }
     }
@@ -5402,6 +5572,10 @@ if (saveConfirmYes) {
                     graphql_submit: {
                         operation: document.getElementById('hidden_graphql_submit_op') ? document.getElementById('hidden_graphql_submit_op').value : '',
                         variables: {}
+                    },
+                    mysql_submit: {
+                        type: document.getElementById('hidden_mysql_type') ? document.getElementById('hidden_mysql_type').value : 'mysql',
+                        query: document.getElementById('hidden_mysql_query') ? document.getElementById('hidden_mysql_query').value : ''
                     },
                     user: (typeof rewstUser !== 'undefined' && rewstUser ? rewstUser.username : 'unknown_user'),
                     permissions: [],
