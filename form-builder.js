@@ -703,10 +703,22 @@ async function fetchExistingForms() {
             // Populate the dropdown
             if (openExistingDropdown) {
                 openExistingDropdown.innerHTML = '<option value="">-- Select a form --</option>';
-                availableForms.forEach((form, index) => {
+                
+                // Sort availableForms by form_name (case-insensitive)
+                const sortedForms = [...availableForms].sort((a, b) => 
+                    (a.form_name || '').toLowerCase().localeCompare((b.form_name || '').toLowerCase())
+                );
+                
+                // Create a mapping of sorted index to original index
+                const sortedToOriginalIndex = sortedForms.map(form => 
+                    availableForms.findIndex(f => f.form_id === form.form_id)
+                );
+                
+                sortedForms.forEach((form, sortedIndex) => {
                     const option = document.createElement('option');
-                    option.value = index; // Use index to reference the form in availableForms array
-                    option.textContent = form.form_name;
+                    const originalIndex = sortedToOriginalIndex[sortedIndex];
+                    option.value = originalIndex; // Use original index to reference the form in availableForms array
+                    option.textContent = `${form.form_name} (Form ID: ${form.form_id})`;
                     openExistingDropdown.appendChild(option);
                 });
             }
