@@ -1489,6 +1489,16 @@ if (openExistingDropdown && loadFormBtn) {
             await closeElementSettings(true);
         }
         
+        // Check for unsaved changes in the full form config
+        if (fullFormHasBeenModified || (fieldConfigs && fieldConfigs.length > 0)) {
+            console.log('Unsaved form changes detected before loading new form');
+            const confirmed = await confirmUnsavedChanges('current form');
+            if (!confirmed) {
+                console.log('User cancelled loading form due to unsaved form changes');
+                return; // Don't load form
+            }
+        }
+        
         const selectedIndex = parseInt(openExistingDropdown.value);
         console.log('Selected index:', selectedIndex);
         
@@ -1530,6 +1540,10 @@ if (openExistingDropdown && loadFormBtn) {
         
         // Load the form configuration
         loadFormConfiguration(formConfig);
+        
+        // Clear modification flags after loading
+        fullFormHasBeenModified = false;
+        formHasBeenModified = false;
     });
 }
 
@@ -1892,6 +1906,7 @@ if (formColumnsSelect) {
 const formNameInput = document.getElementById('form_name');
 if (formNameInput) {
     formNameInput.addEventListener('input', () => {
+        fullFormHasBeenModified = true;
         updateFieldConfigsDisplay();
         updateSaveButtonState();
     });
@@ -1901,6 +1916,7 @@ if (formNameInput) {
 const showNameCheckbox = document.getElementById('show_name');
 if (showNameCheckbox) {
     showNameCheckbox.addEventListener('change', () => {
+        fullFormHasBeenModified = true;
         updateFieldConfigsDisplay();
     });
 }
@@ -1909,6 +1925,7 @@ if (showNameCheckbox) {
 const submitWorkflowSelect = document.getElementById('form_submit_workflow');
 if (submitWorkflowSelect) {
     submitWorkflowSelect.addEventListener('change', () => {
+        fullFormHasBeenModified = true;
         updateFieldConfigsDisplay();
     });
 }
@@ -1916,6 +1933,7 @@ if (submitWorkflowSelect) {
 // Add event listener to columns dropdown (using formColumnsSelect already declared above)
 if (formColumnsSelect) {
     formColumnsSelect.addEventListener('change', () => {
+        fullFormHasBeenModified = true;
         updateFieldConfigsDisplay();
     });
 }
@@ -2081,6 +2099,7 @@ let droppedElementCount = {};
 let selectedElementUid = null; // Changed from selectedElementId to use UID
 let originalElementSettings = null; // Store original settings to detect changes
 let formHasBeenModified = false; // Track if form has been modified since load
+let fullFormHasBeenModified = false; // Track if full form config has been modified (name, columns, workflow, etc.)
 
 // Initialize counters for each type
 ELEMENT_TYPES.forEach(type => {
@@ -5549,6 +5568,10 @@ if (saveConfirmYes) {
             savingMessage.textContent = loadedFormId ? 'Successfully Updated' : 'Successfully Saved';
             savingMessage.style.color = '#ffffff';
             
+            // Clear modification flags after successful save
+            fullFormHasBeenModified = false;
+            formHasBeenModified = false;
+            
             // Auto-close after 1 second and reload page
             setTimeout(() => {
                 savingStatusModal.classList.remove('active');
@@ -5735,8 +5758,17 @@ validationErrorModal.addEventListener('click', (e) => {
 const resetFormBtn = document.getElementById('resetFormBtn');
 
 if (resetFormBtn) {
-    resetFormBtn.addEventListener('click', () => {
+    resetFormBtn.addEventListener('click', async () => {
         console.log('Reset button clicked');
+        
+        // Check for unsaved changes in the full form config
+        if (fullFormHasBeenModified || (fieldConfigs && fieldConfigs.length > 0)) {
+            const confirmed = await confirmUnsavedChanges('entire form');
+            if (!confirmed) {
+                console.log('User cancelled form reset');
+                return; // Don't reset
+            }
+        }
         
         // Reset Select Client dropdown (FormExtendBuilder-specific)
         const clientDropdown = document.getElementById('select_client_dropdown');
@@ -5847,6 +5879,10 @@ if (resetFormBtn) {
         // Update displays
         updateFieldConfigsDisplay();
         updateSaveButtonState();
+        
+        // Clear modification flags
+        fullFormHasBeenModified = false;
+        formHasBeenModified = false;
         
         console.log('Form reset - ready to create new form');
     });
@@ -7740,6 +7776,20 @@ function saveDependentFields() {
     
     closeDependentFieldsModal();
 }
+
+// ============================================
+// PAGE UNLOAD - CHECK FOR UNSAVED CHANGES
+// ============================================
+window.addEventListener('beforeunload', (event) => {
+    // Check if there are unsaved changes in the full form or in field configs
+    if (fullFormHasBeenModified || formHasBeenModified || (fieldConfigs && fieldConfigs.length > 0)) {
+        // Most modern browsers ignore custom messages for security reasons
+        // The browser will show its default message
+        event.preventDefault();
+        event.returnValue = '';
+        return '';
+    }
+});
 
 // ============================================
 // PAGE LOAD - FETCH FORMS AND INITIALIZE
