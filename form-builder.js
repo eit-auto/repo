@@ -718,7 +718,7 @@ async function fetchExistingForms() {
                     const option = document.createElement('option');
                     const originalIndex = sortedToOriginalIndex[sortedIndex];
                     option.value = originalIndex; // Use original index to reference the form in availableForms array
-                    option.textContent = `${form.form_name} (Form ID: ${form.form_id})`;
+                    option.textContent = `${form.form_name} (ID: ${form.form_id})`;
                     openExistingDropdown.appendChild(option);
                 });
             }
