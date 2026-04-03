@@ -950,6 +950,12 @@
     gap: 0.5rem;
     margin-top: 0.125rem;
   }
+
+  .radio-group.horizontal {
+    flex-direction: row;
+    gap: 1.5rem;
+  }
+
   .radio-item {
     display: flex;
     align-items: center;
