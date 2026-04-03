@@ -7786,8 +7786,8 @@ function saveDependentFields() {
 // PAGE UNLOAD - CHECK FOR UNSAVED CHANGES
 // ============================================
 window.addEventListener('beforeunload', (event) => {
-    // Check if there are unsaved changes in the full form or in field configs
-    if (fullFormHasBeenModified || formHasBeenModified || (fieldConfigs && fieldConfigs.length > 0)) {
+    // Check if there are unsaved changes (only flag changes, not mere presence of fieldConfigs)
+    if (fullFormHasBeenModified || formHasBeenModified) {
         // Most modern browsers ignore custom messages for security reasons
         // The browser will show its default message
         event.preventDefault();
