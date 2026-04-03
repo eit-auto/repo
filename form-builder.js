@@ -1019,14 +1019,14 @@ function saveTypeSpecificFields(fieldConfig) {
                 }
             }
         } else if (elementType === 'dropdown_mysql') {
-            fieldConfig.query = document.getElementById('mysql_query')?.value || '';
+            // Query is already set via the SQL Query modal handler
             fieldConfig.label_field = document.getElementById('mysql_label_field')?.value || '';
             fieldConfig.value_field = document.getElementById('mysql_value_field')?.value || '';
             fieldConfig.multi_select = document.getElementById('multi_select')?.checked || false;
             fieldConfig.searchable = document.getElementById('searchable')?.checked !== false;
             fieldConfig.result_var = document.getElementById('result_var')?.value || '';
         } else if (elementType === 'dropdown_cwa_mysql') {
-            fieldConfig.query = document.getElementById('cwa_mysql_query')?.value || '';
+            // Query is already set via the SQL Query modal handler
             fieldConfig.label_field = document.getElementById('cwa_mysql_label_field')?.value || '';
             fieldConfig.value_field = document.getElementById('cwa_mysql_value_field')?.value || '';
             fieldConfig.multi_select = document.getElementById('multi_select')?.checked || false;
@@ -1084,12 +1084,12 @@ function saveTypeSpecificFields(fieldConfig) {
                 fieldConfig.command = document.getElementById('retrieval_command')?.value || '';
                 fieldConfig.query = '';
             } else if (fieldConfig.data_source_type === 'mysql') {
-                fieldConfig.query = document.getElementById('retrieval_query')?.value || '';
+                // Query is already set via the SQL Query modal handler
                 fieldConfig.node_id = '';
                 fieldConfig.node_query = '';
                 fieldConfig.command = '';
             } else if (fieldConfig.data_source_type === 'cwa_mysql') {
-                fieldConfig.query = document.getElementById('retrieval_cwa_query')?.value || '';
+                // Query is already set via the SQL Query modal handler
                 fieldConfig.node_id = '';
                 fieldConfig.node_query = '';
                 fieldConfig.command = '';
@@ -2966,8 +2966,7 @@ function showElementSettings(elementUid) {
         formHTML += `
             <div style='margin-bottom: 15px;'>
                 <label style='display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;'>SQL Query</label>
-                <textarea id='mysql_query' style='width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box; font-family: monospace; font-size: 13px; min-height: 120px;'>${fieldConfig.query || ''}</textarea>
-                <div style='color: #999; font-size: 12px; margin-top: 6px;'>Use [[field_name]] for form field placeholders, e.g.: SELECT id, name FROM table WHERE org = [[org_field]]</div>
+                <button type='button' id='dropdown_mysql_query_button' class='btn btn-blue' style='width: 100%;'>Edit SQL Query</button>
             </div>
             <div style='margin-bottom: 15px;'>
                 <label style='display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;'>Label Field (Column Name)</label>
@@ -2982,8 +2981,7 @@ function showElementSettings(elementUid) {
         formHTML += `
             <div style='margin-bottom: 15px;'>
                 <label style='display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;'>CWA SQL Query</label>
-                <textarea id='cwa_mysql_query' style='width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box; font-family: monospace; font-size: 13px; min-height: 120px;'>${fieldConfig.query || ''}</textarea>
-                <div style='color: #999; font-size: 12px; margin-top: 6px;'>CWA/LabTech MySQL query. Use [[field_name]] for form field placeholders, e.g.: SELECT id, name FROM table WHERE org = [[org_field]]</div>
+                <button type='button' id='dropdown_cwa_mysql_query_button' class='btn btn-blue' style='width: 100%;'>Edit SQL Query</button>
             </div>
             <div style='margin-bottom: 15px;'>
                 <label style='display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;'>Label Field (Column Name)</label>
@@ -3123,16 +3121,14 @@ function showElementSettings(elementUid) {
             formHTML += `
                 <div style='margin-bottom: 15px;'>
                     <label style='display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;'>SQL Query</label>
-                    <textarea id='retrieval_query' style='width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box; font-family: monospace; font-size: 13px; min-height: 120px;'>${fieldConfig.query || ''}</textarea>
-                    <div style='color: #999; font-size: 12px; margin-top: 6px;'>Use [[field_name]] placeholders. Should return an array or object with arrays.</div>
+                    <button type='button' id='retrieval_mysql_query_button' class='btn btn-blue' style='width: 100%;'>Edit SQL Query</button>
                 </div>
             `;
         } else if (fieldConfig.data_source_type === 'cwa_mysql') {
             formHTML += `
                 <div style='margin-bottom: 15px;'>
                     <label style='display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;'>CWA SQL Query</label>
-                    <textarea id='retrieval_cwa_query' style='width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box; font-family: monospace; font-size: 13px; min-height: 120px;'>${fieldConfig.query || ''}</textarea>
-                    <div style='color: #999; font-size: 12px; margin-top: 6px;'>Use [[field_name]] placeholders. Executes against CWA/LabTech MySQL. Should return an array or object with arrays.</div>
+                    <button type='button' id='retrieval_cwa_mysql_query_button' class='btn btn-blue' style='width: 100%;'>Edit SQL Query</button>
                 </div>
             `;
         }
@@ -3782,11 +3778,19 @@ function showElementSettings(elementUid) {
     
     // Add listeners for dropdown_mysql
     if (fieldConfig.type === 'dropdown_mysql') {
-        const mysqlQueryInput = document.getElementById('mysql_query');
+        const mysqlQueryButton = document.getElementById('dropdown_mysql_query_button');
         const mysqlLabelFieldInput = document.getElementById('mysql_label_field');
         const mysqlValueFieldInput = document.getElementById('mysql_value_field');
         
-        [mysqlQueryInput, mysqlLabelFieldInput, mysqlValueFieldInput].forEach(input => {
+        // Query button listener
+        if (mysqlQueryButton) {
+            mysqlQueryButton.addEventListener('click', () => {
+                openElementSqlQueryModal('dropdown_mysql', fieldConfig.query || '', 'SQL Query');
+            });
+        }
+        
+        // Label and Value field listeners
+        [mysqlLabelFieldInput, mysqlValueFieldInput].forEach(input => {
             if (input) {
                 input.addEventListener('input', () => {
                     formHasBeenModified = true;
@@ -3798,11 +3802,19 @@ function showElementSettings(elementUid) {
     
     // Add listeners for dropdown_cwa_mysql
     if (fieldConfig.type === 'dropdown_cwa_mysql') {
-        const cwaQueryInput = document.getElementById('cwa_mysql_query');
+        const cwaQueryButton = document.getElementById('dropdown_cwa_mysql_query_button');
         const cwaLabelFieldInput = document.getElementById('cwa_mysql_label_field');
         const cwaValueFieldInput = document.getElementById('cwa_mysql_value_field');
         
-        [cwaQueryInput, cwaLabelFieldInput, cwaValueFieldInput].forEach(input => {
+        // Query button listener
+        if (cwaQueryButton) {
+            cwaQueryButton.addEventListener('click', () => {
+                openElementSqlQueryModal('dropdown_cwa_mysql', fieldConfig.query || '', 'CWA SQL Query');
+            });
+        }
+        
+        // Label and Value field listeners
+        [cwaLabelFieldInput, cwaValueFieldInput].forEach(input => {
             if (input) {
                 input.addEventListener('input', () => {
                     formHasBeenModified = true;
@@ -3863,7 +3875,8 @@ function showElementSettings(elementUid) {
         const retrievalNodeIdInput = document.getElementById('retrieval_node_id');
         const retrievalNodeQueryInput = document.getElementById('retrieval_node_query');
         const retrievalCommandInput = document.getElementById('retrieval_command');
-        const retrievalQueryInput = document.getElementById('retrieval_query');
+        const retrievalMysqlQueryButton = document.getElementById('retrieval_mysql_query_button');
+        const retrievalCwaMysqlQueryButton = document.getElementById('retrieval_cwa_mysql_query_button');
         
         // Type dropdown listener - rebuild form on type change
         if (retrievalTypeSelect) {
@@ -3885,8 +3898,22 @@ function showElementSettings(elementUid) {
             });
         }
         
-        // Input listeners
-        [retrievalNodeIdInput, retrievalNodeQueryInput, retrievalCommandInput, retrievalQueryInput].forEach(input => {
+        // MySQL Query button listener
+        if (retrievalMysqlQueryButton) {
+            retrievalMysqlQueryButton.addEventListener('click', () => {
+                openElementSqlQueryModal('retrieval_mysql', fieldConfig.query || '', 'SQL Query');
+            });
+        }
+        
+        // CWA MySQL Query button listener
+        if (retrievalCwaMysqlQueryButton) {
+            retrievalCwaMysqlQueryButton.addEventListener('click', () => {
+                openElementSqlQueryModal('retrieval_cwa_mysql', fieldConfig.query || '', 'CWA SQL Query');
+            });
+        }
+        
+        // Input listeners for non-query fields
+        [retrievalNodeIdInput, retrievalNodeQueryInput, retrievalCommandInput].forEach(input => {
             if (input) {
                 input.addEventListener('input', () => {
                     formHasBeenModified = true;
@@ -4294,6 +4321,90 @@ function showElementSettings(elementUid) {
             }
         }, 0);
     }
+}
+
+// SQL Query Modal for element settings
+const elementSqlQueryModal = document.getElementById('elementSqlQueryModal');
+const elementSqlQueryModalClose = document.getElementById('elementSqlQueryModalClose');
+const elementSqlQueryTitle = document.getElementById('elementSqlQueryTitle');
+const elementSqlQueryTextarea = document.getElementById('element_sql_query_textarea');
+const elementSqlQuerySave = document.getElementById('elementSqlQuerySave');
+const elementSqlQueryCancel = document.getElementById('elementSqlQueryCancel');
+
+let currentElementQueryType = null; // Track which element type's query we're editing
+
+function openElementSqlQueryModal(elementType, currentQuery, title) {
+    console.log('[ELEMENT-SQL] Opening modal for:', elementType);
+    currentElementQueryType = elementType;
+    
+    if (elementSqlQueryTitle) {
+        elementSqlQueryTitle.textContent = title;
+    }
+    
+    if (elementSqlQueryTextarea) {
+        elementSqlQueryTextarea.value = currentQuery || '';
+    }
+    
+    if (elementSqlQueryModal) {
+        elementSqlQueryModal.classList.add('active');
+    }
+}
+
+if (elementSqlQueryModalClose) {
+    elementSqlQueryModalClose.addEventListener('click', () => {
+        if (elementSqlQueryModal) {
+            elementSqlQueryModal.classList.remove('active');
+            currentElementQueryType = null;
+        }
+    });
+}
+
+if (elementSqlQueryCancel) {
+    elementSqlQueryCancel.addEventListener('click', () => {
+        if (elementSqlQueryModal) {
+            elementSqlQueryModal.classList.remove('active');
+            currentElementQueryType = null;
+        }
+    });
+}
+
+if (elementSqlQuerySave) {
+    elementSqlQuerySave.addEventListener('click', () => {
+        console.log('[ELEMENT-SQL] Saving query for:', currentElementQueryType);
+        
+        const query = elementSqlQueryTextarea?.value?.trim();
+        
+        if (!query) {
+            alert('Please enter a SQL query');
+            return;
+        }
+        
+        // Find the field config and update it
+        const fieldConfig = fieldConfigs.find(f => f.uid === selectedElementUid);
+        if (fieldConfig) {
+            fieldConfig.query = query;
+            formHasBeenModified = true;
+            updateElementSettingsSaveButtonVisibility();
+            console.log('[ELEMENT-SQL] Query saved to fieldConfig');
+        }
+        
+        if (elementSqlQueryModal) {
+            elementSqlQueryModal.classList.remove('active');
+            currentElementQueryType = null;
+        }
+    });
+}
+
+// Modal overlay click handler
+if (elementSqlQueryModal) {
+    const handleElementSqlOutsideClick = (event) => {
+        if (event.target === elementSqlQueryModal) {
+            elementSqlQueryModal.classList.remove('active');
+            currentElementQueryType = null;
+            elementSqlQueryModal.removeEventListener('click', handleElementSqlOutsideClick);
+        }
+    };
+    elementSqlQueryModal.addEventListener('click', handleElementSqlOutsideClick);
 }
 
 function saveElementSettings() {
