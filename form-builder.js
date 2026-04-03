@@ -4458,32 +4458,52 @@ function confirmUnsavedChanges(fieldDisplayName = null) {
     return new Promise((resolve) => {
         const modal = document.getElementById('unsavedChangesModal');
         const messageElement = document.getElementById('unsavedChangesMessage');
+        const saveBtn = document.getElementById('unsavedChangesSave');
         const cancelBtn = document.getElementById('unsavedChangesCancel');
         const continueBtn = document.getElementById('unsavedChangesContinue');
         
         // Set the message with field name if provided
         if (fieldDisplayName) {
-            messageElement.textContent = `You have unsaved changes for field "${fieldDisplayName}". Are you sure you want to continue without saving?`;
+            messageElement.textContent = `You have unsaved changes for field "${fieldDisplayName}". What would you like to do?`;
         } else {
-            messageElement.textContent = 'You have unsaved changes. Are you sure you want to continue without saving?';
+            messageElement.textContent = 'You have unsaved changes. What would you like to do?';
         }
         
         modal.classList.add('active');
         
         const handleCancel = () => {
             modal.classList.remove('active');
+            saveBtn.removeEventListener('click', handleSave);
             cancelBtn.removeEventListener('click', handleCancel);
             continueBtn.removeEventListener('click', handleContinue);
             modal.removeEventListener('click', handleOutsideClick);
             resolve(false); // User cancelled
         };
         
-        const handleContinue = () => {
+        const handleSave = () => {
+            // Save the field settings first
+            const saveBtn = document.getElementById('saveSettings');
+            if (saveBtn && !saveBtn.disabled) {
+                console.log('[UNSAVED-CHANGES] User clicked Save Changes, saving field settings');
+                saveBtn.click(); // Trigger the save
+            }
+            
+            // Then proceed with the original action
             modal.classList.remove('active');
+            saveBtn.removeEventListener('click', handleSave);
             cancelBtn.removeEventListener('click', handleCancel);
             continueBtn.removeEventListener('click', handleContinue);
             modal.removeEventListener('click', handleOutsideClick);
-            resolve(true); // User confirmed to discard changes
+            resolve(true); // User saved and wants to proceed
+        };
+        
+        const handleContinue = () => {
+            modal.classList.remove('active');
+            saveBtn.removeEventListener('click', handleSave);
+            cancelBtn.removeEventListener('click', handleCancel);
+            continueBtn.removeEventListener('click', handleContinue);
+            modal.removeEventListener('click', handleOutsideClick);
+            resolve(true); // User discarded changes and wants to proceed
         };
         
         const handleOutsideClick = (e) => {
@@ -4492,6 +4512,7 @@ function confirmUnsavedChanges(fieldDisplayName = null) {
             }
         };
         
+        saveBtn.addEventListener('click', handleSave);
         cancelBtn.addEventListener('click', handleCancel);
         continueBtn.addEventListener('click', handleContinue);
         modal.addEventListener('click', handleOutsideClick);
