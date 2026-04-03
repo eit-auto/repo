@@ -4495,7 +4495,12 @@ function confirmUnsavedChanges(fieldDisplayName = null) {
         
         // Set the message with field name if provided
         if (fieldDisplayName) {
-            messageElement.textContent = `You have unsaved changes for field "${fieldDisplayName}". What would you like to do?`;
+            // Check if this is a full form change (not a field)
+            if (fieldDisplayName.toLowerCase().includes('form')) {
+                messageElement.textContent = `You have unsaved changes in the ${fieldDisplayName}. What would you like to do?`;
+            } else {
+                messageElement.textContent = `You have unsaved changes for field "${fieldDisplayName}". What would you like to do?`;
+            }
         } else {
             messageElement.textContent = 'You have unsaved changes. What would you like to do?';
         }
