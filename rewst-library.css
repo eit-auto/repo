@@ -1081,7 +1081,8 @@
   .form-group.is-waiting .datatable-container,
   .form-group.is-waiting .tree-display-box,
   .form-group.is-waiting .tree-panel,
-  .form-group.is-waiting .dropdown-refresh-btn {
+  .form-group.is-waiting .dropdown-refresh-btn,
+  .form-group.is-waiting .field-loading-message {
     display: none !important;
   }
 
