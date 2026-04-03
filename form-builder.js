@@ -348,7 +348,8 @@ const ELEMENT_TYPE_DEFAULTS = {
             option1: 'value1',
             option2: 'value2'
         },
-        default_select: 'option1'
+        default_select: 'option1',
+        horiz: false
     },
     'text': {
         default_value: null
@@ -902,6 +903,7 @@ function saveTypeSpecificFields(fieldConfig) {
             fieldConfig.default_checked = document.getElementById('default_checked').checked;
         } else if (elementType === 'radio') {
             fieldConfig.default_select = document.getElementById('default_select')?.value || null;
+            fieldConfig.horiz = document.getElementById('radio_horiz')?.checked || false;
             
             // Collect options from individual text fields
             const radioOptionRows = document.querySelectorAll('.radio-option-row');
@@ -2713,6 +2715,10 @@ function showElementSettings(elementUid) {
         formHTML += `
                 </select>
             </div>
+            <div style="margin-bottom: 15px; display: flex; align-items: center; gap: 10px;">
+                <input type="checkbox" id="radio_horiz" ${fieldConfig.horiz ? 'checked' : ''} class="checkbox-input">
+                <label for="radio_horiz" style="margin: 0; color: #ffffff; font-weight: 600; font-size: 14px; cursor: pointer;">Horizontal</label>
+            </div>
         `;
     } else if (fieldConfig.type === 'text') {
         formHTML += `
@@ -3655,6 +3661,15 @@ function showElementSettings(elementUid) {
                     updateElementSettingsSaveButtonVisibility();
                 });
             });
+            
+            // Add listener for horizontal checkbox
+            const radioHorizCheckbox = document.getElementById('radio_horiz');
+            if (radioHorizCheckbox) {
+                radioHorizCheckbox.addEventListener('change', () => {
+                    formHasBeenModified = true;
+                    updateElementSettingsSaveButtonVisibility();
+                });
+            }
         }
     }
     
