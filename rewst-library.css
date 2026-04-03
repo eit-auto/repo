@@ -954,6 +954,7 @@
   .radio-group.horizontal {
     flex-direction: row;
     gap: 1.5rem;
+    flex-wrap: wrap;
   }
 
   .radio-item {
@@ -962,6 +963,7 @@
     gap: 0.5rem;
     margin-top: 0.25rem;
     margin-bottom: 0.25rem;
+    min-width: 120px;
   }
   .radio-item input[type="radio"] {
     width: 18px;
