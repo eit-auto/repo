@@ -31,7 +31,7 @@
     </script>
 
     <!-- External Rewst Library CSS -->
-    <link rel="stylesheet" href="https://eit-auto.github.io/repo/rewst-library.css">
+    <link rel="stylesheet" href="https://eit-auto.github.io/repo/rewst-library.css?v=2.1.7">
     <style>
         /* Form Viewer specific customizations */
         body {
@@ -344,6 +344,22 @@
                 }, obj);
             };
         }
+
+        /**
+         * Check if a field type is a dynamic dropdown type
+         * Exposed at top level for early availability to all code
+         */
+        window.isDynamicDropdownType = function(type) {
+            return ['dropdown', 'dropdown_mysql', 'dropdown_cwa_mysql', 
+                    'dropdown_graphql', 'dropdown_mesh', 'dropdown_prefetch', 'dropdown_tree'].includes(type);
+        };
+
+        /**
+         * Replace page variable references in text
+        /**
+         * Local reference to the global replacePageVariableReferences function from rewst-library
+         */
+        const replacePageVariableReferences = RewstLib.utils.replacePageVariableReferences;
 
         /**
          * Load form config from org variables before body renders
@@ -1442,6 +1458,19 @@
             const columnCount = formConfig.column_count || 1;
             const workflowId = formConfig.form_workflow || '';
             
+            // Set max-width of content-wrapper-inner based on column count
+            const contentWrapperInner = document.querySelector('.content-wrapper-inner');
+            if (contentWrapperInner) {
+                let maxWidth = '800px';
+                if (columnCount === 2) {
+                    maxWidth = '950px';
+                } else if (columnCount === 3) {
+                    maxWidth = '1250px';
+                }
+                contentWrapperInner.style.maxWidth = maxWidth;
+                console.log(`[FORM] Set content-wrapper-inner max-width to ${maxWidth} for ${columnCount} column(s)`);
+            }
+            
             // ========================================
             // DEFINE buildPageVariableDependencyMap FIRST
             // (This must be defined before it's called below)
@@ -1566,179 +1595,15 @@
              * Universal function to replace [[ ]] references in ANY value (within renderForm scope)
              * Uses the renderForm-scoped replacePageVariableReferences function
              */
-            const replaceReferencesInValue = (value) => {
-                if (typeof value === 'string') {
-                    // Replace in string using renderForm-scoped function
-                    return replacePageVariableReferences(value);
-                } else if (typeof value === 'object' && value !== null) {
-                    if (Array.isArray(value)) {
-                        // Recursively replace in array items
-                        return value.map(item => replaceReferencesInValue(item));
-                    } else {
-                        // Recursively replace in object properties
-                        const replaced = {};
-                        Object.keys(value).forEach(key => {
-                            replaced[key] = replaceReferencesInValue(value[key]);
-                        });
-                        return replaced;
-                    }
-                }
-                // Return unchanged for non-string, non-object types
-                return value;
-            };
+            // Use library functions for variable replacement
+            const replaceReferencesInValue = RewstLib.utils.replaceReferencesInValue;
+            const getResolvedFieldConfig = RewstLib.utils.getResolvedFieldConfig;
+            const extractPageVariableReferences = RewstLib.utils.extractPageVariableReferences;
 
             /**
-             * Check if a field has [[ ]] refs in any execution parameters
-             * (workflow_input, graphql_op_variables, query, command, node_query)
+             * Local reference to the global replacePageVariableReferences function from rewst-library
              */
-            const hasExecutionParameterReferences = (config) => {
-                const executionProps = ['workflow_input', 'graphql_op_variables', 'query', 'command', 'node_query'];
-                
-                for (const prop of executionProps) {
-                    if (!config[prop]) continue;
-                    const varNames = scanPropertyForReferences(config[prop]);
-                    if (varNames.size > 0) {
-                        console.log(`[PAGE_VAR_EXEC] Field ${config.field_name} has refs in ${prop}:`, Array.from(varNames));
-                        return true;
-                    }
-                }
-                return false;
-            };
-
-            /**
-             * Get a copy of the field config with all [[ ]] references replaced
-             * Used before executing workflows, queries, etc.
-             */
-            const getResolvedFieldConfig = (config) => {
-                const resolved = { ...config };
-                
-                // Replace in execution parameters
-                const executionProps = ['workflow_input', 'graphql_op_variables', 'query', 'command', 'node_query'];
-                executionProps.forEach(prop => {
-                    if (resolved[prop]) {
-                        resolved[prop] = replaceReferencesInValue(config[prop]);
-                        if (resolved[prop] !== config[prop]) {
-                            console.log(`[PAGE_VAR_EXEC] Resolved ${prop}:`, resolved[prop]);
-                        }
-                    }
-                });
-                
-                // Replace in display parameters
-                ['default_value', 'default_select', 'description', 'content', 'field_displayname'].forEach(prop => {
-                    if (resolved[prop] && typeof resolved[prop] === 'string') {
-                        resolved[prop] = replaceReferencesInValue(config[prop]);
-                    }
-                });
-                
-                return resolved;
-            };
-
-            /**
-             * Extract [[ variable_name.property ]] references from a string
-             * Returns array of {fullMatch, varName, propertyPath}
-             */
-            const extractPageVariableReferences = (text) => {
-                if (!text || typeof text !== 'string') return [];
-                const regex = /\[\[\s*(\w+)(?:\.([^\]]+))?\s*\]\]/g;
-                const matches = [];
-                let match;
-                while ((match = regex.exec(text)) !== null) {
-                    matches.push({
-                        fullMatch: match[0],
-                        varName: match[1],
-                        propertyPath: match[2] ? match[2].trim() : ''
-                    });
-                }
-                return matches;
-            };
-
-            /**
-             * Replace [[ ]] references in text with actual values from pageVariables
-             */
-            const replacePageVariableReferences = (text) => {
-                if (!text || typeof text !== 'string') return text;
-                
-                console.log(`[REPLACE_VARS] Input text: "${text}"`);
-                console.log(`[REPLACE_VARS] window.pageVariables:`, window.pageVariables);
-                
-                // Handle sources without brackets but with operators (e.g., "script_info.Parameters|split")
-                if (text.includes('|') && !text.includes('[[')) {
-                    console.log(`[REPLACE_VARS] Detected operator syntax without brackets: "${text}"`);
-                    const parts = text.split('|');
-                    const varPath = parts[0].trim();
-                    const operator = parts[1]?.trim();
-                    
-                    const dotParts = varPath.split('.');
-                    const varName = dotParts[0];
-                    const propertyPath = dotParts.slice(1).join('.');
-                    
-                    let resolvedValue = window.pageVariables[varName];
-                    if (resolvedValue && propertyPath) {
-                        resolvedValue = RewstLib.utils.getValueByPath(resolvedValue, propertyPath);
-                    }
-                    
-                    if (resolvedValue === undefined) {
-                        console.log(`[REPLACE_VARS] Variable "${varName}" not found`);
-                        return text; // Return original if not found
-                    }
-                    
-                    if (operator === 'split' && typeof resolvedValue === 'string') {
-                        const splitResult = resolvedValue.split(',').map(item => item.trim()).filter(item => item !== '');
-                        console.log(`[REPLACE_VARS] Split result:`, splitResult);
-                        return splitResult;
-                    }
-                    
-                    return resolvedValue;
-                }
-                
-                // Handle bracket syntax (e.g., "[[varName.property|operator]]")
-                const result = text.replace(/\[\[\s*(\w+)(?:\.([^\]|]+))?(?:\|([a-z_]+))?\s*\]\]/g, (match, varName, propertyPath, operator) => {
-                    // Trim propertyPath to remove leading/trailing spaces
-                    if (propertyPath) {
-                        propertyPath = propertyPath.trim();
-                    }
-                    
-                    console.log(`[REPLACE_VARS] Found ref: match="${match}", varName="${varName}", propertyPath="${propertyPath}", operator="${operator}"`);
-                    
-                    const value = window.pageVariables[varName];
-                    console.log(`[REPLACE_VARS] Looked up ${varName}:`, value);
-                    
-                    if (value === undefined || value === null) {
-                        console.log(`[REPLACE_VARS] Value is undefined/null, returning match`);
-                        return match; // Leave placeholder if not found
-                    }
-                    
-                    let resolvedValue = value;
-                    
-                    if (propertyPath) {
-                        console.log(`[REPLACE_VARS] Getting nested path: ${propertyPath}`);
-                        resolvedValue = RewstLib.utils.getValueByPath(value, propertyPath);
-                        console.log(`[REPLACE_VARS] Nested value:`, resolvedValue);
-                        if (resolvedValue === undefined) return match;
-                    }
-                    
-                    // Apply operator if specified
-                    if (operator) {
-                        console.log(`[REPLACE_VARS] Applying operator: ${operator}`);
-                        if (operator === 'split') {
-                            // Split comma-separated string into array
-                            if (typeof resolvedValue === 'string') {
-                                resolvedValue = resolvedValue.split(',').map(item => item.trim()).filter(item => item !== '');
-                                console.log(`[REPLACE_VARS] Split result:`, resolvedValue);
-                            }
-                        }
-                    }
-                    
-                    // Return the resolved value (as-is if it's an array, or as string)
-                    if (Array.isArray(resolvedValue)) {
-                        return resolvedValue;
-                    }
-                    return String(resolvedValue);
-                });
-                
-                console.log(`[REPLACE_VARS] Output text: "${result}"`);
-                return result;
-            };
+            const replacePageVariableReferences = RewstLib.utils.replacePageVariableReferences;
 
             /**
              * Check if a field has unresolved page variable references
@@ -2011,6 +1876,96 @@
             };
             
             // ========================================
+            // CONSOLIDATED DROPDOWN HELPERS
+            // ========================================
+            
+            /**
+             * Render HTML for any dynamic dropdown type (consolidated)
+             * Handles single-select and multi-select, with variations for dropdown_prefetch
+             */
+            function renderDynamicDropdownHTML(config, displayName, proxyCache) {
+                const multiSelectId = `ms_${config.field_name}`;
+                let fieldControlHtml = '';
+                
+                // Handle multi-select rendering (all types identical)
+                if (config.multi_select) {
+                    fieldControlHtml = `
+                        <div class="multi-select-container" id="${multiSelectId}">
+                            <div class="multi-select-display">
+                                <div class="multi-select-tags"></div>
+                                <div class="multi-select-toggle">▼</div>
+                            </div>
+                            <div class="multi-select-options"></div>
+                            <select name="${config.field_name}" class="multi-select-hidden-select" multiple="multiple" data-selected-values="[]"></select>
+                        </div>
+                    `;
+                } else {
+                    // Single-select: check if searchable (default is searchable unless explicitly false)
+                    if (config.searchable !== false) {
+                        // Searchable single-select: custom component
+                        fieldControlHtml = `
+                            <div style="position: relative; width: 100%; box-sizing: border-box;">
+                                <input type="text" class="searchable-select-input" placeholder="Search or select..." style="width: 100%; padding: 8px; padding-right: 56px; border: 1px solid #555; border-radius: 4px; background: #1a3540; color: #ffffff; box-sizing: border-box;">
+                                <div class="searchable-select-clear" style="display: none;">✕</div>
+                                <div class="searchable-select-toggle">▼</div>
+                                <select class="searchable-select-hidden-select" name="${config.field_name}"></select>
+                                <div class="searchable-select-dropdown" style="display: none;"></div>
+                            </div>
+                        `;
+                    } else if (config.type === 'dropdown_prefetch') {
+                        // Non-searchable prefetch: extract cached options
+                        const sourceFieldName = config.source_element_name;
+                        const resultPath = config.result_path || 'id';
+                        const labelField = config.label_field || 'name';
+                        const valueField = config.value_field || 'id';
+                        
+                        let options = [];
+                        if (sourceFieldName && proxyCache && proxyCache.dataRetrievalResults && proxyCache.dataRetrievalResults[sourceFieldName]) {
+                            const sourceData = proxyCache.dataRetrievalResults[sourceFieldName];
+                            const results = sourceData[resultPath];
+                            if (Array.isArray(results)) {
+                                options = results.map(item => ({
+                                    label: item[labelField] || item.name || String(item.id),
+                                    value: item[valueField] || item.id || ''
+                                }));
+                            }
+                        }
+                        
+                        const optionsHtml = options.map(opt => 
+                            `<option value="${escapeHtml(String(opt.value))}">${escapeHtml(String(opt.label))}</option>`
+                        ).join('');
+                        fieldControlHtml = `<select name="${config.field_name}" style="width: 100%; box-sizing: border-box;"><option value="">${RewstLib.utils.getGrammaticalPhrase(config.field_displayname)}</option>${optionsHtml}</select>`;
+                    } else {
+                        // Non-searchable dynamic dropdown: native select with placeholder
+                        fieldControlHtml = `<select name="${config.field_name}" style="width: 100%; box-sizing: border-box;"><option value="">Loading...</option></select>`;
+                    }
+                }
+                
+                // Determine waiting message and refresh button attributes
+                let waitingMsg = 'Waiting for dependencies...';
+                let refreshBtnExtra = '';
+                
+                if (config.type === 'dropdown_prefetch') {
+                    waitingMsg = `Waiting for ${config.source_element_name}`;
+                    refreshBtnExtra = ` data-source-field="${config.source_element_name}"`;
+                }
+                
+                // Render consolidated HTML
+                const html = `
+                    <label>${displayName}</label>
+                    ${config.description ? `<div class="field-description">${escapeHtml(config.description)}</div>` : ''}
+                    <div class="dropdown-refresh-container">
+                        <div class="field-loading-message" style="display: none;"><span class="spinner"></span> Loading...</div>
+                        <div class="field-waiting-message" style="display: none;">${waitingMsg}</div>
+                        ${fieldControlHtml}
+                        <button type="button" class="btn btn-small dropdown-refresh-btn" data-field-name="${config.field_name}"${refreshBtnExtra} title="Refresh options">↻</button>
+                    </div>
+                `;
+                
+                return html;
+            }
+            
+            // ========================================
             // END HELPER FUNCTION DEFINITIONS
             // ========================================
             
@@ -2102,10 +2057,11 @@
                         <input type="datetime-local" name="${config.field_name}" value="${escapeHtml(config.default_value || '')}">
                     `;
                 } else if (config.type === 'radio') {
+                    const horizontalClass = config.horiz ? 'horizontal' : '';
                     html += `
                         <label>${displayName}</label>
                         ${config.description ? `<div class="field-description">${escapeHtml(config.description)}</div>` : ''}
-                        <div class="radio-group">
+                        <div class="radio-group ${horizontalClass}">
                     `;
                     
                     if (config.options && typeof config.options === 'object') {
@@ -2144,194 +2100,24 @@
                         
                         html += '</select>';
                     }
-                } else if (config.type === 'dropdown') {
-                    const multiSelectId = `ms_${config.field_name}`;
-                    let fieldControlHtml = '';
-                    if (config.multi_select) {
-                        fieldControlHtml = `
-                            <div class="multi-select-container" id="${multiSelectId}">
-                                <div class="multi-select-display">
-                                    <div class="multi-select-tags"></div>
-                                    <div class="multi-select-toggle">▼</div>
-                                </div>
-                                <div class="multi-select-options"></div>
-                                <select name="${config.field_name}" class="multi-select-hidden-select" multiple="multiple" data-selected-values="[]"></select>
-                            </div>
-                        `;
-                    } else {
-                        fieldControlHtml = `<select name="${config.field_name}" style="width: 100%; box-sizing: border-box;"><option value="">Loading...</option></select>`;
-                    }
+                } else if (config.type === 'dropdown_tree') {
+                    // Tree dropdown: custom overlay UI
                     html += `
                         <label>${displayName}</label>
                         ${config.description ? `<div class="field-description">${escapeHtml(config.description)}</div>` : ''}
-                        <div class="dropdown-refresh-container">
+                        <div class="dropdown-refresh-container" style="position: relative;">
                             <div class="field-loading-message" style="display: none;"><span class="spinner"></span> Loading...</div>
-                            <div class="field-waiting-message" style="display: none;">Waiting for dependencies...</div>
-                            ${fieldControlHtml}
-                            <button type="button" class="btn btn-small dropdown-refresh-btn" data-field-name="${config.field_name}" title="Refresh options">↻</button>
-                        </div>
-                    `;
-                } else if (config.type === 'dropdown_mysql') {
-                    const multiSelectId = `ms_${config.field_name}`;
-                    let fieldControlHtml = '';
-                    if (config.multi_select) {
-                        fieldControlHtml = `
-                            <div class="multi-select-container" id="${multiSelectId}">
-                                <div class="multi-select-display">
-                                    <div class="multi-select-tags"></div>
-                                    <div class="multi-select-toggle">▼</div>
-                                </div>
-                                <div class="multi-select-options"></div>
-                                <select name="${config.field_name}" class="multi-select-hidden-select" multiple="multiple" data-selected-values="[]"></select>
+                            <div class="field-waiting-message" style="display: none; position: absolute; left: 0; right: 0; top: 0; width: 100%; box-sizing: border-box; margin: 0; z-index: 10;">Waiting for dependencies...</div>
+                            <div class="tree-display-box" style="width: 100%; padding: 8px; border: 1px solid #555; border-radius: 4px; background: #1a3540; color: #e0e0e0; cursor: pointer; box-sizing: border-box; user-select: none;">
+                                <span class="tree-placeholder">-- Select folder --</span>
                             </div>
-                        `;
-                    } else {
-                        fieldControlHtml = `<select name="${config.field_name}" style="width: 100%; box-sizing: border-box;"><option value="">Loading...</option></select>`;
-                    }
-                    html += `
-                        <label>${displayName}</label>
-                        ${config.description ? `<div class="field-description">${escapeHtml(config.description)}</div>` : ''}
-                        <div class="dropdown-refresh-container">
-                            <div class="field-loading-message" style="display: none;"><span class="spinner"></span> Loading...</div>
-                            <div class="field-waiting-message" style="display: none;">Waiting for dependencies...</div>
-                            ${fieldControlHtml}
-                            <button type="button" class="btn btn-small dropdown-refresh-btn" data-field-name="${config.field_name}" title="Refresh options">↻</button>
+                            <button type="button" class="btn btn-small dropdown-refresh-btn" data-field-name="${config.field_name}" title="Refresh tree">↻</button>
+                            <input type="hidden" name="${config.field_name}" class="tree-hidden-value">
                         </div>
                     `;
-                } else if (config.type === 'dropdown_cwa_mysql') {
-                    const multiSelectId = `ms_${config.field_name}`;
-                    let fieldControlHtml = '';
-                    if (config.multi_select) {
-                        fieldControlHtml = `
-                            <div class="multi-select-container" id="${multiSelectId}">
-                                <div class="multi-select-display">
-                                    <div class="multi-select-tags"></div>
-                                    <div class="multi-select-toggle">▼</div>
-                                </div>
-                                <div class="multi-select-options"></div>
-                                <select name="${config.field_name}" class="multi-select-hidden-select" multiple="multiple" data-selected-values="[]"></select>
-                            </div>
-                        `;
-                    } else {
-                        fieldControlHtml = `<select name="${config.field_name}" style="width: 100%; box-sizing: border-box;"><option value="">Loading...</option></select>`;
-                    }
-                    html += `
-                        <label>${displayName}</label>
-                        ${config.description ? `<div class="field-description">${escapeHtml(config.description)}</div>` : ''}
-                        <div class="dropdown-refresh-container">
-                            <div class="field-loading-message" style="display: none;"><span class="spinner"></span> Loading...</div>
-                            <div class="field-waiting-message" style="display: none;">Waiting for dependencies...</div>
-                            ${fieldControlHtml}
-                            <button type="button" class="btn btn-small dropdown-refresh-btn" data-field-name="${config.field_name}" title="Refresh options">↻</button>
-                        </div>
-                    `;
-                } else if (config.type === 'dropdown_graphql') {
-                    const multiSelectId = `ms_${config.field_name}`;
-                    let fieldControlHtml = '';
-                    if (config.multi_select) {
-                        fieldControlHtml = `
-                            <div class="multi-select-container" id="${multiSelectId}">
-                                <div class="multi-select-display">
-                                    <div class="multi-select-tags"></div>
-                                    <div class="multi-select-toggle">▼</div>
-                                </div>
-                                <div class="multi-select-options"></div>
-                                <select name="${config.field_name}" class="multi-select-hidden-select" multiple="multiple" data-selected-values="[]"></select>
-                            </div>
-                        `;
-                    } else {
-                        fieldControlHtml = `<select name="${config.field_name}" style="width: 100%; box-sizing: border-box;"><option value="">Loading...</option></select>`;
-                    }
-                    html += `
-                        <label>${displayName}</label>
-                        ${config.description ? `<div class="field-description">${escapeHtml(config.description)}</div>` : ''}
-                        <div class="dropdown-refresh-container">
-                            <div class="field-loading-message" style="display: none;"><span class="spinner"></span> Loading...</div>
-                            <div class="field-waiting-message" style="display: none;">Waiting for dependencies...</div>
-                            ${fieldControlHtml}
-                            <button type="button" class="btn btn-small dropdown-refresh-btn" data-field-name="${config.field_name}" title="Refresh options">↻</button>
-                        </div>
-                    `;
-                } else if (config.type === 'dropdown_mesh') {
-                    const multiSelectId = `ms_${config.field_name}`;
-                    let fieldControlHtml = '';
-                    if (config.multi_select) {
-                        fieldControlHtml = `
-                            <div class="multi-select-container" id="${multiSelectId}">
-                                <div class="multi-select-display">
-                                    <div class="multi-select-tags"></div>
-                                    <div class="multi-select-toggle">▼</div>
-                                </div>
-                                <div class="multi-select-options"></div>
-                                <select name="${config.field_name}" class="multi-select-hidden-select" multiple="multiple" data-selected-values="[]"></select>
-                            </div>
-                        `;
-                    } else {
-                        fieldControlHtml = `<select name="${config.field_name}" style="width: 100%; box-sizing: border-box;"><option value="">Loading...</option></select>`;
-                    }
-                    html += `
-                        <label>${displayName}</label>
-                        ${config.description ? `<div class="field-description">${escapeHtml(config.description)}</div>` : ''}
-                        <div class="dropdown-refresh-container">
-                            <div class="field-loading-message" style="display: none;"><span class="spinner"></span> Loading...</div>
-                            <div class="field-waiting-message" style="display: none;">Waiting for dependencies...</div>
-                            ${fieldControlHtml}
-                            <button type="button" class="btn btn-small dropdown-refresh-btn" data-field-name="${config.field_name}" title="Refresh options">↻</button>
-                        </div>
-                    `;
-                } else if (config.type === 'dropdown_prefetch') {
-                    // Get the source field config
-                    const sourceFieldName = config.source_element_name;
-                    const resultPath = config.result_path || 'id';
-                    const labelField = config.label_field || 'name';
-                    const valueField = config.value_field || 'id';
-                    
-                    let options = [];
-                    
-                    // Check if we have cached data from the source field
-                    if (sourceFieldName && proxyCache.dataRetrievalResults && proxyCache.dataRetrievalResults[sourceFieldName]) {
-                        const sourceData = proxyCache.dataRetrievalResults[sourceFieldName];
-                        const results = sourceData[resultPath];
-                        if (Array.isArray(results)) {
-                            options = results.map(item => ({
-                                label: item[labelField] || item.name || String(item.id),
-                                value: item[valueField] || item.id || ''
-                            }));
-                        }
-                    }
-                    
-                    const multiSelectId = `ms_${config.field_name}`;
-                    const waitingMsg = `Waiting for ${sourceFieldName}`;
-                    let fieldControlHtml = '';
-                    
-                    if (config.multi_select) {
-                        fieldControlHtml = `
-                            <div class="multi-select-container" id="${multiSelectId}">
-                                <div class="multi-select-display">
-                                    <div class="multi-select-tags"></div>
-                                    <div class="multi-select-toggle">▼</div>
-                                </div>
-                                <div class="multi-select-options"></div>
-                                <select name="${config.field_name}" class="multi-select-hidden-select" multiple="multiple" data-selected-values="[]"></select>
-                            </div>
-                        `;
-                    } else {
-                        const optionsHtml = options.map(opt => 
-                            `<option value="${escapeHtml(String(opt.value))}">${escapeHtml(String(opt.label))}</option>`
-                        ).join('');
-                        fieldControlHtml = `<select name="${config.field_name}" style="width: 100%; box-sizing: border-box;"><option value="">${RewstLib.utils.getGrammaticalPhrase(config.field_displayname)}</option>${optionsHtml}</select>`;
-                    }
-                    
-                    html += `
-                        <label>${displayName}</label>
-                        ${config.description ? `<div class="field-description">${escapeHtml(config.description)}</div>` : ''}
-                        <div class="dropdown-refresh-container">
-                            <div class="field-loading-message" style="display: none;"><span class="spinner"></span> Loading...</div>
-                            <div class="field-waiting-message" style="display: none;">${waitingMsg}</div>
-                            ${fieldControlHtml}
-                            <button type="button" class="btn btn-small dropdown-refresh-btn" data-field-name="${config.field_name}" data-source-field="${sourceFieldName}" title="Refresh options">↻</button>
-                        </div>
-                    `;
+                } else if (isDynamicDropdownType(config.type)) {
+                    // Consolidated rendering for all dynamic dropdown types (except tree)
+                    html += renderDynamicDropdownHTML(config, displayName, proxyCache);
                 } else if (config.type === 'html') {
                     // Render HTML content directly with label color styling
                     const hasUnresolved = hasUnresolvedPageVariables(config);
@@ -2382,16 +2168,18 @@
                             }
                         } else {
                             // Generate compact input fields for each parameter
-                            const parametersHtml = sourceArray.map((paramName, idx) => {
-                                const fieldId = `${config.field_name}_param_${idx}`;
-                                const displayName = paramName || `Parameter ${idx + 1}`;
-                                return `
-                                    <div style="display: flex; gap: 10px; align-items: center; margin-bottom: 0.35rem;">
-                                        <label style="flex: 0 0 auto; min-width: 180px; color: #a0a0a0; font-weight: 600; font-size: 0.9rem;">${escapeHtml(displayName)}:</label>
-                                        <input type="text" id="${fieldId}" data-field-name="${config.field_name}" data-param-name="${escapeHtml(displayName)}" data-param-index="${idx}" placeholder="Enter value" style="flex: 1; padding: 0.5rem; border: 1px solid #404040; border-radius: 4px; background: #1a1a1a; color: #e0e0e0;">
-                                    </div>
-                                `;
-                            }).join('');
+                            const parametersHtml = sourceArray.length > 0 
+                                ? sourceArray.map((paramName, idx) => {
+                                    const fieldId = `${config.field_name}_param_${idx}`;
+                                    const displayName = paramName || `Parameter ${idx + 1}`;
+                                    return `
+                                        <div style="display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-start; margin-bottom: 0.35rem;">
+                                            <label style="flex: 1 1 calc(50% - 5px); color: #a0a0a0; font-weight: 600; font-size: 0.9rem; word-break: break-word;">${escapeHtml(displayName)}:</label>
+                                            <input type="text" id="${fieldId}" data-field-name="${config.field_name}" data-param-name="${escapeHtml(displayName)}" data-param-index="${idx}" placeholder="Enter value" style="flex: 1 1 calc(50% - 5px); padding: 0.5rem; border: 1px solid #404040; border-radius: 4px; background: #1a1a1a; color: #e0e0e0;">
+                                        </div>
+                                    `;
+                                }).join('')
+                                : '<div style="color: #999;">N/A</div>';
                             
                             html += `
                                 <div class="array-field-container" data-repeating-input-mode="true" data-array-name="${config.field_name}">
@@ -2482,7 +2270,7 @@
                         <label>${displayName}</label>
                         ${config.description ? `<div class="field-description">${escapeHtml(config.description)}</div>` : ''}
                         <div class="datatable-container" style="position: relative; overflow-x: auto; border: 1px solid #404040; border-radius: 4px; background: #1a3540;">
-                            ${isWaiting ? `<div class="field-waiting-message" style="display: flex; position: relative; left: 0; right: 0; margin: 0; z-index: 10; background: rgba(26, 53, 64, 0.9);">Waiting for dependencies...</div>` : ''}
+                            ${isWaiting ? `<div class="field-waiting-message" style="display: flex; position: absolute; left: 0; right: 0; margin: 0; z-index: 10; background: rgba(26, 53, 64, 0.9);">Waiting for dependencies...</div>` : ''}
                             <div class="datatable-content" style="padding: 0.75rem; ${isWaiting ? 'visibility: hidden;' : ''}">
                                 ${hasData ? renderDatatable(datatableData, config) : (datatableData !== undefined ? renderDatatable(datatableData, config) : '')}
                             </div>
@@ -2589,9 +2377,11 @@
                 
                 // Render full-width fields (column 99)
                 if (columns[99]) {
+                    html += '<div style="padding-top: 10px;">';
                     columns[99].forEach(config => {
                         html += renderFieldHTML(config, fieldConfigs);
                     });
+                    html += '</div>';
                 }
             } else if (columnCount === 3) {
                 // Three columns
@@ -2634,9 +2424,11 @@
                 
                 // Render full-width fields (column 99)
                 if (columns[99]) {
+                    html += '<div style="padding-top: 10px;">';
                     columns[99].forEach(config => {
                         html += renderFieldHTML(config, fieldConfigs);
                     });
+                    html += '</div>';
                 }
             }
 
@@ -2788,7 +2580,8 @@
                         fieldConfigs.forEach(fc => {
                             const formGroup = document.querySelector(`[data-field-name="${fc.field_name}"]`);
                             if (formGroup && formGroup.style.display !== 'none') {
-                                if (fc.type === 'dropdown' || fc.type === 'dropdown_graphql') {
+                                const isDropdownType = ['dropdown', 'dropdown_mysql', 'dropdown_cwa_mysql', 'dropdown_graphql', 'dropdown_mesh', 'dropdown_prefetch', 'dropdown_tree'].includes(fc.type);
+                                if (isDropdownType) {
                                     // Skip if this field is dependent on the changed field
                                     // (updateDependentFields already handled it)
                                     const isDependentOnChanged = fc.dependant_fields && (
@@ -2875,33 +2668,14 @@
             // Dropdowns without dependencies load immediately
             // Dropdowns with dependencies will load when their parent field changes
             fieldConfigs.forEach(config => {
-                if (config.type === 'dropdown' && config.workflow_id && !config.dependant_fields) {
-                    console.log(`Dropdown ${config.field_name} has no dependencies, loading options immediately`);
-                    loadFieldOptions(config, fieldConfigs, formConfig);
-                }
-                if (config.type === 'dropdown_graphql' && !config.dependant_fields) {
-                    console.log(`Dropdown_graphql ${config.field_name} has no dependencies, loading options immediately`);
-                    loadFieldOptions(config, fieldConfigs, formConfig);
-                }
-                if (config.type === 'dropdown_mysql' && !config.dependant_fields) {
-                    console.log(`Dropdown_mysql ${config.field_name} has no dependencies, loading options immediately`);
-                    loadFieldOptions(config, fieldConfigs, formConfig);
-                }
-                if (config.type === 'dropdown_cwa_mysql' && !config.dependant_fields) {
-                    console.log(`Dropdown_cwa_mysql ${config.field_name} has no dependencies, loading options immediately`);
-                    loadFieldOptions(config, fieldConfigs, formConfig);
-                }
-                if (config.type === 'dropdown_mesh' && !config.dependant_fields) {
-                    console.log(`Dropdown_mesh ${config.field_name} has no dependencies, loading options immediately`);
-                    loadFieldOptions(config, fieldConfigs, formConfig);
+                if ((config.type === 'dropdown' && config.workflow_id) || isDynamicDropdownType(config.type)) {
+                    if (!config.dependant_fields || config.type === 'dropdown_prefetch' || config.type === 'dropdown_tree') {
+                        console.log(`${config.type} ${config.field_name} initializing (dependencies: ${config.dependant_fields ? 'yes' : 'no'})`);
+                        loadFieldOptions(config, fieldConfigs, formConfig);
+                    }
                 }
                 if (config.type === 'data_retrieval' && !config.dependant_fields) {
                     console.log(`Data_retrieval ${config.field_name} has no dependencies, executing immediately`);
-                    loadFieldOptions(config, fieldConfigs, formConfig);
-                }
-                // Initialize dropdown_prefetch fields (both with and without dependencies)
-                if (config.type === 'dropdown_prefetch') {
-                    console.log(`Dropdown_prefetch ${config.field_name} initializing`);
                     loadFieldOptions(config, fieldConfigs, formConfig);
                 }
             });
@@ -2963,7 +2737,7 @@
             if (!formGroup) return;
             const msg = formGroup.querySelector('.field-loading-message');
             const multiSelect = formGroup.querySelector('.multi-select-container');
-            const select = formGroup.querySelector('select:not(.multi-select-hidden-select)');
+            const select = formGroup.querySelector('select:not(.multi-select-hidden-select):not(.searchable-select-hidden-select)');
             
             if (msg) msg.style.display = 'flex';
             if (multiSelect) multiSelect.style.display = 'none';
@@ -2977,7 +2751,7 @@
             if (!formGroup) return;
             const msg = formGroup.querySelector('.field-loading-message');
             const multiSelect = formGroup.querySelector('.multi-select-container');
-            const select = formGroup.querySelector('select:not(.multi-select-hidden-select)');
+            const select = formGroup.querySelector('select:not(.multi-select-hidden-select):not(.searchable-select-hidden-select)');
             
             if (msg) msg.style.display = 'none';
             if (multiSelect) multiSelect.style.display = 'block';
@@ -3134,12 +2908,8 @@
                 
                 // Reload options for dropdown fields, data_retrieval, array (repeating_input_mode), form_extend, and html fields
                 if ((config.type === 'dropdown' && config.workflow_id) || 
-                    config.type === 'dropdown_graphql' || 
-                    config.type === 'dropdown_mesh' || 
-                    config.type === 'dropdown_mysql' ||
-                    config.type === 'dropdown_cwa_mysql' ||
+                    isDynamicDropdownType(config.type) ||
                     config.type === 'data_retrieval' ||
-                    config.type === 'dropdown_prefetch' ||
                     config.type === 'form_extend' ||
                     config.type === 'html' ||
                     (config.type === 'array' && config.repeating_input_mode === true)) {
@@ -3307,27 +3077,6 @@
         };
 
         /**
-         * Universal function to replace [[ ]] references in ANY value
-         * Handles strings, objects (recursive), and arrays
-         */
-        const replaceReferencesInValue = (value, replaceFunc) => {
-            if (typeof value === 'string') {
-                return replaceFunc(value);
-            } else if (typeof value === 'object' && value !== null) {
-                if (Array.isArray(value)) {
-                    return value.map(item => replaceReferencesInValue(item, replaceFunc));
-                } else {
-                    const replaced = {};
-                    Object.keys(value).forEach(key => {
-                        replaced[key] = replaceReferencesInValue(value[key], replaceFunc);
-                    });
-                    return replaced;
-                }
-            }
-            return value;
-        };
-
-        /**
          * Check if a field has [[ ]] refs in any execution parameters
          */
         const hasExecutionParameterReferences = (config) => {
@@ -3342,80 +3091,375 @@
             return false;
         };
 
+        // Variable replacement functions are now in RewstLib.utils
+        const getResolvedFieldConfig = RewstLib.utils.getResolvedFieldConfig;
+
         /**
-         * Get a copy of the field config with all [[ ]] references replaced
-         * Uses outer-scope replaceReferencesInValue for value resolution
+         * Initialize dropdown tree UI - converts flat tree data to hierarchical structure and renders overlay
          */
-        const getResolvedFieldConfig = (config) => {
-            const resolved = { ...config };
+        function initializeDropdownTree(fieldName, flatData, config, fieldMappings) {
+            const formGroup = document.querySelector(`[data-field-name="${fieldName}"]`);
+            if (!formGroup) return;
             
-            // Replace in execution parameters using outer-scope function
-            const executionProps = ['workflow_input', 'graphql_op_variables', 'query', 'command', 'node_query'];
-            executionProps.forEach(prop => {
-                if (resolved[prop]) {
-                    resolved[prop] = replaceReferencesInValue(config[prop], (str) => {
-                        // Replace [[ varName.property ]] with values from window.pageVariables
-                        return str.replace(/\[\[\s*(\w+)(?:\.([^\]]+))?\s*\]\]/g, (match, varName, propertyPath) => {
-                            if (!propertyPath) {
-                                // [[ varName ]] - whole object
-                                const val = window.pageVariables[varName];
-                                // For strings, return raw value; for objects/arrays, stringify; otherwise stringify
-                                if (val === undefined) return match;
-                                if (typeof val === 'string') return val;
-                                return JSON.stringify(val);
-                            } else {
-                                // [[ varName.property ]]
-                                const pageVar = window.pageVariables[varName];
-                                if (pageVar === undefined) return match;
-                                
-                                const trimmedPath = propertyPath.trim();
-                                const parts = trimmedPath.split('.');
-                                let current = pageVar;
-                                for (const part of parts) {
-                                    if (current && typeof current === 'object') {
-                                        current = current[part];
-                                    } else {
-                                        return match;
-                                    }
-                                }
-                                return current !== undefined ? String(current) : match;
-                            }
-                        });
-                    });
+            const { labelField, valueField, parentField, levelField } = fieldMappings;
+            
+            // Get the hidden input element for storing value
+            const hiddenInput = formGroup.querySelector(`input[name="${fieldName}"]`);
+            if (hiddenInput) {
+                console.log(`[TREE] Found hidden input for ${fieldName}`, hiddenInput);
+            } else {
+                console.log(`[TREE] WARNING: Could not find input[name="${fieldName}"] in formGroup`);
+            }
+            
+            // Parse flat data into tree structure
+            const treeData = buildTreeStructure(flatData, valueField, parentField, levelField);
+            
+            // Create tree display container
+            const displayBox = formGroup.querySelector('.tree-display-box');
+            if (displayBox) {
+                displayBox.innerHTML = '<span class="tree-placeholder">-- Select folder --</span>';
+            }
+            
+            // Create tree overlay panel
+            let treePanel = formGroup.querySelector('.tree-panel');
+            if (!treePanel) {
+                treePanel = document.createElement('div');
+                treePanel.className = 'tree-panel';
+                treePanel.style.cssText = `
+                    position: absolute;
+                    top: 100%;
+                    left: 0;
+                    right: 0;
+                    background: #1a1a1a;
+                    border: 1px solid #404040;
+                    border-radius: 4px;
+                    margin-top: 2px;
+                    max-height: 300px;
+                    overflow-y: auto;
+                    z-index: 100;
+                    display: none;
+                    box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+                `;
+                formGroup.appendChild(treePanel);
+            }
+            
+            // Render tree items
+            const treeHtml = renderTreeItems(treeData, fieldName, labelField, valueField);
+            
+            // Build tree panel HTML with search input and tree items
+            const searchEnabled = config.searchable !== false;
+            let panelHtml = '';
+            if (searchEnabled) {
+                panelHtml += `
+                    <div style="padding: 8px; border-bottom: 1px solid #404040;">
+                        <input type="text" class="tree-search-input" placeholder="Search..." style="width: 100%; padding: 6px; border: 1px solid #555; border-radius: 4px; background: #1a3540; color: #ffffff; box-sizing: border-box; font-size: 14px;">
+                    </div>
+                `;
+            }
+            panelHtml += treeHtml;
+            treePanel.innerHTML = panelHtml;
+            
+            // Setup expand/collapse handlers
+            setupTreeToggleHandlers(fieldName, treePanel, flatData, labelField, valueField);
+            
+            // Setup selection handlers
+            setupTreeSelectionHandlers(fieldName, formGroup, treePanel, flatData, labelField, valueField, config);
+            
+            // Setup search handlers if searchable
+            if (searchEnabled) {
+                setupTreeSearchHandlers(fieldName, treePanel, flatData, labelField, valueField);
+            }
+            
+            // Setup open/close on display box click
+            setupTreeDisplayBoxHandlers(fieldName, formGroup, treePanel);
+            
+            console.log(`[TREE] Initialized tree for ${fieldName} with ${flatData.length} items`);
+        }
+        
+        /**
+         * Build tree structure from flat data
+         */
+        function buildTreeStructure(flatData, valueField, parentField, levelField) {
+            const tree = [];
+            const itemMap = {};
+            
+            // Create map of all items by their ID
+            flatData.forEach(item => {
+                itemMap[item[valueField]] = { ...item, children: [] };
+            });
+            
+            // Build tree hierarchy
+            flatData.forEach(item => {
+                const itemId = item[valueField];
+                const parentId = item[parentField];
+                
+                if (parentId === 0 || parentId === null || parentId === undefined) {
+                    // Top-level item
+                    tree.push(itemMap[itemId]);
+                } else {
+                    // Child item
+                    if (itemMap[parentId]) {
+                        itemMap[parentId].children.push(itemMap[itemId]);
+                    }
                 }
             });
             
-            // Replace in display parameters
-            ['default_value', 'default_select', 'description', 'content', 'field_displayname'].forEach(prop => {
-                if (resolved[prop] && typeof resolved[prop] === 'string') {
-                    resolved[prop] = resolved[prop].replace(/\[\[\s*(\w+)(?:\.([^\]]+))?\s*\]\]/g, (match, varName, propertyPath) => {
-                        if (!propertyPath) {
-                            const val = window.pageVariables[varName];
-                            // For display params, strings can be raw, objects stringify
-                            if (val === undefined) return match;
-                            if (typeof val === 'string') return val;
-                            return JSON.stringify(val);
+            return tree;
+        }
+        
+        /**
+         * Render tree items as HTML
+         */
+        function renderTreeItems(treeData, fieldName, labelField, valueField, level = 0) {
+            if (!Array.isArray(treeData) || treeData.length === 0) return '';
+            
+            let html = '<div class="tree-item-group" style="padding-left: ' + (level * 16) + 'px;">';
+            
+            treeData.forEach(item => {
+                const hasChildren = item.children && item.children.length > 0;
+                const itemId = item[valueField];
+                const label = item[labelField];
+                const toggleId = `tree-toggle-${fieldName}-${itemId}`;
+                const itemContainerId = `tree-items-${fieldName}-${itemId}`;
+                
+                html += `
+                    <div class="tree-item" data-value="${itemId}" data-label="${label}">
+                        <div class="tree-item-content">
+                            ${hasChildren ? `
+                                <button class="tree-toggle" id="${toggleId}" data-collapsed="true" style="width: 20px; padding: 0; margin-right: 4px; background: none; border: none; color: #a0a0a0; cursor: pointer; font-size: 12px;">►</button>
+                            ` : `
+                                <span style="width: 20px; margin-right: 4px; display: inline-block;"></span>
+                            `}
+                            <span class="tree-label" style="cursor: pointer; color: #e0e0e0; user-select: none;">${label}</span>
+                        </div>
+                        ${hasChildren ? `
+                            <div id="${itemContainerId}" class="tree-item-children" style="display: none;">
+                                ${renderTreeItems(item.children, fieldName, labelField, valueField, level + 1)}
+                            </div>
+                        ` : ''}
+                    </div>
+                `;
+            });
+            
+            html += '</div>';
+            return html;
+        }
+        
+        /**
+         * Setup toggle handlers for expand/collapse
+         */
+        function setupTreeToggleHandlers(fieldName, treePanel, allData, labelField, valueField) {
+            // These handlers are added fresh each time the tree is rendered,
+            // so old handlers are automatically removed when treePanel.innerHTML is set
+            treePanel.querySelectorAll('.tree-toggle').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const itemId = btn.getAttribute('id').replace(`tree-toggle-${fieldName}-`, '');
+                    const containerSelector = `#tree-items-${fieldName}-${itemId}`;
+                    const container = treePanel.querySelector(containerSelector);
+                    
+                    if (container) {
+                        const isCollapsed = btn.getAttribute('data-collapsed') === 'true';
+                        if (isCollapsed) {
+                            container.style.display = 'block';
+                            btn.textContent = '▼';
+                            btn.setAttribute('data-collapsed', 'false');
                         } else {
-                            const pageVar = window.pageVariables[varName];
-                            if (pageVar === undefined) return match;
-                            const trimmedPath = propertyPath.trim();
-                            const parts = trimmedPath.split('.');
-                            let current = pageVar;
-                            for (const part of parts) {
-                                if (current && typeof current === 'object') {
-                                    current = current[part];
-                                } else {
-                                    return match;
-                                }
-                            }
-                            return current !== undefined ? String(current) : match;
+                            container.style.display = 'none';
+                            btn.textContent = '▶';
+                            btn.setAttribute('data-collapsed', 'true');
                         }
+                    }
+                });
+            });
+        }
+        
+        /**
+         * Setup selection handlers
+         */
+        function setupTreeSelectionHandlers(fieldName, formGroup, treePanel, allData, labelField, valueField, config) {
+            treePanel.querySelectorAll('.tree-label').forEach(label => {
+                label.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const treeItem = label.closest('.tree-item');
+                    const selectedValue = treeItem.getAttribute('data-value');
+                    const selectedLabel = treeItem.getAttribute('data-label');
+                    
+                    console.log(`[TREE] Click handler fired for ${fieldName}. Value: ${selectedValue}, Label: ${selectedLabel}`);
+                    
+                    // Find the full item data from allData
+                    const selectedItemData = allData.find(item => String(item[valueField]) === selectedValue);
+                    
+                    // Update display box
+                    const displayBox = formGroup.querySelector('.tree-display-box');
+                    if (displayBox) {
+                        displayBox.innerHTML = `<span class="tree-selected">${selectedLabel}</span>`;
+                        console.log(`[TREE] Updated display box to: ${selectedLabel}`);
+                    } else {
+                        console.log(`[TREE] WARNING: Could not find display box for ${fieldName}`);
+                    }
+                    
+                    // Close tree panel
+                    treePanel.style.display = 'none';
+                    
+                    // Store selection in page variables
+                    window.pageVariables[fieldName] = selectedValue;
+                    
+                    // Store result_var if specified (store the entire object)
+                    if (config.result_var && selectedItemData) {
+                        window.pageVariables[config.result_var] = selectedItemData;
+                        console.log(`[TREE] Stored result_var ${config.result_var}:`, selectedItemData);
+                    }
+                    
+                    // Store in hidden input and trigger change
+                    const hiddenInput = formGroup.querySelector('input[name="' + fieldName + '"]');
+                    if (hiddenInput) {
+                        hiddenInput.value = selectedValue;
+                        hiddenInput.dispatchEvent(new Event('change', { bubbles: true }));
+                    }
+                    
+                    console.log(`[TREE] Selected ${fieldName} = ${selectedValue} (${selectedLabel})`);
+                });
+            });
+        }
+        
+        /**
+         * Setup search/filter handlers for tree
+         */
+        function setupTreeSearchHandlers(fieldName, treePanel, flatData, labelField, valueField) {
+            const searchInput = treePanel.querySelector('.tree-search-input');
+            if (!searchInput) return;
+            
+            function filterTree(searchTerm) {
+                const term = searchTerm.toLowerCase().trim();
+                
+                if (term === '') {
+                    // No search - show all items but keep default collapsed state
+                    treePanel.querySelectorAll('.tree-item').forEach(item => {
+                        item.style.display = '';
                     });
+                    treePanel.querySelectorAll('.tree-item-children').forEach(children => {
+                        children.style.display = 'none';
+                    });
+                    treePanel.querySelectorAll('.tree-toggle').forEach(toggle => {
+                        toggle.textContent = '►';
+                        toggle.setAttribute('data-collapsed', 'true');
+                    });
+                    return;
                 }
+                
+                // Find all matching items
+                const matchingIds = new Set();
+                const ancestorIds = new Set();
+                
+                treePanel.querySelectorAll('.tree-item').forEach(item => {
+                    const label = item.getAttribute('data-label') || '';
+                    const itemId = item.getAttribute('data-value');
+                    
+                    if (label.toLowerCase().includes(term)) {
+                        matchingIds.add(itemId);
+                        
+                        // Add all ancestors
+                        let parent = item.closest('.tree-item-children');
+                        while (parent) {
+                            const parentItem = parent.closest('.tree-item');
+                            if (parentItem) {
+                                const parentId = parentItem.getAttribute('data-value');
+                                ancestorIds.add(parentId);
+                                parent = parentItem.closest('.tree-item-children');
+                            } else {
+                                break;
+                            }
+                        }
+                    }
+                });
+                
+                // Show/hide items based on matches
+                treePanel.querySelectorAll('.tree-item').forEach(item => {
+                    const itemId = item.getAttribute('data-value');
+                    const isMatch = matchingIds.has(itemId);
+                    const isAncestor = ancestorIds.has(itemId);
+                    const shouldShow = isMatch || isAncestor;
+                    
+                    item.style.display = shouldShow ? '' : 'none';
+                    
+                    // Expand matching items and ancestors
+                    if (shouldShow) {
+                        const childrenContainer = item.querySelector('.tree-item-children');
+                        if (childrenContainer) {
+                            childrenContainer.style.display = 'block';
+                            const toggle = item.querySelector('.tree-toggle');
+                            if (toggle) {
+                                toggle.textContent = '▼';
+                                toggle.setAttribute('data-collapsed', 'false');
+                            }
+                        }
+                    }
+                });
+            }
+            
+            // Search on input
+            searchInput.addEventListener('input', (e) => {
+                filterTree(e.target.value);
             });
             
-            return resolved;
-        };
+            // Focus to show all options
+            searchInput.addEventListener('focus', (e) => {
+                filterTree(e.target.value);
+            });
+        }
+        
+        /**
+         * Setup display box click handlers to open/close tree
+         */
+        function setupTreeDisplayBoxHandlers(fieldName, formGroup, treePanel) {
+            const displayBox = formGroup.querySelector('.tree-display-box');
+            if (!displayBox) return;
+            
+            // Remove old listener to avoid duplicates on reinit
+            const oldListener = displayBox._treeClickListener;
+            if (oldListener) {
+                displayBox.removeEventListener('click', oldListener);
+            }
+            
+            const clickListener = (e) => {
+                e.stopPropagation();
+                const isVisible = treePanel.style.display !== 'none';
+                treePanel.style.display = isVisible ? 'none' : 'block';
+                
+                // Clear search when closing
+                if (isVisible) {
+                    const searchInput = treePanel.querySelector('.tree-search-input');
+                    if (searchInput) {
+                        searchInput.value = '';
+                        // Trigger input event to reset filter
+                        searchInput.dispatchEvent(new Event('input'));
+                    }
+                }
+                
+                // Focus search when opening
+                if (!isVisible) {
+                    const searchInput = treePanel.querySelector('.tree-search-input');
+                    if (searchInput) {
+                        setTimeout(() => searchInput.focus(), 0);
+                    }
+                }
+            };
+            
+            displayBox.addEventListener('click', clickListener);
+            displayBox._treeClickListener = clickListener;
+            
+            // Close panel on outside click (add once per tree, checked via data attribute)
+            if (!displayBox._treeOutsideListenerAdded) {
+                const outsideListener = (e) => {
+                    if (!formGroup.contains(e.target)) {
+                        treePanel.style.display = 'none';
+                    }
+                };
+                document.addEventListener('click', outsideListener);
+                displayBox._treeOutsideListenerAdded = true;
+            }
+        }
 
         function loadFieldOptions(config, allFieldConfigs = [], formConfig = {}, preselectedValues = []) {
             const formGroup = document.querySelector(`[data-field-name="${config.field_name}"]`);
@@ -3436,8 +3480,8 @@
                 let unresolvedVarName = null;
                 
                 for (const prop of executionProps) {
-                    if (!config[prop]) continue;
-                    const varNames = scanPropertyForReferences(config[prop]);
+                    if (!resolvedConfig[prop]) continue;
+                    const varNames = scanPropertyForReferences(resolvedConfig[prop]);
                     console.log(`[PAGE_VAR_EXEC] Scanning ${prop} for ${config.field_name}, found vars:`, Array.from(varNames));
                     for (const varName of varNames) {
                         if (window.pageVariables[varName] === undefined) {
@@ -3585,27 +3629,83 @@
                 if (config.multi_select) {
                     RewstLib.utils.repopulateMultiSelectField(config.field_name, options, preselectedValues);
                 } else {
-                    // Single select
-                    const select = formGroup.querySelector('select:not(.multi-select-hidden-select)');
-                    if (select) {
-                        const placeholder = select.querySelector('option[value=""]');
-                        select.innerHTML = '';
-                        if (placeholder) {
-                            select.appendChild(placeholder);
-                        } else {
-                            const opt = document.createElement('option');
-                            opt.value = '';
-                            opt.textContent = RewstLib.utils.getGrammaticalPhrase(config.field_displayname);
-                            select.appendChild(opt);
+                    // Use consolidated single-select initialization (handles both searchable and normal)
+                    RewstLib.utils.initializeSingleSelect(config.field_name, options, config, preselectedValues);
+                }
+                
+                if (formGroup) {
+                    RewstLib.utils.hideLoadingMessage(formGroup, config);
+                    RewstLib.utils.hideWaitingMessage(formGroup, config);
+                }
+                
+                // Update refresh button state based on source data availability
+                updateRefreshButtonState(config.field_name, config, allFieldConfigs);
+                
+                return Promise.resolve();
+            }
+            
+            // Handle dropdown_tree fields - populate from cached data_retrieval results
+            if (config.type === 'dropdown_tree') {
+                const formGroup = document.querySelector(`[data-field-name="${config.field_name}"]`);
+                const sourceFieldName = config.source_element_name || config.source_element_uid;
+                const resultPath = config.result_path;
+                const labelField = config.label_field || 'Name';
+                const valueField = config.value_field || 'id';
+                const parentField = config.parent_field || 'ParentID';
+                const levelField = config.level_field || 'level';
+                
+                // Check if dependencies are met
+                if (config.dependant_fields) {
+                    const allDepsMet = RewstLib.utils.areDependenciesMet(config, allFieldConfigs);
+                    if (!allDepsMet) {
+                        if (formGroup) {
+                            RewstLib.utils.hideLoadingMessage(formGroup, config);
+                            RewstLib.utils.showWaitingMessage(formGroup, config, allFieldConfigs);
                         }
-                        
-                        options.forEach(opt => {
-                            const option = document.createElement('option');
-                            option.value = String(opt.value);
-                            option.textContent = String(opt.label);
-                            select.appendChild(option);
-                        });
+                        return;
+                    } else {
+                        if (formGroup) {
+                            RewstLib.utils.hideWaitingMessage(formGroup, config);
+                        }
                     }
+                }
+                
+                // Get cached data from data_retrieval field
+                let flatData = [];
+                if (proxyCache.dataRetrievalResults[sourceFieldName]) {
+                    const sourceData = proxyCache.dataRetrievalResults[sourceFieldName];
+                    
+                    // If result_path is empty, use entire sourceData as array; otherwise extract via path
+                    let results = sourceData;
+                    if (resultPath && resultPath.trim() !== '') {
+                        results = sourceData[resultPath];
+                    }
+                    
+                    if (Array.isArray(results)) {
+                        flatData = results;
+                    }
+                }
+                
+                // Store metadata about this dropdown's data source (points to data_retrieval)
+                dropdownSourceMetadata[config.field_name] = {
+                    cacheType: 'data_retrieval',
+                    sourceFieldName: sourceFieldName,
+                    resultPath: resultPath,
+                    valueName: valueField,
+                    labelName: labelField,
+                    data: flatData
+                };
+                
+                // Initialize the tree UI
+                if (flatData.length > 0) {
+                    initializeDropdownTree(config.field_name, flatData, config, {
+                        labelField,
+                        valueField,
+                        parentField,
+                        levelField
+                    });
+                } else {
+                    console.log(`[TREE] No data for ${config.field_name}`);
                 }
                 
                 if (formGroup) {
@@ -3621,17 +3721,26 @@
             
             // Skip loading options if the field is hidden
             // Use offsetParent check - if null, element is hidden via CSS or display:none
-            // Exception: form_extend fields need to load their org variable even when hidden
-            if (formGroup && config.type !== 'form_extend' && (formGroup.offsetParent === null || window.getComputedStyle(formGroup).display === 'none')) {
+            // Exceptions: 
+            //   - form_extend fields need to load their org variable even when hidden
+            //   - dropdown fields with dependencies must execute when their deps change, even if field is hidden
+            const isDynamicDropdownType = ['dropdown', 'dropdown_mysql', 'dropdown_cwa_mysql', 'dropdown_graphql', 'dropdown_mesh', 'dropdown_prefetch', 'dropdown_tree'].includes(config.type);
+            const shouldExecuteWhenHidden = config.type === 'form_extend' || (isDynamicDropdownType && config.dependant_fields);
+            
+            if (formGroup && !shouldExecuteWhenHidden && (formGroup.offsetParent === null || window.getComputedStyle(formGroup).display === 'none')) {
                 console.log(`>>> Field ${config.field_name} is hidden, skipping loadFieldOptions`);
                 return Promise.resolve();
             }
             if (formGroup && config.type !== 'form_extend') {
-                RewstLib.utils.hideWaitingMessage(formGroup, config);
-                
-                // Only show loading message for data-fetching field types
-                if (config.type === 'dropdown' || config.type === 'dropdown_graphql' || config.type === 'data_retrieval') {
-                    RewstLib.utils.showLoadingMessage(formGroup, config);
+                // Only manage visible UI if field is not hidden
+                const isFieldHidden = formGroup.offsetParent === null || window.getComputedStyle(formGroup).display === 'none';
+                if (!isFieldHidden) {
+                    RewstLib.utils.hideWaitingMessage(formGroup, config);
+                    
+                    // Only show loading message for data-fetching field types
+                    if (config.type === 'dropdown' || config.type === 'dropdown_graphql' || config.type === 'data_retrieval') {
+                        RewstLib.utils.showLoadingMessage(formGroup, config);
+                    }
                 }
             }
             
@@ -3758,43 +3867,40 @@
                 
                 // Helper function to populate dropdown with data
                 const populateDropdownWithData = (data) => {
-                    const input = document.querySelector(`select[name="${config.field_name}"]`);
-                    if (input) {
-                        // Handle both array results (list_orgs) and single object results (get_org_var)
-                        const itemsArray = Array.isArray(data) ? data : (data ? [data] : []);
-                        
-                        // Store metadata about this dropdown's data source
-                        dropdownSourceMetadata[config.field_name] = {
-                            cacheType: 'graphql',
-                            cacheKey: cacheKey,
-                            valueName: config.value_name || 'id',
-                            labelName: config.label_name || 'name',
-                            data: itemsArray
-                        };
-                        
-                        if (itemsArray.length > 0) {
-                            input.innerHTML = `<option value="">${RewstLib.utils.getGrammaticalPhrase(config.field_displayname)}</option>`;
-                            itemsArray.forEach(item => {
-                                const value = item[config.value_name] || item.id;
-                                const label = item[config.label_name] || item.name;
-                                if (value && label) {
-                                    const opt = document.createElement('option');
-                                    opt.value = value;
-                                    opt.textContent = label;
-                                    input.appendChild(opt);
-                                }
-                            });
-                            
-                            // If multi-select, initialize the component with loaded options
-                            if (config.multi_select) {
-                                const msOptions = RewstLib.utils.mapResultsToOptions(itemsArray, config.value_name, config.label_name);
-                                RewstLib.utils.initializeDropdownMultiSelect(config.field_name, msOptions);
-                            }
+                    // Handle both array results (list_orgs) and single object results (get_org_var)
+                    const itemsArray = Array.isArray(data) ? data : (data ? [data] : []);
+                    
+                    // Store metadata about this dropdown's data source
+                    dropdownSourceMetadata[config.field_name] = {
+                        cacheType: 'graphql',
+                        cacheKey: cacheKey,
+                        valueName: config.value_name || 'id',
+                        labelName: config.label_name || 'name',
+                        data: itemsArray
+                    };
+                    
+                    if (itemsArray.length > 0) {
+                        if (config.multi_select) {
+                            // Multi-select: use library function
+                            const msOptions = RewstLib.utils.mapResultsToOptions(itemsArray, config.value_name, config.label_name);
+                            RewstLib.utils.initializeDropdownMultiSelect(config.field_name, msOptions);
                         } else {
-                            // No results - show "None Found"
-                            input.innerHTML = `<option value="">${RewstLib.utils.getGrammaticalPhrase(config.field_displayname, 'Select', {noResults: true})}</option>`;
-                            console.log(`[DROPDOWN] No results for ${config.field_name}, showing "None Found"`);
+                            // Single-select: use consolidated initialization (handles both searchable and normal)
+                            const options = itemsArray.map(item => ({
+                                value: item[config.value_name] || item.id,
+                                label: item[config.label_name] || item.name
+                            }));
+                            RewstLib.utils.initializeSingleSelect(config.field_name, options, config, preselectedValues);
                         }
+                    } else {
+                        // No results
+                        if (config.multi_select) {
+                            // Multi-select: will be handled by the multi-select component
+                        } else {
+                            // Single-select: use consolidated initialization with empty options
+                            RewstLib.utils.initializeSingleSelect(config.field_name, [], config, preselectedValues);
+                        }
+                        console.log(`[DROPDOWN] No results for ${config.field_name}`);
                     }
                 };
                 
@@ -3899,30 +4005,12 @@
                         }));
                         RewstLib.utils.repopulateMultiSelectField(config.field_name, options, preselectedValues);
                     } else {
-                        // Single-select: populate the select element
-                        const input = document.querySelector(`select[name="${config.field_name}"]`);
-                        if (!input) {
-                            console.error(`[MYSQL] SELECT element not found for ${config.field_name}`);
-                            return;
-                        }
-                        
-                        if (data.length > 0) {
-                            input.innerHTML = `<option value="">${RewstLib.utils.getGrammaticalPhrase(config.field_displayname)}</option>`;
-                            let successCount = 0;
-                            data.forEach((item) => {
-                                const value = item[config.value_field] || item.id;
-                                const label = item[config.label_field] || item.name;
-                                if (value && label) {
-                                    const opt = document.createElement('option');
-                                    opt.value = value;
-                                    opt.textContent = label;
-                                    input.appendChild(opt);
-                                    successCount++;
-                                }
-                            });
-                        } else {
-                            input.innerHTML = `<option value="">-- No results --</option>`;
-                        }
+                        // Single-select: use consolidated initialization (handles both searchable and normal)
+                        const options = data.map(item => ({
+                            value: item[config.value_field] || item.id,
+                            label: item[config.label_field] || item.name
+                        }));
+                        RewstLib.utils.initializeSingleSelect(config.field_name, options, config, preselectedValues);
                     }
                 };
                 
@@ -4004,30 +4092,12 @@
                         }));
                         RewstLib.utils.repopulateMultiSelectField(config.field_name, options, preselectedValues);
                     } else {
-                        // Single-select: populate the select element
-                        const input = document.querySelector(`select[name="${config.field_name}"]`);
-                        if (!input) {
-                            console.error(`[CWA_MYSQL] SELECT element not found for ${config.field_name}`);
-                            return;
-                        }
-                        
-                        if (data.length > 0) {
-                            input.innerHTML = `<option value="">${RewstLib.utils.getGrammaticalPhrase(config.field_displayname)}</option>`;
-                            let successCount = 0;
-                            data.forEach((item) => {
-                                const value = item[config.value_field] || item.id;
-                                const label = item[config.label_field] || item.name;
-                                if (value && label) {
-                                    const opt = document.createElement('option');
-                                    opt.value = value;
-                                    opt.textContent = label;
-                                    input.appendChild(opt);
-                                    successCount++;
-                                }
-                            });
-                        } else {
-                            input.innerHTML = `<option value="">-- No results --</option>`;
-                        }
+                        // Single-select: use consolidated initialization (handles both searchable and normal)
+                        const options = data.map(item => ({
+                            value: item[config.value_field] || item.id,
+                            label: item[config.label_field] || item.name
+                        }));
+                        RewstLib.utils.initializeSingleSelect(config.field_name, options, config, preselectedValues);
                     }
                 };
                 
@@ -4121,31 +4191,13 @@
                         }));
                         RewstLib.utils.initializeDropdownMultiSelect(config.field_name, options);
                     } else {
-                        // Single-select: populate the select element
+                        // Single-select: use consolidated initialization (handles both searchable and normal)
                         console.log(`[MESH] Populating single-select for ${config.field_name}`);
-                        const input = document.querySelector(`select[name="${config.field_name}"]`);
-                        if (!input) {
-                            console.error(`[MESH] SELECT element not found for ${config.field_name}`);
-                            return;
-                        }
-                        
-                        if (data.length > 0) {
-                            input.innerHTML = `<option value="">${RewstLib.utils.getGrammaticalPhrase(config.field_displayname)}</option>`;
-                            let successCount = 0;
-                            data.forEach((item) => {
-                                const value = item[config.value_field] || item.id;
-                                const label = item[config.label_field] || item.name;
-                                if (value && label) {
-                                    const opt = document.createElement('option');
-                                    opt.value = value;
-                                    opt.textContent = label;
-                                    input.appendChild(opt);
-                                    successCount++;
-                                }
-                            });
-                        } else {
-                            input.innerHTML = `<option value="">-- No results --</option>`;
-                        }
+                        const options = data.map(item => ({
+                            value: item[config.value_field] || item.id,
+                            label: item[config.label_field] || item.name
+                        }));
+                        RewstLib.utils.initializeSingleSelect(config.field_name, options, config, preselectedValues);
                     }
                 };
                 
@@ -4563,7 +4615,7 @@
             // Only execute workflow for fields that are not form_extend
             if (config.type !== 'form_extend' && config.workflow_id) {
                 // Resolve any [[ varName.property ]] page variable references in workflowInput
-                const resolvedWorkflowInput = replaceReferencesInValue(workflowInput, (str) => {
+                const resolvedWorkflowInput = RewstLib.utils.replaceReferencesInValue(workflowInput, (str) => {
                     // Replace [[ varName.property ]] with values from window.pageVariables
                     return str.replace(/\[\[\s*(\w+)(?:\.([^\]]+))?\s*\]\]/g, (match, varName, propertyPath) => {
                         if (!propertyPath) {
@@ -5363,17 +5415,12 @@
                     const msOptions = RewstLib.utils.mapResultsToOptions(options, config.value_name, config.label_name);
                     RewstLib.utils.initializeDropdownMultiSelect(config.field_name, msOptions);
                 } else {
-                    input.innerHTML = `<option value="">${RewstLib.utils.getGrammaticalPhrase(config.field_displayname)}</option>`;
-                    options.forEach(option => {
-                        const value = option[config.value_name] || option.id || option.Id;
-                        const label = option[config.label_name] || option.name || option.Name;
-                        if (value && label) {
-                            const opt = document.createElement('option');
-                            opt.value = value;
-                            opt.textContent = label;
-                            input.appendChild(opt);
-                        }
-                    });
+                    // Single-select: use consolidated initialization (handles both searchable and normal)
+                    const singleOptions = options.map(item => ({
+                        value: item[config.value_name] || item.id,
+                        label: item[config.label_name] || item.name
+                    }));
+                    RewstLib.utils.initializeSingleSelect(config.field_name, singleOptions, config);
                 }
             } else {
                 input.innerHTML = `<option value="">${RewstLib.utils.getGrammaticalPhrase(config.field_displayname, 'Select', {noResults: true})}</option>`;
@@ -5775,40 +5822,65 @@
         const resetFormBtn = document.getElementById('resetFormBtn');
         const submitFormBtn = document.getElementById('submitFormBtn');
         
+        // Comprehensive form reset function
+        const resetAllFields = () => {
+            console.log('[RESET] Starting comprehensive form reset');
+            
+            // 1. Clear all page variables (result variables from fields)
+            const fieldConfigs = window.currentFormConfig?.field_configs || [];
+            fieldConfigs.forEach(config => {
+                if (config.result_var) {
+                    delete window.pageVariables[config.result_var];
+                    console.log(`[RESET] Cleared result_var: ${config.result_var}`);
+                }
+                // Also clear the field value itself
+                window.pageVariables[config.field_name] = 
+                    config.type === 'array' ? '' : 
+                    config.multi_select ? [] : '';
+                console.log(`[RESET] Cleared field_name: ${config.field_name}`);
+            });
+            
+            // 2. Clear all inputs
+            const inputs = document.querySelectorAll('#previewContent input, #previewContent select, #previewContent textarea');
+            inputs.forEach(input => {
+                if (input.type === 'checkbox' || input.type === 'radio') {
+                    input.checked = false;
+                } else {
+                    input.value = '';
+                }
+            });
+            
+            // 3. Reset multi-select fields
+            document.querySelectorAll('#previewContent .multi-select-hidden-select').forEach(hiddenSelect => {
+                hiddenSelect.setAttribute('data-selected-values', '[]');
+                const container = hiddenSelect.closest('.multi-select-container');
+                if (container) {
+                    const tagsContainer = container.querySelector('.multi-select-tags');
+                    if (tagsContainer) {
+                        tagsContainer.innerHTML = '<span class="multi-select-placeholder">-- Select options --</span>';
+                    }
+                }
+            });
+            
+            // 4. Reset array fields
+            document.querySelectorAll('#previewContent .array-instances').forEach(arrayContainer => {
+                arrayContainer.innerHTML = '';
+            });
+            
+            // 5. Re-evaluate conditional visibility (will hide fields that should be hidden)
+            console.log('[RESET] Re-evaluating conditional visibility');
+            evaluateConditionalVisibility(fieldConfigs);
+            
+            // 6. Re-initialize dependent field states (show waiting messages)
+            console.log('[RESET] Re-initializing dependent fields');
+            RewstLib.utils.initializeDependentFields(fieldConfigs);
+            
+            console.log('[RESET] Form reset complete');
+        };
+        
         if (resetFormBtn) {
             resetFormBtn.addEventListener('click', () => {
-                // Reset all form fields to their default values
-                const inputs = document.querySelectorAll('#previewContent input, #previewContent select, #previewContent textarea');
-                inputs.forEach(input => {
-                    if (input.type === 'checkbox' || input.type === 'radio') {
-                        input.checked = false;
-                    } else {
-                        input.value = '';
-                    }
-                });
-                
-                // Reset multi-select fields
-                document.querySelectorAll('#previewContent .multi-select-hidden-select').forEach(hiddenSelect => {
-                    // Clear the data-selected-values attribute
-                    hiddenSelect.setAttribute('data-selected-values', '[]');
-                    
-                    // Clear the tags display
-                    const container = hiddenSelect.closest('.multi-select-container');
-                    if (container) {
-                        const tagsContainer = container.querySelector('.multi-select-tags');
-                        if (tagsContainer) {
-                            tagsContainer.innerHTML = '<span class="multi-select-placeholder">-- Select options --</span>';
-                        }
-                    }
-                });
-                
-                // Reset array fields
-                document.querySelectorAll('#previewContent .array-instances').forEach(arrayContainer => {
-                    // Remove all instances except keep the container empty
-                    arrayContainer.innerHTML = '';
-                });
-                
-                console.log('Form reset');
+                resetAllFields();
             });
         }
         
@@ -6267,18 +6339,14 @@
                                 
                                 // Flush/reset the form after successful completion
                                 setTimeout(() => {
-                                    const inputs = document.querySelectorAll('#previewContent input, #previewContent select, #previewContent textarea');
-                                    inputs.forEach(input => {
-                                        input.disabled = false; // Re-enable fields
-                                        if (input.type === 'checkbox' || input.type === 'radio') {
-                                            input.checked = false;
-                                        } else {
-                                            input.value = '';
-                                        }
-                                    });
+                                    resetAllFields();
                                     
                                     // Reset button state
                                     RewstLib.utils.setButtonState(submitFormBtn, 'Submit', 'btn-blue', false);
+                                    
+                                    // Re-enable form fields
+                                    const inputs = document.querySelectorAll('#previewContent input, #previewContent select, #previewContent textarea');
+                                    inputs.forEach(input => input.disabled = false);
                                     
                                     console.log('Form flushed and ready for new submission');
                                 }, 1000); // Wait 1 second before resetting
