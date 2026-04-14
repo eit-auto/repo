@@ -861,6 +861,8 @@
             // For INSERT: include any column with a value, even if not normally editable
             // For UPDATE: exclude non-editable columns (preserve original behavior)
             const writableColumns = columns.filter(col => {
+                // Skip enrichment columns (not from the base table)
+                if (col.from_sql !== true) return false;
                 // Skip if marked as generated
                 if (col.gen === true) return false;
                 // Skip if primary key
@@ -1355,7 +1357,8 @@ const batchSaveBackdrop = document.getElementById('batchSaveBackdrop');
             const headerRow = document.createElement('tr');
             col_display_table.forEach(colName => {
                 const th = document.createElement('th');
-                th.textContent = formatColumnName(colName);
+                const colConfig = datatableConfig.col_settings.find(col => col.col_name === colName);
+                th.textContent = colConfig?.col_label || formatColumnName(colName);
                 th.className = 'sortable';
                 th.setAttribute('data-column', colName);
                 th.addEventListener('click', () => {
@@ -1683,10 +1686,11 @@ const batchSaveBackdrop = document.getElementById('batchSaveBackdrop');
             columns.forEach(col => {
                 const value = record[col.col_name];
                 const isEmpty = value === null || value === undefined || value === '';
+                const displayName = col.col_label || formatColumnName(col.col_name);
                 
                 // Check NOT NULL constraint
                 if (col.not_null && isEmpty) {
-                    errors.push(`"${formatColumnName(col.col_name)}" is required (cannot be empty)`);
+                    errors.push(`"${displayName}" is required (cannot be empty)`);
                     return;
                 }
                 
@@ -1699,7 +1703,7 @@ const batchSaveBackdrop = document.getElementById('batchSaveBackdrop');
                     col.type === 'numeric' || col.type === 'double') {
                     // Check if value is numeric
                     if (isNaN(parseFloat(value))) {
-                        errors.push(`"${formatColumnName(col.col_name)}" must be a number`);
+                        errors.push(`"${displayName}" must be a number`);
                     }
                 }
                 
@@ -1707,7 +1711,7 @@ const batchSaveBackdrop = document.getElementById('batchSaveBackdrop');
                     // Check if value is valid datetime (ISO format or recognizable date)
                     const dateValue = new Date(value);
                     if (isNaN(dateValue.getTime())) {
-                        errors.push(`"${formatColumnName(col.col_name)}" must be a valid date/time`);
+                        errors.push(`"${displayName}" must be a valid date/time`);
                     }
                 }
                 
@@ -1715,7 +1719,7 @@ const batchSaveBackdrop = document.getElementById('batchSaveBackdrop');
                     // Check if value is valid date format
                     const dateValue = new Date(value);
                     if (isNaN(dateValue.getTime())) {
-                        errors.push(`"${formatColumnName(col.col_name)}" must be a valid date`);
+                        errors.push(`"${displayName}" must be a valid date`);
                     }
                 }
                 
@@ -1723,7 +1727,7 @@ const batchSaveBackdrop = document.getElementById('batchSaveBackdrop');
                     // Check if value is boolean-like
                     if (typeof value !== 'boolean' && value !== '1' && value !== '0' && 
                         value !== 'true' && value !== 'false' && value !== 1 && value !== 0) {
-                        errors.push(`"${formatColumnName(col.col_name)}" must be true or false`);
+                        errors.push(`"${displayName}" must be true or false`);
                     }
                 }
             });
@@ -1770,7 +1774,7 @@ const batchSaveBackdrop = document.getElementById('batchSaveBackdrop');
                     console.log('[BATCH_SAVE] SQL - Generating UPDATE queries...');
                     modifiedRows.forEach(({ record }, idx) => {
                         console.log('[BATCH_SAVE] SQL - Record', idx, ':', record);
-                        let updateQuery = generateDynamicSQL('UPDATE', record, col_display_edit);
+                        let updateQuery = generateDynamicSQL('UPDATE', record, datatableConfig.col_settings);
                         updateQuery = updateQuery.replace(/;\s*COMMIT;\s*$/i, '').trim();
                         console.log('[BATCH_SAVE] SQL - Query', idx, ':', updateQuery);
                     });
@@ -1814,7 +1818,7 @@ const batchSaveBackdrop = document.getElementById('batchSaveBackdrop');
                     // Execute each UPDATE query via ProxyLib
                     for (const { index, record } of modifiedRows) {
                         try {
-                            let updateQuery = generateDynamicSQL('UPDATE', record, col_display_edit);
+                            let updateQuery = generateDynamicSQL('UPDATE', record, datatableConfig.col_settings);
                             // Remove COMMIT since ProxyLib handles transactions
                             updateQuery = updateQuery.replace(/;\s*COMMIT;\s*$/i, '').trim();
                             
@@ -1897,7 +1901,7 @@ const batchSaveBackdrop = document.getElementById('batchSaveBackdrop');
                     
                     // Generate UPDATE query for each modified record
                     modifiedRows.forEach(({ index, record }) => {
-                        const query = generateDynamicSQL('UPDATE', record, col_display_edit);
+                        const query = generateDynamicSQL('UPDATE', record, datatableConfig.col_settings);
                         // Remove the COMMIT; from individual queries (will add one at the end)
                         const queryWithoutCommit = query.replace(/; COMMIT;$/, '');
                         updateQueries.push(queryWithoutCommit);
@@ -2049,20 +2053,25 @@ const batchSaveBackdrop = document.getElementById('batchSaveBackdrop');
             console.log('[OPEN_EDIT] Primary key field:', pkField);
             console.log('[OPEN_EDIT] Item.' + pkField + ':', item[pkField]);
             
-            // Show the modal first
-            console.log('[OPEN_EDIT] editBackdrop:', editBackdrop);
-            console.log('[OPEN_EDIT] editSection:', editSection);
-            editBackdrop.classList.add('active');
-            editSection.classList.add('active');
-            console.log('[OPEN_EDIT] Modal shown');
-            
             if (editIdInput) {
                 editIdInput.value = item[pkField];
             }
 
             // Separate editable and non-editable fields
-            const editableFields = col_display_edit.filter(c => c.editable === true);
-            const nonEditableFields = col_display_edit.filter(c => !c.editable);
+            // For SQL-based datatables, columns not from the base table are forced to non-editable
+            const editableFields = col_display_edit.filter(c => {
+                if (datatableConfig.use_sql && !c.from_sql) {
+                    return false;  // Enrichment columns never editable in SQL mode
+                }
+                return c.editable === true;
+            });
+            
+            const nonEditableFields = col_display_edit.filter(c => {
+                if (datatableConfig.use_sql && !c.from_sql) {
+                    return true;  // Enrichment columns always non-editable in SQL mode
+                }
+                return !c.editable;
+            });
 
             // Determine grid columns based on field count
             function getGridColumns(fieldCount) {
@@ -2079,6 +2088,9 @@ const batchSaveBackdrop = document.getElementById('batchSaveBackdrop');
             if (nonEditableFields.length > 0) {
                 const nonEditableGrid = document.getElementById('nonEditableGrid');
                 nonEditableGrid.innerHTML = '';
+                nonEditableGrid.style.display = 'grid';
+                nonEditableGrid.style.gridTemplateColumns = `repeat(${nonEditableColumns}, 1fr)`;
+                nonEditableGrid.style.gap = '1rem';
                 
                 nonEditableFields.forEach((colConfig) => {
                     const colName = colConfig.col_name;
@@ -2089,6 +2101,20 @@ const batchSaveBackdrop = document.getElementById('batchSaveBackdrop');
                     
                     const label = document.createElement('label');
                     label.textContent = colConfig.col_label || formatColumnName(colName);
+                    
+                    // Add description if provided
+                    let descElement = null;
+                    if (colConfig.col_desc) {
+                        descElement = document.createElement('div');
+                        descElement.style.fontSize = '0.85rem';
+                        descElement.style.color = '#999999';
+                        descElement.style.marginTop = '-4px';
+                        descElement.style.marginBottom = '4px';
+                        descElement.style.fontWeight = '400';
+                        descElement.style.lineHeight = '1.2';
+                        descElement.style.lineHeight = '1.2';
+                        descElement.textContent = colConfig.col_desc;
+                    }
                     
                     const valueDiv = document.createElement('div');
                     valueDiv.style.padding = '0';
@@ -2105,6 +2131,9 @@ const batchSaveBackdrop = document.getElementById('batchSaveBackdrop');
                     valueDiv.innerHTML = displayValue;
                     
                     nonEditableDiv.appendChild(label);
+                    if (descElement) {
+                        nonEditableDiv.appendChild(descElement);
+                    }
                     nonEditableDiv.appendChild(valueDiv);
                     nonEditableGrid.appendChild(nonEditableDiv);
                 });
@@ -2114,6 +2143,9 @@ const batchSaveBackdrop = document.getElementById('batchSaveBackdrop');
             if (editableFields.length > 0) {
                 const editableGrid = document.getElementById('editableGrid');
                 editableGrid.innerHTML = '';
+                editableGrid.style.display = 'grid';
+                editableGrid.style.gridTemplateColumns = `repeat(${editableColumns}, 1fr)`;
+                editableGrid.style.gap = '1rem';
                 
                 editableFields.forEach((colConfig) => {
                     const colName = colConfig.col_name;
@@ -2123,6 +2155,20 @@ const batchSaveBackdrop = document.getElementById('batchSaveBackdrop');
                     const label = document.createElement('label');
                     label.htmlFor = `edit_${colName}`;
                     label.textContent = colConfig.col_label || formatColumnName(colName);
+                    
+                    // Add description if provided
+                    let descElement = null;
+                    if (colConfig.col_desc) {
+                        descElement = document.createElement('div');
+                        descElement.style.fontSize = '0.85rem';
+                        descElement.style.color = '#999999';
+                        descElement.style.marginTop = '-4px';
+                        descElement.style.marginBottom = '4px';
+                        descElement.style.fontWeight = '400';
+                        descElement.style.lineHeight = '1.2';
+                        descElement.style.lineHeight = '1.2';
+                        descElement.textContent = colConfig.col_desc;
+                    }
 
                     const fieldType = fieldTypes[colName] || colConfig.type;
                     let input;
@@ -2171,15 +2217,53 @@ const batchSaveBackdrop = document.getElementById('batchSaveBackdrop');
                     if (fieldType === 'boolean') {
                         group.appendChild(input);
                         group.appendChild(label);
+                        if (descElement) {
+                            group.appendChild(descElement);
+                        }
                     } else {
-                        // For other fields, add label first (top), then input (bottom)
+                        // For other fields, add label first (top), then description (if exists), then input (bottom)
                         group.appendChild(label);
+                        if (descElement) {
+                            group.appendChild(descElement);
+                        }
                         group.appendChild(input);
                     }
                     
                     editableGrid.appendChild(group);
                 });
             }
+
+            // Determine form width based on maximum grid columns needed
+            const maxColumns = Math.max(nonEditableColumns, editableColumns);
+            let formWidth = '500px';
+            if (maxColumns === 2) {
+                formWidth = '850px';
+            } else if (maxColumns >= 3) {
+                formWidth = '1200px';
+            }
+            editSection.style.setProperty('width', formWidth, 'important');
+            editSection.style.setProperty('maxWidth', formWidth, 'important');
+            editSection.style.setProperty('minWidth', formWidth, 'important');
+            editSection.style.setProperty('flex', 'none', 'important');
+            editSection.style.setProperty('flex-shrink', '0', 'important');
+            editSection.style.setProperty('box-sizing', 'border-box', 'important');
+            
+            // Also try setting explicit left/top positioning
+            const widthValue = parseInt(formWidth);
+            editSection.style.setProperty('left', `calc(50% - ${widthValue/2}px)`, 'important');
+            editSection.style.setProperty('top', '50%', 'important');
+            editSection.style.setProperty('transform', 'translateY(-50%)', 'important');
+            
+            console.log('[EDIT_FORM] Width set to:', formWidth);
+            console.log('[EDIT_FORM] Computed width:', window.getComputedStyle(editSection).width);
+            console.log('[EDIT_FORM] Computed max-width:', window.getComputedStyle(editSection).maxWidth);
+            console.log('[EDIT_FORM] Computed display:', window.getComputedStyle(editSection).display);
+            console.log('[EDIT_FORM] Computed position:', window.getComputedStyle(editSection).position);
+            console.log('[EDIT_FORM] Computed left:', window.getComputedStyle(editSection).left);
+
+            // Show the form with proper width set
+            editBackdrop.classList.add('active');
+            editSection.classList.add('active');
 
             if (selectedRow) selectedRow.classList.remove('selected');
             selectedRow = tableBody.querySelector(`tr[data-index="${index}"]`);
@@ -2254,7 +2338,7 @@ const batchSaveBackdrop = document.getElementById('batchSaveBackdrop');
                     // Handle SQL-based DELETE via ProxyLib
                     if (datatableConfig.use_sql && proxySessionToken) {
                         console.log('[DELETE] Taking SQL/ProxyLib path for record:', id);
-                        let deleteQuery = generateDynamicSQL('DELETE', recordToDelete, col_display_edit);
+                        let deleteQuery = generateDynamicSQL('DELETE', recordToDelete, datatableConfig.col_settings);
                         // Remove COMMIT since ProxyLib handles transactions
                         deleteQuery = deleteQuery.replace(/;\s*COMMIT;\s*$/i, '').trim();
                         console.log('[DELETE] Generated DELETE query:', deleteQuery);
@@ -2275,7 +2359,7 @@ const batchSaveBackdrop = document.getElementById('batchSaveBackdrop');
                         
                         // If sql_query is "Dynamic", generate DELETE query
                         if (payload.sql_query === 'Dynamic') {
-                            payload.sql_query = generateDynamicSQL('DELETE', recordToDelete, col_display_edit);
+                            payload.sql_query = generateDynamicSQL('DELETE', recordToDelete, datatableConfig.col_settings);
                             console.log('[DELETE] Generated DELETE query:', payload.sql_query);
                         }
                         
@@ -2376,6 +2460,13 @@ const batchSaveBackdrop = document.getElementById('batchSaveBackdrop');
                 document.querySelectorAll('.edit-field').forEach(field => {
                     const colName = field.getAttribute('data-column');
                     const colSetting = col_display_edit.find(c => c.col_name === colName);
+                    
+                    // Only update columns from the base table (from_sql: true)
+                    if (!colSetting || colSetting.from_sql !== true) {
+                        console.log('[UPDATE] Skipping enrichment column:', colName);
+                        return;
+                    }
+                    
                     const colType = colSetting?.type;
                     
                     if (field.type === 'checkbox') {
@@ -2395,7 +2486,7 @@ const batchSaveBackdrop = document.getElementById('batchSaveBackdrop');
                 // If use_sql is configured, execute UPDATE via ProxyLib
                 if (datatableConfig.use_sql && proxySessionToken) {
                     try {
-                        let updateQuery = generateDynamicSQL('UPDATE', tableData[index], col_display_edit);
+                        let updateQuery = generateDynamicSQL('UPDATE', tableData[index], datatableConfig.col_settings);
                         console.log('[UPDATE] Generated UPDATE query:', updateQuery);
                         
                         // Strip COMMIT statement - proxy handles commits
@@ -2461,11 +2552,11 @@ const batchSaveBackdrop = document.getElementById('batchSaveBackdrop');
                         
                         // If use_sql is true, always generate UPDATE query dynamically
                         if (datatableConfig.use_sql === true) {
-                            payload.sql_query = generateDynamicSQL('UPDATE', tableData[index], col_display_edit);
+                            payload.sql_query = generateDynamicSQL('UPDATE', tableData[index], datatableConfig.col_settings);
                             console.log('[UPDATE] Generated UPDATE query:', payload.sql_query);
                         } else if (payload.sql_query === 'Dynamic') {
                             // Fallback for backward compatibility
-                            payload.sql_query = generateDynamicSQL('UPDATE', tableData[index], col_display_edit);
+                            payload.sql_query = generateDynamicSQL('UPDATE', tableData[index], datatableConfig.col_settings);
                             console.log('[UPDATE] Generated UPDATE query:', payload.sql_query);
                         }
                         
@@ -2513,6 +2604,13 @@ const batchSaveBackdrop = document.getElementById('batchSaveBackdrop');
         // ============================================
         // ADD FORM
         // ============================================
+        
+        // Helper function: identify if a field is a context variable (datatable_var: true)
+        function isContextVariable(fieldName) {
+            const varConfig = inputVarConfig.find(v => v.name === fieldName);
+            return varConfig && varConfig.datatable_var === true;
+        }
+        
         function openAddForm() {
             addFormGrid.innerHTML = '';
 
@@ -2520,6 +2618,10 @@ const batchSaveBackdrop = document.getElementById('batchSaveBackdrop');
             let fieldCount = 0;
             datatableConfig.col_settings.forEach((colConfig) => {
                 if (!colConfig.p_key && !colConfig.gen) {
+                    // For SQL-based datatables, only count columns from the base table
+                    if (datatableConfig.use_sql && !colConfig.from_sql) {
+                        return;
+                    }
                     fieldCount++;
                 }
             });
@@ -2534,12 +2636,27 @@ const batchSaveBackdrop = document.getElementById('batchSaveBackdrop');
             addFormGrid.style.display = 'grid';
             addFormGrid.style.gridTemplateColumns = `repeat(${gridColumns}, 1fr)`;
             addFormGrid.style.gap = '1rem';
+            
+            // Set form width based on grid columns
+            let formWidth = '500px';
+            if (gridColumns === 2) {
+                formWidth = '850px';
+            } else if (gridColumns === 3) {
+                formWidth = '1200px';
+            }
+            addSection.style.setProperty('width', formWidth, 'important');
+            addSection.style.setProperty('maxWidth', formWidth, 'important');
 
             // For Add form, use full col_settings (not filtered col_display_edit)
             // Show all fields except p_key and gen
             datatableConfig.col_settings.forEach((colConfig) => {
                 // Skip primary key fields and generated fields
                 if (colConfig.p_key || colConfig.gen) {
+                    return;
+                }
+                
+                // For SQL-based datatables, skip columns not from the base table
+                if (datatableConfig.use_sql && !colConfig.from_sql) {
                     return;
                 }
 
@@ -2549,7 +2666,21 @@ const batchSaveBackdrop = document.getElementById('batchSaveBackdrop');
 
                 const label = document.createElement('label');
                 label.htmlFor = `add_${colName}`;
-                label.textContent = formatColumnName(colName);
+                label.textContent = colConfig.col_label || formatColumnName(colName);
+                
+                // Add description if provided
+                let descElement = null;
+                if (colConfig.col_desc) {
+                    descElement = document.createElement('div');
+                    descElement.style.fontSize = '0.85rem';
+                    descElement.style.color = '#999999';
+                    descElement.style.marginTop = '-4px';
+                    descElement.style.marginBottom = '4px';
+                    descElement.style.fontWeight = '400';
+                        descElement.style.lineHeight = '1.2';
+                        descElement.style.lineHeight = '1.2';
+                    descElement.textContent = colConfig.col_desc;
+                }
 
                 let input;
                 const fieldType = fieldTypes[colName] || colConfig.type;
@@ -2585,13 +2716,28 @@ const batchSaveBackdrop = document.getElementById('batchSaveBackdrop');
                 input.className = 'add-field';
                 input.setAttribute('data-column', colName);
 
+                // Check if this is a context variable (datatable_var: true)
+                if (isContextVariable(colName)) {
+                    const contextValue = getInputVarValue(colName);
+                    input.value = contextValue || '';
+                    input.disabled = true;
+                    input.style.cursor = 'not-allowed';
+                    console.log('[ADD_FORM] Context variable', colName, 'initial value:', contextValue, 'field value:', input.value);
+                }
+
                 // For checkboxes, add input first (left side), then label (right side)
                 if (fieldType === 'boolean') {
                     group.appendChild(input);
                     group.appendChild(label);
+                    if (descElement) {
+                        group.appendChild(descElement);
+                    }
                 } else {
-                    // For other fields, add label first (top), then input (bottom)
+                    // For other fields, add label first (top), then description (if exists), then input (bottom)
                     group.appendChild(label);
+                    if (descElement) {
+                        group.appendChild(descElement);
+                    }
                     group.appendChild(input);
                 }
                 addFormGrid.appendChild(group);
@@ -2632,18 +2778,43 @@ const batchSaveBackdrop = document.getElementById('batchSaveBackdrop');
 
             document.querySelectorAll('.add-field').forEach(field => {
                 const colName = field.getAttribute('data-column');
+                const colConfig = datatableConfig.col_settings.find(c => c.col_name === colName);
+                
+                // Only include columns from the base table (from_sql: true)
+                if (!colConfig || colConfig.from_sql !== true) {
+                    console.log('[INSERT] Skipping enrichment column:', colName);
+                    return;
+                }
+                
                 const fieldValue = field.value;
                 newRecord[colName] = fieldValue;
                 console.log('[INSERT] Field captured:', colName, '=', fieldValue);
             });
             
             console.log('[INSERT] All form fields collected, newRecord:', newRecord);
+            
+            // Ensure context variables are populated (they may be disabled and have empty values)
+            inputVarConfig.forEach(varConfig => {
+                if (isContextVariable(varConfig.name)) {
+                    const contextValue = getInputVarValue(varConfig.name);
+                    if (contextValue && !newRecord[varConfig.name]) {
+                        // Determine if this should be numeric
+                        const colSetting = datatableConfig.col_settings.find(c => c.col_name === varConfig.name);
+                        const isNumeric = colSetting && (colSetting.type === 'int' || colSetting.type === 'smallint' || 
+                                                         colSetting.type === 'integer' || colSetting.type === 'bigint' || 
+                                                         colSetting.type === 'decimal' || colSetting.type === 'float' || 
+                                                         colSetting.type === 'numeric');
+                        newRecord[varConfig.name] = isNumeric ? parseInt(contextValue) : contextValue;
+                        console.log('[INSERT] Populated context variable:', varConfig.name, '=', newRecord[varConfig.name]);
+                    }
+                }
+            });
 
             // Handle SQL-based INSERT
             if (datatableConfig.use_sql && proxySessionToken) {
                 try {
                     console.log('[INSERT] col_display_edit:', col_display_edit);
-                    let insertQuery = generateDynamicSQL('INSERT', newRecord, col_display_edit);
+                    let insertQuery = generateDynamicSQL('INSERT', newRecord, datatableConfig.col_settings);
                     // Remove COMMIT if present - ProxyLib handles transaction management
                     insertQuery = insertQuery.replace(/;\s*COMMIT;\s*$/i, '').trim();
                     console.log('[INSERT] New record data:', newRecord);
@@ -2677,6 +2848,9 @@ const batchSaveBackdrop = document.getElementById('batchSaveBackdrop');
                 try {
                     let payload = { ...update_vars };
                     
+                    // Merge new record fields into payload
+                    Object.assign(payload, newRecord);
+                    
                     // For workflow-based operations (not SQL), add action parameter
                     if (!datatableConfig.use_sql) {
                         payload.action = 'add';
@@ -2685,7 +2859,7 @@ const batchSaveBackdrop = document.getElementById('batchSaveBackdrop');
                     
                     // If sql_query is "Dynamic", generate INSERT query
                     if (payload.sql_query === 'Dynamic') {
-                        payload.sql_query = generateDynamicSQL('INSERT', newRecord, col_display_edit);
+                        payload.sql_query = generateDynamicSQL('INSERT', newRecord, datatableConfig.col_settings);
                         console.log('[INSERT] Generated INSERT query:', payload.sql_query);
                     }
                     
@@ -3060,9 +3234,25 @@ async function renderInputVarDropdowns() {
                 // 1. Check input_var property (for workflow/graphql with dependencies)
                 let checkValue = varConfig.input_var || input_vars[varConfig.name];
                 if (checkValue) {
-                    const { dependencies: inputVarDeps } = parseInputVar(checkValue);
-                    dependencies = dependencies.concat(inputVarDeps);
-                    console.log('[INPUT_VAR] input_var dependencies:', inputVarDeps);
+                    // If this is a datatable_var (like sql_query), parse for [[variable]] patterns
+                    if (varConfig.datatable_var === true) {
+                        const varPattern = /\[\[(\w+)\]\]/g;
+                        let match;
+                        const sqlDeps = [];
+                        while ((match = varPattern.exec(checkValue)) !== null) {
+                            const depName = match[1];
+                            if (!sqlDeps.includes(depName)) {
+                                sqlDeps.push(depName);
+                            }
+                        }
+                        dependencies = dependencies.concat(sqlDeps);
+                        console.log('[INPUT_VAR] datatable_var ([[variable]]) dependencies:', sqlDeps);
+                    } else {
+                        // Otherwise use parseInputVar for comma-separated format
+                        const { dependencies: inputVarDeps } = parseInputVar(checkValue);
+                        dependencies = dependencies.concat(inputVarDeps);
+                        console.log('[INPUT_VAR] input_var dependencies:', inputVarDeps);
+                    }
                 }
                 
                 // 2. Check proxy_query for [[variable]] placeholders (for MySQL sources)
@@ -3117,7 +3307,7 @@ async function renderInputVarDropdowns() {
             // e.g., if audit_id is satisfied from URL, rewst_org_id (its dependency) isn't needed
             const prunedNeededDropdowns = neededDropdowns.filter(dropdownVar => {
                 // Find all variables that depend on this dropdown var
-                const dependentVars = inputVarConfig.filter(v => {
+                let dependentVars = inputVarConfig.filter(v => {
                     if (v.name === dropdownVar) return false; // Skip self
                     
                     let hasDependency = false;
@@ -3142,13 +3332,33 @@ async function renderInputVarDropdowns() {
                         }
                     }
                     
+                    // Check input_vars for datatable_vars (like sql_query)
+                    if (!hasDependency && v.datatable_var === true && input_vars[v.name]) {
+                        const value = input_vars[v.name];
+                        const varPattern = /\[\[(\w+)\]\]/g;
+                        let match;
+                        while ((match = varPattern.exec(value)) !== null) {
+                            if (match[1] === dropdownVar) {
+                                hasDependency = true;
+                                break;
+                            }
+                        }
+                    }
+                    
                     return hasDependency;
                 });
                 
                 // Keep this dropdown if it has at least one unsatisfied dependent
                 const hasUnsatisfiedDependent = dependentVars.some(depVar => {
-                    const value = getInputVarValue(depVar.name);
-                    return !value;
+                    // For datatable_vars, check if they still have unresolved [[dropdownVar]] placeholders
+                    if (depVar.datatable_var === true && input_vars[depVar.name]) {
+                        const value = input_vars[depVar.name];
+                        const placeholder = '[[' + dropdownVar + ']]';
+                        return value.includes(placeholder);
+                    }
+                    // For regular vars with dependencies, check if the dependency has a value
+                    const depValue = getInputVarValue(depVar.name);
+                    return !depValue;
                 });
                 
                 if (!hasUnsatisfiedDependent) {
@@ -3184,7 +3394,7 @@ async function renderInputVarDropdowns() {
 
             // Render dropdowns for needed variables only
             for (const varConfig of dropdownVars) {
-                renderInputVarDropdown(varConfig, dropdownsDiv);
+                await renderInputVarDropdown(varConfig, dropdownsDiv);
             }
 
             // Show waiting message if dropdowns are needed
@@ -3550,7 +3760,8 @@ async function loadDataTable() {
                     
                     while ((match = varPattern.exec(str)) !== null) {
                         const varName = match[1];
-                        const varValue = getInputVarValue(varName);
+                        // Use value from payload first (already populated), then fall back to getInputVarValue
+                        const varValue = payload[varName] !== undefined ? payload[varName] : getInputVarValue(varName);
                         console.log('[LOAD_TABLE] Substituting [[' + varName + ']] with ' + varValue);
                         if (varValue) {
                             result = result.replace(match[0], varValue);
