@@ -1,0 +1,941 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Tools Portal - Home</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    
+    <!-- ============================================
+         USER CONTEXT & SECURITY INITIALIZATION
+         ============================================ -->
+    <style>
+        #page-content { display: none !important; }
+    </style>
+    <script>
+        const rawUserData = `{{ CTX.user }}`;
+        let pagePermissions = [];
+        window.ORG_ID = '019176c2-059f-7391-afbc-97b201efbd93';
+    </script>
+    <script src="https://eit-auto.github.io/repo/security.js?v=1.0"></script>
+    <script>
+        // Show page content since this is a config-based page
+        showPageContent();
+    </script>
+    
+    <!-- ============================================
+         REWST LIBRARY CSS
+         ============================================ -->
+    <link rel="stylesheet" href="https://eit-auto.github.io/repo/rewst-library.css?v=1.0.3">
+    
+    <!-- Start RAW to prevent Jinja interpretation -->
+    {% raw %}
+    
+    <script>
+        // ============================================
+        // NAVIGATION MENU STRUCTURE
+        // ============================================
+        const navMenu = [
+            {
+                label: "Employee Tools",
+                roles: [],
+                action: "nav_employee",
+                children: [
+                    { label: "Timesheet Evaluation", action: "timesheet-eval", roles: [] },
+                    { label: "Automation Request", action: "forms-v2?form_id=2", roles: [] }
+                ]
+            },
+            {
+                label: "Tech Tools",
+                roles: ["c0821333-66c1-461e-80f5-92f13d9d606d", "role-admin"],
+                children: [
+                    {
+                        label: "Automation",
+                        roles: [],
+                        children: [
+                            { label: "Run CWA Script", action: "https://equinoxits-tools.rew.st/s/forms-v2?form_id=8", roles: [] }
+                        ]
+                    },
+                    {
+                        label: "User Management",
+                        roles: [],
+                        children: [
+                            { label: "User Onboarding", action: "user-onboarding", roles: [] },
+                            { label: "User Offboarding", action: "user-offboarding", roles: [] },
+                            { label: "On-Prem Mailbox Actions", action: "https://app.rewst.io/organizations/019176c2-059f-7391-afbc-97b201efbd93/form/019682e1-c5d9-7c6d-8029-d31b33551b3d", roles: [] },
+                            { label: "AUDIT - AAD Account Audit", action: "https://app.rewst.io/organizations/019176c2-059f-7391-afbc-97b201efbd93/form/019aa419-1a7e-7d28-8dee-00ff378a9b3a", roles: [] },
+                            { label: "AUDIT - AAD Account Audit Results", action: "https://equinoxits-tools.rew.st/s/datatable?datatable=2", roles: [] }
+                        ]
+                    },
+                    {
+                        label: "Endpoint Tools",
+                        roles: [],
+                        children: [
+                            { label: "Add Needs Work Notification", action: "https://app.rewst.io/organizations/019176c2-059f-7391-afbc-97b201efbd93/form/0192b52c-a043-7e7f-9cbe-5a0ebfb05be0", roles: [] },
+                            { label: "Remove Needs Work Notification", action: "https://app.rewst.io/organizations/019176c2-059f-7391-afbc-97b201efbd93/form/0192b156-210d-77e8-988e-130791545cc5", roles: [] }
+                        ]
+                    },
+                    {
+                        label: "Misc Tools",
+                        roles: [],
+                        children: [
+                            { label: "Friendly Password Generator", action: "https://app.rewst.io/organizations/019176c2-059f-7391-afbc-97b201efbd93/form/01956de4-6e40-7089-b219-9f3ae103b25f", roles: [] }
+                        ]
+                    }
+                ]
+            },
+            {
+                label: "NOC/SOC Tools",
+                roles: ["c401ac8f-d0e3-4baf-b349-ebd65fef66b3", "role-admin"],
+                children: [
+                    {
+                        label: "Audits",
+                        roles: [],
+                        children: [
+                            {
+                                label: "Backups",
+                                roles: [],
+                                children: [
+                                    { label: "BU - ImageManager Computer Name Mismatches", action: "https://app.rewst.io/organizations/019176c2-059f-7391-afbc-97b201efbd93/form/01967e93-64fd-7c82-881d-921d2d37b128", roles: [] },
+                                    { label: "BU - No Backups List Management", action: "bu_nbu", roles: [] },
+                                    { label: "BU - ShadowControl Mapping", action: "datatable?datatable=3", roles: [] },
+                                    { label: "BU - Daily Backup Report", action: "https://equinoxits-tools.rew.st/s/forms-v2?form_id=3", roles: [] },
+                                    { label: "BU - Daily Backup Report Remediation", action: "https://equinoxits-tools.rew.st/s/datatable?datatable=4", roles: [] },
+                                    { label: "BU - Reporting Threshold Overrides", action: "datatable?datatable=7", roles: [] },
+                                    { label: "BU - Recoverability Audit", action: "https://app.rewst.io/organizations/019176c2-059f-7391-afbc-97b201efbd93/form/019b33f7-01b5-71ea-aaf9-8daeb9739ec8", roles: [] },
+                                    { label: "BU - Recoverability Audit Results", action: "https://app.rewst.io/organizations/019176c2-059f-7391-afbc-97b201efbd93/form/019b2d23-86dc-7ee2-98f8-90b4f3457cf0", roles: [] }
+                                ]
+                            },
+                            { label: "CWSC - Audit Duplicate Sessions", action: "https://app.rewst.io/organizations/019176c2-059f-7391-afbc-97b201efbd93/form/01976ad9-6675-7571-a339-e3c2f03bfd1c", roles: [] },
+                            { label: "CWA - Audit Patching By Source", action: "https://app.rewst.io/organizations/019176c2-059f-7391-afbc-97b201efbd93/form/019784a6-c13d-7c5f-9303-7bb1535dce2c", roles: [] }
+                        ]
+                    },
+                    {
+                        label: "Automation Tools",
+                        roles: [],
+                        children: [
+                            { label: "Automation Backlog", action: "automation_backlog", roles: [] }
+                        ]
+                    },
+                    {
+                        label: "Endpoint Management",
+                        roles: [],
+                        children: [
+                            { label: "CWA - Computer Offboarding", action: "https://equinoxits-tools.rew.st/s/forms-v2?form_id=1", roles: [] }
+                        ]
+                    },
+                    {
+                        label: "Rewst Tools",
+                        roles: [],
+                        children: [
+                            { label: "Add Organization to Rewst", action: "https://app.rewst.io/organizations/019176c2-059f-7391-afbc-97b201efbd93/form/01917bcb-32b3-7a06-aa77-f5fefe5c358d", roles: [] }
+                        ]
+                    },
+                    {
+                        label: "RMM Maintenance",
+                        roles: [],
+                        children: [
+                            { label: "CWA - LTShare\\Uploads Folder Clean-up", action: "https://app.rewst.io/organizations/019176c2-059f-7391-afbc-97b201efbd93/form/0196b0b8-1cf0-76dd-a967-2b165c58911b", roles: [] }
+                        ]
+                    },
+                    {
+                        label: "Ticket Tools",
+                        roles: [],
+                        children: [
+                            { label: "CWM - Bulk Create Duplicate Tickets", action: "https://app.rewst.io/organizations/019176c2-059f-7391-afbc-97b201efbd93/form/019596e7-70f4-78df-b2d4-63212aea9ca0", roles: [] }
+                        ]
+                    }
+                ]
+            },
+            {
+                label: "HQ Tools",
+                roles: ["ef4cfd16-74f6-41eb-bccc-86c76d4fcf51", "role-admin"],
+                children: [
+                    {
+                        label: "Timesheet Tools",
+                        roles: [],
+                        children: [
+                            { label: "Timesheet Evaluation - HQ", action: "https://app.rewst.io/organizations/019176c2-059f-7391-afbc-97b201efbd93/form/01969219-fcbb-75df-98ab-b0e98a354100", roles: [] },
+                            { label: "Monthly Offshore Time Report", action: "https://app.rewst.io/organizations/019176c2-059f-7391-afbc-97b201efbd93/form/019a30f5-0238-73ce-9342-0dcbc6d42a72", roles: [] }
+                        ]
+                    },
+                    {
+                        label: "Billing",
+                        roles: [],
+                        children: [
+                            { label: "Monthly Quantity Billing", action: "https://app.rewst.io/organizations/019176c2-059f-7391-afbc-97b201efbd93/form/0196b722-2d62-71ec-b82d-3bb4e421a8c4", roles: [] }
+                        ]
+                    }
+                ]
+            },
+            {
+                label: "SWAT",
+                roles: ["bc1d8541-5fad-4590-849b-6de7b129c12f", "role-admin"],
+                children: [
+                    {
+                        label: "E-mail Tools",
+                        roles: [],
+                        children: [
+                            { label: "Exchange Online - Message Search & Destroy", action: "https://app.rewst.io/organizations/019176c2-059f-7391-afbc-97b201efbd93/form/019ac114-9b8e-7328-a565-00800293fe51", roles: [] }
+                        ]
+                    }
+                ]
+            },
+            {
+                label: "PC Setup",
+                roles: ["9bc865e8-f4d8-4a8b-abe2-2be2460b134d", "role-admin"],
+                children: [
+                    { label: "Automation Backlog", action: "automation_backlog", roles: [] }
+                ]
+            },
+            {
+                label: "Projects",
+                roles: ["role-admin"],
+                children: [
+                    { label: "Create New Project", action: "https://app.rewst.io/organizations/019176c2-059f-7391-afbc-97b201efbd93/form/01999b48-aec2-775d-ba5c-1c0a75acb647", roles: [] }
+                ]
+            }
+        ];
+    </script>
+    
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            height: 100vh;
+            background: #2E5F75;
+        }
+        
+        .top {
+            height: 100px;
+            background: #2E5F75;
+            padding: 5px;
+            box-sizing: border-box;
+            position: relative;
+            z-index: 100;
+        }
+        
+        .bottom {
+            height: calc(100vh - 100px);
+            background: #2E5F75;
+            padding: 5px;
+            box-sizing: border-box;
+            overflow: hidden;
+        }
+        
+        .inner {
+            height: 100%;
+            background: #191A24;
+            border-radius: 10px;
+            overflow: visible;
+        }
+        
+        .top .inner {
+            display: flex;
+            align-items: center;
+            padding: 5px 10px;
+            gap: 20px;
+            overflow: visible;
+            position: relative;
+        }
+        
+        .bottom .inner {
+            overflow: hidden;
+            position: relative;
+        }
+        
+        .bottom .inner iframe {
+            width: 100%;
+            height: 100%;
+            border: none;
+        }
+        
+        /* Portal Logo */
+        .portal-logo {
+            height: 50px;
+            display: flex;
+            align-items: center;
+            flex-shrink: 0;
+            width: 235px;
+        }
+        
+        .portal-logo img {
+            height: 50px;
+            max-height: 50px;
+        }
+        
+        /* Portal Actions - Right side placeholder */
+        .portal-actions {
+            height: 50px;
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            flex-shrink: 2;
+            width: 235px;
+            min-width: 0;
+        }
+        
+        /* Navigation */
+        .nav-top-wrapper {
+            display: flex;
+            justify-content: center;
+            overflow: visible;
+            flex-grow: 1;
+            flex-shrink: 1;
+            flex-basis: auto;
+            min-width: 0;
+        }
+        
+        .nav-menu-container {
+            display: flex;
+            gap: 2rem;
+            list-style: none;
+            margin: 0;
+            padding: 0;
+            align-items: center;
+            height: 100%;
+            overflow: visible;
+            flex-wrap: wrap;
+            justify-content: center;
+            min-width: 0;
+        }
+        
+        .nav-menu-item {
+            position: relative;
+            display: flex;
+            align-items: center;
+            z-index: 10000;
+            overflow: visible;
+        }
+        
+        .nav-menu-toggle {
+            background: none;
+            border: none;
+            color: #ffffff;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            padding: 0;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            transition: color 0.2s;
+            white-space: nowrap;
+        }
+        
+        .nav-menu-toggle:hover {
+            color: #5a9fb8;
+        }
+        
+        .dropdown-arrow {
+            font-size: 12px;
+            transition: transform 0.2s;
+            font-weight: bold;
+        }
+        
+        .nav-menu-item.open .dropdown-arrow {
+            transform: rotate(180deg);
+        }
+        
+        .dropdown-menu {
+            position: absolute;
+            top: 100%;
+            left: 0;
+            background: #1f4051;
+            border: 1px solid #404040;
+            border-radius: 4px;
+            min-width: 200px;
+            list-style: none;
+            margin: 0;
+            padding: 0.5rem 0;
+            z-index: 10000;
+            display: none;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+            overflow: visible;
+        }
+        
+        .nav-menu-item.open > .dropdown-menu {
+            display: block;
+        }
+        
+        .dropdown-menu li {
+            margin: 0;
+        }
+        
+        .dropdown-menu a,
+        .dropdown-menu button {
+            display: block;
+            width: 100%;
+            padding: 0.75rem 1rem;
+            color: #e0e0e0;
+            text-decoration: none;
+            background: none;
+            border: none;
+            font-size: 14px;
+            text-align: left;
+            cursor: pointer;
+            transition: background 0.2s;
+            font-family: inherit;
+        }
+        
+        .dropdown-menu a:hover,
+        .dropdown-menu button:hover {
+            background: #2a5070;
+            color: #5a9fb8;
+        }
+        
+        .dropdown-submenu {
+            position: relative;
+        }
+        
+        .dropdown-submenu > .dropdown-menu {
+            position: absolute;
+            top: 0;
+            left: 100%;
+            margin-left: 0.5rem;
+            min-width: 180px;
+            display: none;
+        }
+        
+        .dropdown-submenu.open > .dropdown-menu {
+            display: block;
+        }
+        
+        /* Mobile menu */
+        .hamburger-btn {
+            display: none;
+            flex-direction: column;
+            background: none;
+            border: none;
+            cursor: pointer;
+            padding: 5px;
+            gap: 5px;
+        }
+        
+        .hamburger-btn span {
+            width: 25px;
+            height: 3px;
+            background: #ffffff;
+            border-radius: 2px;
+            transition: all 0.3s;
+        }
+        
+        .mobile-menu-container {
+            display: none;
+        }
+        
+        @media (max-width: 1200px) {
+            .portal-actions {
+                display: none;
+            }
+        }
+        
+        @media (max-width: 768px) {
+            body {
+                height: 100dvh;
+            }
+            
+            .bottom {
+                height: calc(100dvh - 100px);
+            }
+            
+            .nav-top-wrapper {
+                display: none !important;
+            }
+            
+            .hamburger-btn {
+                display: flex;
+                margin-left: auto;
+            }
+            
+            .hamburger-btn.open span:nth-child(1) {
+                transform: rotate(45deg) translate(8px, 8px);
+            }
+            
+            .hamburger-btn.open span:nth-child(2) {
+                opacity: 0;
+            }
+            
+            .hamburger-btn.open span:nth-child(3) {
+                transform: rotate(-45deg) translate(7px, -7px);
+            }
+            
+            .mobile-menu-container {
+                display: none;
+                position: absolute;
+                top: 100%;
+                right: 5px;
+                width: auto;
+                background: #1f4051;
+                border: 1px solid #404040;
+                border-radius: 4px;
+                z-index: 10000;
+                box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+                max-height: calc(100vh - 100px);
+                overflow-y: auto;
+            }
+            
+            .mobile-menu-container.open {
+                display: block;
+            }
+            
+            .mobile-menu-list {
+                list-style: none;
+                margin: 0;
+                padding: 0;
+                background: #2a5070;
+            }
+            
+            .mobile-menu-item[data-depth="1"] .mobile-menu-list {
+                background: #234656;
+            }
+            
+            .mobile-menu-item[data-depth="2"] .mobile-menu-list {
+                background: #1a3540;
+            }
+            
+            .mobile-menu-item[data-depth="3"] .mobile-menu-list {
+                background: #0f2834;
+            }
+            
+            .mobile-menu-item {
+                margin: 0;
+            }
+            
+            .mobile-menu-item > button,
+            .mobile-menu-item > a {
+                display: block;
+                width: 100%;
+                padding: 0.75rem 1rem;
+                background: none;
+                border: none;
+                color: #e0e0e0;
+                text-decoration: none;
+                text-align: left;
+                cursor: pointer;
+                font-size: 14px;
+                font-family: inherit;
+                transition: background 0.2s;
+            }
+            
+            .mobile-menu-item > button:hover,
+            .mobile-menu-item > a:hover {
+                background: #2a5070;
+                color: #5a9fb8;
+            }
+            
+            .mobile-menu-item[data-depth="1"] > button:hover,
+            .mobile-menu-item[data-depth="1"] > a:hover {
+                background: #1f4a56;
+            }
+            
+            .mobile-menu-item[data-depth="2"] > button:hover,
+            .mobile-menu-item[data-depth="2"] > a:hover {
+                background: #142a35;
+            }
+            
+            .mobile-menu-item[data-depth="3"] > button:hover,
+            .mobile-menu-item[data-depth="3"] > a:hover {
+                background: #0a1f28;
+            }
+            
+            .mobile-menu-item.has-children > button {
+                padding-right: 2rem;
+                position: relative;
+            }
+            
+            .mobile-menu-item.has-children > button::after {
+                content: '▶';
+                position: absolute;
+                right: 0.75rem;
+                transition: transform 0.2s;
+                font-weight: bold;
+                font-size: 11px;
+            }
+            
+            .mobile-menu-item.open > button::after {
+                transform: rotate(90deg);
+            }
+            
+            .mobile-menu-item[data-depth="0"] > button,
+            .mobile-menu-item[data-depth="0"] > a {
+                padding-left: 1rem;
+            }
+            
+            .mobile-menu-item[data-depth="1"] > button,
+            .mobile-menu-item[data-depth="1"] > a {
+                padding-left: 2rem;
+            }
+            
+            .mobile-menu-item[data-depth="2"] > button,
+            .mobile-menu-item[data-depth="2"] > a {
+                padding-left: 3.5rem;
+            }
+            
+            .mobile-menu-item[data-depth="3"] > button,
+            .mobile-menu-item[data-depth="3"] > a {
+                padding-left: 5rem;
+            }
+            
+            .mobile-menu-item[data-depth="1"] {
+                background: transparent;
+            }
+            
+            .mobile-menu-item[data-depth="2"] {
+                background: transparent;
+            }
+            
+            .mobile-menu-item[data-depth="3"] {
+                background: transparent;
+            }
+            
+            .mobile-menu-item .mobile-menu-list {
+                display: none;
+            }
+            
+            .mobile-menu-item.open > .mobile-menu-list {
+                display: block;
+            }
+        }
+    </style>
+</head>
+<body id="page-content">
+    
+    <!-- Top section with header and menu -->
+    <div class="top">
+        <div class="inner">
+            <div class="portal-logo">
+                <img src="https://llink.equinoxits.com/images/eit-fulllogo-white.png" alt="EIT Logo">
+            </div>
+            <button class="hamburger-btn" id="hamburgerBtn">
+                <span></span>
+                <span></span>
+                <span></span>
+            </button>
+            <nav class="nav-top-wrapper" id="navWrapper">
+                <ul class="nav-menu-container" id="navMenuContainer"></ul>
+            </nav>
+            <div class="portal-actions">
+                <!-- Placeholder for future options like Logout -->
+            </div>
+            <div class="mobile-menu-container" id="mobileMenuContainer"></div>
+        </div>
+    </div>
+    
+    <!-- Bottom section with content iframe -->
+    <div class="bottom">
+        <div class="inner">
+            <div id="iframeClickOverlay" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 1; pointer-events: none;"></div>
+            <iframe name="main_frame" src="landing"></iframe>
+        </div>
+    </div>
+    
+    <script>
+        // ============================================
+        
+        // ============================================
+        // PERMISSION CHECKING (using security.js utilities)
+        // ============================================
+        
+        function canAccessItem(item) {
+            // If no roles specified, everyone can access
+            if (!item.roles || item.roles.length === 0) return true;
+            // Check if user has any of the required roles (security.js function)
+            return userHasAnyRole(item.roles);
+        }
+        
+        // ============================================
+        // MENU RENDERING
+        // ============================================
+        
+        function renderMenu() {
+            const container = document.getElementById('navMenuContainer');
+            if (!container) return;
+            
+            container.innerHTML = '';
+            
+            navMenu.forEach((topItem, topIndex) => {
+                // Check if user can access this top-level item
+                if (!canAccessItem(topItem)) return;
+                
+                // Create menu item
+                const li = document.createElement('li');
+                li.className = 'nav-menu-item';
+                
+                // Create toggle button
+                const toggleBtn = document.createElement('button');
+                toggleBtn.className = 'nav-menu-toggle';
+                toggleBtn.textContent = topItem.label;
+                
+                // Add arrow if has children
+                if (topItem.children && topItem.children.length > 0) {
+                    const arrow = document.createElement('span');
+                    arrow.className = 'dropdown-arrow';
+                    arrow.textContent = '▼';
+                    toggleBtn.appendChild(arrow);
+                }
+                
+                // Toggle dropdown on click
+                toggleBtn.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    li.classList.toggle('open');
+                    // Close other open menus at same level
+                    document.querySelectorAll('.nav-menu-item.open').forEach(item => {
+                        if (item !== li) {
+                            item.classList.remove('open');
+                            // Also close all submenus within the closing item
+                            item.querySelectorAll('.dropdown-submenu.open').forEach(submenu => {
+                                submenu.classList.remove('open');
+                            });
+                        }
+                    });
+                    // Enable overlay if any menu is open
+                    const iframeOverlay = document.getElementById('iframeClickOverlay');
+                    if (iframeOverlay) {
+                        iframeOverlay.style.pointerEvents = 'auto';
+                    }
+                });
+                
+                li.appendChild(toggleBtn);
+                
+                // Create dropdown menu if has children
+                if (topItem.children && topItem.children.length > 0) {
+                    const dropdown = createDropdownMenu(topItem.children);
+                    li.appendChild(dropdown);
+                }
+                
+                container.appendChild(li);
+            });
+        }
+        
+        function createDropdownMenu(items) {
+            const ul = document.createElement('ul');
+            ul.className = 'dropdown-menu';
+            
+            items.forEach(item => {
+                // Check if user can access this item
+                if (!canAccessItem(item)) return;
+                
+                const li = document.createElement('li');
+                
+                // If item has children, make it a submenu
+                if (item.children && item.children.length > 0) {
+                    li.className = 'dropdown-submenu';
+                    
+                    const btn = document.createElement('button');
+                    btn.textContent = item.label;
+                    btn.style.paddingRight = '2rem';
+                    btn.style.position = 'relative';
+                    
+                    const arrow = document.createElement('span');
+                    arrow.style.position = 'absolute';
+                    arrow.style.right = '0.75rem';
+                    arrow.style.fontWeight = 'bold';
+                    arrow.style.fontSize = '11px';
+                    arrow.textContent = '▶';
+                    btn.appendChild(arrow);
+                    
+                    btn.addEventListener('click', (e) => {
+                        e.preventDefault();
+                        li.classList.toggle('open');
+                        // Close sibling submenus in the same dropdown-menu
+                        li.parentElement.querySelectorAll('.dropdown-submenu.open').forEach(submenu => {
+                            if (submenu !== li) submenu.classList.remove('open');
+                        });
+                        // Enable overlay if any menu is open
+                        const iframeOverlay = document.getElementById('iframeClickOverlay');
+                        if (iframeOverlay) {
+                            iframeOverlay.style.pointerEvents = 'auto';
+                        }
+                    });
+                    
+                    li.appendChild(btn);
+                    
+                    // Create submenu
+                    const submenu = createDropdownMenu(item.children);
+                    li.appendChild(submenu);
+                } else {
+                    // Leaf item - load content
+                    const link = document.createElement('a');
+                    link.textContent = item.label;
+                    link.href = item.action;
+                    link.target = 'main_frame';
+                    
+                    link.addEventListener('click', (e) => {
+                        // Close menu after click
+                        document.querySelectorAll('.nav-menu-item.open').forEach(el => {
+                            el.classList.remove('open');
+                        });
+                    });
+                    
+                    li.appendChild(link);
+                }
+                
+                ul.appendChild(li);
+            });
+            
+            return ul;
+        }
+        
+        // ============================================
+        // MOBILE MENU RENDERING
+        // ============================================
+        
+        function renderMobileMenu() {
+            const container = document.getElementById('mobileMenuContainer');
+            if (!container) return;
+            
+            const menuList = createMobileMenuList(navMenu, 0);
+            container.innerHTML = '';
+            container.appendChild(menuList);
+        }
+        
+        function createMobileMenuList(items, depth) {
+            const ul = document.createElement('ul');
+            ul.className = 'mobile-menu-list';
+            
+            items.forEach(item => {
+                if (!canAccessItem(item)) return;
+                
+                const li = document.createElement('li');
+                li.className = 'mobile-menu-item';
+                li.setAttribute('data-depth', depth);
+                
+                if (item.children && item.children.length > 0) {
+                    li.classList.add('has-children');
+                    
+                    const btn = document.createElement('button');
+                    btn.textContent = item.label;
+                    btn.addEventListener('click', (e) => {
+                        e.preventDefault();
+                        const wasOpen = li.classList.contains('open');
+                        li.classList.toggle('open');
+                        
+                        // Close other open menus at the same level
+                        li.parentElement.querySelectorAll('.mobile-menu-item.open').forEach(sibling => {
+                            if (sibling !== li) {
+                                sibling.classList.remove('open');
+                                // Also close all children within the sibling
+                                sibling.querySelectorAll('.mobile-menu-item.open').forEach(child => {
+                                    child.classList.remove('open');
+                                });
+                            }
+                        });
+                        
+                        // If closing this menu, also close all its children
+                        if (wasOpen) {
+                            li.querySelectorAll('.mobile-menu-item.open').forEach(child => {
+                                child.classList.remove('open');
+                            });
+                        }
+                    });
+                    
+                    li.appendChild(btn);
+                    
+                    const submenu = createMobileMenuList(item.children, depth + 1);
+                    li.appendChild(submenu);
+                } else {
+                    const link = document.createElement('a');
+                    link.textContent = item.label;
+                    link.href = item.action;
+                    link.target = 'main_frame';
+                    
+                    link.addEventListener('click', () => {
+                        document.getElementById('hamburgerBtn').classList.remove('open');
+                        document.getElementById('mobileMenuContainer').classList.remove('open');
+                    });
+                    
+                    li.appendChild(link);
+                }
+                
+                ul.appendChild(li);
+            });
+            
+            return ul;
+        }
+        
+        // ============================================
+        // HAMBURGER MENU TOGGLE
+        // ============================================
+        
+        const hamburgerBtn = document.getElementById('hamburgerBtn');
+        const mobileMenuContainer = document.getElementById('mobileMenuContainer');
+        
+        hamburgerBtn.addEventListener('click', () => {
+            hamburgerBtn.classList.toggle('open');
+            mobileMenuContainer.classList.toggle('open');
+            // Enable overlay if mobile menu is open
+            const iframeOverlay = document.getElementById('iframeClickOverlay');
+            if (iframeOverlay) {
+                if (mobileMenuContainer.classList.contains('open')) {
+                    iframeOverlay.style.pointerEvents = 'auto';
+                } else {
+                    iframeOverlay.style.pointerEvents = 'none';
+                }
+            }
+        });
+        
+        // ============================================
+        // CLOSE MENUS ON OUTSIDE CLICK
+        // ============================================
+        
+        document.addEventListener('DOMContentLoaded', () => {
+            renderMenu();
+            renderMobileMenu();
+            
+            const iframeOverlay = document.getElementById('iframeClickOverlay');
+            
+            // Function to close all menus
+            function closeAllMenus() {
+                document.querySelectorAll('.nav-menu-item.open').forEach(el => {
+                    el.classList.remove('open');
+                    // Also close all submenus within
+                    el.querySelectorAll('.dropdown-submenu.open').forEach(submenu => {
+                        submenu.classList.remove('open');
+                    });
+                });
+                
+                // Close mobile menu if open
+                const mobileMenu = document.getElementById('mobileMenuContainer');
+                const hamburgerBtn = document.getElementById('hamburgerBtn');
+                if (mobileMenu && mobileMenu.classList.contains('open')) {
+                    mobileMenu.classList.remove('open');
+                    hamburgerBtn.classList.remove('open');
+                }
+                
+                // Disable overlay when no menus are open
+                if (iframeOverlay) {
+                    iframeOverlay.style.pointerEvents = 'none';
+                }
+            }
+            
+            // Add click listener to iframe overlay
+            if (iframeOverlay) {
+                iframeOverlay.addEventListener('click', closeAllMenus);
+            }
+            
+            // Use mousedown capture phase to catch clicks
+            document.addEventListener('mousedown', (e) => {
+                const navMenuContainer = document.getElementById('navMenuContainer');
+                const hamburgerBtn = document.getElementById('hamburgerBtn');
+                const mobileMenuContainer = document.getElementById('mobileMenuContainer');
+                const bottomDiv = document.querySelector('.bottom');
+                
+                // Check if click is inside mobile menu (don't close if it is)
+                const isClickInMobileMenu = mobileMenuContainer && mobileMenuContainer.contains(e.target);
+                if (isClickInMobileMenu) return;
+                
+                // Check if click is outside the nav menu and hamburger button
+                const isClickInsideNav = navMenuContainer && navMenuContainer.contains(e.target);
+                const isClickOnHamburger = hamburgerBtn && hamburgerBtn.contains(e.target);
+                const isClickInBottom = bottomDiv && bottomDiv.contains(e.target);
+                
+                // Close menus if clicking in bottom area or outside nav/hamburger
+                if (isClickInBottom || (!isClickInsideNav && !isClickOnHamburger)) {
+                    closeAllMenus();
+                }
+            }, true); // true = capture phase
+        });
+    </script>
+    
+    {% endraw %}
+</body>
+</html>
