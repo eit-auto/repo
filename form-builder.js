@@ -7257,13 +7257,15 @@ function renderArrayItemValueField(container, item) {
             item.workflow_id = e.target.value;
         });
     } else if (item.type === 'dropdown_mysql') {
-        // MySQL dropdown - show query status
-        const hasQuery = item.query ? 'Query: Yes' : 'Query: No';
+        // MySQL dropdown - show edit query button
         container.innerHTML = `
-            <div style="padding: 6px; background: #234656; border: 1px solid #555; border-radius: 4px; color: #999; font-size: 12px; display: flex; align-items: center;">
-                ${hasQuery}
-            </div>
+            <button type="button" class="array-item-mysql-query-btn btn btn-blue" style="width: 100%; padding: 6px; font-size: 12px;">Edit Query</button>
         `;
+        
+        const queryBtn = container.querySelector('.array-item-mysql-query-btn');
+        queryBtn.addEventListener('click', () => {
+            openArrayItemSqlQueryModal(item);
+        });
     }
 }
 
@@ -7675,6 +7677,57 @@ function saveArrayItems() {
     }
     
     closeArrayItemsModal();
+}
+
+// ============================================
+// ARRAY ITEM SQL QUERY MODAL
+// ============================================
+let currentArrayItemForQuery = null;
+
+const arrayItemSqlQueryModal = document.getElementById('arrayItemSqlQueryModal');
+const arrayItemSqlQueryTextarea = document.getElementById('arrayItemSqlQueryTextarea');
+const arrayItemSqlQuerySave = document.getElementById('arrayItemSqlQuerySave');
+const arrayItemSqlQueryCancel = document.getElementById('arrayItemSqlQueryCancel');
+const arrayItemSqlQueryModalClose = document.getElementById('arrayItemSqlQueryModalClose');
+
+function openArrayItemSqlQueryModal(item) {
+    currentArrayItemForQuery = item;
+    if (arrayItemSqlQueryTextarea) {
+        arrayItemSqlQueryTextarea.value = item.query || '';
+    }
+    if (arrayItemSqlQueryModal) {
+        arrayItemSqlQueryModal.classList.add('active');
+    }
+}
+
+if (arrayItemSqlQuerySave) {
+    arrayItemSqlQuerySave.addEventListener('click', () => {
+        if (currentArrayItemForQuery) {
+            currentArrayItemForQuery.query = arrayItemSqlQueryTextarea?.value?.trim() || '';
+            if (arrayItemSqlQueryModal) {
+                arrayItemSqlQueryModal.classList.remove('active');
+            }
+            currentArrayItemForQuery = null;
+        }
+    });
+}
+
+if (arrayItemSqlQueryCancel) {
+    arrayItemSqlQueryCancel.addEventListener('click', () => {
+        if (arrayItemSqlQueryModal) {
+            arrayItemSqlQueryModal.classList.remove('active');
+        }
+        currentArrayItemForQuery = null;
+    });
+}
+
+if (arrayItemSqlQueryModalClose) {
+    arrayItemSqlQueryModalClose.addEventListener('click', () => {
+        if (arrayItemSqlQueryModal) {
+            arrayItemSqlQueryModal.classList.remove('active');
+        }
+        currentArrayItemForQuery = null;
+    });
 }
 
 /**
