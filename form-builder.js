@@ -7124,6 +7124,7 @@ function renderArrayItemRow(container, item, index) {
     const rowContainer = document.createElement('div');
     rowContainer.className = 'array-item-row-container';
     rowContainer.dataset.index = index;
+    rowContainer._itemData = item;  // Store reference to item object
     rowContainer.style.cssText = 'background: #1a3540; padding: 12px; border-radius: 4px; border: 1px solid #404040;';
     
     // Main row with name, display_name, type, value field
@@ -7139,6 +7140,7 @@ function renderArrayItemRow(container, item, index) {
             <option value="dropdown_static" ${item.type === 'dropdown_static' ? 'selected' : ''}>Static Dropdown</option>
             <option value="dropdown_graphql" ${item.type === 'dropdown_graphql' ? 'selected' : ''}>GraphQL Dropdown</option>
             <option value="dropdown_workflow" ${item.type === 'dropdown_workflow' ? 'selected' : ''}>Workflow Dropdown</option>
+            <option value="dropdown_mysql" ${item.type === 'dropdown_mysql' ? 'selected' : ''}>MySQL Dropdown</option>
         </select>
         <div id="arrayItemValueField_${index}" style="width: 100%;"></div>
         <button class="delete-array-item-modal-btn" title="Delete Item" style="min-width: auto; padding: 6px 10px; background: #b8242f; border: none; border-radius: 4px; color: #ffffff; cursor: pointer; font-size: 14px; font-weight: 600;">×</button>
@@ -7254,6 +7256,14 @@ function renderArrayItemValueField(container, item) {
         workflowSelect.addEventListener('change', (e) => {
             item.workflow_id = e.target.value;
         });
+    } else if (item.type === 'dropdown_mysql') {
+        // MySQL dropdown - show query status
+        const hasQuery = item.query ? 'Query: Yes' : 'Query: No';
+        container.innerHTML = `
+            <div style="padding: 6px; background: #234656; border: 1px solid #555; border-radius: 4px; color: #999; font-size: 12px; display: flex; align-items: center;">
+                ${hasQuery}
+            </div>
+        `;
     }
 }
 
@@ -7463,6 +7473,33 @@ function renderArrayItemConfig(container, item) {
         container.querySelectorAll('.workflow-input-key, .workflow-input-value').forEach(input => {
             input.addEventListener('input', () => updateArrayWorkflowInput(container, item));
         });
+    } else if (item.type === 'dropdown_mysql') {
+        // MySQL dropdown config: Label Field, Value Field, Multi-Select
+        container.style.display = 'block';
+        container.innerHTML = `
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px;">
+                <div style="display: flex; flex-direction: column; gap: 6px;">
+                    <label style="color: #ccc; font-size: 12px; font-weight: 600;">Label Field</label>
+                    <input type="text" class="array-item-label-field" value="${RewstLib.utils.escapeHtml(item.label_field || '')}" placeholder="e.g., name" style="padding: 6px; background: #234656; border: 1px solid #555; border-radius: 4px; color: #ffffff; font-size: 12px;">
+                </div>
+                <div style="display: flex; flex-direction: column; gap: 6px;">
+                    <label style="color: #ccc; font-size: 12px; font-weight: 600;">Value Field</label>
+                    <input type="text" class="array-item-value-field" value="${RewstLib.utils.escapeHtml(item.value_field || '')}" placeholder="e.g., id" style="padding: 6px; background: #234656; border: 1px solid #555; border-radius: 4px; color: #ffffff; font-size: 12px;">
+                </div>
+            </div>
+            <div style="display: flex; align-items: center; gap: 8px;">
+                <input type="checkbox" class="array-item-multi-select" ${item.multi_select ? 'checked' : ''} style="accent-color: #5a9fb8;">
+                <label style="color: #ccc; font-size: 12px; font-weight: 600; margin: 0; cursor: pointer;">Multi-Select</label>
+            </div>
+        `;
+        
+        const labelFieldInput = container.querySelector('.array-item-label-field');
+        const valueFieldInput = container.querySelector('.array-item-value-field');
+        const multiSelect = container.querySelector('.array-item-multi-select');
+        
+        labelFieldInput.addEventListener('input', (e) => { item.label_field = e.target.value; });
+        valueFieldInput.addEventListener('input', (e) => { item.value_field = e.target.value; });
+        multiSelect.addEventListener('change', (e) => { item.multi_select = e.target.checked; });
     }
 }
 
@@ -7611,6 +7648,15 @@ function saveArrayItems() {
                     }
                 });
                 itemData.workflow_input = Object.keys(workflowInputObj).length > 0 ? workflowInputObj : null;
+            } else if (type === 'dropdown_mysql') {
+                const labelFieldInput = container.querySelector('.array-item-label-field');
+                const valueFieldInput = container.querySelector('.array-item-value-field');
+                const multiSelect = container.querySelector('.array-item-multi-select');
+                
+                itemData.query = container._itemData?.query || '';
+                itemData.label_field = labelFieldInput ? labelFieldInput.value : '';
+                itemData.value_field = valueFieldInput ? valueFieldInput.value : '';
+                itemData.multi_select = multiSelect ? multiSelect.checked : false;
             }
             
             items.push(itemData);
