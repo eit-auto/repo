@@ -1264,6 +1264,28 @@ const GRAPHQL_OPERATIONS = {
   }
 
   /**
+   * Format an item's label using template syntax with @field@ references
+   * Example: "@name@ (@id@)" with item {name: "Company A", id: 123} -> "Company A (123)"
+   * If labelTemplate is a plain field name, just return that field's value
+   * @param {string} labelTemplate - Template string with @field@ references or plain field name
+   * @param {object} item - The item object with field values
+   * @returns {string} Formatted label
+   */
+  function formatItemLabel(labelTemplate, item) {
+    if (!labelTemplate || !item) return '';
+    
+    // If template contains @field@ references, replace them
+    if (labelTemplate.includes('@')) {
+      return labelTemplate.replace(/@(\w+)@/g, (match, fieldName) => {
+        return item[fieldName] !== undefined ? item[fieldName] : match;
+      });
+    }
+    
+    // Otherwise treat as plain field name
+    return item[labelTemplate] !== undefined ? item[labelTemplate] : '';
+  }
+
+  /**
    * Get all available GraphQL operations
    * @returns {object} All GraphQL operations metadata
    */
@@ -2758,7 +2780,8 @@ const GRAPHQL_OPERATIONS = {
       replacePageVariableReferences,
       replaceReferencesInValue,
       extractPageVariableReferences,
-      getResolvedFieldConfig
+      getResolvedFieldConfig,
+      formatItemLabel
     },
     // GraphQL Operations
     graphqlOperations: {
