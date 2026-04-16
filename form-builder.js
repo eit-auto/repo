@@ -1082,7 +1082,6 @@ function saveTypeSpecificFields(fieldConfig) {
                 }
                 
                 fieldConfig.command = document.getElementById('retrieval_command')?.value || '';
-                fieldConfig.query = '';
             } else if (fieldConfig.data_source_type === 'mysql') {
                 // Query is already set via the SQL Query modal handler
                 fieldConfig.node_id = '';
