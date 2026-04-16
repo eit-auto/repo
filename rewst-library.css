@@ -210,6 +210,12 @@
     color: #888;
   }
 
+  /* Ensure all non-button/message children of dropdown-refresh-container stretch */
+  .dropdown-refresh-container > div:not(.field-loading-message):not(.field-waiting-message) {
+    flex: 1;
+    min-width: 0;
+  }
+
   /* Ensure searchable wrappers stretch in flex containers */
   .dropdown-refresh-container > div:has(.searchable-select-input) {
     flex: 1;
