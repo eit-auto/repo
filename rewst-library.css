@@ -1048,6 +1048,13 @@
     margin: 0;
     z-index: 10;
   }
+  
+  /* Waiting message for searchable single-select needs to stretch beyond wrapper */
+  .form-group.is-waiting > div > .field-waiting-message {
+    left: -100%;
+    right: -100%;
+    width: auto;
+  }
   .field-waiting-message.data-retrieval-waiting {
     background: #f9d86c;
     border-color: #d4a017;
