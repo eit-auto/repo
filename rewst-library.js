@@ -2024,21 +2024,21 @@ const GRAPHQL_OPERATIONS = {
       const oldChildCount = optionsContainer.children.length;
       const stackTrace = new Error().stack.split('\n').slice(1, 3).map(line => line.trim().split(' (')[0]).join(' <- ');
       console.log(`[POPULATE] [CALL #${callId}] Starting populateDropdown. Container had ${oldChildCount} children, options.length=${options.length}. Caller: ${stackTrace}`);
-      optionsContainer.innerHTML = '';
-      console.log(`[POPULATE] [CALL #${callId}] Cleared container, now has ${optionsContainer.children.length} children`);
-
-      // Add search input if config allows (searchable by default)
+      
+      // Check if search input already exists
+      let searchDiv = optionsContainer.querySelector('.multi-select-search');
       const fieldName = container.closest('[data-field-name]')?.getAttribute('data-field-name') || '';
       const fieldConfig = window.currentFormConfig?.field_configs?.find(f => f.field_name === fieldName) || {};
       const isSearchable = fieldConfig.searchable !== false;
       
-      if (isSearchable) {
-        const searchDiv = document.createElement('div');
+      // If first call and searchable, create search input
+      if (!searchDiv && isSearchable) {
+        searchDiv = document.createElement('div');
         searchDiv.className = 'multi-select-search';
         searchDiv.innerHTML = `
           <div style="position: relative; width: 100%;">
-            <input type="text" class="multi-select-search-input" placeholder="Search..." value="${escapeHtml(filterText)}" style="width: 100%; padding: 8px; padding-right: 30px; border: 1px solid #555; border-radius: 4px; background: #1a3540; color: #ffffff; box-sizing: border-box;">
-            <button type="button" class="multi-select-search-clear" style="position: absolute; right: 8px; top: 50%; transform: translateY(-50%); background: none; border: none; color: #888; cursor: pointer; padding: 0; font-size: 16px; display: ${filterText ? 'block' : 'none'};">✕</button>
+            <input type="text" class="multi-select-search-input" placeholder="Search..." value="" style="width: 100%; padding: 8px; padding-right: 30px; border: 1px solid #555; border-radius: 4px; background: #1a3540; color: #ffffff; box-sizing: border-box;">
+            <button type="button" class="multi-select-search-clear" style="position: absolute; right: 8px; top: 50%; transform: translateY(-50%); background: none; border: none; color: #888; cursor: pointer; padding: 0; font-size: 16px; display: none;">✕</button>
           </div>
         `;
         optionsContainer.appendChild(searchDiv);
@@ -2065,6 +2065,26 @@ const GRAPHQL_OPERATIONS = {
           searchInput.focus();
         });
       }
+      
+      // Update search input value if it exists
+      if (searchDiv) {
+        const searchInput = searchDiv.querySelector('.multi-select-search-input');
+        const clearBtn = searchDiv.querySelector('.multi-select-search-clear');
+        if (searchInput) {
+          searchInput.value = filterText;
+          if (clearBtn) {
+            clearBtn.style.display = filterText ? 'block' : 'none';
+          }
+        }
+      }
+      
+      // Remove everything after search input (Select All, separator, options)
+      let nextElement = searchDiv?.nextElementSibling;
+      while (nextElement) {
+        const toRemove = nextElement;
+        nextElement = nextElement.nextElementSibling;
+        toRemove.remove();
+      }
 
       // Filter options based on search text
       const filteredOptions = filterText.trim() === '' 
@@ -2073,43 +2093,45 @@ const GRAPHQL_OPERATIONS = {
             String(opt.label).toLowerCase().includes(filterText.toLowerCase())
           );
 
-      // Add SELECT ALL checkbox at the top (after search input)
-      const selectAllDiv = document.createElement('div');
-      selectAllDiv.className = 'multi-select-option multi-select-select-all';
-      const selectAllId = 'selectall_' + Math.random().toString(36).substr(2, 9);
-      const allFilteredSelected = filteredOptions.length > 0 && filteredOptions.every(opt => selected.includes(String(opt.value)));
-      selectAllDiv.innerHTML = `
-        <input type="checkbox" id="${selectAllId}" ${allFilteredSelected ? 'checked' : ''}>
-        <label for="${selectAllId}"><strong>Select All</strong></label>
-      `;
-      
-      const selectAllCheckbox = selectAllDiv.querySelector('input');
-      selectAllCheckbox.addEventListener('change', () => {
-        if (selectAllCheckbox.checked) {
-          // Select all filtered items
-          filteredOptions.forEach(opt => {
-            const stringValue = String(opt.value);
-            if (!selected.includes(stringValue)) {
-              selected.push(stringValue);
-            }
-          });
-        } else {
-          // Deselect all filtered items
-          filteredOptions.forEach(opt => {
-            const stringValue = String(opt.value);
-            selected = selected.filter(v => v !== stringValue);
-          });
-        }
-        updateTags();
-        populateDropdown(filterText); // Refresh with same filter
-      });
-      
-      optionsContainer.appendChild(selectAllDiv);
+      // Add SELECT ALL checkbox only if there are filtered options
+      if (filteredOptions.length > 0) {
+        const selectAllDiv = document.createElement('div');
+        selectAllDiv.className = 'multi-select-option multi-select-select-all';
+        const selectAllId = 'selectall_' + Math.random().toString(36).substr(2, 9);
+        const allFilteredSelected = filteredOptions.every(opt => selected.includes(String(opt.value)));
+        selectAllDiv.innerHTML = `
+          <input type="checkbox" id="${selectAllId}" ${allFilteredSelected ? 'checked' : ''}>
+          <label for="${selectAllId}"><strong>Select All</strong></label>
+        `;
+        
+        const selectAllCheckbox = selectAllDiv.querySelector('input');
+        selectAllCheckbox.addEventListener('change', () => {
+          if (selectAllCheckbox.checked) {
+            // Select all filtered items
+            filteredOptions.forEach(opt => {
+              const stringValue = String(opt.value);
+              if (!selected.includes(stringValue)) {
+                selected.push(stringValue);
+              }
+            });
+          } else {
+            // Deselect all filtered items
+            filteredOptions.forEach(opt => {
+              const stringValue = String(opt.value);
+              selected = selected.filter(v => v !== stringValue);
+            });
+          }
+          updateTags();
+          populateDropdown(filterText); // Refresh with same filter
+        });
+        
+        optionsContainer.appendChild(selectAllDiv);
 
-      // Add separator
-      const separator = document.createElement('div');
-      separator.style.borderBottom = '1px solid #556870';
-      optionsContainer.appendChild(separator);
+        // Add separator
+        const separator = document.createElement('div');
+        separator.style.borderBottom = '1px solid #556870';
+        optionsContainer.appendChild(separator);
+      }
 
       // Show filtered options or "No matches"
       if (filteredOptions.length === 0) {
@@ -2142,13 +2164,13 @@ const GRAPHQL_OPERATIONS = {
               selected = selected.filter(v => v !== stringValue);
             }
             updateTags();
-            populateDropdown(filterText); // Refresh with same filter, checkbox state updates
+            populateDropdown(filterText); // Refresh with same filter
           });
 
           optionsContainer.appendChild(optionDiv);
         });
       }
-      console.log(`[POPULATE] [CALL #${callId}] Finished adding options. Container now has ${optionsContainer.children.length} children (including select-all + separator)`);
+      console.log(`[POPULATE] [CALL #${callId}] Finished adding options. Container now has ${optionsContainer.children.length} children`);
     }
 
     // Toggle dropdown
