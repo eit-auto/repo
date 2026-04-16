@@ -1307,9 +1307,9 @@ const GRAPHQL_OPERATIONS = {
       <label>${displayName}</label>
       ${descriptionHtml}
       <div class="multi-select-container" id="${multiSelectId}">
-        <div class="multi-select-display">
+        <div class="multi-select-display" style="position: relative;">
           <div class="multi-select-tags"></div>
-          <button type="button" class="multi-select-clear-all" style="display: none; padding: 4px 12px; font-size: 12px; background: #d9534f; color: white; border: none; border-radius: 3px; cursor: pointer; margin-right: 8px;">Clear All</button>
+          <button type="button" class="multi-select-clear-all" style="display: none; position: absolute; top: 8px; right: 8px; padding: 2px 6px; font-size: 12px; background: #d9534f; color: white; border: none; border-radius: 3px; cursor: pointer;">Clear All</button>
           <div class="multi-select-toggle">▼</div>
         </div>
         <div class="multi-select-options"></div>
@@ -1926,9 +1926,10 @@ const GRAPHQL_OPERATIONS = {
       // Rebuild the multi-select structure
       const tagsDiv = document.createElement('div');
       tagsDiv.className = 'multi-select-display';
+      tagsDiv.style.position = 'relative';
       tagsDiv.innerHTML = `
         <div class="multi-select-tags"></div>
-        <button type="button" class="multi-select-clear-all" style="display: none; padding: 4px 12px; font-size: 12px; background: #d9534f; color: white; border: none; border-radius: 3px; cursor: pointer; margin-right: 8px;">Clear All</button>
+        <button type="button" class="multi-select-clear-all" style="display: none; position: absolute; top: 8px; right: 8px; padding: 2px 6px; font-size: 12px; background: #d9534f; color: white; border: none; border-radius: 3px; cursor: pointer;">Clear All</button>
         <div class="multi-select-toggle">▼</div>
       `;
       container.appendChild(tagsDiv);
