@@ -4327,7 +4327,7 @@ function showElementSettings(elementUid) {
 const elementSqlQueryModal = document.getElementById('elementSqlQueryModal');
 const elementSqlQueryModalClose = document.getElementById('elementSqlQueryModalClose');
 const elementSqlQueryTitle = document.getElementById('elementSqlQueryTitle');
-const elementSqlQueryTextarea = document.getElementById('element_sql_query_textarea');
+const elementSqlQueryTextarea = document.getElementById('elementSqlQueryTextarea');
 const elementSqlQuerySave = document.getElementById('elementSqlQuerySave');
 const elementSqlQueryCancel = document.getElementById('elementSqlQueryCancel');
 
