@@ -462,6 +462,25 @@ const ELEMENT_TYPE_DEFAULTS = {
         searchable: true,
         result_var: ''
     },
+    'dropdown_psa': {
+        endpoint: '',                   // CWM API endpoint (required)
+        method: 'GET',                  // HTTP method: GET, POST, PUT, DELETE
+        fields: '',                     // Comma-separated field list
+        conditions: '',                 // Server-side filter for parent resource
+        childConditions: '',            // Server-side filter for child collections
+        orderBy: '',                    // Sort specification
+        pageAll: true,                  // Fetch all pages
+        pageSize: 1000,                 // Results per page
+        page: 1,                        // Page number
+        requestBody: '{}',              // JSON body for POST/PUT
+        timeout: 30000,                 // Request timeout in ms
+        label_field: '',                // Which field to display in dropdown
+        value_field: '',                // Which field is the value
+        multi_select: false,
+        default_value: null,
+        searchable: true,
+        result_var: ''
+    },
     'datatable': {
         data_variable: '',              // Variable name/path to JSON array
         list_view: false                // true = list format, false = table format
@@ -830,7 +849,7 @@ function saveTypeSpecificFields(fieldConfig) {
     
     try {
         // For dropdowns, clean up fields that don't belong to the selected type
-        if (['dropdown', 'dropdown_static', 'dropdown_graphql', 'dropdown_mysql', 'dropdown_cwa_mysql', 'dropdown_mesh'].includes(elementType)) {
+        if (['dropdown', 'dropdown_static', 'dropdown_graphql', 'dropdown_mysql', 'dropdown_cwa_mysql', 'dropdown_mesh', 'dropdown_psa'].includes(elementType)) {
             if (elementType === 'dropdown_static') {
                 // Static: clear workflow, graphql, mysql, and mesh fields
                 delete fieldConfig.workflow_id;
@@ -908,6 +927,20 @@ function saveTypeSpecificFields(fieldConfig) {
                 delete fieldConfig.graphql_op;
                 delete fieldConfig.graphql_op_variables;
                 delete fieldConfig.query;
+            } else if (elementType === 'dropdown_psa') {
+                // PSA: clear static, workflow, graphql, and mesh fields
+                delete fieldConfig.options;
+                delete fieldConfig.workflow_id;
+                delete fieldConfig.label_name;
+                delete fieldConfig.value_name;
+                delete fieldConfig.default_selector;
+                delete fieldConfig.workflow_input;
+                delete fieldConfig.graphql_op;
+                delete fieldConfig.graphql_op_variables;
+                delete fieldConfig.query;
+                delete fieldConfig.node_id;
+                delete fieldConfig.command;
+                delete fieldConfig.command_type;
             }
         }
         
@@ -1062,6 +1095,24 @@ function saveTypeSpecificFields(fieldConfig) {
             // Common fields for all modes
             fieldConfig.label_field = document.getElementById('mesh_label_field')?.value || '';
             fieldConfig.value_field = document.getElementById('mesh_value_field')?.value || '';
+            fieldConfig.multi_select = document.getElementById('multi_select')?.checked || false;
+            fieldConfig.searchable = document.getElementById('searchable')?.checked !== false;
+            fieldConfig.result_var = document.getElementById('result_var')?.value || '';
+        } else if (elementType === 'dropdown_psa') {
+            // PSA fields are already set via modal handlers
+            fieldConfig.endpoint = document.getElementById('psa_endpoint')?.value || '';
+            fieldConfig.method = document.getElementById('psa_method')?.value || 'GET';
+            fieldConfig.fields = document.getElementById('psa_fields')?.value || '';
+            fieldConfig.conditions = document.getElementById('psa_conditions')?.value || '';
+            fieldConfig.childConditions = document.getElementById('psa_child_conditions')?.value || '';
+            fieldConfig.orderBy = document.getElementById('psa_order_by')?.value || '';
+            fieldConfig.pageAll = document.getElementById('psa_page_all')?.checked || true;
+            fieldConfig.pageSize = parseInt(document.getElementById('psa_page_size')?.value || 1000);
+            fieldConfig.page = parseInt(document.getElementById('psa_page')?.value || 1);
+            // requestBody is already set via modal handler
+            fieldConfig.timeout = parseInt(document.getElementById('psa_timeout')?.value || 30000);
+            fieldConfig.label_field = document.getElementById('psa_label_field')?.value || '';
+            fieldConfig.value_field = document.getElementById('psa_value_field')?.value || '';
             fieldConfig.multi_select = document.getElementById('multi_select')?.checked || false;
             fieldConfig.searchable = document.getElementById('searchable')?.checked !== false;
             fieldConfig.result_var = document.getElementById('result_var')?.value || '';
@@ -2594,7 +2645,7 @@ function showElementSettings(elementUid) {
     let formHTML = ``;
     
     // Add Dropdown Type selector for dropdown elements
-    if (['dropdown', 'dropdown_static', 'dropdown_graphql', 'dropdown_mysql', 'dropdown_cwa_mysql', 'dropdown_mesh', 'dropdown_prefetch', 'dropdown_tree'].includes(fieldConfig.type)) {
+    if (['dropdown', 'dropdown_static', 'dropdown_graphql', 'dropdown_mysql', 'dropdown_cwa_mysql', 'dropdown_mesh', 'dropdown_prefetch', 'dropdown_tree', 'dropdown_psa'].includes(fieldConfig.type)) {
         formHTML += `
             <div class="mb-15">
                 <label class="form-label">Dropdown Type</label>
@@ -2607,10 +2658,11 @@ function showElementSettings(elementUid) {
                     <option value="dropdown_mesh" ${fieldConfig.type === 'dropdown_mesh' ? 'selected' : ''}>MeshCentral Command</option>
                     <option value="dropdown_prefetch" ${fieldConfig.type === 'dropdown_prefetch' ? 'selected' : ''}>Pre-fetched Data</option>
                     <option value="dropdown_tree" ${fieldConfig.type === 'dropdown_tree' ? 'selected' : ''}>Tree Data</option>
+                    <option value="dropdown_psa" ${fieldConfig.type === 'dropdown_psa' ? 'selected' : ''}>PSA API</option>
                 </select>
             </div>
             
-            ${['dropdown_static', 'dropdown', 'dropdown_graphql', 'dropdown_mysql', 'dropdown_cwa_mysql', 'dropdown_mesh', 'dropdown_prefetch'].includes(fieldConfig.type) ? `
+            ${['dropdown_static', 'dropdown', 'dropdown_graphql', 'dropdown_mysql', 'dropdown_cwa_mysql', 'dropdown_mesh', 'dropdown_prefetch', 'dropdown_psa'].includes(fieldConfig.type) ? `
             <div style="margin-bottom: 15px; display: flex; align-items: center; gap: 10px;">
                 <input type="checkbox" id="multi_select" ${fieldConfig.multi_select ? 'checked' : ''} class="checkbox-input">
                 <label for="multi_select" style="margin: 0; color: #ffffff; font-weight: 600; font-size: 14px; cursor: pointer;">Multi-select</label>
@@ -2681,7 +2733,7 @@ function showElementSettings(elementUid) {
             <input type="checkbox" id="required" ${fieldConfig.required ? 'checked' : ''} class="checkbox-input">
             <label for="required" style="margin: 0; color: #ffffff; font-weight: 600; font-size: 14px; cursor: pointer;">Required</label>
         </div>
-        ${['dropdown_static', 'dropdown', 'dropdown_graphql', 'dropdown_mysql', 'dropdown_cwa_mysql', 'dropdown_mesh', 'dropdown_prefetch', 'dropdown_tree'].includes(fieldConfig.type) ? `
+        ${['dropdown_static', 'dropdown', 'dropdown_graphql', 'dropdown_mysql', 'dropdown_cwa_mysql', 'dropdown_mesh', 'dropdown_prefetch', 'dropdown_tree', 'dropdown_psa'].includes(fieldConfig.type) ? `
         <div style='margin-bottom: 15px;'>
             <label style='display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;'>Results Variable Name</label>
             <input type='text' id='result_var' value='${fieldConfig.result_var || fieldConfig.field_name + '_data' || ''}' placeholder='e.g., dropdown_1_data' style='width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box;'>
@@ -3204,6 +3256,78 @@ function showElementSettings(elementUid) {
                 <div style='color: #999; font-size: 12px; margin-top: 6px;'>Field that indicates the depth/level in the tree hierarchy.</div>
             </div>
         `;
+    } else if (fieldConfig.type === 'dropdown_psa') {
+        formHTML += `
+            <div style='margin-bottom: 15px;'>
+                <label style='display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;'>CWM API Endpoint *</label>
+                <input type='text' id='psa_endpoint' value='${fieldConfig.endpoint || ''}' placeholder='e.g., /company/companies' style='width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box;'>
+                <div style='color: #999; font-size: 12px; margin-top: 6px;'>API endpoint path (required)</div>
+            </div>
+            <div style='margin-bottom: 15px;'>
+                <label style='display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;'>Method *</label>
+                <select id='psa_method' style='width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box;'>
+                    <option value='GET' ${fieldConfig.method === 'GET' ? 'selected' : ''}>GET</option>
+                    <option value='POST' ${fieldConfig.method === 'POST' ? 'selected' : ''}>POST</option>
+                    <option value='PUT' ${fieldConfig.method === 'PUT' ? 'selected' : ''}>PUT</option>
+                    <option value='DELETE' ${fieldConfig.method === 'DELETE' ? 'selected' : ''}>DELETE</option>
+                </select>
+            </div>
+            <div style='margin-bottom: 15px;'>
+                <label style='display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;'>Fields</label>
+                <input type='text' id='psa_fields' value='${fieldConfig.fields || ''}' placeholder='e.g., id,name,status' style='width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box;'>
+                <div style='color: #999; font-size: 12px; margin-top: 6px;'>Comma-separated field list (optional)</div>
+            </div>
+            <div style='margin-bottom: 15px;'>
+                <label style='display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;'>Conditions</label>
+                <input type='text' id='psa_conditions' value='${fieldConfig.conditions || ''}' placeholder='e.g., status/id=1' style='width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box;'>
+                <div style='color: #999; font-size: 12px; margin-top: 6px;'>Server-side filter for parent resource (optional)</div>
+            </div>
+            <div style='margin-bottom: 15px;'>
+                <label style='display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;'>Child Conditions</label>
+                <input type='text' id='psa_child_conditions' value='${fieldConfig.childConditions || ''}' placeholder='e.g., types/name like "%customer%"' style='width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box;'>
+                <div style='color: #999; font-size: 12px; margin-top: 6px;'>Server-side filter for child collections (optional)</div>
+            </div>
+            <div style='margin-bottom: 15px;'>
+                <label style='display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;'>Order By</label>
+                <input type='text' id='psa_order_by' value='${fieldConfig.orderBy || ''}' placeholder='e.g., name asc' style='width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box;'>
+                <div style='color: #999; font-size: 12px; margin-top: 6px;'>Sort specification (optional)</div>
+            </div>
+            <div style='margin-bottom: 15px; display: flex; align-items: center; gap: 10px;'>
+                <input type='checkbox' id='psa_page_all' ${fieldConfig.pageAll ? 'checked' : ''} class='checkbox-input'>
+                <label for='psa_page_all' style='margin: 0; color: #ffffff; font-weight: 600; font-size: 14px; cursor: pointer;'>Page All (fetch all pages)</label>
+            </div>
+            <div style='margin-bottom: 15px;' id='psa_pagination_container' class='${fieldConfig.pageAll ? 'is-hidden' : ''}'>
+                <div style='margin-bottom: 15px;'>
+                    <label style='display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;'>Page Size</label>
+                    <input type='number' id='psa_page_size' value='${fieldConfig.pageSize || 1000}' min='1' max='1000' style='width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box;'>
+                    <div style='color: #999; font-size: 12px; margin-top: 6px;'>Results per page (1-1000)</div>
+                </div>
+                <div style='margin-bottom: 15px;'>
+                    <label style='display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;'>Page</label>
+                    <input type='number' id='psa_page' value='${fieldConfig.page || 1}' min='1' style='width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box;'>
+                    <div style='color: #999; font-size: 12px; margin-top: 6px;'>Page number to retrieve</div>
+                </div>
+            </div>
+            <div style='margin-bottom: 15px;'>
+                <label style='display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;'>Request Body</label>
+                <button type='button' id='psa_request_body_button' class='btn btn-blue' style='width: 100%;'>Edit Request Body (JSON)</button>
+            </div>
+            <div style='margin-bottom: 15px;'>
+                <label style='display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;'>Timeout (ms)</label>
+                <input type='number' id='psa_timeout' value='${fieldConfig.timeout || 30000}' min='1000' style='width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box;'>
+                <div style='color: #999; font-size: 12px; margin-top: 6px;'>Request timeout in milliseconds</div>
+            </div>
+            <div style='margin-bottom: 15px;'>
+                <label style='display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;'>Label Field (Display)</label>
+                <input type='text' id='psa_label_field' value='${fieldConfig.label_field || ''}' placeholder='e.g., name' style='width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box;'>
+                <div style='color: #999; font-size: 12px; margin-top: 6px;'>Field to display in dropdown</div>
+            </div>
+            <div style='margin-bottom: 15px;'>
+                <label style='display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;'>Value Field</label>
+                <input type='text' id='psa_value_field' value='${fieldConfig.value_field || ''}' placeholder='e.g., id' style='width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box;'>
+                <div style='color: #999; font-size: 12px; margin-top: 6px;'>Field to use as dropdown value</div>
+            </div>
+        `;
     } else if (fieldConfig.type === 'datatable') {
         // Datatable element - display data in table format
         formHTML += `
@@ -3405,6 +3529,24 @@ function showElementSettings(elementUid) {
                 delete fieldConfig.graphql_op;
                 delete fieldConfig.graphql_op_variables;
                 delete fieldConfig.query;
+            } else if (newType === 'dropdown_psa') {
+                // PSA dropdown: keep psa fields, clear static, workflow, graphql, and mesh fields
+                delete fieldConfig.options;
+                delete fieldConfig.workflow_id;
+                delete fieldConfig.label_name;
+                delete fieldConfig.value_name;
+                delete fieldConfig.default_selector;
+                delete fieldConfig.workflow_input;
+                delete fieldConfig.graphql_op;
+                delete fieldConfig.graphql_op_variables;
+                delete fieldConfig.query;
+                delete fieldConfig.node_id;
+                delete fieldConfig.command;
+                delete fieldConfig.command_type;
+                delete fieldConfig.mode;
+                delete fieldConfig.node_selection_type;
+                delete fieldConfig.node_query;
+                delete fieldConfig.source_element_name;
             }
             
             fieldConfig.type = newType;
@@ -3867,6 +4009,56 @@ function showElementSettings(elementUid) {
         });
     }
     
+    // Add listeners for dropdown_psa
+    if (fieldConfig.type === 'dropdown_psa') {
+        const psaPageAllCheckbox = document.getElementById('psa_page_all');
+        const psaPaginationContainer = document.getElementById('psa_pagination_container');
+        const psaRequestBodyButton = document.getElementById('psa_request_body_button');
+        const psaEndpointInput = document.getElementById('psa_endpoint');
+        const psaMethodSelect = document.getElementById('psa_method');
+        const psaFieldsInput = document.getElementById('psa_fields');
+        const psaConditionsInput = document.getElementById('psa_conditions');
+        const psaChildConditionsInput = document.getElementById('psa_child_conditions');
+        const psaOrderByInput = document.getElementById('psa_order_by');
+        const psaPageSizeInput = document.getElementById('psa_page_size');
+        const psaPageInput = document.getElementById('psa_page');
+        const psaTimeoutInput = document.getElementById('psa_timeout');
+        const psaLabelFieldInput = document.getElementById('psa_label_field');
+        const psaValueFieldInput = document.getElementById('psa_value_field');
+        
+        // Page All checkbox listener - toggle pagination visibility
+        if (psaPageAllCheckbox) {
+            psaPageAllCheckbox.addEventListener('change', (e) => {
+                fieldConfig.pageAll = e.target.checked;
+                formHasBeenModified = true;
+                updateElementSettingsSaveButtonVisibility();
+                // Toggle pagination container visibility
+                if (e.target.checked) {
+                    psaPaginationContainer.classList.add('is-hidden');
+                } else {
+                    psaPaginationContainer.classList.remove('is-hidden');
+                }
+            });
+        }
+        
+        // Request Body button listener
+        if (psaRequestBodyButton) {
+            psaRequestBodyButton.addEventListener('click', () => {
+                openPsaRequestBodyModal(fieldConfig.requestBody || '{}');
+            });
+        }
+        
+        // Input listeners for all fields
+        [psaEndpointInput, psaMethodSelect, psaFieldsInput, psaConditionsInput, psaChildConditionsInput, psaOrderByInput, psaPageSizeInput, psaPageInput, psaTimeoutInput, psaLabelFieldInput, psaValueFieldInput].forEach(input => {
+            if (input) {
+                input.addEventListener('input', () => {
+                    formHasBeenModified = true;
+                    updateElementSettingsSaveButtonVisibility();
+                });
+            }
+        });
+    }
+    
     // Add listeners for data_retrieval
     if (fieldConfig.type === 'data_retrieval') {
         const retrievalTypeSelect = document.getElementById('retrieval_type');
@@ -3968,7 +4160,7 @@ function showElementSettings(elementUid) {
     }
     
     // Add listener for result_var (all dropdown types)
-    const isDropdownType = ['dropdown_static', 'dropdown', 'dropdown_graphql', 'dropdown_mysql', 'dropdown_cwa_mysql', 'dropdown_mesh', 'dropdown_prefetch', 'dropdown_tree'].includes(fieldConfig.type);
+    const isDropdownType = ['dropdown_static', 'dropdown', 'dropdown_graphql', 'dropdown_mysql', 'dropdown_cwa_mysql', 'dropdown_mesh', 'dropdown_prefetch', 'dropdown_tree', 'dropdown_psa'].includes(fieldConfig.type);
     if (isDropdownType) {
         const resultVarInput = document.getElementById('result_var');
         if (resultVarInput) {
@@ -4404,6 +4596,84 @@ if (elementSqlQueryModal) {
         }
     };
     elementSqlQueryModal.addEventListener('click', handleElementSqlOutsideClick);
+}
+
+function openPsaRequestBodyModal(currentBody) {
+    console.log('[PSA-REQUEST-BODY] Opening modal');
+    
+    const psaRequestBodyTextarea = document.getElementById('psaRequestBodyTextarea');
+    const psaRequestBodyModal = document.getElementById('psaRequestBodyModal');
+    
+    if (psaRequestBodyTextarea) {
+        psaRequestBodyTextarea.value = currentBody || '{}';
+    }
+    
+    if (psaRequestBodyModal) {
+        psaRequestBodyModal.classList.add('active');
+    }
+}
+
+// PSA Request Body Modal handlers
+const psaRequestBodyModal = document.getElementById('psaRequestBodyModal');
+const psaRequestBodyTextarea = document.getElementById('psaRequestBodyTextarea');
+const psaRequestBodySave = document.getElementById('psaRequestBodySave');
+const psaRequestBodyCancel = document.getElementById('psaRequestBodyCancel');
+const psaRequestBodyModalClose = document.getElementById('psaRequestBodyModalClose');
+
+if (psaRequestBodyModalClose) {
+    psaRequestBodyModalClose.addEventListener('click', () => {
+        if (psaRequestBodyModal) {
+            psaRequestBodyModal.classList.remove('active');
+        }
+    });
+}
+
+if (psaRequestBodyCancel) {
+    psaRequestBodyCancel.addEventListener('click', () => {
+        if (psaRequestBodyModal) {
+            psaRequestBodyModal.classList.remove('active');
+        }
+    });
+}
+
+if (psaRequestBodySave) {
+    psaRequestBodySave.addEventListener('click', () => {
+        console.log('[PSA-REQUEST-BODY] Saving request body');
+        
+        const body = psaRequestBodyTextarea?.value?.trim();
+        
+        // Validate JSON
+        try {
+            JSON.parse(body || '{}');
+        } catch (e) {
+            alert('Invalid JSON: ' + e.message);
+            return;
+        }
+        
+        // Find the field config and update it
+        const fieldConfig = fieldConfigs.find(f => f.uid === selectedElementUid);
+        if (fieldConfig) {
+            fieldConfig.requestBody = body || '{}';
+            formHasBeenModified = true;
+            updateElementSettingsSaveButtonVisibility();
+            console.log('[PSA-REQUEST-BODY] Request body saved to fieldConfig');
+        }
+        
+        if (psaRequestBodyModal) {
+            psaRequestBodyModal.classList.remove('active');
+        }
+    });
+}
+
+// Modal overlay click handler
+if (psaRequestBodyModal) {
+    const handlePsaRequestBodyOutsideClick = (event) => {
+        if (event.target === psaRequestBodyModal) {
+            psaRequestBodyModal.classList.remove('active');
+            psaRequestBodyModal.removeEventListener('click', handlePsaRequestBodyOutsideClick);
+        }
+    };
+    psaRequestBodyModal.addEventListener('click', handlePsaRequestBodyOutsideClick);
 }
 
 function saveElementSettings() {
