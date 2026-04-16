@@ -1309,6 +1309,7 @@ const GRAPHQL_OPERATIONS = {
       <div class="multi-select-container" id="${multiSelectId}">
         <div class="multi-select-display">
           <div class="multi-select-tags"></div>
+          <button type="button" class="multi-select-clear-all" style="display: none; padding: 4px 12px; font-size: 12px; background: #d9534f; color: white; border: none; border-radius: 3px; cursor: pointer; margin-right: 8px;">Clear All</button>
           <div class="multi-select-toggle">▼</div>
         </div>
         <div class="multi-select-options"></div>
@@ -1927,6 +1928,7 @@ const GRAPHQL_OPERATIONS = {
       tagsDiv.className = 'multi-select-display';
       tagsDiv.innerHTML = `
         <div class="multi-select-tags"></div>
+        <button type="button" class="multi-select-clear-all" style="display: none; padding: 4px 12px; font-size: 12px; background: #d9534f; color: white; border: none; border-radius: 3px; cursor: pointer; margin-right: 8px;">Clear All</button>
         <div class="multi-select-toggle">▼</div>
       `;
       container.appendChild(tagsDiv);
@@ -1981,12 +1983,18 @@ const GRAPHQL_OPERATIONS = {
     // Update UI with current selection
     function updateTags() {
       tagsContainer.innerHTML = '';
+      
+      // Get Clear All button
+      const clearAllBtn = container.querySelector('.multi-select-clear-all');
 
       if (selected.length === 0) {
         const placeholder = document.createElement('span');
         placeholder.className = 'multi-select-placeholder';
         placeholder.textContent = '-- Select options --';
         tagsContainer.appendChild(placeholder);
+        
+        // Hide Clear All button when no items selected
+        if (clearAllBtn) clearAllBtn.style.display = 'none';
       } else {
         selected.forEach(value => {
           const option = options.find(o => String(o.value) === value);
@@ -2000,6 +2008,21 @@ const GRAPHQL_OPERATIONS = {
             tagsContainer.appendChild(tag);
           }
         });
+        
+        // Show Clear All button when items selected
+        if (clearAllBtn) {
+          clearAllBtn.style.display = 'inline-block';
+          // Remove old listeners to prevent duplicates
+          const newBtn = clearAllBtn.cloneNode(true);
+          clearAllBtn.parentNode.replaceChild(newBtn, clearAllBtn);
+          // Add click handler to new button
+          newBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            selected = [];
+            updateTags();
+            populateDropdown('');
+          });
+        }
       }
 
       // Update hidden select selected state via data attribute and option elements
