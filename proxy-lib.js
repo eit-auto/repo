@@ -465,6 +465,59 @@ const ProxyLib = (() => {
     }
     
     /**
+     * Execute ConnectWise Manage API request
+     * @param {string} sessionToken - Session token (from authenticate)
+     * @param {string} user - Username
+     * @param {string} endpoint - CWM API endpoint (e.g., "/company/companies")
+     * @param {object} queryParams - Query parameters {fields, conditions, pageAll, pageSize, ...}
+     * @param {string} method - HTTP method (GET, POST, PUT, DELETE - default: GET)
+     * @param {object} body - Optional request body for POST/PUT operations
+     * @param {object} options - Optional config
+     * @returns {Promise<{success, result, totalRecords, pagesFetched, statusCode}>}
+     */
+    async function executeCwmApi(sessionToken, user, endpoint, queryParams = {}, method = 'GET', body = {}, options = {}) {
+        try {
+            if (!sessionToken || !user || !endpoint) {
+                throw new Error('sessionToken, user, and endpoint are required');
+            }
+            
+            console.log('[ProxyLib] Executing CWM API request:', method, endpoint);
+            
+            const response = await fetch(`${PROXY_URL}/api-cwm`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Session-Token': sessionToken
+                },
+                body: JSON.stringify({
+                    user: user,
+                    endpoint: endpoint,
+                    method: method,
+                    query: queryParams,
+                    body: body,
+                    timeout: options.timeout || 30000
+                })
+            });
+            
+            const data = await response.json();
+            
+            if (!response.ok) {
+                throw new Error(data.error || `HTTP ${response.status}`);
+            }
+            
+            if (!data.success) {
+                throw new Error(data.error || 'CWM API request failed');
+            }
+            
+            console.log('[ProxyLib] CWM API request successful, returned', data.result ? (Array.isArray(data.result) ? data.result.length : 1) : 0, 'records');
+            return data;
+        } catch (error) {
+            console.error('[ProxyLib] executeCwmApi error:', error);
+            throw error;
+        }
+    }
+    
+    /**
      * Authenticate with UI handling
      * Convenience wrapper that handles authentication and updates UI elements
      * @param {string} user - Username
@@ -573,6 +626,7 @@ const ProxyLib = (() => {
         executeCommand,
         executeQuery,
         executeCwaQuery,
+        executeCwmApi,
         getNodes,
         getStatus,
         escapeHtml,
