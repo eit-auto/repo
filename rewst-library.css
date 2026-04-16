@@ -216,6 +216,12 @@
     min-width: 0;
   }
 
+  /* Ensure multi-select containers stretch in flex containers */
+  .dropdown-refresh-container .multi-select-container {
+    flex: 1;
+    min-width: 0;
+  }
+
   .dropdown-refresh-btn.loading {
     animation: spin 1s linear infinite;
   }
