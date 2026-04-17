@@ -2773,27 +2773,25 @@ const GRAPHQL_OPERATIONS = {
    * Used before executing workflows, queries, etc.
    */
   function getResolvedFieldConfig(config) {
-    const resolved = { ...config };
-    
-    // Replace in execution parameters
-    const executionProps = ['workflow_input', 'graphql_op_variables', 'query', 'command', 'node_query'];
-    executionProps.forEach(prop => {
-      if (resolved[prop]) {
-        resolved[prop] = replaceReferencesInValue(config[prop]);
-        if (resolved[prop] !== config[prop]) {
-          console.log(`[PAGE_VAR_EXEC] Resolved ${prop}:`, resolved[prop]);
+    // Recursively replace [[references]] in all string properties
+    function deepReplace(obj) {
+      if (typeof obj === 'string') {
+        return replaceReferencesInValue(obj);
+      } else if (obj === null || obj === undefined) {
+        return obj;
+      } else if (Array.isArray(obj)) {
+        return obj.map(item => deepReplace(item));
+      } else if (typeof obj === 'object') {
+        const result = {};
+        for (const [key, value] of Object.entries(obj)) {
+          result[key] = deepReplace(value);
         }
+        return result;
       }
-    });
+      return obj;
+    }
     
-    // Replace in display parameters
-    ['default_value', 'default_select', 'description', 'content', 'field_displayname'].forEach(prop => {
-      if (resolved[prop] && typeof resolved[prop] === 'string') {
-        resolved[prop] = replaceReferencesInValue(config[prop]);
-      }
-    });
-    
-    return resolved;
+    return deepReplace(config);
   }
 
   return {
