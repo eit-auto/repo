@@ -1665,6 +1665,7 @@
   }
 
   .checkbox-col-left,
+  .checkbox-col-center,
   .checkbox-col-right {
     display: flex;
     flex-direction: column;
