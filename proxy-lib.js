@@ -495,7 +495,8 @@ const ProxyLib = (() => {
                     method: method,
                     query: queryParams,
                     body: body,
-                    timeout: options.timeout || 30000
+                    timeout: options.timeout || 30000,
+                    flatten: options.flatten !== undefined ? options.flatten : false
                 })
             });
             
