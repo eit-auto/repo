@@ -474,6 +474,7 @@ const ELEMENT_TYPE_DEFAULTS = {
         page: 1,                        // Page number
         requestBody: '{}',              // JSON body for POST/PUT
         timeout: 30000,                 // Request timeout in ms
+        flatten: true,                  // Flatten nested results
         label_field: '',                // Which field to display in dropdown
         value_field: '',                // Which field is the value
         multi_select: false,
@@ -1111,6 +1112,7 @@ function saveTypeSpecificFields(fieldConfig) {
             fieldConfig.page = parseInt(document.getElementById('psa_page')?.value || 1);
             // requestBody is already set via modal handler
             fieldConfig.timeout = parseInt(document.getElementById('psa_timeout')?.value || 30000);
+            fieldConfig.flatten = document.getElementById('psa_flatten')?.checked !== false;
             fieldConfig.label_field = document.getElementById('psa_label_field')?.value || '';
             fieldConfig.value_field = document.getElementById('psa_value_field')?.value || '';
             fieldConfig.multi_select = document.getElementById('multi_select')?.checked || false;
@@ -3317,6 +3319,10 @@ function showElementSettings(elementUid) {
                 <input type='number' id='psa_timeout' value='${fieldConfig.timeout || 30000}' min='1000' style='width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box;'>
                 <div style='color: #999; font-size: 12px; margin-top: 6px;'>Request timeout in milliseconds</div>
             </div>
+            <div style='margin-bottom: 15px; display: flex; align-items: center; gap: 10px;'>
+                <input type='checkbox' id='psa_flatten' ${fieldConfig.flatten !== false ? 'checked' : ''} class='checkbox-input'>
+                <label for='psa_flatten' style='margin: 0; color: #ffffff; font-weight: 600; font-size: 14px; cursor: pointer;'>Flatten Results</label>
+            </div>
             <div style='margin-bottom: 15px;'>
                 <label style='display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;'>Label Field (Display)</label>
                 <input type='text' id='psa_label_field' value='${fieldConfig.label_field || ''}' placeholder='e.g., name' style='width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box;'>
@@ -4023,6 +4029,7 @@ function showElementSettings(elementUid) {
         const psaPageSizeInput = document.getElementById('psa_page_size');
         const psaPageInput = document.getElementById('psa_page');
         const psaTimeoutInput = document.getElementById('psa_timeout');
+        const psaFlattenCheckbox = document.getElementById('psa_flatten');
         const psaLabelFieldInput = document.getElementById('psa_label_field');
         const psaValueFieldInput = document.getElementById('psa_value_field');
         
@@ -4038,6 +4045,15 @@ function showElementSettings(elementUid) {
                 } else {
                     psaPaginationContainer.classList.remove('is-hidden');
                 }
+            });
+        }
+        
+        // Flatten checkbox listener
+        if (psaFlattenCheckbox) {
+            psaFlattenCheckbox.addEventListener('change', (e) => {
+                fieldConfig.flatten = e.target.checked;
+                formHasBeenModified = true;
+                updateElementSettingsSaveButtonVisibility();
             });
         }
         
