@@ -260,7 +260,7 @@
   }
   
   .multi-select-search-input::placeholder {
-    color: #888;
+    color: #888 !important;
   }
   .checkbox-container {
     display: flex;
