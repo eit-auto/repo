@@ -427,7 +427,6 @@
     width: 100%;
     border-collapse: collapse;
     margin-bottom: 0;
-    table-layout: fixed;
   }
   thead {
     background: #32373e;
