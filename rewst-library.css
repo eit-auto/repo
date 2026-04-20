@@ -435,7 +435,7 @@
     z-index: 10;
   }
   th {
-    padding: 0.75rem;
+    padding: 0.25rem;
     text-align: left;
     font-weight: 700;
     color: #ffffff;
@@ -445,7 +445,7 @@
     letter-spacing: 0.5px;
   }
   td {
-    padding: 0.75rem;
+    padding: 0.25rem;
     border-bottom: 1px solid #314a59;
     color: #e0e0e0;
     font-size: 0.9rem;
