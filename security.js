@@ -507,6 +507,7 @@ if (rewstUser) {
 
 // Export functions and data globally so they're accessible from page scripts
 if (typeof window !== 'undefined') {
+    window.rewstUser = rewstUser;
     window.checkPagePermission = checkPagePermission;
     window.userHasRole = userHasRole;
     window.userHasAnyRole = userHasAnyRole;
