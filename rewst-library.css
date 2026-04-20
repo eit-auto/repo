@@ -789,6 +789,11 @@
     cursor: not-allowed;
   }
 
+  .form-group textarea:disabled {
+    opacity: 0.7;
+    cursor: not-allowed;
+  }
+
   /* Override browser autofill styling */
   .form-group input:-webkit-autofill,
   .form-group input:-webkit-autofill:hover,
