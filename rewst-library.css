@@ -707,6 +707,19 @@
   td.col-type-text {
     min-width: 250px !important;
   }
+  
+  /* Wider minimum width for mapped int-type columns */
+  th.col-type-int.col-mapped,
+  td.col-type-int.col-mapped,
+  th.col-type-integer.col-mapped,
+  td.col-type-integer.col-mapped,
+  th.col-type-bigint.col-mapped,
+  td.col-type-bigint.col-mapped,
+  th.col-type-smallint.col-mapped,
+  td.col-type-smallint.col-mapped {
+    min-width: 100px !important;
+  }
+  
   /* ============================================
    FORM VIEWER STYLING
    ============================================ */
