@@ -92,7 +92,7 @@
             min-height: 100vh;
             padding: 0;
             margin: 0;
-            background: #1a1a1a;
+            background: #191A24;
         }
         .search-input:focus {
             outline: none;
@@ -430,8 +430,13 @@
         }
     
         #nonEditablePanel {
-            padding-bottom: 0 !important;
             gap: 0.2rem !important;
+            overflow-y: hidden !important;
+        }
+        
+        #nonEditableGrid > div.form-group {
+            margin-bottom: 0 !important;
+            gap: 0.1rem !important;
         }
     
         #editableGrid > div.form-group {
@@ -585,6 +590,9 @@
     <!-- Datatable Name Title -->
     <div id="datatableName" style="padding: 1.5rem 0 0.75rem 0; font-size: 1.5rem; font-weight: bold; color: #ffffff; margin-bottom: 0.5rem; text-align: center;"></div>
 
+    <!-- Datatable Description -->
+    <div id="datatableDesc" style="padding: 0 1.5rem 1.5rem 1.5rem; font-size: 0.95rem; color: #cccccc; text-align: center; line-height: 1.5;"></div>
+
     <div class="main-panel">
 
                 <div class="inner-panel" style="flex-direction: row; align-items: center; margin-bottom: 1rem;">
@@ -604,6 +612,10 @@
             
             <!-- Save button for column edit mode -->
             <button id="saveBtn" class="btn btn-green" style="display: none;">Save Changes</button>
+        </div>
+        
+        <div style="padding: 8px 15px; text-align: right; color: #cccccc; font-size: 0.95rem;">
+            <span id="recordsCount">Found 0 Records</span>
         </div>
 
         <!-- Loading Modal -->
@@ -889,7 +901,7 @@
             } 
             else if (action === 'UPDATE') {
                 const updates = writableColumns
-                    .filter(col => record[col.col_name] !== null && record[col.col_name] !== undefined)
+                    .filter(col => record[col.col_name] !== undefined)
                     .map(col => {
                         const value = formatValue(record[col.col_name], col.type);
                         return `\`${col.col_name}\` = ${value}`;
@@ -1360,11 +1372,21 @@ const batchSaveBackdrop = document.getElementById('batchSaveBackdrop');
                 const colConfig = datatableConfig.col_settings.find(col => col.col_name === colName);
                 th.textContent = colConfig?.col_label || formatColumnName(colName);
                 th.className = 'sortable';
+                if (colConfig?.type) {
+                    th.classList.add(`col-type-${colConfig.type}`);
+                }
                 th.setAttribute('data-column', colName);
                 th.addEventListener('click', () => {
                     sortTable(colName);
                 });
                 headerRow.appendChild(th);
+                
+                // Measure header width immediately and store for later use by cells
+                const headerWidth = th.offsetWidth;
+                if (headerWidth > 0) {
+                    // Store the minimum width needed for this column (add 8px padding)
+                    th.dataset.minWidth = headerWidth + 8;
+                }
             });
             
             // Add Actions header for inline edit mode
@@ -1497,6 +1519,12 @@ const batchSaveBackdrop = document.getElementById('batchSaveBackdrop');
             console.log('[RENDER] Starting renderTable, col_display_table:', col_display_table);
             console.log('[RENDER] First row data:', filteredData[0]);
             tableBody.innerHTML = '';
+            
+            // Update records count display
+            const recordsCountElement = document.getElementById('recordsCount');
+            if (recordsCountElement) {
+                recordsCountElement.textContent = `Found ${filteredData.length} Record${filteredData.length !== 1 ? 's' : ''}`;
+            }
 
             if (filteredData.length === 0) {
                 const tr = document.createElement('tr');
@@ -1523,6 +1551,9 @@ const batchSaveBackdrop = document.getElementById('batchSaveBackdrop');
                     if (edit_type === 'column') {
                         // INLINE EDIT MODE
                         td.className = 'inline-edit-cell';
+                        if (colType) {
+                            td.classList.add(`col-type-${colType}`);
+                        }
                         td.dataset.column = colName;
                         td.dataset.fieldType = colType;
                         td.dataset.value = value;
@@ -1592,6 +1623,9 @@ const batchSaveBackdrop = document.getElementById('batchSaveBackdrop');
                         } else {
                             // Non-editable column - show as read-only text
                             td.className = 'inline-edit-cell read-only';
+                            if (colType) {
+                                td.classList.add(`col-type-${colType}`);
+                            }
                             const textSpan = document.createElement('span');
                             textSpan.className = 'inline-cell-text';
                             if (typeof value === 'boolean') {
@@ -1603,6 +1637,9 @@ const batchSaveBackdrop = document.getElementById('batchSaveBackdrop');
                         }
                     } else {
                         // WINDOW MODE: Make entire row clickable to edit
+                        if (colType) {
+                            td.classList.add(`col-type-${colType}`);
+                        }
                         if (colType === 'boolean') {
                             const boolValue = RewstLib.utils.parseBooleanValue(value);
                             td.textContent = boolValue ? 'True' : 'False';
@@ -1627,6 +1664,13 @@ const batchSaveBackdrop = document.getElementById('batchSaveBackdrop');
                             openEditForm(filteredData[index]);
                         });
                     }
+                    
+                    // Apply header's measured minimum width to ensure header text doesn't overlap
+                    const headerTh = document.querySelector(`th[data-column="${colName}"]`);
+                    if (headerTh?.dataset.minWidth) {
+                        td.style.minWidth = headerTh.dataset.minWidth + 'px';
+                    }
+                    
                     tr.appendChild(td);
                 });
 
@@ -2083,13 +2127,16 @@ const batchSaveBackdrop = document.getElementById('batchSaveBackdrop');
 
             const nonEditableColumns = getGridColumns(nonEditableFields.length);
             const editableColumns = getGridColumns(editableFields.length);
+            
+            // Use the maximum of the two to ensure alignment
+            const gridColumns = Math.max(nonEditableColumns, editableColumns);
 
             // Display non-editable fields in their own grid
             if (nonEditableFields.length > 0) {
                 const nonEditableGrid = document.getElementById('nonEditableGrid');
                 nonEditableGrid.innerHTML = '';
                 nonEditableGrid.style.display = 'grid';
-                nonEditableGrid.style.gridTemplateColumns = `repeat(${nonEditableColumns}, 1fr)`;
+                nonEditableGrid.style.gridTemplateColumns = `repeat(${gridColumns}, 1fr)`;
                 nonEditableGrid.style.gap = '1rem';
                 
                 nonEditableFields.forEach((colConfig) => {
@@ -2098,6 +2145,11 @@ const batchSaveBackdrop = document.getElementById('batchSaveBackdrop');
                     const nonEditableDiv = document.createElement('div');
                     nonEditableDiv.className = 'form-group';
                     nonEditableDiv.style.pointerEvents = 'none';
+                    
+                    // If field has span: true, make it span all columns
+                    if (colConfig.span === true) {
+                        nonEditableDiv.style.gridColumn = '1 / -1';
+                    }
                     
                     const label = document.createElement('label');
                     label.textContent = colConfig.col_label || formatColumnName(colName);
@@ -2144,13 +2196,18 @@ const batchSaveBackdrop = document.getElementById('batchSaveBackdrop');
                 const editableGrid = document.getElementById('editableGrid');
                 editableGrid.innerHTML = '';
                 editableGrid.style.display = 'grid';
-                editableGrid.style.gridTemplateColumns = `repeat(${editableColumns}, 1fr)`;
+                editableGrid.style.gridTemplateColumns = `repeat(${gridColumns}, 1fr)`;
                 editableGrid.style.gap = '1rem';
                 
                 editableFields.forEach((colConfig) => {
                     const colName = colConfig.col_name;
                     const group = document.createElement('div');
                     group.className = 'form-group';
+                    
+                    // If field has span: true, make it span all columns
+                    if (colConfig.span === true) {
+                        group.style.gridColumn = '1 / -1';
+                    }
 
                     const label = document.createElement('label');
                     label.htmlFor = `edit_${colName}`;
@@ -2233,12 +2290,11 @@ const batchSaveBackdrop = document.getElementById('batchSaveBackdrop');
                 });
             }
 
-            // Determine form width based on maximum grid columns needed
-            const maxColumns = Math.max(nonEditableColumns, editableColumns);
+            // Determine form width based on grid columns
             let formWidth = '500px';
-            if (maxColumns === 2) {
+            if (gridColumns === 2) {
                 formWidth = '850px';
-            } else if (maxColumns >= 3) {
+            } else if (gridColumns >= 3) {
                 formWidth = '1200px';
             }
             editSection.style.setProperty('width', formWidth, 'important');
@@ -2266,7 +2322,7 @@ const batchSaveBackdrop = document.getElementById('batchSaveBackdrop');
             editSection.classList.add('active');
 
             if (selectedRow) selectedRow.classList.remove('selected');
-            selectedRow = tableBody.querySelector(`tr[data-index="${index}"]`);
+            selectedRow = tableBody.querySelector(`tr[data-row-index="${index}"]`);
             if (selectedRow) selectedRow.classList.add('selected');
 
             // Show/hide delete button based on allow_delete permission
@@ -2482,11 +2538,31 @@ const batchSaveBackdrop = document.getElementById('batchSaveBackdrop');
                     }
                 });
 
+                // Get original data to compare for changes
+                const selectedRow = tableBody.querySelector(`tr[data-row-index="${index}"]`);
+                const originalData = selectedRow?.dataset.originalData ? JSON.parse(selectedRow.dataset.originalData) : {};
+                
+                // Create a record with only changed fields
+                const changedRecord = {...tableData[index]};
+                Object.keys(changedRecord).forEach(colName => {
+                    // Keep the primary key for the WHERE clause
+                    const pkField = datatableConfig.col_settings.find(col => col.p_key)?.col_name;
+                    if (colName === pkField) return; // Always keep PK
+                    
+                    // Remove fields that haven't changed
+                    if (changedRecord[colName] === originalData[colName]) {
+                        delete changedRecord[colName];
+                        console.log('[UPDATE] Skipping unchanged field:', colName);
+                    } else {
+                        console.log('[UPDATE] Field changed:', colName, 'from', originalData[colName], 'to', changedRecord[colName]);
+                    }
+                });
+
                 // STEP 2: Execute database operation (SQL or Workflow)
                 // If use_sql is configured, execute UPDATE via ProxyLib
                 if (datatableConfig.use_sql && proxySessionToken) {
                     try {
-                        let updateQuery = generateDynamicSQL('UPDATE', tableData[index], datatableConfig.col_settings);
+                        let updateQuery = generateDynamicSQL('UPDATE', changedRecord, datatableConfig.col_settings);
                         console.log('[UPDATE] Generated UPDATE query:', updateQuery);
                         
                         // Strip COMMIT statement - proxy handles commits
@@ -2552,11 +2628,11 @@ const batchSaveBackdrop = document.getElementById('batchSaveBackdrop');
                         
                         // If use_sql is true, always generate UPDATE query dynamically
                         if (datatableConfig.use_sql === true) {
-                            payload.sql_query = generateDynamicSQL('UPDATE', tableData[index], datatableConfig.col_settings);
+                            payload.sql_query = generateDynamicSQL('UPDATE', changedRecord, datatableConfig.col_settings);
                             console.log('[UPDATE] Generated UPDATE query:', payload.sql_query);
                         } else if (payload.sql_query === 'Dynamic') {
                             // Fallback for backward compatibility
-                            payload.sql_query = generateDynamicSQL('UPDATE', tableData[index], datatableConfig.col_settings);
+                            payload.sql_query = generateDynamicSQL('UPDATE', changedRecord, datatableConfig.col_settings);
                             console.log('[UPDATE] Generated UPDATE query:', payload.sql_query);
                         }
                         
@@ -2663,6 +2739,11 @@ const batchSaveBackdrop = document.getElementById('batchSaveBackdrop');
                 const colName = colConfig.col_name;
                 const group = document.createElement('div');
                 group.className = 'form-group';
+                
+                // If field has span: true, make it span all columns
+                if (colConfig.span === true) {
+                    group.style.gridColumn = '1 / -1';
+                }
 
                 const label = document.createElement('label');
                 label.htmlFor = `add_${colName}`;
@@ -3986,6 +4067,12 @@ async function loadDataTable() {
                 // Set the datatable name
                 if (datatableConfig.name) {
                     datatableName.textContent = datatableConfig.name;
+                }
+                
+                // Set the datatable description with HTML support
+                const datatableDesc = document.getElementById('datatableDesc');
+                if (datatableDesc && datatableConfig.desc) {
+                    datatableDesc.innerHTML = datatableConfig.desc;
                 }
 
             } catch (error) {
