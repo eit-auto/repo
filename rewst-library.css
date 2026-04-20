@@ -686,18 +686,18 @@
   }
   th.col-type-date,
   td.col-type-date {
-    width: 70px !important;
-    min-width: 70px !important;
+    width: 110px !important;
+    min-width: 110px !important;
   }
   th.col-type-datetime,
   td.col-type-datetime {
-    width: 100px !important;
-    min-width: 100px !important;
+    width: 160px !important;
+    min-width: 160px !important;
   }
   th.col-type-timestamp,
   td.col-type-timestamp {
-    width: 100px !important;
-    min-width: 100px !important;
+    width: 160px !important;
+    min-width: 160px !important;
   }
   th.col-type-varchar,
   td.col-type-varchar {
