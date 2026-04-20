@@ -717,7 +717,7 @@
   td.col-type-bigint.col-mapped,
   th.col-type-smallint.col-mapped,
   td.col-type-smallint.col-mapped {
-    min-width: 100px !important;
+    min-width: 150px !important;
   }
   
   /* ============================================
