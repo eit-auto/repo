@@ -731,7 +731,7 @@
     --form-accent-color: #5a9fb8;
   }
   .form-group {
-    margin-bottom: 0.625rem;
+    margin-bottom: 10px;
     display: flex;
     flex-direction: column;
     position: relative;
@@ -1095,10 +1095,6 @@
   }
 
   /* Position relative context for all form-groups */
-  .form-group {
-    position: relative;
-  }
-
   /* When waiting, hide field controls and inputs but keep label visible */
   .form-group.is-waiting label:not(.array-field-container label) {
     display: block !important;
@@ -1380,10 +1376,6 @@
   }
   .form-column {
     flex: 1;
-  }
-  .form-group {
-    margin-bottom: 10px;
-    position: relative;
   }
   .form-group-with-status {
     display: block;
