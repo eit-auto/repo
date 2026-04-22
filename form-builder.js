@@ -7616,8 +7616,11 @@ function renderArrayItemConfig(container, item) {
         
         let optionsHtml = `
             <div style="display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px;">
-                <label style="color: #ccc; font-size: 12px; font-weight: 600;">Options</label>
-                <div id="staticOptionsContainer" style="display: flex; flex-direction: column; gap: 6px; max-height: 200px; overflow-y: auto;">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <label style="color: #ffffff; font-weight: 600; font-size: 12px; margin: 0;">Options</label>
+                    <button id="addStaticOption" class="btn btn-blue btn-small" style="padding: 0.4rem 0.8rem; font-size: 0.8rem;">+</button>
+                </div>
+                <div id="staticOptionsContainer" style="display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px;">
         `;
         
         Object.entries(options).forEach(([key, value]) => {
@@ -7632,7 +7635,6 @@ function renderArrayItemConfig(container, item) {
         
         optionsHtml += `
                 </div>
-                <button id="addStaticOption" class="btn btn-blue btn-small" style="align-self: flex-start;">+ Add Option</button>
             </div>
             <div style="display: flex; align-items: center; gap: 8px;">
                 <input type="checkbox" class="array-item-multi-select" ${item.multi_select ? 'checked' : ''} style="accent-color: #5a9fb8;">
@@ -7702,7 +7704,10 @@ function renderArrayItemConfig(container, item) {
                 <input type="text" class="array-item-default-selector" value="${RewstLib.utils.escapeHtml(item.default_selector || 'default')}" placeholder="default" style="width: 100%; padding: 6px; background: #234656; border: 1px solid #555; border-radius: 4px; color: #ffffff; font-size: 12px;">
             </div>
             <div style="margin-bottom: 12px;">
-                <label style="color: #ffffff; font-weight: 600; font-size: 12px; margin: 0 0 8px 0; display: block;">Workflow Input</label>
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                    <label style="color: #ffffff; font-weight: 600; font-size: 12px; margin: 0;">Workflow Input</label>
+                    <button id="addWorkflowInput" class="btn btn-blue btn-small" style="padding: 0.4rem 0.8rem; font-size: 0.8rem;">+</button>
+                </div>
                 <div class="workflow-input-list" style="display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px;">
         `;
         
@@ -7721,7 +7726,6 @@ function renderArrayItemConfig(container, item) {
         
         configHtml += `
                 </div>
-                <button id="addWorkflowInput" class="btn btn-blue btn-small" style="align-self: flex-start;">+ Add Input</button>
             </div>
             <div style="display: flex; align-items: center; gap: 8px;">
                 <input type="checkbox" class="array-item-multi-select" ${item.multi_select ? 'checked' : ''} style="accent-color: #5a9fb8;">
@@ -7858,7 +7862,7 @@ function renderArrayItemConfig(container, item) {
             <div id="nestedArrayItemsContainer" style="display: ${repeatingInputMode ? 'none' : 'flex'}; flex-direction: column; gap: 8px;">
                 <div style="display: flex; justify-content: space-between; align-items: center;">
                     <label style="color: #ffffff; font-weight: 600; font-size: 12px; margin: 0;">Items</label>
-                    <button class="add-nested-array-item-btn" style="padding: 4px 8px; background: #5a9fb8; border: none; border-radius: 4px; color: #ffffff; cursor: pointer; font-size: 12px; font-weight: 600;">+</button>
+                    <button class="add-nested-array-item-btn btn btn-blue btn-small" style="padding: 0.4rem 0.8rem; font-size: 0.8rem;">+</button>
                 </div>
                 <div id="nestedArrayItemsList" style="display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px;"></div>
             </div>
