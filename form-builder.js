@@ -7415,7 +7415,7 @@ function renderArrayItemRow(container, item, index) {
     
     // Main row with labels and inputs
     const mainRow = document.createElement('div');
-    mainRow.style.cssText = 'display: grid; grid-template-columns: auto 1fr auto 1fr auto 1fr; gap: 8px; align-items: start;';
+    mainRow.style.cssText = 'display: grid; grid-template-columns: auto 1fr auto 1fr auto 1fr; column-gap: 8px; align-items: start;';
     mainRow.innerHTML = `
         <label style="color: #999; font-size: 12px; font-weight: 600; grid-column: 1;">Name</label>
         <label style="color: #999; font-size: 12px; font-weight: 600; grid-column: 2;">Display Name</label>
@@ -7445,7 +7445,7 @@ function renderArrayItemRow(container, item, index) {
     // Type-specific config section (below main row)
     const configSection = document.createElement('div');
     configSection.className = 'array-item-config';
-    configSection.style.cssText = 'padding-top: 12px; border-top: 1px solid #404040;';
+    configSection.style.cssText = 'padding-top: 12px;';
     renderArrayItemConfig(configSection, item);
     rowContainer.appendChild(configSection);
     
