@@ -7402,39 +7402,36 @@ function renderArrayItemRow(container, item, index) {
     rowContainer._itemData = item;  // Store reference to item object
     rowContainer.style.cssText = 'background: #1a3540; padding: 12px; border-radius: 4px; border: 1px solid #404040;';
     
-    // Header row with move buttons and delete button
-    const headerRow = document.createElement('div');
-    headerRow.style.cssText = 'display: flex; gap: 8px; align-items: center; margin-bottom: 12px;';
-    headerRow.innerHTML = `
-        <button class="array-item-move-up-btn" title="Move Up" style="min-width: auto; padding: 6px 8px; background: #5a9fb8; border: none; border-radius: 4px; color: #ffffff; cursor: pointer; font-size: 12px; font-weight: 600;">↑</button>
-        <button class="array-item-move-down-btn" title="Move Down" style="min-width: auto; padding: 6px 8px; background: #5a9fb8; border: none; border-radius: 4px; color: #ffffff; cursor: pointer; font-size: 12px; font-weight: 600;">↓</button>
-        <div style="flex: 1;"></div>
-        <button class="delete-array-item-modal-btn" title="Delete Item" style="min-width: auto; padding: 6px 10px; background: #b8242f; border: none; border-radius: 4px; color: #ffffff; cursor: pointer; font-size: 14px; font-weight: 600;">×</button>
-    `;
-    rowContainer.appendChild(headerRow);
-    
-    // Main row with labels and inputs
+    // Combined header and fields row
     const mainRow = document.createElement('div');
-    mainRow.style.cssText = 'display: grid; grid-template-columns: auto 1fr auto 1fr auto 1fr; column-gap: 8px; align-items: start;';
+    mainRow.style.cssText = 'display: flex; gap: 8px; align-items: flex-start;';
     mainRow.innerHTML = `
-        <label style="color: #999; font-size: 12px; font-weight: 600; grid-column: 1;">Name</label>
-        <label style="color: #999; font-size: 12px; font-weight: 600; grid-column: 2;">Display Name</label>
-        <label style="color: #999; font-size: 12px; font-weight: 600; grid-column: 3;">Type</label>
-        <label style="color: #999; font-size: 12px; font-weight: 600; grid-column: 4;">Value</label>
-        <div style="grid-column: 5 / 7;"></div>
+        <div style="display: flex; gap: 8px; flex-shrink: 0;">
+            <button class="array-item-move-up-btn" title="Move Up" style="min-width: auto; padding: 6px 8px; background: #5a9fb8; border: none; border-radius: 4px; color: #ffffff; cursor: pointer; font-size: 12px; font-weight: 600;">↑</button>
+            <button class="array-item-move-down-btn" title="Move Down" style="min-width: auto; padding: 6px 8px; background: #5a9fb8; border: none; border-radius: 4px; color: #ffffff; cursor: pointer; font-size: 12px; font-weight: 600;">↓</button>
+        </div>
         
-        <input type="text" class="array-item-name" value="${RewstLib.utils.escapeHtml(item.name || '')}" placeholder="Field Name" style="padding: 6px; background: #234656; border: 1px solid #555; border-radius: 4px; color: #ffffff; font-size: 12px; grid-column: 1;">
-        <input type="text" class="array-item-display-name" value="${RewstLib.utils.escapeHtml(item.display_name || '')}" placeholder="Display Name" style="padding: 6px; background: #234656; border: 1px solid #555; border-radius: 4px; color: #ffffff; font-size: 12px; grid-column: 2;">
-        <select class="array-item-type" style="padding: 6px; background: #234656; border: 1px solid #555; border-radius: 4px; color: #ffffff; font-size: 12px; grid-column: 3;">
-            <option value="text" ${item.type === 'text' ? 'selected' : ''}>Text</option>
-            <option value="array" ${item.type === 'array' ? 'selected' : ''}>Array</option>
-            <option value="dropdown_static" ${item.type === 'dropdown_static' ? 'selected' : ''}>Static Dropdown</option>
-            <option value="dropdown_graphql" ${item.type === 'dropdown_graphql' ? 'selected' : ''}>GraphQL Dropdown</option>
-            <option value="dropdown_workflow" ${item.type === 'dropdown_workflow' ? 'selected' : ''}>Workflow Dropdown</option>
-            <option value="dropdown_mysql" ${item.type === 'dropdown_mysql' ? 'selected' : ''}>MySQL Dropdown</option>
-            <option value="dropdown_cwa_mysql" ${item.type === 'dropdown_cwa_mysql' ? 'selected' : ''}>CWA MySQL Dropdown</option>
-        </select>
-        <div id="arrayItemValueField_${index}" style="width: 100%; grid-column: 4;"></div>
+        <div style="flex: 1; display: grid; grid-template-columns: 1fr 1fr auto 1fr; column-gap: 8px; row-gap: 0; align-items: start;">
+            <label style="color: #999; font-size: 12px; font-weight: 600;">Name</label>
+            <label style="color: #999; font-size: 12px; font-weight: 600;">Display Name</label>
+            <label style="color: #999; font-size: 12px; font-weight: 600;">Type</label>
+            <label style="color: #999; font-size: 12px; font-weight: 600;">Value</label>
+            
+            <input type="text" class="array-item-name" value="${RewstLib.utils.escapeHtml(item.name || '')}" placeholder="Field Name" style="padding: 6px; background: #234656; border: 1px solid #555; border-radius: 4px; color: #ffffff; font-size: 12px;">
+            <input type="text" class="array-item-display-name" value="${RewstLib.utils.escapeHtml(item.display_name || '')}" placeholder="Display Name" style="padding: 6px; background: #234656; border: 1px solid #555; border-radius: 4px; color: #ffffff; font-size: 12px;">
+            <select class="array-item-type" style="padding: 6px; background: #234656; border: 1px solid #555; border-radius: 4px; color: #ffffff; font-size: 12px;">
+                <option value="text" ${item.type === 'text' ? 'selected' : ''}>Text</option>
+                <option value="array" ${item.type === 'array' ? 'selected' : ''}>Array</option>
+                <option value="dropdown_static" ${item.type === 'dropdown_static' ? 'selected' : ''}>Static Dropdown</option>
+                <option value="dropdown_graphql" ${item.type === 'dropdown_graphql' ? 'selected' : ''}>GraphQL Dropdown</option>
+                <option value="dropdown_workflow" ${item.type === 'dropdown_workflow' ? 'selected' : ''}>Workflow Dropdown</option>
+                <option value="dropdown_mysql" ${item.type === 'dropdown_mysql' ? 'selected' : ''}>MySQL Dropdown</option>
+                <option value="dropdown_cwa_mysql" ${item.type === 'dropdown_cwa_mysql' ? 'selected' : ''}>CWA MySQL Dropdown</option>
+            </select>
+            <div id="arrayItemValueField_${index}" style="width: 100%;"></div>
+        </div>
+        
+        <button class="delete-array-item-modal-btn" title="Delete Item" style="min-width: auto; padding: 6px 10px; background: #b8242f; border: none; border-radius: 4px; color: #ffffff; cursor: pointer; font-size: 14px; font-weight: 600; flex-shrink: 0;">×</button>
     `;
     rowContainer.appendChild(mainRow);
     
@@ -7462,8 +7459,8 @@ function renderArrayItemRow(container, item, index) {
         console.log('[ARRAY-MODAL] Changed item type to:', e.target.value);
     });
     
-    const upBtn = headerRow.querySelector('.array-item-move-up-btn');
-    const downBtn = headerRow.querySelector('.array-item-move-down-btn');
+    const upBtn = mainRow.querySelector('.array-item-move-up-btn');
+    const downBtn = mainRow.querySelector('.array-item-move-down-btn');
     
     upBtn.addEventListener('click', (e) => {
         e.preventDefault();
@@ -7475,7 +7472,7 @@ function renderArrayItemRow(container, item, index) {
         moveArrayItem(rowContainer, 'down');
     });
     
-    attachDeleteArrayItemModalListener(headerRow.querySelector('.delete-array-item-modal-btn'), rowContainer);
+    attachDeleteArrayItemModalListener(mainRow.querySelector('.delete-array-item-modal-btn'), rowContainer);
     
     // Update button states
     updateArrayItemButtonStates();
