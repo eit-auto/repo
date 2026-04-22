@@ -7623,9 +7623,10 @@ function renderArrayItemConfig(container, item) {
                 <div id="staticOptionsContainer" style="display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px;">
         `;
         
-        Object.entries(options).forEach(([key, value]) => {
+        Object.entries(options).forEach(([key, value], index) => {
             optionsHtml += `
                 <div style="display: flex; gap: 6px; align-items: center;">
+                    <div style="color: #ccc; font-size: 12px; font-weight: 600; min-width: 20px; text-align: center;">${index + 1}</div>
                     <input type="text" class="static-option-label" value="${RewstLib.utils.escapeHtml(key)}" placeholder="Label" style="flex: 1; padding: 4px; background: #234656; border: 1px solid #555; border-radius: 4px; color: #ffffff; font-size: 12px;">
                     <input type="text" class="static-option-value" value="${RewstLib.utils.escapeHtml(value)}" placeholder="Value" style="flex: 1; padding: 4px; background: #234656; border: 1px solid #555; border-radius: 4px; color: #ffffff; font-size: 12px;">
                     <button class="delete-static-option" style="padding: 4px 8px; background: #b8242f; border: none; border-radius: 4px; color: #ffffff; cursor: pointer; font-size: 12px;">×</button>
@@ -7656,9 +7657,11 @@ function renderArrayItemConfig(container, item) {
         container.querySelector('#addStaticOption').addEventListener('click', (e) => {
             e.preventDefault();
             const optionsContainer = container.querySelector('#staticOptionsContainer');
+            const rowCount = optionsContainer.querySelectorAll('div').length;
             const optionRow = document.createElement('div');
             optionRow.style.cssText = 'display: flex; gap: 6px; align-items: center;';
             optionRow.innerHTML = `
+                <div style="color: #ccc; font-size: 12px; font-weight: 600; min-width: 20px; text-align: center;">${rowCount + 1}</div>
                 <input type="text" class="static-option-label" placeholder="Label" style="flex: 1; padding: 4px; background: #234656; border: 1px solid #555; border-radius: 4px; color: #ffffff; font-size: 12px;">
                 <input type="text" class="static-option-value" placeholder="Value" style="flex: 1; padding: 4px; background: #234656; border: 1px solid #555; border-radius: 4px; color: #ffffff; font-size: 12px;">
                 <button class="delete-static-option" style="padding: 4px 8px; background: #b8242f; border: none; border-radius: 4px; color: #ffffff; cursor: pointer; font-size: 12px;">×</button>
@@ -7713,9 +7716,11 @@ function renderArrayItemConfig(container, item) {
         
         // Add existing workflow inputs
         if (item.workflow_input && typeof item.workflow_input === 'object') {
-            Object.entries(item.workflow_input).forEach(([key, value]) => {
+            const inputEntries = Object.entries(item.workflow_input);
+            inputEntries.forEach(([key, value], index) => {
                 configHtml += `
                     <div class="workflow-input-row" style="display: flex; gap: 6px; align-items: center;">
+                        <div style="color: #ccc; font-size: 12px; font-weight: 600; min-width: 20px; text-align: center;">${index + 1}</div>
                         <input type="text" class="workflow-input-key" value="${RewstLib.utils.escapeHtml(key)}" placeholder="Key" style="flex: 1; padding: 4px; background: #234656; border: 1px solid #555; border-radius: 4px; color: #ffffff; font-size: 12px;">
                         <input type="text" class="workflow-input-value" value="${RewstLib.utils.escapeHtml(typeof value === 'object' ? JSON.stringify(value) : value)}" placeholder="Value" style="flex: 1; padding: 4px; background: #234656; border: 1px solid #555; border-radius: 4px; color: #ffffff; font-size: 12px;">
                         <button class="delete-workflow-input" style="padding: 4px 8px; background: #b8242f; border: none; border-radius: 4px; color: #ffffff; cursor: pointer; font-size: 12px;">⊘</button>
@@ -7759,10 +7764,12 @@ function renderArrayItemConfig(container, item) {
         container.querySelector('#addWorkflowInput').addEventListener('click', (e) => {
             e.preventDefault();
             const inputList = container.querySelector('.workflow-input-list');
+            const rowCount = inputList.querySelectorAll('.workflow-input-row').length;
             const newRow = document.createElement('div');
             newRow.className = 'workflow-input-row';
             newRow.style.cssText = 'display: flex; gap: 6px; align-items: center;';
             newRow.innerHTML = `
+                <div style="color: #ccc; font-size: 12px; font-weight: 600; min-width: 20px; text-align: center;">${rowCount + 1}</div>
                 <input type="text" class="workflow-input-key" placeholder="Key" style="flex: 1; padding: 4px; background: #234656; border: 1px solid #555; border-radius: 4px; color: #ffffff; font-size: 12px;">
                 <input type="text" class="workflow-input-value" placeholder="Value" style="flex: 1; padding: 4px; background: #234656; border: 1px solid #555; border-radius: 4px; color: #ffffff; font-size: 12px;">
                 <button class="delete-workflow-input" style="padding: 4px 8px; background: #b8242f; border: none; border-radius: 4px; color: #ffffff; cursor: pointer; font-size: 12px;">⊘</button>
