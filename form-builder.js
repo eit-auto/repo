@@ -7404,7 +7404,7 @@ function renderArrayItemRow(container, item, index) {
     
     // Combined header and fields row
     const mainRow = document.createElement('div');
-    mainRow.style.cssText = 'display: flex; gap: 8px; align-items: flex-start;';
+    mainRow.style.cssText = 'display: flex; gap: 8px; align-items: flex-end; padding-bottom: 5px; border-bottom: 1px solid #404040;';
     mainRow.innerHTML = `
         <div style="display: flex; gap: 8px; flex-shrink: 0;">
             <button class="array-item-move-up-btn" title="Move Up" style="min-width: auto; padding: 6px 8px; background: #5a9fb8; border: none; border-radius: 4px; color: #ffffff; cursor: pointer; font-size: 12px; font-weight: 600;">↑</button>
