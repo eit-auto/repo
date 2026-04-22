@@ -7857,10 +7857,10 @@ function renderArrayItemConfig(container, item) {
             
             <div id="nestedArrayItemsContainer" style="display: ${repeatingInputMode ? 'none' : 'flex'}; flex-direction: column; gap: 8px;">
                 <div style="display: flex; justify-content: space-between; align-items: center;">
-                    <label style="color: #ccc; font-size: 12px; font-weight: 600; margin: 0;">Items</label>
+                    <label style="color: #ffffff; font-weight: 600; font-size: 12px; margin: 0;">Items</label>
                     <button class="add-nested-array-item-btn" style="padding: 4px 8px; background: #5a9fb8; border: none; border-radius: 4px; color: #ffffff; cursor: pointer; font-size: 12px; font-weight: 600;">+</button>
                 </div>
-                <div id="nestedArrayItemsList" style="display: flex; flex-direction: column; gap: 6px; max-height: 200px; overflow-y: auto;"></div>
+                <div id="nestedArrayItemsList" style="display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px;"></div>
             </div>
         `;
         
@@ -7917,10 +7917,10 @@ function renderArrayItemConfig(container, item) {
 function renderNestedArrayItemRow(container, nestedItem, index, parentItems) {
     const rowDiv = document.createElement('div');
     rowDiv.className = 'nested-array-item-row';
-    rowDiv.style.cssText = 'display: grid; grid-template-columns: 1fr 1fr auto; gap: 6px; align-items: center; padding: 8px; background: #1a3540; border-radius: 4px; border: 1px solid #404040;';
+    rowDiv.style.cssText = 'display: flex; gap: 6px; align-items: center;';
     rowDiv.innerHTML = `
-        <input type="text" class="nested-array-item-name" value="${RewstLib.utils.escapeHtml(nestedItem.name || '')}" placeholder="Field Name" style="padding: 4px; background: #234656; border: 1px solid #555; border-radius: 4px; color: #ffffff; font-size: 12px;">
-        <input type="text" class="nested-array-item-display-name" value="${RewstLib.utils.escapeHtml(nestedItem.display_name || '')}" placeholder="Display Name" style="padding: 4px; background: #234656; border: 1px solid #555; border-radius: 4px; color: #ffffff; font-size: 12px;">
+        <input type="text" class="nested-array-item-name" value="${RewstLib.utils.escapeHtml(nestedItem.name || '')}" placeholder="Field Name" style="flex: 1; padding: 4px; background: #234656; border: 1px solid #555; border-radius: 4px; color: #ffffff; font-size: 12px;">
+        <input type="text" class="nested-array-item-display-name" value="${RewstLib.utils.escapeHtml(nestedItem.display_name || '')}" placeholder="Display Name" style="flex: 1; padding: 4px; background: #234656; border: 1px solid #555; border-radius: 4px; color: #ffffff; font-size: 12px;">
         <button class="delete-nested-array-item-btn" style="padding: 4px 8px; background: #b8242f; border: none; border-radius: 4px; color: #ffffff; cursor: pointer; font-size: 12px; font-weight: 600;">×</button>
     `;
     
