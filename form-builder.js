@@ -433,14 +433,27 @@ const ELEMENT_TYPE_DEFAULTS = {
         result_var: ''
     },
     'data_retrieval': {
-        data_source_type: 'mesh_powershell',        // 'mesh_cmd' | 'mesh_powershell' | 'mesh_nodes' | 'mysql' | 'cwa_mysql' | 'workflow' | 'graphql'
+        data_source_type: 'mesh_powershell',        // 'mesh_cmd' | 'mesh_powershell' | 'mesh_nodes' | 'mysql' | 'cwa_mysql' | 'workflow' | 'graphql' | 'psa'
         // Mesh fields
         node_selection_type: 'fixed',
         node_id: '',
         node_query: '',
         command: '',
         // MySQL fields
-        query: ''
+        query: '',
+        // PSA API fields
+        endpoint: '',
+        method: 'GET',
+        fields: '',
+        conditions: '',
+        childConditions: '',
+        orderBy: '',
+        pageAll: true,
+        pageSize: 1000,
+        page: 1,
+        requestBody: '{}',
+        timeout: 30000,
+        flatten: true
     },
     'dropdown_prefetch': {
         source_element_name: '',        // Field name of data_retrieval element
@@ -1145,6 +1158,25 @@ function saveTypeSpecificFields(fieldConfig) {
                 fieldConfig.node_id = '';
                 fieldConfig.node_query = '';
                 fieldConfig.command = '';
+            } else if (fieldConfig.data_source_type === 'psa') {
+                // Save PSA API fields
+                fieldConfig.endpoint = document.getElementById('retrieval_psa_endpoint')?.value || '';
+                fieldConfig.method = document.getElementById('retrieval_psa_method')?.value || 'GET';
+                fieldConfig.fields = document.getElementById('retrieval_psa_fields')?.value || '';
+                fieldConfig.conditions = document.getElementById('retrieval_psa_conditions')?.value || '';
+                fieldConfig.childConditions = document.getElementById('retrieval_psa_child_conditions')?.value || '';
+                fieldConfig.orderBy = document.getElementById('retrieval_psa_order_by')?.value || '';
+                fieldConfig.pageAll = document.getElementById('retrieval_psa_page_all')?.checked || true;
+                fieldConfig.pageSize = parseInt(document.getElementById('retrieval_psa_page_size')?.value || 1000);
+                fieldConfig.page = parseInt(document.getElementById('retrieval_psa_page')?.value || 1);
+                // requestBody is already set via modal handler
+                fieldConfig.timeout = parseInt(document.getElementById('retrieval_psa_timeout')?.value || 30000);
+                fieldConfig.flatten = document.getElementById('retrieval_psa_flatten')?.checked !== false;
+                // Clear non-PSA fields
+                fieldConfig.node_id = '';
+                fieldConfig.node_query = '';
+                fieldConfig.command = '';
+                fieldConfig.query = '';
             }
         } else if (elementType === 'dropdown_prefetch') {
             // Save prefetch dropdown fields
@@ -3130,6 +3162,7 @@ function showElementSettings(elementUid) {
                     <option value='cwa_mysql' ${fieldConfig.data_source_type === 'cwa_mysql' ? 'selected' : ''}>CWA MySQL Query</option>
                     <option value='workflow' ${fieldConfig.data_source_type === 'workflow' ? 'selected' : ''}>Workflow</option>
                     <option value='graphql' ${fieldConfig.data_source_type === 'graphql' ? 'selected' : ''}>GraphQL</option>
+                    <option value='psa' ${fieldConfig.data_source_type === 'psa' ? 'selected' : ''}>PSA API</option>
                 </select>
                 <div style='color: #999; font-size: 12px; margin-top: 6px;'>Data will be stored in page variable: <strong>${fieldConfig.field_name || '[field_name]'}</strong></div>
             </div>
@@ -3182,6 +3215,72 @@ function showElementSettings(elementUid) {
                 <div style='margin-bottom: 15px;'>
                     <label style='display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;'>CWA SQL Query</label>
                     <button type='button' id='retrieval_cwa_mysql_query_button' class='btn btn-blue' style='width: 100%;'>Edit SQL Query</button>
+                </div>
+            `;
+        } else if (fieldConfig.data_source_type === 'psa') {
+            formHTML += `
+                <div style='margin-bottom: 15px;'>
+                    <label style='display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;'>CWM API Endpoint *</label>
+                    <input type='text' id='retrieval_psa_endpoint' value='${fieldConfig.endpoint || ''}' placeholder='e.g., /company/companies' style='width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box;'>
+                    <div style='color: #999; font-size: 12px; margin-top: 6px;'>API endpoint path (required)</div>
+                </div>
+                <div style='margin-bottom: 15px;'>
+                    <label style='display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;'>Method *</label>
+                    <select id='retrieval_psa_method' style='width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box;'>
+                        <option value='GET' ${fieldConfig.method === 'GET' ? 'selected' : ''}>GET</option>
+                        <option value='POST' ${fieldConfig.method === 'POST' ? 'selected' : ''}>POST</option>
+                        <option value='PUT' ${fieldConfig.method === 'PUT' ? 'selected' : ''}>PUT</option>
+                        <option value='DELETE' ${fieldConfig.method === 'DELETE' ? 'selected' : ''}>DELETE</option>
+                    </select>
+                </div>
+                <div style='margin-bottom: 15px;'>
+                    <label style='display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;'>Fields</label>
+                    <input type='text' id='retrieval_psa_fields' value='${fieldConfig.fields || ''}' placeholder='e.g., id,name,status' style='width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box;'>
+                    <div style='color: #999; font-size: 12px; margin-top: 6px;'>Comma-separated field list (optional)</div>
+                </div>
+                <div style='margin-bottom: 15px;'>
+                    <label style='display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;'>Conditions</label>
+                    <input type='text' id='retrieval_psa_conditions' value='${fieldConfig.conditions || ''}' placeholder='e.g., status/id=1' style='width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box;'>
+                    <div style='color: #999; font-size: 12px; margin-top: 6px;'>Server-side filter for parent resource (optional)</div>
+                </div>
+                <div style='margin-bottom: 15px;'>
+                    <label style='display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;'>Child Conditions</label>
+                    <input type='text' id='retrieval_psa_child_conditions' value='${fieldConfig.childConditions || ''}' placeholder='e.g., types/name like "%customer%"' style='width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box;'>
+                    <div style='color: #999; font-size: 12px; margin-top: 6px;'>Server-side filter for child collections (optional)</div>
+                </div>
+                <div style='margin-bottom: 15px;'>
+                    <label style='display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;'>Order By</label>
+                    <input type='text' id='retrieval_psa_order_by' value='${fieldConfig.orderBy || ''}' placeholder='e.g., name asc' style='width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box;'>
+                    <div style='color: #999; font-size: 12px; margin-top: 6px;'>Sort specification (optional)</div>
+                </div>
+                <div style='margin-bottom: 15px; display: flex; align-items: center; gap: 10px;'>
+                    <input type='checkbox' id='retrieval_psa_page_all' ${fieldConfig.pageAll ? 'checked' : ''} class='checkbox-input'>
+                    <label for='retrieval_psa_page_all' style='margin: 0; color: #ffffff; font-weight: 600; font-size: 14px; cursor: pointer;'>Page All (fetch all pages)</label>
+                </div>
+                <div style='margin-bottom: 15px;' id='retrieval_psa_pagination_container' class='${fieldConfig.pageAll ? 'is-hidden' : ''}'>
+                    <div style='margin-bottom: 15px;'>
+                        <label style='display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;'>Page Size</label>
+                        <input type='number' id='retrieval_psa_page_size' value='${fieldConfig.pageSize || 1000}' min='1' max='1000' style='width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box;'>
+                        <div style='color: #999; font-size: 12px; margin-top: 6px;'>Results per page (1-1000)</div>
+                    </div>
+                    <div style='margin-bottom: 15px;'>
+                        <label style='display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;'>Page</label>
+                        <input type='number' id='retrieval_psa_page' value='${fieldConfig.page || 1}' min='1' style='width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box;'>
+                        <div style='color: #999; font-size: 12px; margin-top: 6px;'>Page number to retrieve</div>
+                    </div>
+                </div>
+                <div style='margin-bottom: 15px;'>
+                    <label style='display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;'>Request Body</label>
+                    <button type='button' id='retrieval_psa_request_body_button' class='btn btn-blue' style='width: 100%;'>Edit Request Body (JSON)</button>
+                </div>
+                <div style='margin-bottom: 15px;'>
+                    <label style='display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;'>Timeout (ms)</label>
+                    <input type='number' id='retrieval_psa_timeout' value='${fieldConfig.timeout || 30000}' min='1000' style='width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box;'>
+                    <div style='color: #999; font-size: 12px; margin-top: 6px;'>Request timeout in milliseconds</div>
+                </div>
+                <div style='margin-bottom: 15px; display: flex; align-items: center; gap: 10px;'>
+                    <input type='checkbox' id='retrieval_psa_flatten' ${fieldConfig.flatten !== false ? 'checked' : ''} class='checkbox-input'>
+                    <label for='retrieval_psa_flatten' style='margin: 0; color: #ffffff; font-weight: 600; font-size: 14px; cursor: pointer;'>Flatten Results</label>
                 </div>
             `;
         }
@@ -4116,6 +4215,67 @@ function showElementSettings(elementUid) {
         if (retrievalCwaMysqlQueryButton) {
             retrievalCwaMysqlQueryButton.addEventListener('click', () => {
                 openElementSqlQueryModal('retrieval_cwa_mysql', fieldConfig.query || '', 'CWA SQL Query');
+            });
+        }
+        
+        // PSA API field listeners
+        const retrievalPsaEndpointInput = document.getElementById('retrieval_psa_endpoint');
+        const retrievalPsaMethodSelect = document.getElementById('retrieval_psa_method');
+        const retrievalPsaFieldsInput = document.getElementById('retrieval_psa_fields');
+        const retrievalPsaConditionsInput = document.getElementById('retrieval_psa_conditions');
+        const retrievalPsaChildConditionsInput = document.getElementById('retrieval_psa_child_conditions');
+        const retrievalPsaOrderByInput = document.getElementById('retrieval_psa_order_by');
+        const retrievalPsaPageAllCheckbox = document.getElementById('retrieval_psa_page_all');
+        const retrievalPsaPaginationContainer = document.getElementById('retrieval_psa_pagination_container');
+        const retrievalPsaPageSizeInput = document.getElementById('retrieval_psa_page_size');
+        const retrievalPsaPageInput = document.getElementById('retrieval_psa_page');
+        const retrievalPsaRequestBodyButton = document.getElementById('retrieval_psa_request_body_button');
+        const retrievalPsaTimeoutInput = document.getElementById('retrieval_psa_timeout');
+        const retrievalPsaFlattenCheckbox = document.getElementById('retrieval_psa_flatten');
+        
+        // PSA API input listeners
+        [retrievalPsaEndpointInput, retrievalPsaMethodSelect, retrievalPsaFieldsInput, 
+         retrievalPsaConditionsInput, retrievalPsaChildConditionsInput, retrievalPsaOrderByInput,
+         retrievalPsaPageSizeInput, retrievalPsaPageInput, retrievalPsaTimeoutInput].forEach(input => {
+            if (input) {
+                input.addEventListener('change', () => {
+                    formHasBeenModified = true;
+                    updateElementSettingsSaveButtonVisibility();
+                });
+                if (input.tagName === 'INPUT' && input.type !== 'checkbox') {
+                    input.addEventListener('input', () => {
+                        formHasBeenModified = true;
+                        updateElementSettingsSaveButtonVisibility();
+                    });
+                }
+            }
+        });
+        
+        // PSA Page All checkbox listener
+        if (retrievalPsaPageAllCheckbox) {
+            retrievalPsaPageAllCheckbox.addEventListener('change', (e) => {
+                if (e.target.checked) {
+                    retrievalPsaPaginationContainer?.classList.add('is-hidden');
+                } else {
+                    retrievalPsaPaginationContainer?.classList.remove('is-hidden');
+                }
+                formHasBeenModified = true;
+                updateElementSettingsSaveButtonVisibility();
+            });
+        }
+        
+        // PSA Request Body button listener
+        if (retrievalPsaRequestBodyButton) {
+            retrievalPsaRequestBodyButton.addEventListener('click', () => {
+                openPsaRequestBodyModal(fieldConfig.requestBody || '{}');
+            });
+        }
+        
+        // PSA Flatten checkbox listener
+        if (retrievalPsaFlattenCheckbox) {
+            retrievalPsaFlattenCheckbox.addEventListener('change', () => {
+                formHasBeenModified = true;
+                updateElementSettingsSaveButtonVisibility();
             });
         }
         
