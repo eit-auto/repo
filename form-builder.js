@@ -7587,6 +7587,7 @@ function renderArrayItemRow(container, item, index) {
                 <option value="dropdown_workflow" ${item.type === 'dropdown_workflow' ? 'selected' : ''}>Workflow Dropdown</option>
                 <option value="dropdown_mysql" ${item.type === 'dropdown_mysql' ? 'selected' : ''}>MySQL Dropdown</option>
                 <option value="dropdown_cwa_mysql" ${item.type === 'dropdown_cwa_mysql' ? 'selected' : ''}>CWA MySQL Dropdown</option>
+                <option value="dropdown_prefetch" ${item.type === 'dropdown_prefetch' ? 'selected' : ''}>Prefetch Dropdown</option>
             </select>
             <div id="arrayItemValueField_${index}" style="width: 100%;"></div>
         </div>
@@ -7729,6 +7730,14 @@ function renderArrayItemValueField(container, item) {
         container.innerHTML = `
             <div style="padding: 6px; background: #234656; border: 1px solid #555; border-radius: 4px; color: #999; font-size: 12px; display: flex; align-items: center;">
                 [Array Configuration]
+            </div>
+        `;
+    } else if (item.type === 'dropdown_prefetch') {
+        // Prefetch dropdown - show data source and configuration indicator
+        const sourceName = item.source_element_name || '--';
+        container.innerHTML = `
+            <div style="padding: 6px; background: #234656; border: 1px solid #555; border-radius: 4px; color: #999; font-size: 12px; display: flex; align-items: center;">
+                [${RewstLib.utils.escapeHtml(sourceName)}]
             </div>
         `;
     }
@@ -8076,6 +8085,54 @@ function renderArrayItemConfig(container, item) {
                 renderNestedArrayItemRow(nestedItemsList, nestedItem, idx, item.items);
             });
         });
+    } else if (item.type === 'dropdown_prefetch') {
+        // Prefetch dropdown config: Data Source, Result Path, Label Field, Value Field
+        container.style.display = 'block';
+        
+        // Get available data_retrieval elements for the Data Source dropdown
+        const dataRetrievalElements = fieldConfigs.filter(f => f.type === 'data_retrieval');
+        
+        let dataSourceOptions = '<option value="">-- Select Data Source --</option>';
+        dataRetrievalElements.forEach(element => {
+            const selected = item.source_element_name === element.field_name ? 'selected' : '';
+            dataSourceOptions += `<option value="${RewstLib.utils.escapeHtml(element.field_name)}" ${selected}>${RewstLib.utils.escapeHtml(element.field_displayname || element.field_name)}</option>`;
+        });
+        
+        container.innerHTML = `
+            <div style="display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px;">
+                <label style="color: #ccc; font-size: 12px; font-weight: 600;">Data Source</label>
+                <select class="array-item-source-element-name" style="padding: 6px; background: #234656; border: 1px solid #555; border-radius: 4px; color: #ffffff; font-size: 12px;">
+                    ${dataSourceOptions}
+                </select>
+                <div style="color: #999; font-size: 11px;">Select a Data Retrieval element</div>
+            </div>
+            
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px;">
+                <div style="display: flex; flex-direction: column; gap: 6px;">
+                    <label style="color: #ccc; font-size: 12px; font-weight: 600;">Result Path</label>
+                    <input type="text" class="array-item-result-path" value="${RewstLib.utils.escapeHtml(item.result_path || '')}" placeholder="e.g., data.users" style="padding: 6px; background: #234656; border: 1px solid #555; border-radius: 4px; color: #ffffff; font-size: 12px;">
+                </div>
+                <div style="display: flex; flex-direction: column; gap: 6px;">
+                    <label style="color: #ccc; font-size: 12px; font-weight: 600;">Label Field</label>
+                    <input type="text" class="array-item-label-field" value="${RewstLib.utils.escapeHtml(item.label_field || '')}" placeholder="e.g., name" style="padding: 6px; background: #234656; border: 1px solid #555; border-radius: 4px; color: #ffffff; font-size: 12px;">
+                </div>
+            </div>
+            
+            <div style="display: flex; flex-direction: column; gap: 6px;">
+                <label style="color: #ccc; font-size: 12px; font-weight: 600;">Value Field (id)</label>
+                <input type="text" class="array-item-value-field" value="${RewstLib.utils.escapeHtml(item.value_field || '')}" placeholder="e.g., id" style="padding: 6px; background: #234656; border: 1px solid #555; border-radius: 4px; color: #ffffff; font-size: 12px;">
+            </div>
+        `;
+        
+        const sourceElementSelect = container.querySelector('.array-item-source-element-name');
+        const resultPathInput = container.querySelector('.array-item-result-path');
+        const labelFieldInput = container.querySelector('.array-item-label-field');
+        const valueFieldInput = container.querySelector('.array-item-value-field');
+        
+        sourceElementSelect.addEventListener('change', (e) => { item.source_element_name = e.target.value; });
+        resultPathInput.addEventListener('input', (e) => { item.result_path = e.target.value; });
+        labelFieldInput.addEventListener('input', (e) => { item.label_field = e.target.value; });
+        valueFieldInput.addEventListener('input', (e) => { item.value_field = e.target.value; });
     }
 }
 
@@ -8307,6 +8364,16 @@ function saveArrayItems() {
                 } else {
                     itemData.items = [];
                 }
+            } else if (type === 'dropdown_prefetch') {
+                const sourceElementSelect = container.querySelector('.array-item-source-element-name');
+                const resultPathInput = container.querySelector('.array-item-result-path');
+                const labelFieldInput = container.querySelector('.array-item-label-field');
+                const valueFieldInput = container.querySelector('.array-item-value-field');
+                
+                itemData.source_element_name = sourceElementSelect ? sourceElementSelect.value : '';
+                itemData.result_path = resultPathInput ? resultPathInput.value : '';
+                itemData.label_field = labelFieldInput ? labelFieldInput.value : '';
+                itemData.value_field = valueFieldInput ? valueFieldInput.value : '';
             }
             
             items.push(itemData);
