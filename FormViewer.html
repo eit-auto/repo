@@ -1885,7 +1885,7 @@
              * Render HTML for any dynamic dropdown type (consolidated)
              * Handles single-select and multi-select, with variations for dropdown_prefetch
              */
-            function renderDynamicDropdownHTML(config, displayName, proxyCache) {
+            function renderDynamicDropdownHTML(config, displayName, proxyCache, allFieldConfigs) {
                 const multiSelectId = `ms_${config.field_name}`;
                 let fieldControlHtml = '';
                 
@@ -1948,8 +1948,11 @@
                 let refreshBtnExtra = '';
                 
                 if (config.type === 'dropdown_prefetch') {
-                    waitingMsg = `Waiting for ${config.source_element_name}`;
-                    refreshBtnExtra = ` data-source-field="${config.source_element_name}"`;
+                    const sourceFieldName = config.source_element_name || config.source_element_uid;
+                    const sourceFieldConfig = allFieldConfigs && allFieldConfigs.find(fc => fc.field_name === sourceFieldName);
+                    const sourceFieldDisplayName = sourceFieldConfig ? sourceFieldConfig.field_displayname : sourceFieldName;
+                    waitingMsg = `Waiting for ${sourceFieldDisplayName}`;
+                    refreshBtnExtra = ` data-source-field="${sourceFieldName}"`;
                 }
                 
                 // Render consolidated HTML
@@ -2119,7 +2122,7 @@
                     `;
                 } else if (isDynamicDropdownType(config.type)) {
                     // Consolidated rendering for all dynamic dropdown types (except tree)
-                    html += renderDynamicDropdownHTML(config, displayName, proxyCache);
+                    html += renderDynamicDropdownHTML(config, displayName, proxyCache, allFieldConfigs);
                 } else if (config.type === 'html') {
                     // Render HTML content directly with label color styling
                     const hasUnresolved = hasUnresolvedPageVariables(config);
@@ -2234,6 +2237,44 @@
                         }
                         else if (itemConfig.type === 'dropdown_graphql') {
                             // GraphQL dropdown - check if searchable (default true)
+                            if (itemConfig.searchable !== false) {
+                                // Searchable single-select structure
+                                fieldHtml = `<div style="position: relative; box-sizing: border-box;">
+                                    <input type="text" class="searchable-select-input" placeholder="Search or select..." style="width: 100%; padding: 8px; padding-right: 56px; border: 1px solid #555; border-radius: 4px; background: #1a3540; color: #ffffff; box-sizing: border-box;">
+                                    <div class="searchable-select-clear" style="display: none;">✕</div>
+                                    <div class="searchable-select-toggle">▼</div>
+                                    <select class="searchable-select-hidden-select" name="${fieldId}" id="${fieldId}" data-array-field="${fieldName}"></select>
+                                    <div class="searchable-select-dropdown" style="display: none;"></div>
+                                </div>`;
+                            } else {
+                                // Non-searchable plain select
+                                fieldHtml = `<div style="display: flex; gap: 8px; align-items: center;">
+                                    <select name="${fieldId}" id="${fieldId}" data-array-field="${fieldName}" style="flex: 1;"><option value="">Loading options...</option></select>
+                                    <button type="button" class="btn btn-small dropdown-refresh-btn" data-field-name="${fieldId}" style="width: auto; padding: 0.2rem 0.15rem;">↻</button>
+                                </div>`;
+                            }
+                        }
+                        else if (itemConfig.type === 'dropdown_prefetch') {
+                            // Prefetch dropdown - check if searchable (default true)
+                            if (itemConfig.searchable !== false) {
+                                // Searchable single-select structure
+                                fieldHtml = `<div style="position: relative; box-sizing: border-box;">
+                                    <input type="text" class="searchable-select-input" placeholder="Search or select..." style="width: 100%; padding: 8px; padding-right: 56px; border: 1px solid #555; border-radius: 4px; background: #1a3540; color: #ffffff; box-sizing: border-box;">
+                                    <div class="searchable-select-clear" style="display: none;">✕</div>
+                                    <div class="searchable-select-toggle">▼</div>
+                                    <select class="searchable-select-hidden-select" name="${fieldId}" id="${fieldId}" data-array-field="${fieldName}"></select>
+                                    <div class="searchable-select-dropdown" style="display: none;"></div>
+                                </div>`;
+                            } else {
+                                // Non-searchable plain select
+                                fieldHtml = `<div style="display: flex; gap: 8px; align-items: center;">
+                                    <select name="${fieldId}" id="${fieldId}" data-array-field="${fieldName}" style="flex: 1;"><option value="">-- Select --</option></select>
+                                    <button type="button" class="btn btn-small dropdown-refresh-btn" data-field-name="${fieldId}" style="width: auto; padding: 0.2rem 0.15rem;">↻</button>
+                                </div>`;
+                            }
+                        }
+                        else if (['dropdown_mysql', 'dropdown_cwa_mysql', 'dropdown_mesh', 'dropdown_psa'].includes(itemConfig.type)) {
+                            // MySQL, CWA MySQL, Mesh, and PSA dropdowns - check if searchable (default true)
                             if (itemConfig.searchable !== false) {
                                 // Searchable single-select structure
                                 fieldHtml = `<div style="position: relative; box-sizing: border-box;">
@@ -2700,9 +2741,17 @@
                         loadFieldOptions(config, fieldConfigs, formConfig);
                     }
                 }
-                if (config.type === 'data_retrieval' && !config.dependant_fields) {
-                    console.log(`Data_retrieval ${config.field_name} has no dependencies, executing immediately`);
-                    loadFieldOptions(config, fieldConfigs, formConfig);
+                if (config.type === 'data_retrieval') {
+                    const hasExplicitDeps = config.dependant_fields && Object.keys(config.dependant_fields).length > 0;
+                    const implicitDeps = extractImplicitDependencies(config);
+                    const hasImplicitDeps = implicitDeps && implicitDeps.length > 0;
+                    
+                    if (!hasExplicitDeps && !hasImplicitDeps) {
+                        console.log(`Data_retrieval ${config.field_name} has no dependencies, executing immediately`);
+                        loadFieldOptions(config, fieldConfigs, formConfig);
+                    } else if (hasImplicitDeps) {
+                        console.log(`Data_retrieval ${config.field_name} has implicit dependencies: ${implicitDeps.join(', ')}`);
+                    }
                 }
             });
             
@@ -2977,12 +3026,32 @@
             
             // Find all fields that depend on the changed field
             fieldConfigs.forEach(config => {
-                if (!config.dependant_fields) return;
+                let isDependentOnChanged = false;
                 
-                // Check if this field depends on the changed field
-                const isDependentOnChanged = 
-                    (typeof config.dependant_fields === 'object' && changedFieldName in config.dependant_fields) ||
-                    (Array.isArray(config.dependant_fields) && config.dependant_fields.includes(changedFieldName));
+                // Check explicit dependencies
+                if (config.dependant_fields) {
+                    isDependentOnChanged = 
+                        (typeof config.dependant_fields === 'object' && changedFieldName in config.dependant_fields) ||
+                        (Array.isArray(config.dependant_fields) && config.dependant_fields.includes(changedFieldName));
+                }
+                
+                // Check implicit dependencies if not already found
+                if (!isDependentOnChanged) {
+                    const implicitDeps = RewstLib.utils.extractImplicitDependencies(config);
+                    if (implicitDeps && implicitDeps.includes(changedFieldName)) {
+                        isDependentOnChanged = true;
+                        console.log(`[UPDATE_DEPS] Field ${config.field_name} has implicit dependency on ${changedFieldName}`);
+                    }
+                }
+                
+                // Check source_element_name (for dropdown_prefetch fields that reference data_retrieval sources)
+                if (!isDependentOnChanged && config.type === 'dropdown_prefetch') {
+                    const sourceElementName = config.source_element_name || config.source_element_uid;
+                    if (sourceElementName === changedFieldName) {
+                        isDependentOnChanged = true;
+                        console.log(`[UPDATE_DEPS] Field ${config.field_name} depends on data source ${changedFieldName}`);
+                    }
+                }
                 
                 if (!isDependentOnChanged) return;
                 
@@ -3023,6 +3092,7 @@
         // showWaitingMessage and hideWaitingMessage are now in rewst-library.js
         RewstLib.utils.areDependenciesMet = areDependenciesMet;
         RewstLib.utils.getDependencyValues = getDependencyValues;
+        RewstLib.utils.extractImplicitDependencies = extractImplicitDependencies;
         RewstLib.utils.initializeDependentFields = initializeDependentFields;
         RewstLib.utils.updateDependentFields = updateDependentFields;
         RewstLib.utils.mapResultsToOptions = mapResultsToOptions;
@@ -3692,6 +3762,21 @@
                     }
                 }
                 
+                // Check if source data is available
+                const hasSourceData = proxyCache.dataRetrievalResults && proxyCache.dataRetrievalResults[sourceFieldName];
+                if (!hasSourceData) {
+                    console.log(`[DROPDOWN_PREFETCH] Source data '${sourceFieldName}' not yet available for ${config.field_name}`);
+                    if (formGroup) {
+                        RewstLib.utils.hideLoadingMessage(formGroup, config);
+                        RewstLib.utils.showWaitingMessage(formGroup, config, allFieldConfigs);
+                    }
+                    return;
+                }
+                
+                if (formGroup) {
+                    RewstLib.utils.hideWaitingMessage(formGroup, config);
+                }
+                
                 // Get cached data from data_retrieval field
                 let options = [];
                 if (proxyCache.dataRetrievalResults[sourceFieldName]) {
@@ -3764,6 +3849,17 @@
                             RewstLib.utils.hideWaitingMessage(formGroup, config);
                         }
                     }
+                }
+                
+                // Check if source data is available
+                const hasSourceData = proxyCache.dataRetrievalResults && proxyCache.dataRetrievalResults[sourceFieldName];
+                if (!hasSourceData) {
+                    console.log(`[DROPDOWN_TREE] Source data '${sourceFieldName}' not yet available for ${config.field_name}`);
+                    if (formGroup) {
+                        RewstLib.utils.hideLoadingMessage(formGroup, config);
+                        RewstLib.utils.showWaitingMessage(formGroup, config, allFieldConfigs);
+                    }
+                    return;
                 }
                 
                 // Get cached data from data_retrieval field
@@ -5112,7 +5208,7 @@
                 // Check each array item for workflow, GraphQL, MySQL, and Mesh dropdowns
                 const itemsArray = Array.isArray(arrayConfig.items) ? arrayConfig.items : [];
                 itemsArray.forEach(itemConfig => {
-                    if (itemConfig.type !== 'dropdown_workflow' && itemConfig.type !== 'dropdown_graphql' && itemConfig.type !== 'dropdown_mysql' && itemConfig.type !== 'dropdown_cwa_mysql' && itemConfig.type !== 'dropdown_mesh' && itemConfig.type !== 'dropdown_psa') return;
+                    if (itemConfig.type !== 'dropdown_workflow' && itemConfig.type !== 'dropdown_graphql' && itemConfig.type !== 'dropdown_mysql' && itemConfig.type !== 'dropdown_cwa_mysql' && itemConfig.type !== 'dropdown_mesh' && itemConfig.type !== 'dropdown_psa' && itemConfig.type !== 'dropdown_prefetch') return;
                     
                     const fieldName = itemConfig.name;
                     
@@ -5131,8 +5227,8 @@
                             workflow_id: itemConfig.workflow_id,
                             label_name: itemConfig.label_name,
                             value_name: itemConfig.value_name,
-                            label_field: itemConfig.label_field || itemConfig.label_name,
-                            value_field: itemConfig.value_field || itemConfig.value_name,
+                            label_field: itemConfig.label_field || itemConfig.label_name || 'name',  // Default to 'name' if not specified
+                            value_field: itemConfig.value_field || itemConfig.value_name || 'id',  // Default to 'id' if not specified
                             workflow_input: itemConfig.workflow_input || {},
                             graphql_op: itemConfig.graphql_op,
                             graphql_op_variables: itemConfig.graphql_op_variables || {},
@@ -5144,6 +5240,16 @@
                             node_selection_type: itemConfig.node_selection_type,
                             command: itemConfig.command,
                             command_type: itemConfig.command_type || 1,
+                            source_element_name: itemConfig.source_element_name,  // For prefetch
+                            result_path: itemConfig.result_path,  // For prefetch
+                            searchable: itemConfig.searchable,  // For all types
+                            endpoint: itemConfig.endpoint,  // For PSA, mesh
+                            method: itemConfig.method,  // For PSA, mesh
+                            fields: itemConfig.fields,  // For PSA, mesh
+                            conditions: itemConfig.conditions,  // For PSA, mesh
+                            childConditions: itemConfig.childConditions,  // For PSA, mesh
+                            orderBy: itemConfig.orderBy,  // For PSA, mesh
+                            flatten: itemConfig.flatten,  // For PSA
                             dependant_fields: itemConfig.dependant_fields  // Include if defined
                         };
                         
@@ -5215,18 +5321,22 @@
                     RewstLib.utils.showLoadingMessage(formGroup, config);
                 }
                 
-                // Check dependencies
-                if (config.dependant_fields) {
-                    const allDepsMet = RewstLib.utils.areDependenciesMet(config, allFieldConfigs);
-                    
-                    if (!allDepsMet) {
-                        console.log(`[DATA_RETRIEVAL] Dependencies not met for ${config.field_name}`);
-                        if (formGroup) {
-                            RewstLib.utils.hideLoadingMessage(formGroup, config);
-                            RewstLib.utils.showWaitingMessage(formGroup, config, allFieldConfigs);
-                        }
-                        return;
+                // Check both explicit AND implicit dependencies
+                const hasExplicitDeps = config.dependant_fields && Object.keys(config.dependant_fields).length > 0;
+                const implicitDeps = RewstLib.utils.extractImplicitDependencies(config);
+                
+                // Check if dependencies are met
+                const allDepsMet = RewstLib.utils.areDependenciesMet(config, allFieldConfigs);
+                
+                if (!allDepsMet) {
+                    console.log(`[DATA_RETRIEVAL] Dependencies not met for ${config.field_name}`);
+                    console.log(`[DATA_RETRIEVAL] Explicit deps:`, hasExplicitDeps, config.dependant_fields);
+                    console.log(`[DATA_RETRIEVAL] Implicit deps:`, implicitDeps);
+                    if (formGroup) {
+                        RewstLib.utils.hideLoadingMessage(formGroup, config);
+                        RewstLib.utils.showWaitingMessage(formGroup, config, allFieldConfigs);
                     }
+                    return;
                 }
                 
                 // Resolve any [[ ]] variable references in the config
@@ -5332,9 +5442,68 @@
                     }
                 }
                 
-                if (config.data_source_type !== 'mesh_powershell' && config.data_source_type !== 'mysql' && config.data_source_type !== 'cwa_mysql') {
-                    throw new Error(`Unsupported data_source_type: ${config.data_source_type}`);
+                // Handle PSA data source
+                if (config.data_source_type === 'psa') {
+                    console.log('[DATA_RETRIEVAL] Executing PSA API call:', resolvedConfig.endpoint);
+                    
+                    try {
+                        // Build query params from resolved config
+                        const queryParams = {
+                            fields: resolvedConfig.fields,
+                            conditions: resolvedConfig.conditions,
+                            childConditions: resolvedConfig.childConditions,
+                            orderBy: resolvedConfig.orderBy,
+                            pageAll: config.pageAll || false,
+                            pageSize: config.pageSize || 1000,
+                            page: config.page || 1,
+                            flatten: config.flatten !== false ? true : false
+                        };
+                        
+                        // Get session token for PSA authentication
+                        const sessionToken = await getProxySessionToken('proxy_api_psa');
+                        
+                        // Execute CWM API call via ProxyLib
+                        const result = await ProxyLib.executeCwmApi(
+                            sessionToken,
+                            REWST_USER,
+                            resolvedConfig.endpoint,
+                            queryParams,
+                            resolvedConfig.method || 'GET',
+                            {},
+                            { timeout: config.timeout || 30000 }
+                        );
+                        
+                        // Handle the result
+                        if (!result.success) {
+                            throw new Error(result.error || 'PSA API request failed');
+                        }
+                        
+                        const resultData = result.result || [];
+                        console.log('[DATA_RETRIEVAL] PSA API result:', resultData);
+                        
+                        // Store result in page variables and cache
+                        window.pageVariables[config.field_name] = resultData;
+                        proxyCache.dataRetrievalResults[config.field_name] = resultData;
+                        
+                        // Notify all dependent fields that this data_retrieval is complete
+                        updateDependentFields(config.field_name, allFieldConfigs, formConfig, loadFieldOptions);
+                        
+                        if (formGroup) {
+                            RewstLib.utils.hideLoadingMessage(formGroup, config);
+                            // Hide the entire form-group for data_retrieval fields (they have no UI, just cache data)
+                            formGroup.style.display = 'none';
+                        }
+                        return;
+                    } catch (error) {
+                        console.error('[DATA_RETRIEVAL] PSA API error:', error);
+                        if (formGroup) {
+                            RewstLib.utils.hideLoadingMessage(formGroup, config);
+                        }
+                        throw error;
+                    }
                 }
+                
+
                 
                 // Map data_source_type to appropriate API key
                 const apiKeyName = config.data_source_type === 'mesh_powershell' ? 'proxy_api_meshcentral' : 'proxy_api_key';
