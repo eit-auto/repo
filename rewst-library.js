@@ -1396,6 +1396,24 @@ const GRAPHQL_OPERATIONS = {
     } else if (config.dependant_fields && typeof config.dependant_fields === 'string') {
       depFields = config.dependant_fields.split(',').map(f => f.trim());
       console.log(`[WAITING_MSG] Using config.dependant_fields (string), depFields:`, depFields);
+    } else if (config.type === 'dropdown_prefetch' && (config.source_element_name || config.source_element_uid)) {
+      // For dropdown_prefetch: check what the source data_retrieval field depends on
+      const sourceFieldName = config.source_element_name || config.source_element_uid;
+      const sourceFieldConfig = fieldConfigs.find(f => f.field_name === sourceFieldName);
+      if (sourceFieldConfig && sourceFieldConfig.type === 'data_retrieval') {
+        // Extract implicit dependencies from the source data_retrieval
+        if (typeof RewstLib !== 'undefined' && RewstLib.utils && RewstLib.utils.extractImplicitDependencies) {
+          const implicitDeps = RewstLib.utils.extractImplicitDependencies(sourceFieldConfig);
+          depFields = implicitDeps || [];
+          console.log(`[WAITING_MSG] dropdown_prefetch source (${sourceFieldName}) implicit deps:`, depFields);
+        } else {
+          depFields = [];
+          console.log(`[WAITING_MSG] Could not extract implicit dependencies for source field`);
+        }
+      } else {
+        depFields = [];
+        console.log(`[WAITING_MSG] Source field ${sourceFieldName} not found or not data_retrieval`);
+      }
     } else {
       depFields = [];
       console.log(`[WAITING_MSG] No deps found, depFields: []`);
