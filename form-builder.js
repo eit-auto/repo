@@ -7313,7 +7313,7 @@ function initializeArrayItemsModal() {
                 <button id="addArrayItemModalBtn" class="btn btn-blue btn-small" title="Add Item" style="min-width: auto;">+</button>
             </div>
             
-            <div id="arrayItemsModalList" style="display: flex; flex-direction: column; gap: 12px; max-height: 400px; overflow-y: auto; margin-bottom: 15px;"></div>
+            <div id="arrayItemsModalList" class="scrollbar" style="display: flex; flex-direction: column; gap: 12px; max-height: 400px; overflow-y: auto; margin-bottom: 15px;"></div>
             
             <div style="display: flex; gap: 0.75rem; justify-content: flex-end;">
                 <button onclick="closeArrayItemsModal()" class="btn btn-bluegrey btn-small">Cancel</button>
