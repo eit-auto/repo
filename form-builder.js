@@ -7856,9 +7856,11 @@ function renderArrayItemConfig(container, item) {
             </div>
             
             <div id="nestedArrayItemsContainer" style="display: ${repeatingInputMode ? 'none' : 'flex'}; flex-direction: column; gap: 8px;">
-                <label style="color: #ccc; font-size: 12px; font-weight: 600;">Nested Array Items</label>
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <label style="color: #ccc; font-size: 12px; font-weight: 600; margin: 0;">Items</label>
+                    <button class="add-nested-array-item-btn" style="padding: 4px 8px; background: #5a9fb8; border: none; border-radius: 4px; color: #ffffff; cursor: pointer; font-size: 12px; font-weight: 600;">+</button>
+                </div>
                 <div id="nestedArrayItemsList" style="display: flex; flex-direction: column; gap: 6px; max-height: 200px; overflow-y: auto;"></div>
-                <button class="add-nested-array-item-btn" style="padding: 6px 10px; background: #5a9fb8; border: none; border-radius: 4px; color: #ffffff; cursor: pointer; font-size: 12px; font-weight: 600; align-self: flex-start;">+ Add Item</button>
             </div>
         `;
         
