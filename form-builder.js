@@ -7919,6 +7919,7 @@ function renderNestedArrayItemRow(container, nestedItem, index, parentItems) {
     rowDiv.className = 'nested-array-item-row';
     rowDiv.style.cssText = 'display: flex; gap: 6px; align-items: center;';
     rowDiv.innerHTML = `
+        <div style="color: #ccc; font-size: 12px; font-weight: 600; min-width: 20px; text-align: center;">${index + 1}</div>
         <input type="text" class="nested-array-item-name" value="${RewstLib.utils.escapeHtml(nestedItem.name || '')}" placeholder="Field Name" style="flex: 1; padding: 4px; background: #234656; border: 1px solid #555; border-radius: 4px; color: #ffffff; font-size: 12px;">
         <input type="text" class="nested-array-item-display-name" value="${RewstLib.utils.escapeHtml(nestedItem.display_name || '')}" placeholder="Display Name" style="flex: 1; padding: 4px; background: #234656; border: 1px solid #555; border-radius: 4px; color: #ffffff; font-size: 12px;">
         <button class="delete-nested-array-item-btn" style="padding: 4px 8px; background: #b8242f; border: none; border-radius: 4px; color: #ffffff; cursor: pointer; font-size: 12px; font-weight: 600;">×</button>
