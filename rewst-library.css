@@ -400,30 +400,50 @@
     position: relative;
     border-radius: 8px;
   }
-  .table-container::-webkit-scrollbar {
-    width: 12px;
-    height: 12px;
+  
+  /* Unified scrollbar styling */
+  .scrollbar::-webkit-scrollbar,
+  .table-container::-webkit-scrollbar,
+  .multi-select-options::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
   }
-  .table-container::-webkit-scrollbar-track {
+  
+  .scrollbar::-webkit-scrollbar-track,
+  .table-container::-webkit-scrollbar-track,
+  .multi-select-options::-webkit-scrollbar-track {
     background: #1f4051;
-    border-radius: 6px;
+    border-radius: 4px;
   }
-  .table-container::-webkit-scrollbar-thumb {
+  
+  .scrollbar::-webkit-scrollbar-thumb,
+  .table-container::-webkit-scrollbar-thumb,
+  .multi-select-options::-webkit-scrollbar-thumb {
     background: #5a9fb8;
-    border-radius: 6px;
+    border-radius: 4px;
     border: 2px solid #1f4051;
   }
-  .table-container::-webkit-scrollbar-thumb:hover {
+  
+  .scrollbar::-webkit-scrollbar-thumb:hover,
+  .table-container::-webkit-scrollbar-thumb:hover,
+  .multi-select-options::-webkit-scrollbar-thumb:hover {
     background: #6db5ce;
   }
-  .table-container::-webkit-scrollbar-corner {
+  
+  .scrollbar::-webkit-scrollbar-corner,
+  .table-container::-webkit-scrollbar-corner,
+  .multi-select-options::-webkit-scrollbar-corner {
     background: #1f4051;
   }
-  .table-container {
+  
+  .scrollbar,
+  .table-container,
+  .multi-select-options {
     scrollbar-width: thin;
     scrollbar-color: #5a9fb8 #1f4051;
   }
-  table {
+  
+  .table-container {
     width: 100%;
     border-collapse: collapse;
     margin-bottom: 0;
@@ -1828,24 +1848,6 @@
     z-index: 10000;
     margin-top: 0;
     max-height: 250px;
-    scrollbar-width: thin;
-    scrollbar-color: #5a9fb8 #1f4051;
-  }
-
-  .multi-select-options::-webkit-scrollbar {
-    width: 10px;
-  }
-  .multi-select-options::-webkit-scrollbar-track {
-    background: #1f4051;
-    border-radius: 4px;
-  }
-  .multi-select-options::-webkit-scrollbar-thumb {
-    background: #5a9fb8;
-    border-radius: 4px;
-    border: 2px solid #1f4051;
-  }
-  .multi-select-options::-webkit-scrollbar-thumb:hover {
-    background: #6db5ce;
   }
 
   .multi-select-options.open {
