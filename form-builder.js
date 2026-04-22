@@ -7422,6 +7422,7 @@ function renderArrayItemRow(container, item, index) {
         <input type="text" class="array-item-display-name" value="${RewstLib.utils.escapeHtml(item.display_name || '')}" placeholder="Display Name" style="padding: 6px; background: #234656; border: 1px solid #555; border-radius: 4px; color: #ffffff; font-size: 12px;">
         <select class="array-item-type" style="padding: 6px; background: #234656; border: 1px solid #555; border-radius: 4px; color: #ffffff; font-size: 12px;">
             <option value="text" ${item.type === 'text' ? 'selected' : ''}>Text</option>
+            <option value="array" ${item.type === 'array' ? 'selected' : ''}>Array</option>
             <option value="dropdown_static" ${item.type === 'dropdown_static' ? 'selected' : ''}>Static Dropdown</option>
             <option value="dropdown_graphql" ${item.type === 'dropdown_graphql' ? 'selected' : ''}>GraphQL Dropdown</option>
             <option value="dropdown_workflow" ${item.type === 'dropdown_workflow' ? 'selected' : ''}>Workflow Dropdown</option>
@@ -7562,6 +7563,13 @@ function renderArrayItemValueField(container, item) {
         queryBtn.addEventListener('click', () => {
             openArrayItemSqlQueryModal(item);
         });
+    } else if (item.type === 'array') {
+        // Nested array - show configuration indicator
+        container.innerHTML = `
+            <div style="padding: 6px; background: #234656; border: 1px solid #555; border-radius: 4px; color: #999; font-size: 12px; display: flex; align-items: center;">
+                [Array Configuration]
+            </div>
+        `;
     }
 }
 
@@ -7825,8 +7833,108 @@ function renderArrayItemConfig(container, item) {
         labelFieldInput.addEventListener('input', (e) => { item.label_field = e.target.value; });
         valueFieldInput.addEventListener('input', (e) => { item.value_field = e.target.value; });
         multiSelect.addEventListener('change', (e) => { item.multi_select = e.target.checked; });
+    } else if (item.type === 'array') {
+        // Nested array config: Repeating Input Mode, Source (if checked), or nested items (if unchecked)
+        container.style.display = 'block';
+        
+        // Initialize nested items if not present
+        if (!item.items) item.items = [];
+        if (item.repeating_input_mode === undefined) item.repeating_input_mode = false;
+        if (!item.source) item.source = '';
+        
+        const repeatingInputMode = item.repeating_input_mode || false;
+        
+        container.innerHTML = `
+            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
+                <input type="checkbox" class="array-item-repeating-mode" ${repeatingInputMode ? 'checked' : ''} style="accent-color: #5a9fb8;">
+                <label style="color: #ccc; font-size: 12px; font-weight: 600; margin: 0; cursor: pointer;">Repeating Input Mode</label>
+            </div>
+            
+            <div id="nestedArraySourceContainer" style="display: ${repeatingInputMode ? 'flex' : 'none'}; flex-direction: column; gap: 6px; margin-bottom: 12px;">
+                <label style="color: #ccc; font-size: 12px; font-weight: 600;">Source Page Variable</label>
+                <input type="text" class="array-item-source" value="${RewstLib.utils.escapeHtml(item.source || '')}" placeholder="e.g., [[variable_name]]" style="padding: 6px; background: #234656; border: 1px solid #555; border-radius: 4px; color: #ffffff; font-size: 12px; width: 100%;">
+            </div>
+            
+            <div id="nestedArrayItemsContainer" style="display: ${repeatingInputMode ? 'none' : 'flex'}; flex-direction: column; gap: 8px;">
+                <label style="color: #ccc; font-size: 12px; font-weight: 600;">Nested Array Items</label>
+                <div id="nestedArrayItemsList" style="display: flex; flex-direction: column; gap: 6px; max-height: 200px; overflow-y: auto;"></div>
+                <button class="add-nested-array-item-btn" style="padding: 6px 10px; background: #5a9fb8; border: none; border-radius: 4px; color: #ffffff; cursor: pointer; font-size: 12px; font-weight: 600; align-self: flex-start;">+ Add Item</button>
+            </div>
+        `;
+        
+        // Handle repeating input mode toggle
+        const repeatingModeCheckbox = container.querySelector('.array-item-repeating-mode');
+        const sourceContainer = container.querySelector('#nestedArraySourceContainer');
+        const itemsContainer = container.querySelector('#nestedArrayItemsContainer');
+        const sourceInput = container.querySelector('.array-item-source');
+        
+        repeatingModeCheckbox.addEventListener('change', (e) => {
+            item.repeating_input_mode = e.target.checked;
+            sourceContainer.style.display = e.target.checked ? 'flex' : 'none';
+            itemsContainer.style.display = e.target.checked ? 'none' : 'flex';
+            console.log('[ARRAY-MODAL] Toggled repeating input mode to:', e.target.checked);
+        });
+        
+        sourceInput.addEventListener('input', (e) => {
+            item.source = e.target.value;
+        });
+        
+        // Render nested array items
+        const nestedItemsList = container.querySelector('#nestedArrayItemsList');
+        if (item.items && item.items.length > 0) {
+            item.items.forEach((nestedItem, idx) => {
+                renderNestedArrayItemRow(nestedItemsList, nestedItem, idx, item.items);
+            });
+        }
+        
+        // Handle add nested item button
+        container.querySelector('.add-nested-array-item-btn').addEventListener('click', (e) => {
+            e.preventDefault();
+            const newNestedItem = {
+                name: '',
+                display_name: '',
+                type: 'text',
+                value: ''
+            };
+            item.items.push(newNestedItem);
+            nestedItemsList.innerHTML = '';
+            item.items.forEach((nestedItem, idx) => {
+                renderNestedArrayItemRow(nestedItemsList, nestedItem, idx, item.items);
+            });
+        });
     }
 }
+
+/**
+ * Render a single nested array item row (for array within array)
+ * @param {HTMLElement} container - Container to append row to
+ * @param {object} nestedItem - Item object with name, display_name, type, etc.
+ * @param {number} index - Index of item
+ * @param {Array} parentItems - Reference to parent items array for deletion
+ */
+function renderNestedArrayItemRow(container, nestedItem, index, parentItems) {
+    const rowDiv = document.createElement('div');
+    rowDiv.className = 'nested-array-item-row';
+    rowDiv.style.cssText = 'display: grid; grid-template-columns: 1fr 1fr auto; gap: 6px; align-items: center; padding: 8px; background: #1a3540; border-radius: 4px; border: 1px solid #404040;';
+    rowDiv.innerHTML = `
+        <input type="text" class="nested-array-item-name" value="${RewstLib.utils.escapeHtml(nestedItem.name || '')}" placeholder="Field Name" style="padding: 4px; background: #234656; border: 1px solid #555; border-radius: 4px; color: #ffffff; font-size: 12px;">
+        <input type="text" class="nested-array-item-display-name" value="${RewstLib.utils.escapeHtml(nestedItem.display_name || '')}" placeholder="Display Name" style="padding: 4px; background: #234656; border: 1px solid #555; border-radius: 4px; color: #ffffff; font-size: 12px;">
+        <button class="delete-nested-array-item-btn" style="padding: 4px 8px; background: #b8242f; border: none; border-radius: 4px; color: #ffffff; cursor: pointer; font-size: 12px; font-weight: 600;">×</button>
+    `;
+    
+    const nameInput = rowDiv.querySelector('.nested-array-item-name');
+    const displayNameInput = rowDiv.querySelector('.nested-array-item-display-name');
+    const deleteBtn = rowDiv.querySelector('.delete-nested-array-item-btn');
+    
+    nameInput.addEventListener('input', (e) => { nestedItem.name = e.target.value; });
+    displayNameInput.addEventListener('input', (e) => { nestedItem.display_name = e.target.value; });
+    deleteBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        parentItems.splice(index, 1);
+        rowDiv.remove();
+    });
+    
+    container.appendChild(rowDiv)
 
 /**
  * Update workflow input in array item from DOM
@@ -7991,6 +8099,38 @@ function saveArrayItems() {
                 itemData.label_field = labelFieldInput ? labelFieldInput.value : '';
                 itemData.value_field = valueFieldInput ? valueFieldInput.value : '';
                 itemData.multi_select = multiSelect ? multiSelect.checked : false;
+            } else if (type === 'array') {
+                const repeatingModeCheckbox = container.querySelector('.array-item-repeating-mode');
+                const sourceInput = container.querySelector('.array-item-source');
+                
+                itemData.repeating_input_mode = repeatingModeCheckbox ? repeatingModeCheckbox.checked : false;
+                itemData.source = sourceInput ? sourceInput.value : '';
+                
+                // Collect nested items
+                if (!itemData.repeating_input_mode) {
+                    const nestedItems = [];
+                    container.querySelectorAll('.nested-array-item-row').forEach(nestedRow => {
+                        const nameInput = nestedRow.querySelector('.nested-array-item-name');
+                        const displayNameInput = nestedRow.querySelector('.nested-array-item-display-name');
+                        
+                        if (nameInput && displayNameInput) {
+                            const nestedName = nameInput.value.trim();
+                            const nestedDisplayName = displayNameInput.value.trim();
+                            
+                            if (nestedName) {
+                                nestedItems.push({
+                                    name: nestedName,
+                                    display_name: nestedDisplayName,
+                                    type: 'text',
+                                    value: ''
+                                });
+                            }
+                        }
+                    });
+                    itemData.items = nestedItems.length > 0 ? nestedItems : [];
+                } else {
+                    itemData.items = [];
+                }
             }
             
             items.push(itemData);
