@@ -7934,7 +7934,8 @@ function renderNestedArrayItemRow(container, nestedItem, index, parentItems) {
         rowDiv.remove();
     });
     
-    container.appendChild(rowDiv)
+    container.appendChild(rowDiv);
+}
 
 /**
  * Update workflow input in array item from DOM
