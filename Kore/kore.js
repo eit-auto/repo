@@ -83,25 +83,46 @@ function checkRateLimit(ip, endpoint) {
 }
 
 // Daily logging setup
-const LOGS_DIR = 'C:\\Apps\\rewst-proxy\\logs';
+const LOGS_DIR = 'C:\\Apps\\Kore\\logs';
 let logStream = null;
+let currentLogDate = null;
 
 function getLogFilePath() {
     const now = new Date();
     const year = now.getFullYear();
     const month = String(now.getMonth() + 1).padStart(2, '0');
     const day = String(now.getDate()).padStart(2, '0');
-    return path.join(LOGS_DIR, `proxy-${year}-${month}-${day}.log`);
+    return path.join(LOGS_DIR, `kore-${year}-${month}-${day}.log`);
+}
+
+function ensureLogStream() {
+    const now = new Date();
+    const today = now.toDateString(); // "Thu Apr 23 2026"
+    
+    // Check if we need to switch to a new log file (date changed or first time)
+    if (currentLogDate !== today) {
+        // Close old stream if it exists
+        if (logStream) {
+            logStream.end();
+        }
+        
+        // Create logs directory if it doesn't exist
+        if (!fs.existsSync(LOGS_DIR)) {
+            fs.mkdirSync(LOGS_DIR, { recursive: true });
+        }
+        
+        // Open new stream for today
+        const logFile = getLogFilePath();
+        logStream = fs.createWriteStream(logFile, { flags: 'a' });
+        currentLogDate = today;
+    }
+    
+    return logStream;
 }
 
 function initializeLogging() {
-    // Create logs directory if it doesn't exist
-    if (!fs.existsSync(LOGS_DIR)) {
-        fs.mkdirSync(LOGS_DIR, { recursive: true });
-    }
-    
-    const logFile = getLogFilePath();
-    logStream = fs.createWriteStream(logFile, { flags: 'a' });
+    // Ensure initial stream is created
+    ensureLogStream();
     
     // Redirect console.log
     const originalLog = console.log;
@@ -113,7 +134,8 @@ function initializeLogging() {
         const output = `${timestamp} ${message}\n`;
         
         originalLog.apply(console, args);
-        if (logStream) logStream.write(output);
+        const stream = ensureLogStream();
+        if (stream) stream.write(output);
     };
     
     // Redirect console.error
@@ -126,10 +148,11 @@ function initializeLogging() {
         const output = `${timestamp} ERROR: ${message}\n`;
         
         originalError.apply(console, args);
-        if (logStream) logStream.write(output);
+        const stream = ensureLogStream();
+        if (stream) stream.write(output);
     };
     
-    console.log(`[${new Date().toISOString()}] Proxy logging initialized - ${logFile}`);
+    console.log(`[${new Date().toISOString()}] Kore logging initialized - ${getLogFilePath()}`);
 }
 
 // Initialize logging before anything else
@@ -139,9 +162,9 @@ initializeLogging();
 const MESHCENTRAL_HOST = '192.168.141.40';
 const MESHCENTRAL_PORT = 1138;
 const PROXY_PORT = 1139;
-const CREDENTIALS_FILE = 'C:\\Apps\\rewst-proxy\\credentials.json';
-const SESSIONS_FILE = 'C:\\Apps\\rewst-proxy\\sessions.json';
-const LOG_FILE = 'C:\\Apps\\rewst-proxy\\proxy-errors.log';
+const CREDENTIALS_FILE = 'C:\\Apps\\Kore\\credentials.json';
+const SESSIONS_FILE = 'C:\\Apps\\Kore\\sessions.json';
+const LOG_FILE = 'C:\\Apps\\Kore\\proxy-errors.log';
 
 // Error logging helper
 function logError(message, errorObj = null) {
@@ -188,8 +211,8 @@ async function processSessionWriteQueue() {
         setImmediate(processSessionWriteQueue);
     }
 }
-const MYSQL_CONFIG_FILE = 'C:\\Apps\\rewst-proxy\\mysql-config.json';
-const API_CONFIG_FILE = 'C:\\Apps\\rewst-proxy\\api-config.json';
+const MYSQL_CONFIG_FILE = 'C:\\Apps\\Kore\\mysql-config.json';
+const API_CONFIG_FILE = 'C:\\Apps\\Kore\\api-config.json';
 const MESHCENTRAL_USER = '~t:HnFCPNFuaFf3Wr55';
 const MESHCENTRAL_PASS = 'l1teqFCwQu5oIigiVAAV';
 
@@ -224,7 +247,7 @@ process.on('uncaughtException', (err) => {
     const logMsg = `[${new Date().toISOString()}] FATAL UNCAUGHT EXCEPTION: ${err.message}\n${err.stack}\n`;
     console.error(logMsg);
     try {
-        fs.appendFileSync('C:\\Apps\\rewst-proxy\\error.log', logMsg);
+        fs.appendFileSync('C:\\Apps\\Kore\\error.log', logMsg);
     } catch (e) {
         console.error('Failed to write error.log:', e.message);
     }
