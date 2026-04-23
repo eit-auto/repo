@@ -15,6 +15,67 @@ const path = require('path');
 const WebSocket = require('ws');
 const mysql = require('mysql2/promise');
 
+// ========== SECURITY CONFIGURATION ==========
+// IP Whitelist (no rate limits applied)
+const IP_WHITELIST = [
+    '3.139.170.31',      // Rewst US
+    '13.58.15.14',       // Rewst US
+    '18.218.107.198',    // Rewst US
+    '192.168.141.'       // Internal subnet (any 192.168.141.x)
+];
+
+// Rate limiting (requests per minute per IP)
+const RATE_LIMITS = {
+    '/auth': 10,         // Auth attempts
+    'default': 100       // All other endpoints
+};
+
+// In-memory request tracking: { "ip": [timestamp1, timestamp2, ...] }
+const requestLog = {};
+
+function isIPWhitelisted(ip) {
+    return IP_WHITELIST.some(whitelistedIp => {
+        if (whitelistedIp.endsWith('.')) {
+            // Subnet match (e.g., '192.168.141.')
+            return ip.startsWith(whitelistedIp);
+        }
+        // Exact match
+        return ip === whitelistedIp;
+    });
+}
+
+function checkRateLimit(ip, endpoint) {
+    const limit = RATE_LIMITS[endpoint] || RATE_LIMITS['default'];
+    const now = Date.now();
+    const windowMs = 60 * 1000; // 1 minute
+    
+    // Initialize or clean up old requests
+    if (!requestLog[ip]) {
+        requestLog[ip] = [];
+    }
+    
+    // Remove requests older than 1 minute
+    requestLog[ip] = requestLog[ip].filter(timestamp => now - timestamp < windowMs);
+    
+    // Check if over limit
+    if (requestLog[ip].length >= limit) {
+        return {
+            allowed: false,
+            remaining: 0,
+            resetIn: Math.ceil((requestLog[ip][0] + windowMs - now) / 1000)
+        };
+    }
+    
+    // Record this request
+    requestLog[ip].push(now);
+    
+    return {
+        allowed: true,
+        remaining: limit - requestLog[ip].length,
+        resetIn: null
+    };
+}
+
 // Daily logging setup
 const LOGS_DIR = 'C:\\Apps\\rewst-proxy\\logs';
 let logStream = null;
@@ -122,6 +183,7 @@ async function processSessionWriteQueue() {
     }
 }
 const MYSQL_CONFIG_FILE = 'C:\\Apps\\rewst-proxy\\mysql-config.json';
+const API_CONFIG_FILE = 'C:\\Apps\\rewst-proxy\\api-config.json';
 const MESHCENTRAL_USER = '~t:HnFCPNFuaFf3Wr55';
 const MESHCENTRAL_PASS = 'l1teqFCwQu5oIigiVAAV';
 
@@ -342,6 +404,13 @@ async function initializeMySQLPool() {
         });
         
         console.log(`[${new Date().toISOString()}] CWA MySQL connection pool created (${mysqlConfig.cwa.host}:${mysqlConfig.cwa.port}/${mysqlConfig.cwa.database})`);
+        
+        // Load API config
+        const apiConfigJson = fs.readFileSync(API_CONFIG_FILE, 'utf8');
+        const apiConfig = JSON.parse(apiConfigJson);
+        global.apiConfig = apiConfig;
+        console.log(`[${new Date().toISOString()}] API config loaded from: ${API_CONFIG_FILE}`);
+        console.log(`[${new Date().toISOString()}] CWM API (${apiConfig.cwm.name}) configured: ${apiConfig.cwm.baseUrl}`);
     } catch (error) {
         console.error(`[${new Date().toISOString()}] ERROR initializing MySQL pools:`, error.message);
         console.error(`[${new Date().toISOString()}] MySQL config file: ${MYSQL_CONFIG_FILE}`);
@@ -355,8 +424,10 @@ async function initializeMySQLPool() {
 function cleanCommandOutput(rawOutput) {
     if (!rawOutput) return '';
     
-    // Split into lines
-    let lines = rawOutput.split('\r\n');
+    // Split into lines (handle both \r\n and \n)
+    let lines = rawOutput.split('\r\n').length > 1 
+        ? rawOutput.split('\r\n')
+        : rawOutput.split('\n');
     
     // Filter out:
     // 1. Windows version banner
@@ -438,8 +509,12 @@ function sendRunCommands(ws, commandParams) {
         };
 
         try {
+            console.log(`[${new Date().toISOString()}] WebSocket state before send: ${ws.readyState} (0=CONNECTING, 1=OPEN, 2=CLOSING, 3=CLOSED)`);
+            console.log(`[${new Date().toISOString()}] Attempting to send command to MeshCentral...`);
             ws.send(JSON.stringify(command));
+            console.log(`[${new Date().toISOString()}] Command sent successfully to WebSocket`);
         } catch (err) {
+            console.error(`[${new Date().toISOString()}] *** WEBSOCKET SEND ERROR: ${err.message}`);
             clearTimeout(timeout);
             delete pendingResponses[responseId];
             reject(err);
@@ -452,11 +527,18 @@ function sendRunCommands(ws, commandParams) {
  */
 function setupMessageHandler(ws) {
     ws.on('message', (data) => {
+        console.log(`[${new Date().toISOString()}] *** RAW DATA RECEIVED: ${data.length} bytes`);
+        console.log(`[${new Date().toISOString()}] First 200 chars: ${data.toString().substring(0, 200)}`);
+        
         try {
             const msg = JSON.parse(data);
 
-            // Log all messages
-            console.log(`[${new Date().toISOString()}] Received:`, JSON.stringify(msg).substring(0, 300));
+            // Log all messages with more detail
+            console.log(`[${new Date().toISOString()}] *** RECEIVED MESSAGE ***`);
+            console.log(`[${new Date().toISOString()}] Message action: ${msg.action}`);
+            console.log(`[${new Date().toISOString()}] Message type: ${msg.type}`);
+            console.log(`[${new Date().toISOString()}] Message responseid: ${msg.responseid}`);
+            console.log(`[${new Date().toISOString()}] Full message:`, JSON.stringify(msg).substring(0, 500));
 
             // Check for auth errors
             if (msg.action === 'close' && msg.cause === 'noauth') {
@@ -492,12 +574,25 @@ function setupMessageHandler(ws) {
                     resolver.resolve(msg);
                 }
                 // Handle runcommands type with result field
-                else if (msg.type === 'runcommands' && msg.result) {
-                    const cleanedOutput = cleanCommandOutput(msg.result);
+                else if (msg.type === 'runcommands' && msg.result !== undefined) {
+                    // If result is JSON, don't clean it — return as-is
+                    let cleanedOutput = msg.result;
+                    if (msg.result.trim().startsWith('{') || msg.result.trim().startsWith('[')) {
+                        // JSON output — use as-is
+                    } else {
+                        // Regular command output — clean it
+                        cleanedOutput = cleanCommandOutput(msg.result);
+                    }
+                    
+                    const previewLength = 500;
+                    const preview = cleanedOutput.length > previewLength 
+                        ? cleanedOutput.substring(0, previewLength) + `... (${cleanedOutput.length} total characters)`
+                        : cleanedOutput;
+                    
                     resolver.resolve({
                         success: true,
                         result: cleanedOutput,
-                        message: cleanedOutput
+                        message: preview
                     });
                 } else if (msg.result === 'OK' || msg.result === true) {
                     resolver.resolve({
@@ -520,9 +615,14 @@ function setupMessageHandler(ws) {
                     // If it's a complex object with nodes data, resolve it
                     resolver.resolve(msg);
                 }
+            } else if (msg.responseid) {
+                console.log(`[${new Date().toISOString()}] *** UNMATCHED RESPONSEID: ${msg.responseid}, Pending responses: ${Object.keys(pendingResponses).join(', ')}`);
+            } else {
+                console.log(`[${new Date().toISOString()}] *** NO RESPONSEID IN MESSAGE, action: ${msg.action}, type: ${msg.type}`);
             }
         } catch (err) {
-            console.log(`[${new Date().toISOString()}] Received (unparseable): ${data.substring(0, 100)}`);
+            console.error(`[${new Date().toISOString()}] *** PARSE ERROR: ${err.message}`);
+            console.error(`[${new Date().toISOString()}] Failed to parse data:`, data.toString().substring(0, 200));
         }
     });
 
@@ -531,7 +631,9 @@ function setupMessageHandler(ws) {
     });
 
     ws.on('close', () => {
-        console.log(`[${new Date().toISOString()}] WebSocket closed`);
+        console.log(`[${new Date().toISOString()}] *** WEBSOCKET CLOSED ***`);
+        console.log(`[${new Date().toISOString()}] Pending responses at close: ${Object.keys(pendingResponses).length}`);
+        console.log(`[${new Date().toISOString()}] Pending response IDs: ${Object.keys(pendingResponses).join(', ')}`);
         
         // Reject all pending responses
         for (const responseId in pendingResponses) {
@@ -765,6 +867,8 @@ async function executeNextCommandInQueue(pooledConn) {
 }
 
 async function handleCommandRequest(req, res) {
+    const clientIP = req.socket.remoteAddress;
+    
     // CORS headers
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
@@ -774,6 +878,23 @@ async function handleCommandRequest(req, res) {
         res.writeHead(200);
         res.end();
         return;
+    }
+
+    // Rate limit check for /command
+    if (!isIPWhitelisted(clientIP)) {
+        const rateLimitCheck = checkRateLimit(clientIP, '/command');
+        if (!rateLimitCheck.allowed) {
+            console.log(`[${new Date().toISOString()}] Rate limit exceeded for IP ${clientIP} on /command (limit: 100/min, reset in: ${rateLimitCheck.resetIn}s)`);
+            res.writeHead(429, { 
+                'Content-Type': 'application/json',
+                'Retry-After': rateLimitCheck.resetIn
+            });
+            res.end(JSON.stringify({ 
+                error: 'Rate limit exceeded',
+                resetIn: rateLimitCheck.resetIn
+            }));
+            return;
+        }
     }
 
     if (req.method !== 'POST') {
@@ -795,6 +916,13 @@ async function handleCommandRequest(req, res) {
         try {
             const commandParams = JSON.parse(body);
 
+            // Handle optional timeout parameter (in milliseconds)
+            const requestTimeout = commandParams.timeout || 30000; // Default 30 seconds
+            if (typeof requestTimeout === 'number' && requestTimeout > 0) {
+                req.socket.setTimeout(requestTimeout);
+                console.log(`[${new Date().toISOString()}] Command request timeout set to ${requestTimeout}ms`);
+            }
+
             // Validate required parameters
             if (!commandParams.nodeId) {
                 res.writeHead(400, { 'Content-Type': 'application/json' });
@@ -814,6 +942,24 @@ async function handleCommandRequest(req, res) {
                 return;
             }
 
+            // Validate and normalize commandType
+            if (commandParams.commandType !== undefined && commandParams.commandType !== null) {
+                const cmdType = parseInt(commandParams.commandType, 10);
+                if (isNaN(cmdType) || cmdType < 1 || cmdType > 4) {
+                    res.writeHead(400, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify({ 
+                        error: 'Invalid commandType. Must be a number between 1-4 (1=CMD, 2=PowerShell, 3=Linux, 4=Console)',
+                        received: commandParams.commandType,
+                        type: typeof commandParams.commandType
+                    }));
+                    return;
+                }
+                commandParams.commandType = cmdType;
+            } else {
+                // Default to CMD if not specified
+                commandParams.commandType = 1;
+            }
+
             // Validate session token
             const sessionToken = req.headers['x-session-token'];
             const validation = await validateSessionAndGetCredentials(sessionToken, commandParams.user);
@@ -827,12 +973,18 @@ async function handleCommandRequest(req, res) {
 
             console.log(`[${new Date().toISOString()}] Command request from user: ${validation.user}`);
             console.log(`[${new Date().toISOString()}] Node: ${commandParams.nodeId}, Cmd: ${commandParams.command.substring(0, 50)}`);
+            console.log(`[${new Date().toISOString()}] Command type: ${commandParams.commandType} (1=CMD, 2=PowerShell, 3=Linux, 4=Console)`);
 
             // Get or create pooled WebSocket connection
             const pooledConn = await getOrCreatePooledConnection(validation.user, validation.meshUser, validation.meshPass);
 
             // Queue command on pooled connection
             const result = await queueCommandOnConnection(pooledConn, commandParams);
+
+            console.log(`[${new Date().toISOString()}] Command response result type: ${typeof result}`);
+            if (result && typeof result === 'object' && result.result) {
+                console.log(`[${new Date().toISOString()}] Command response result length: ${JSON.stringify(result).length}`);
+            }
 
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({
@@ -861,6 +1013,8 @@ async function handleCommandRequest(req, res) {
  * POST /auth
  */
 function handleAuthRequest(req, res) {
+    const clientIP = req.socket.remoteAddress;
+    
     // Set CORS headers
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
@@ -871,6 +1025,23 @@ function handleAuthRequest(req, res) {
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end();
         return;
+    }
+    
+    // Rate limit check for /auth
+    if (!isIPWhitelisted(clientIP)) {
+        const rateLimitCheck = checkRateLimit(clientIP, '/auth');
+        if (!rateLimitCheck.allowed) {
+            console.log(`[${new Date().toISOString()}] Rate limit exceeded for IP ${clientIP} on /auth (limit: 10/min, reset in: ${rateLimitCheck.resetIn}s)`);
+            res.writeHead(429, { 
+                'Content-Type': 'application/json',
+                'Retry-After': rateLimitCheck.resetIn
+            });
+            res.end(JSON.stringify({ 
+                error: 'Rate limit exceeded',
+                resetIn: rateLimitCheck.resetIn
+            }));
+            return;
+        }
     }
     
     const apiKeyFromHeader = req.headers['x-proxy-token'];
@@ -1705,7 +1876,26 @@ function sendNodesRequest(ws) {
  * Headers: X-Session-Token
  */
 function handleQueryRequest(req, res) {
+    const clientIP = req.socket.remoteAddress;
+    
     console.log(`[${new Date().toISOString()}] === QUERY REQUEST ===`);
+    
+    // Rate limit check for /query
+    if (!isIPWhitelisted(clientIP)) {
+        const rateLimitCheck = checkRateLimit(clientIP, '/query');
+        if (!rateLimitCheck.allowed) {
+            console.log(`[${new Date().toISOString()}] Rate limit exceeded for IP ${clientIP} on /query (limit: 100/min, reset in: ${rateLimitCheck.resetIn}s)`);
+            res.writeHead(429, { 
+                'Content-Type': 'application/json',
+                'Retry-After': rateLimitCheck.resetIn
+            });
+            res.end(JSON.stringify({ 
+                error: 'Rate limit exceeded',
+                resetIn: rateLimitCheck.resetIn
+            }));
+            return;
+        }
+    }
     
     if (req.method !== 'POST') {
         res.writeHead(405, { 'Content-Type': 'application/json' });
@@ -1727,6 +1917,13 @@ function handleQueryRequest(req, res) {
             const data = JSON.parse(body);
             const query = data.query;
             const userFromBody = data.user;
+            
+            // Handle optional timeout parameter (in milliseconds)
+            const requestTimeout = data.timeout || 30000; // Default 30 seconds
+            if (typeof requestTimeout === 'number' && requestTimeout > 0) {
+                req.socket.setTimeout(requestTimeout);
+                console.log(`[${new Date().toISOString()}] Query request timeout set to ${requestTimeout}ms`);
+            }
             
             console.log(`[${new Date().toISOString()}] Query request for user: ${userFromBody}`);
             console.log(`[${new Date().toISOString()}] Query: ${query.substring(0, 100)}...`);
@@ -1848,7 +2045,26 @@ function handleQueryRequest(req, res) {
 }
 
 function handleCwaQueryRequest(req, res) {
+    const clientIP = req.socket.remoteAddress;
+    
     console.log(`[${new Date().toISOString()}] === CWA QUERY REQUEST ===`);
+    
+    // Rate limit check for /cwaquery
+    if (!isIPWhitelisted(clientIP)) {
+        const rateLimitCheck = checkRateLimit(clientIP, '/cwaquery');
+        if (!rateLimitCheck.allowed) {
+            console.log(`[${new Date().toISOString()}] Rate limit exceeded for IP ${clientIP} on /cwaquery (limit: 100/min, reset in: ${rateLimitCheck.resetIn}s)`);
+            res.writeHead(429, { 
+                'Content-Type': 'application/json',
+                'Retry-After': rateLimitCheck.resetIn
+            });
+            res.end(JSON.stringify({ 
+                error: 'Rate limit exceeded',
+                resetIn: rateLimitCheck.resetIn
+            }));
+            return;
+        }
+    }
     
     if (req.method !== 'POST') {
         res.writeHead(405, { 'Content-Type': 'application/json' });
@@ -1870,6 +2086,13 @@ function handleCwaQueryRequest(req, res) {
             const data = JSON.parse(body);
             const query = data.query;
             const userFromBody = data.user;
+            
+            // Handle optional timeout parameter (in milliseconds)
+            const requestTimeout = data.timeout || 30000; // Default 30 seconds
+            if (typeof requestTimeout === 'number' && requestTimeout > 0) {
+                req.socket.setTimeout(requestTimeout);
+                console.log(`[${new Date().toISOString()}] CWA Query request timeout set to ${requestTimeout}ms`);
+            }
             
             console.log(`[${new Date().toISOString()}] CWA Query request for user: ${userFromBody}`);
             console.log(`[${new Date().toISOString()}] Query: ${query.substring(0, 100)}...`);
@@ -1990,6 +2213,309 @@ function handleCwaQueryRequest(req, res) {
     });
 }
 
+// Helper function to flatten nested objects (e.g., company.id -> company_id)
+function flattenObject(obj, prefix = '') {
+    const flattened = {};
+    
+    for (const key in obj) {
+        if (obj.hasOwnProperty(key)) {
+            const value = obj[key];
+            const newKey = prefix ? `${prefix}_${key}` : key;
+            
+            if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
+                // Recursively flatten nested objects
+                Object.assign(flattened, flattenObject(value, newKey));
+            } else {
+                // Add primitive values and arrays as-is
+                flattened[newKey] = value;
+            }
+        }
+    }
+    
+    return flattened;
+}
+
+// ===== CWM API Handler (ConnectWise Manage) =====
+function handleCwmApiRequest(req, res) {
+    const clientIP = req.socket.remoteAddress;
+    
+    console.log(`[${new Date().toISOString()}] === CWM API REQUEST ===`);
+    
+    // Rate limit check for /api-cwm
+    if (!isIPWhitelisted(clientIP)) {
+        const rateLimitCheck = checkRateLimit(clientIP, '/api-cwm');
+        if (!rateLimitCheck.allowed) {
+            console.log(`[${new Date().toISOString()}] Rate limit exceeded for IP ${clientIP} on /api-cwm (limit: 100/min, reset in: ${rateLimitCheck.resetIn}s)`);
+            res.writeHead(429, { 
+                'Content-Type': 'application/json',
+                'Retry-After': rateLimitCheck.resetIn
+            });
+            res.end(JSON.stringify({ 
+                error: 'Rate limit exceeded',
+                resetIn: rateLimitCheck.resetIn
+            }));
+            return;
+        }
+    }
+    
+    if (req.method !== 'POST') {
+        res.writeHead(405, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Method not allowed' }));
+        return;
+    }
+    
+    const sessionTokenFromHeader = req.headers['x-session-token'];
+    console.log(`[${new Date().toISOString()}] Session Token header present: ${!!sessionTokenFromHeader}`);
+    
+    // Read request body
+    let body = '';
+    req.on('data', chunk => {
+        body += chunk.toString();
+    });
+    
+    req.on('end', async () => {
+        try {
+            const data = JSON.parse(body);
+            const endpoint = data.endpoint;  // e.g., "/service/tickets"
+            const method = (data.method || 'GET').toUpperCase();  // GET, POST, PUT, DELETE
+            const query = data.query || {};  // Query parameters
+            const requestBody = data.body || {};  // Request body for POST/PUT
+            const userFromBody = data.user;
+            
+            // Handle optional timeout parameter (in milliseconds)
+            const requestTimeout = data.timeout || 30000; // Default 30 seconds
+            if (typeof requestTimeout === 'number' && requestTimeout > 0) {
+                req.socket.setTimeout(requestTimeout);
+                console.log(`[${new Date().toISOString()}] CWM API request timeout set to ${requestTimeout}ms`);
+            }
+            
+            const shouldFlatten = data.flatten === true; // Flatten nested objects
+            console.log(`[${new Date().toISOString()}] Method: ${method}, Endpoint: ${endpoint}`);
+            
+            // Validate session token
+            if (!sessionTokenFromHeader) {
+                console.log(`[${new Date().toISOString()}] CWM API failed: no session token provided`);
+                res.writeHead(401, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ success: false, error: 'No session token provided' }));
+                return;
+            }
+            
+            // Load sessions from file
+            let sessionsData;
+            try {
+                const sessionsJson = await fs.promises.readFile(SESSIONS_FILE, 'utf8');
+                sessionsData = JSON.parse(sessionsJson);
+            } catch (error) {
+                console.error(`[${new Date().toISOString()}] Error loading sessions file:`, error.message);
+                res.writeHead(500, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ success: false, error: 'Server configuration error' }));
+                return;
+            }
+            
+            // Find matching session
+            const session = sessionsData.sessions.find(s => s.token === sessionTokenFromHeader);
+            
+            if (!session) {
+                console.log(`[${new Date().toISOString()}] CWM API failed: session token not found`);
+                res.writeHead(401, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ success: false, error: 'Invalid session token' }));
+                return;
+            }
+            
+            // Check if session has expired
+            const now = Date.now();
+            if (now > session.expiresAt) {
+                console.log(`[${new Date().toISOString()}] CWM API failed: session token expired`);
+                res.writeHead(401, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ success: false, error: 'Session token has expired' }));
+                return;
+            }
+            
+            // Verify user matches
+            if (session.user !== userFromBody) {
+                console.log(`[${new Date().toISOString()}] CWM API failed: user mismatch`);
+                res.writeHead(401, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ success: false, error: 'User mismatch' }));
+                return;
+            }
+            
+            // Check if API config is available
+            if (!global.apiConfig || !global.apiConfig.cwm) {
+                console.error(`[${new Date().toISOString()}] CWM API config not initialized`);
+                res.writeHead(500, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ success: false, error: 'CWM API configuration not available' }));
+                return;
+            }
+            
+            // Build ConnectWise Manage API request
+            const cwmConfig = global.apiConfig.cwm;
+            const auth = Buffer.from(`Equinox+${cwmConfig.publicKey}:${cwmConfig.privateKey}`).toString('base64');
+            
+            // Extract pagination parameters
+            const pageAll = query.pageAll === 'true' || query.pageAll === true;
+            delete query.pageAll; // Remove from query params
+            
+            // Set default pageSize to 1000 if not provided
+            if (!query.pageSize) {
+                query.pageSize = 1000;
+            }
+            
+            // Function to make a single API request
+            async function makeApiRequest(pageNum = 1) {
+                return new Promise((resolve, reject) => {
+                    const apiPath = cwmConfig.apiPath || '/v4_6_release/apis/3.0';
+                    const queryParams = { ...query, page: pageNum };
+                    const queryString = new URLSearchParams(queryParams).toString();
+                    let url = `${cwmConfig.baseUrl}${apiPath}${endpoint}`;
+                    if (queryString) {
+                        url += `?${queryString}`;
+                    }
+                    
+                    console.log(`[${new Date().toISOString()}] Calling ConnectWise API (page ${pageNum}): ${method} ${url}`);
+                    
+                    const options = {
+                        method: method,
+                        headers: {
+                            'Authorization': `Basic ${auth}`,
+                            'ClientID': cwmConfig.clientId,
+                            'Content-Type': 'application/json'
+                        }
+                    };
+                    
+                    const apiRequest = https.request(url, options, (apiRes) => {
+                        let apiBody = '';
+                        
+                        apiRes.on('data', chunk => {
+                            apiBody += chunk;
+                        });
+                        
+                        apiRes.on('end', () => {
+                            try {
+                                const apiResponse = apiBody ? JSON.parse(apiBody) : null;
+                                resolve({
+                                    statusCode: apiRes.statusCode,
+                                    data: apiResponse,
+                                    isArray: Array.isArray(apiResponse)
+                                });
+                            } catch (parseError) {
+                                reject(new Error(`Failed to parse response: ${parseError.message}`));
+                            }
+                        });
+                    });
+                    
+                    apiRequest.on('error', reject);
+                    
+                    if (method === 'POST' || method === 'PUT') {
+                        apiRequest.write(JSON.stringify(body || {}));
+                    }
+                    apiRequest.end();
+                });
+            }
+            
+            // Handle pagination if pageAll is true
+            if (pageAll) {
+                (async () => {
+                    try {
+                        let allResults = [];
+                        let page = 1;
+                        let hasMore = true;
+                        
+                        while (hasMore) {
+                            const response = await makeApiRequest(page);
+                            
+                            if (response.statusCode < 200 || response.statusCode >= 300) {
+                                res.writeHead(response.statusCode, { 'Content-Type': 'application/json' });
+                                res.end(JSON.stringify({
+                                    success: false,
+                                    statusCode: response.statusCode,
+                                    error: 'ConnectWise API error'
+                                }));
+                                return;
+                            }
+                            
+                            // Handle both array and object responses
+                            if (response.isArray) {
+                                allResults = allResults.concat(response.data);
+                                hasMore = response.data.length === parseInt(query.pageSize);
+                            } else {
+                                allResults.push(response.data);
+                                hasMore = false;
+                            }
+                            
+                            page++;
+                        }
+                        
+                        // Apply flatten if requested
+                        let resultsToReturn = allResults;
+                        if (shouldFlatten && allResults.length > 0) {
+                            resultsToReturn = allResults.map(item => flattenObject(item));
+                        }
+                        
+                        res.writeHead(200, { 'Content-Type': 'application/json' });
+                        res.end(JSON.stringify({
+                            success: true,
+                            statusCode: 200,
+                            result: resultsToReturn,
+                            pagesFetched: page - 1,
+                            totalRecords: resultsToReturn.length,
+                            timestamp: new Date().toISOString()
+                        }));
+                        
+                        console.log(`[${new Date().toISOString()}] CWM API pagination complete: ${page - 1} pages, ${resultsToReturn.length} total records`);
+                    } catch (error) {
+                        console.error(`[${new Date().toISOString()}] CWM API pagination error:`, error.message);
+                        res.writeHead(500, { 'Content-Type': 'application/json' });
+                        res.end(JSON.stringify({
+                            success: false,
+                            statusCode: 500,
+                            error: error.message
+                        }));
+                    }
+                })();
+            } else {
+                // Single page request
+                makeApiRequest(1).then(response => {
+                    // Apply flatten if requested
+                    let resultsToReturn = response.data;
+                    if (shouldFlatten && Array.isArray(resultsToReturn) && resultsToReturn.length > 0) {
+                        resultsToReturn = resultsToReturn.map(item => flattenObject(item));
+                    } else if (shouldFlatten && resultsToReturn !== null && typeof resultsToReturn === 'object' && !Array.isArray(resultsToReturn)) {
+                        resultsToReturn = flattenObject(resultsToReturn);
+                    }
+                    
+                    res.writeHead(response.statusCode || 200, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify({
+                        success: response.statusCode >= 200 && response.statusCode < 300,
+                        statusCode: response.statusCode,
+                        result: resultsToReturn,
+                        timestamp: new Date().toISOString()
+                    }));
+                    
+                    console.log(`[${new Date().toISOString()}] CWM API response sent successfully`);
+                }).catch(error => {
+                    console.error(`[${new Date().toISOString()}] CWM API request error:`, error.message);
+                    res.writeHead(500, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify({
+                        success: false,
+                        statusCode: 500,
+                        error: error.message
+                    }));
+                });
+            }
+        } catch (error) {
+            console.error(`[${new Date().toISOString()}] CWM API handler error:`, error.message);
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({
+                success: false,
+                error: error.message,
+                timestamp: new Date().toISOString()
+            }));
+        }
+    });
+}
+
+// ===== END CWM API Handler =====
+
 const certPath = 'C:\\Apps\\meshcentral-data\\webserver-cert-public.crt';
 const keyPath = 'C:\\Apps\\meshcentral-data\\webserver-cert-private.key';
 
@@ -2011,9 +2537,16 @@ try {
 }
 
 const requestHandler = (req, res) => {
-    process.stdout.write(`[${new Date().toISOString()}] *** REQUEST HANDLER CALLED: ${req.method} ${req.url} ***\n`);
+    const timestamp = `[${new Date().toISOString()}]`;
     
-    console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
+    // Log raw request before anything else
+    process.stdout.write(`${timestamp} *** RAW REQUEST RECEIVED ***\n`);
+    process.stdout.write(`${timestamp} Method: ${req.method}\n`);
+    process.stdout.write(`${timestamp} URL: ${req.url}\n`);
+    process.stdout.write(`${timestamp} Headers: ${JSON.stringify(req.headers, null, 2)}\n`);
+    process.stdout.write(`${timestamp} *** REQUEST HANDLER CALLED: ${req.method} ${req.url} ***\n`);
+    
+    console.log(`${timestamp} ${req.method} ${req.url}`);
 
     // Add CORS headers
     res.setHeader('Access-Control-Allow-Origin', '*');
@@ -2046,6 +2579,8 @@ const requestHandler = (req, res) => {
         handleStatusRequest(req, res);
     } else if (req.url === '/nodes' || req.url.startsWith('/nodes?')) {
         handleNodesRequest(req, res);
+    } else if (req.url === '/api-cwm' || req.url.startsWith('/api-cwm?')) {
+        handleCwmApiRequest(req, res);
     } else {
         res.writeHead(404, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: 'Not found' }));
@@ -2053,16 +2588,42 @@ const requestHandler = (req, res) => {
 };
 
 const server = https.createServer(serverOptions, requestHandler);
+const server443 = https.createServer(serverOptions, requestHandler);
+
+server.on('connection', (socket) => {
+    console.log(`[${new Date().toISOString()}] *** NEW CONNECTION ATTEMPT (1139) ***`);
+    console.log(`[${new Date().toISOString()}] Remote: ${socket.remoteAddress}:${socket.remotePort}`);
+});
+
+server443.on('connection', (socket) => {
+    console.log(`[${new Date().toISOString()}] *** NEW CONNECTION ATTEMPT (443) ***`);
+    console.log(`[${new Date().toISOString()}] Remote: ${socket.remoteAddress}:${socket.remotePort}`);
+});
 
 server.on('clientError', (err, socket) => {
-    console.error(`[${new Date().toISOString()}] Client error:`, err.message);
+    console.error(`[${new Date().toISOString()}] *** CLIENT ERROR (1139) ***`);
+    console.error(`[${new Date().toISOString()}] Error Code: ${err.code}`);
+    console.error(`[${new Date().toISOString()}] Error Message: ${err.message}`);
+    console.error(`[${new Date().toISOString()}] Remote Address: ${socket.remoteAddress}:${socket.remotePort}`);
+    console.error(`[${new Date().toISOString()}] Full Error:`, err);
+    if (socket.writable) {
+        socket.end('HTTP/1.1 400 Bad Request\r\n\r\n');
+    }
+});
+
+server443.on('clientError', (err, socket) => {
+    console.error(`[${new Date().toISOString()}] *** CLIENT ERROR (443) ***`);
+    console.error(`[${new Date().toISOString()}] Error Code: ${err.code}`);
+    console.error(`[${new Date().toISOString()}] Error Message: ${err.message}`);
+    console.error(`[${new Date().toISOString()}] Remote Address: ${socket.remoteAddress}:${socket.remotePort}`);
+    console.error(`[${new Date().toISOString()}] Full Error:`, err);
     if (socket.writable) {
         socket.end('HTTP/1.1 400 Bad Request\r\n\r\n');
     }
 });
 
 server.on('secureConnection', (tlsSocket) => {
-    console.log(`[${new Date().toISOString()}] TLS connection established from ${tlsSocket.remoteAddress}:${tlsSocket.remotePort}`);
+    console.log(`[${new Date().toISOString()}] TLS connection established (1139) from ${tlsSocket.remoteAddress}:${tlsSocket.remotePort}`);
     
     // Set socket timeout to 90 seconds to allow slow internal HTTP requests to MeshCentral
     tlsSocket.setTimeout(90000, () => {
@@ -2071,33 +2632,90 @@ server.on('secureConnection', (tlsSocket) => {
     });
     
     tlsSocket.on('data', (data) => {
-        console.log(`[${new Date().toISOString()}] Data received: ${data.length} bytes`);
+        console.log(`[${new Date().toISOString()}] Data received (1139): ${data.length} bytes`);
         console.log(`[${new Date().toISOString()}] Data: ${data.toString('utf8').substring(0, 100)}`);
     });
     
     tlsSocket.on('error', (err) => {
-        console.error(`[${new Date().toISOString()}] TLS socket error:`, err.message);
+        console.error(`[${new Date().toISOString()}] TLS socket error (1139):`, err.message);
     });
     
     tlsSocket.on('close', () => {
-        console.log(`[${new Date().toISOString()}] TLS socket closed`);
+        console.log(`[${new Date().toISOString()}] TLS socket closed (1139)`);
     });
 });
 
-// Start server
+server443.on('secureConnection', (tlsSocket) => {
+    console.log(`[${new Date().toISOString()}] TLS connection established (443) from ${tlsSocket.remoteAddress}:${tlsSocket.remotePort}`);
+    
+    // Set socket timeout to 90 seconds to allow slow internal HTTP requests to MeshCentral
+    tlsSocket.setTimeout(90000, () => {
+        console.error(`[${new Date().toISOString()}] Socket timeout from ${tlsSocket.remoteAddress} - destroying`);
+        tlsSocket.destroy();
+    });
+    
+    tlsSocket.on('data', (data) => {
+        console.log(`[${new Date().toISOString()}] Data received (443): ${data.length} bytes`);
+        console.log(`[${new Date().toISOString()}] Data: ${data.toString('utf8').substring(0, 100)}`);
+    });
+    
+    tlsSocket.on('error', (err) => {
+        console.error(`[${new Date().toISOString()}] TLS socket error (443):`, err.message);
+    });
+    
+    tlsSocket.on('close', () => {
+        console.log(`[${new Date().toISOString()}] TLS socket closed (443)`);
+    });
+});
+
+// Start servers on both ports
 server.listen(PROXY_PORT, '0.0.0.0', async () => {
-    console.log(`[${new Date().toISOString()}] Proxy server listening on HTTPS://0.0.0.0:${PROXY_PORT}`);
+    console.log(`[${new Date().toISOString()}] Proxy server listening on HTTPS://0.0.0.0:${PROXY_PORT} (1139)`);
     
     // Initialize MySQL pool
     await initializeMySQLPool();
 });
 
+server443.listen(443, '0.0.0.0', () => {
+    console.log(`[${new Date().toISOString()}] Proxy server listening on HTTPS://0.0.0.0:443`);
+});
+
+// ===== DIAGNOSTIC SERVER ON PORT 1140 (Testing with Rewst support - can be removed) =====
+const server1140 = https.createServer(serverOptions, (req, res) => {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({
+        status: 'open',
+        port: 1140,
+        timestamp: new Date().toISOString(),
+        message: 'Port 1140 is open and responding'
+    }));
+});
+
+server1140.listen(1140, '0.0.0.0', () => {
+    console.log(`[${new Date().toISOString()}] Diagnostic server listening on HTTPS://0.0.0.0:1140`);
+});
+
+server1140.timeout = 120000;
+server1140.keepAliveTimeout = 120000;
+
+server1140.on('error', (err) => {
+    console.error(`[${new Date().toISOString()}] Server (1140) error:`, err);
+});
+// ===== END DIAGNOSTIC SERVER =====
+
 // Set request timeout to prevent requests from hanging the server
-server.timeout = 10000; // 10 second timeout
-server.keepAliveTimeout = 5000;
+server.timeout = 120000; // 120 second timeout
+server.keepAliveTimeout = 120000;  // 120 seconds
+server443.timeout = 120000;
+server443.keepAliveTimeout = 120000;
 
 server.on('error', (err) => {
-    console.error(`[${new Date().toISOString()}] Server error:`, err);
+    console.error(`[${new Date().toISOString()}] Server (1139) error:`, err);
+    process.exit(1);
+});
+
+server443.on('error', (err) => {
+    console.error(`[${new Date().toISOString()}] Server (443) error:`, err);
     process.exit(1);
 });
 
@@ -2116,7 +2734,10 @@ process.on('SIGTERM', () => {
         global.meshWS.close();
     }
     server.close(() => {
-        console.log(`[${new Date().toISOString()}] Server closed`);
+        console.log(`[${new Date().toISOString()}] Server (1139) closed`);
+    });
+    server443.close(() => {
+        console.log(`[${new Date().toISOString()}] Server (443) closed`);
         process.exit(0);
     });
 });
