@@ -341,7 +341,7 @@
         async function authenticate() {
             console.log('authenticate() called');
             try {
-                const response = await fetch('https://localhost:1139/auth', {
+                const response = await fetch('/auth', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -390,7 +390,7 @@
 
             try {
                 // Fetch the workflow by UUID (current version only)
-                const response = await fetch(`https://localhost:1139/kore/workflows/${id}`, {
+                const response = await fetch(`/kore/workflows/${id}`, {
                     headers: { 'X-Session-Token': sessionToken }
                 });
 
@@ -444,13 +444,17 @@
                 transitionCounter = 0;
                 currentTransitions = [];
                 currentSteps.forEach(step => {
-                    step.transitions.forEach(transition => {
+                    step.transitions.forEach((transition, index) => {
                         const id = parseInt(transition.id, 10);
                         if (!isNaN(id) && id > transitionCounter) {
                             transitionCounter = id;
                         }
                         // Add to currentTransitions if not already there
                         if (!currentTransitions.find(t => t.id === transition.id)) {
+                            // Ensure order exists (for backwards compatibility)
+                            if (!transition.order) {
+                                transition.order = index + 1;
+                            }
                             currentTransitions.push(transition);
                         }
                     });
@@ -458,6 +462,7 @@
                 
                 originalJson = JSON.stringify({ steps: currentSteps }, null, 2);
                 renderStepsEditor();
+                renderLoadedStepsOnCanvas();
                 updatePreview();
             } catch (err) {
                 console.error('Error loading workflow:', err);
@@ -471,6 +476,216 @@
                 const r = Math.random() * 16 | 0;
                 const v = c === 'x' ? r : (r & 0x3 | 0x8);
                 return v.toString(16);
+            });
+        }
+
+        function renderLoadedStepsOnCanvas() {
+            const canvas = document.getElementById('workflowCanvas');
+            if (!canvas) return;
+            
+            // Clear any existing steps from canvas
+            document.querySelectorAll('[data-step-id]').forEach(el => el.remove());
+            
+            currentSteps.forEach(step => {
+                // Get position from step data, or use default
+                const x = step.position?.x || 100;
+                const y = step.position?.y || 100;
+                
+                const stepElement = document.createElement('div');
+                const stepId = `step-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+                stepElement.setAttribute('data-step-id', stepId);
+                stepElement.setAttribute('data-step-uuid', step.id);
+                
+                // Initial size: 4x1 grid (120px x 30px)
+                let width = 120;
+                let height = 30;
+                
+                stepElement.style.cssText = `
+                    position: absolute;
+                    left: ${x}px;
+                    top: ${y}px;
+                    width: ${width}px;
+                    height: ${height}px;
+                    padding: 0;
+                    background: #0a3d55;
+                    border: 2px solid #3a7a99;
+                    border-radius: 4px;
+                    color: #ffffff;
+                    font-size: 0.9rem;
+                    cursor: move;
+                    box-sizing: border-box;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    text-align: center;
+                    z-index: 2;
+                `;
+                
+                // Create a temporary text container to measure
+                const textContainer = document.createElement('div');
+                textContainer.style.cssText = `
+                    padding: 8px;
+                    white-space: nowrap;
+                    font-size: 0.9rem;
+                `;
+                textContainer.textContent = step.name || `${step.type} Step`;
+                stepElement.appendChild(textContainer);
+                
+                // Add to canvas temporarily to measure
+                canvas.appendChild(stepElement);
+                
+                // Measure the text
+                const textWidth = textContainer.offsetWidth + 16; // Include padding
+                const textHeight = textContainer.offsetHeight + 16; // Include padding
+                
+                // Expand width if needed (in 30px grid increments)
+                if (textWidth > width) {
+                    const gridSpaces = Math.ceil((textWidth - width) / 30);
+                    width = 120 + (gridSpaces * 30);
+                    stepElement.style.width = width + 'px';
+                }
+                
+                // Add connection point circles
+                const points = [
+                    { x: width / 2, y: 0, name: 'top' },
+                    { x: width / 2, y: height, name: 'bottom' },
+                    { x: 0, y: height / 2, name: 'left' },
+                    { x: width, y: height / 2, name: 'right' }
+                ];
+                
+                points.forEach(point => {
+                    const circle = document.createElement('div');
+                    circle.style.cssText = `
+                        position: absolute;
+                        left: ${point.x - 4}px;
+                        top: ${point.y - 4}px;
+                        width: 8px;
+                        height: 8px;
+                        border-radius: 50%;
+                        background: #3a7a99;
+                        border: 1px solid #5a9ab9;
+                        cursor: crosshair;
+                        z-index: 1;
+                    `;
+                    circle.setAttribute('data-connection-point', point.name);
+                    
+                    // Add transition drag handler
+                    circle.addEventListener('mousedown', (e) => {
+                        e.stopPropagation();
+                        const canvas = document.getElementById('workflowCanvas');
+                        const canvasRect = canvas.getBoundingClientRect();
+                        
+                        const fromX = (canvasRect.left - canvasRect.left) / zoomLevel + panX + (x + point.x);
+                        const fromY = (canvasRect.top - canvasRect.top) / zoomLevel + panY + (y + point.y);
+                        
+                        // Create preview line
+                        const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+                        svg.setAttribute('data-preview-line', 'true');
+                        svg.style.cssText = 'position: absolute; top: 0; left: 0; width: 5000px; height: 5000px; pointer-events: none; z-index: 1;';
+                        canvas.appendChild(svg);
+                        
+                        const handleMouseMove = (e) => {
+                            const toX = (e.clientX - canvasRect.left) / zoomLevel + panX;
+                            const toY = (e.clientY - canvasRect.top) / zoomLevel + panY;
+                            
+                            const path = createCurvedPath(fromX, fromY, point.name, toX, toY, 'auto');
+                            svg.innerHTML = `<defs><marker id="previewArrowhead" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><polygon points="0 0, 10 3, 0 6" fill="#3a7a99"/></marker></defs><path d="${path}" stroke="#3a7a99" stroke-width="2" fill="none" marker-end="url(#previewArrowhead)"/>`;
+                        };
+                        
+                        const handleMouseUp = (e) => {
+                            document.removeEventListener('mousemove', handleMouseMove);
+                            document.removeEventListener('mouseup', handleMouseUp);
+                            svg.remove();
+                            
+                            // Check if dropped on a transition frame
+                            const dropTarget = document.elementFromPoint(e.clientX, e.clientY);
+                            const frameElement = dropTarget?.closest('[data-transition-frame]');
+                            
+                            if (frameElement) {
+                                const frameUUID = frameElement.getAttribute('data-transition-frame');
+                                const frame = currentTransitionFrames.find(f => f.id === frameUUID);
+                                if (frame) {
+                                    frame.sourceStepUUID = step.id;
+                                    
+                                    // Create permanent connection line
+                                    const lineId = `conn-${Date.now()}`;
+                                    const line = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+                                    line.setAttribute('data-connection-line', 'true');
+                                    line.setAttribute('data-from-step', step.id);
+                                    line.setAttribute('data-from-point', point.name);
+                                    line.setAttribute('data-to-frame', frameUUID);
+                                    line.style.cssText = 'position: absolute; top: 0; left: 0; width: 5000px; height: 5000px; pointer-events: none; z-index: 0;';
+                                    canvas.appendChild(line);
+                                    
+                                    const frameRect = frameElement.getBoundingClientRect();
+                                    const framePath = createCurvedPath(fromX, fromY, point.name, frameRect.left - canvasRect.left + frameRect.width / 2, frameRect.top - canvasRect.top + frameRect.height / 2, 'center');
+                                    line.innerHTML = `<defs><marker id="blueArrowhead" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><polygon points="0 0, 10 3, 0 6" fill="#3a7a99"/></marker></defs><path d="${framePath}" stroke="#3a7a99" stroke-width="2" fill="none" marker-end="url(#blueArrowhead)"/>`;
+                                }
+                            }
+                        };
+                        
+                        document.addEventListener('mousemove', handleMouseMove);
+                        document.addEventListener('mouseup', handleMouseUp);
+                    });
+                    
+                    stepElement.appendChild(circle);
+                });
+                
+                // Add click handler to show properties
+                stepElement.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    showStepProperties(step.id);
+                    
+                    // Select this step
+                    document.querySelectorAll('[data-step-id]').forEach(el => {
+                        el.style.borderColor = '#3a7a99';
+                    });
+                    stepElement.style.borderColor = '#00ff00';
+                });
+                
+                // Add drag handlers for step movement
+                let isDragging = false;
+                let dragStartX = 0;
+                let dragStartY = 0;
+                let startLeft = 0;
+                let startTop = 0;
+                
+                stepElement.addEventListener('mousedown', (e) => {
+                    if (e.target.hasAttribute('data-connection-point')) return;
+                    
+                    isDragging = true;
+                    dragStartX = e.clientX;
+                    dragStartY = e.clientY;
+                    startLeft = parseFloat(stepElement.style.left);
+                    startTop = parseFloat(stepElement.style.top);
+                });
+                
+                const handleDrag = (e) => {
+                    if (!isDragging) return;
+                    
+                    const deltaX = e.clientX - dragStartX;
+                    const deltaY = e.clientY - dragStartY;
+                    
+                    let newX = startLeft + deltaX / zoomLevel;
+                    let newY = startTop + deltaY / zoomLevel;
+                    
+                    // Snap to 30px grid
+                    newX = Math.round(newX / 30) * 30;
+                    newY = Math.round(newY / 30) * 30;
+                    
+                    stepElement.style.left = newX + 'px';
+                    stepElement.style.top = newY + 'px';
+                    
+                    // Update step position in data
+                    step.position = { x: newX, y: newY };
+                };
+                
+                const stopDrag = () => {
+                    isDragging = false;
+                };
+                
+                document.addEventListener('mousemove', handleDrag);
+                document.addEventListener('mouseup', stopDrag);
             });
         }
 
@@ -714,8 +929,14 @@
         }
 
         function showJSONModal() {
+            // Create a copy of currentSteps with transitions sorted by order
+            const stepsForExport = currentSteps.map(step => ({
+                ...step,
+                transitions: [...step.transitions].sort((a, b) => (a.order || 1) - (b.order || 1))
+            }));
+            
             const workflowData = {
-                steps: currentSteps
+                steps: stepsForExport
             };
             const jsonContent = JSON.stringify(workflowData, null, 2);
             const modal = document.createElement('div');
@@ -780,6 +1001,707 @@
             }
         }
 
+        function renderTransitionFrame(frameUUID, vertical) {
+            const canvas = document.getElementById('workflowCanvas');
+            const frame = currentTransitionFrames.find(f => f.id === frameUUID);
+            if (!frame) return;
+            
+            // Remove old frame element if it exists
+            const oldFrame = canvas.querySelector(`[data-transition-frame="${frameUUID}"]`);
+            let framePosition = { left: 0, top: 0 };
+            if (oldFrame) {
+                framePosition = {
+                    left: oldFrame.style.left,
+                    top: oldFrame.style.top
+                };
+                oldFrame.remove();
+            }
+            
+            // Create new frame container
+            const frameRect = document.createElement('div');
+            frameRect.setAttribute('data-transition-frame', frameUUID);
+            
+            if (vertical) {
+                // Vertical layout: 90px wide, height grows with conditions
+                // Base: 60px (1 condition), +30px for each additional condition
+                const frameHeight = 60 + Math.max(0, (frame.conditions.length - 1) * 30);
+                frameRect.style.cssText = `
+                    position: absolute;
+                    width: 90px;
+                    height: ${frameHeight}px;
+                    left: ${framePosition.left};
+                    top: ${framePosition.top};
+                    background: #3a3a2a;
+                    border: 2px solid #d4af37;
+                    border-radius: 4px;
+                    pointer-events: auto;
+                    cursor: move;
+                    box-sizing: border-box;
+                    z-index: 2;
+                    display: flex;
+                    flex-direction: row;
+                `;
+                
+                // Header: left section, vertically centered
+                const header = document.createElement('div');
+                header.setAttribute('data-frame-header', frameUUID);
+                const verticalHeaderFontSize = frame.conditions.length >= 2 ? '0.8rem' : '0.7rem';
+                header.style.cssText = `
+                    padding: 0;
+                    background: #2a2a1a;
+                    writing-mode: vertical-rl;
+                    transform: rotate(180deg);
+                    text-align: center;
+                    color: #d4af37;
+                    font-size: ${verticalHeaderFontSize};
+                    font-weight: normal;
+                    cursor: pointer;
+                    user-select: none;
+                    width: 28px;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    pointer-events: auto;
+                    white-space: nowrap;
+                    flex-shrink: 0;
+                `;
+                header.textContent = 'Transitions';
+                header.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    showTransitionFrameProperties(frameUUID);
+                });
+                frameRect.appendChild(header);
+                
+                // Conditions container: right 2/3rds (60px), split vertically
+                const conditionsContainer = document.createElement('div');
+                conditionsContainer.setAttribute('data-frame-conditions', frameUUID);
+                conditionsContainer.style.cssText = `
+                    background: #d4af37;
+                    border-left: 2px solid #d4af37;
+                    flex: 1;
+                    display: flex;
+                    flex-direction: column;
+                    pointer-events: auto;
+                    gap: 0;
+                    padding: 0;
+                `;
+                
+                // Add condition boxes - sort by order first
+                const sortedConditions = frame.conditions
+                    .map(cId => currentTransitions.find(t => t.id === cId))
+                    .filter(t => t)
+                    .sort((a, b) => (a.order || 1) - (b.order || 1))
+                    .map(t => t.id);
+                
+                sortedConditions.forEach(conditionId => {
+                    const transition = currentTransitions.find(t => t.id === conditionId);
+                    const colors = getTransitionColors(transition ? transition.type : 'Success');
+                    
+                    const wrapper = document.createElement('div');
+                    wrapper.style.cssText = `
+                        position: relative;
+                        display: flex;
+                        flex-direction: row;
+                        align-items: center;
+                        justify-content: center;
+                        flex: 1;
+                    `;
+                    
+                    const conditionBox = document.createElement('div');
+                    conditionBox.setAttribute('data-condition-id', conditionId);
+                    conditionBox.setAttribute('data-frame-id', frameUUID);
+                    conditionBox.style.cssText = `
+                        width: 56px;
+                        height: 27px;
+                        margin: 0 0 2px 0;
+                        background: ${colors.background};
+                        border: none;
+                        border-radius: 2px;
+                        text-align: center;
+                        color: ${colors.text || '#e0e0e0'};
+                        font-size: 0.7rem;
+                        font-weight: bold;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        user-select: none;
+                        flex-shrink: 0;
+                        cursor: pointer;
+                    `;
+                    conditionBox.textContent = transition ? (
+                        transition.type === 'Always/Logic' 
+                            ? (transition.conditions ? 'Logic' : 'Always')
+                            : transition.type
+                    ) : 'Success';
+                    conditionBox.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        showTransitionProperties(conditionId);
+                    });
+                    
+                    // Add drag functionality for vertical layout
+                    let isDraggingCondition = false;
+                    let dragStartIndex = -1;
+                    
+                    conditionBox.addEventListener('mousedown', (e) => {
+                        if (e.button !== 0) return; // Only left mouse button
+                        e.stopPropagation();
+                        isDraggingCondition = true;
+                        dragStartIndex = sortedConditions.indexOf(conditionId);
+                        conditionBox.style.opacity = '0.6';
+                    });
+                    
+                    document.addEventListener('mousemove', (e) => {
+                        if (!isDraggingCondition || dragStartIndex === -1) return;
+                        
+                        // Find which condition box is under the cursor
+                        const conditionBoxes = conditionsContainer.querySelectorAll('[data-condition-id]');
+                        let targetIndex = -1;
+                        
+                        conditionBoxes.forEach((box, idx) => {
+                            const rect = box.getBoundingClientRect();
+                            if (e.clientY >= rect.top && e.clientY <= rect.bottom) {
+                                targetIndex = idx;
+                            }
+                        });
+                        
+                        if (targetIndex !== -1 && targetIndex !== dragStartIndex) {
+                            // Reorder conditions
+                            const draggedCondition = currentTransitions.find(t => t.id === conditionId);
+                            const targetCondition = currentTransitions.find(t => t.id === sortedConditions[targetIndex]);
+                            
+                            if (draggedCondition && targetCondition) {
+                                const draggedOrder = draggedCondition.order;
+                                const targetOrder = targetCondition.order;
+                                
+                                if (targetIndex > dragStartIndex) {
+                                    // Moving down - decrement orders of conditions we pass
+                                    for (let i = dragStartIndex + 1; i <= targetIndex; i++) {
+                                        const cond = currentTransitions.find(t => t.id === sortedConditions[i]);
+                                        if (cond) cond.order--;
+                                    }
+                                    draggedCondition.order = targetOrder;
+                                } else {
+                                    // Moving up - increment orders of conditions we pass
+                                    for (let i = targetIndex; i < dragStartIndex; i++) {
+                                        const cond = currentTransitions.find(t => t.id === sortedConditions[i]);
+                                        if (cond) cond.order++;
+                                    }
+                                    draggedCondition.order = targetOrder;
+                                }
+                                
+                                dragStartIndex = targetIndex;
+                                renderTransitionFrame(frameUUID, true);
+                                updatePreview();
+                            }
+                        }
+                    });
+                    
+                    document.addEventListener('mouseup', () => {
+                        isDraggingCondition = false;
+                        dragStartIndex = -1;
+                        conditionBox.style.opacity = '1';
+                    });
+                    
+                    wrapper.appendChild(conditionBox);
+                    
+                    // Right-pointing triangle
+                    const triangle = document.createElement('div');
+                    triangle.style.cssText = `
+                        position: absolute;
+                        width: 0;
+                        height: 0;
+                        border-top: 8px solid transparent;
+                        border-bottom: 8px solid transparent;
+                        border-left: 10px solid #d4af37;
+                        left: 56px;
+                        top: 50%;
+                        transform: translateY(-50%);
+                        pointer-events: none;
+                    `;
+                    wrapper.appendChild(triangle);
+                    
+                    conditionsContainer.appendChild(wrapper);
+                });
+                
+                // Add + button
+                const addButton = document.createElement('div');
+                addButton.setAttribute('data-add-condition-btn', frameUUID);
+                addButton.style.cssText = `
+                    width: 100%;
+                    height: calc(100% - 1px);
+                    padding: 0;
+                    margin: 0;
+                    background: #d4af37;
+                    border: none;
+                    border-radius: 0;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    color: #3a3a2a;
+                    font-size: 18px;
+                    cursor: pointer;
+                    user-select: none;
+                `;
+                addButton.textContent = '+';
+                addButton.addEventListener('click', addConditionToFrame(frameUUID, conditionsContainer));
+                conditionsContainer.appendChild(addButton);
+                
+                frameRect.appendChild(conditionsContainer);
+            } else {
+                // Horizontal layout: min 90px wide x 60px tall
+                frameRect.style.cssText = `
+                    position: absolute;
+                    min-width: 90px;
+                    height: 60px;
+                    left: ${framePosition.left};
+                    top: ${framePosition.top};
+                    background: #3a3a2a;
+                    border: 2px solid #d4af37;
+                    border-radius: 4px;
+                    pointer-events: auto;
+                    cursor: move;
+                    box-sizing: border-box;
+                    z-index: 2;
+                    display: flex;
+                    flex-direction: column;
+                `;
+                
+                // Header: top, full width
+                const header = document.createElement('div');
+                header.setAttribute('data-frame-header', frameUUID);
+                header.style.cssText = `
+                    padding: 0;
+                    background: #2a2a1a;
+                    text-align: center;
+                    color: #d4af37;
+                    font-size: 0.8rem;
+                    font-weight: normal;
+                    cursor: pointer;
+                    user-select: none;
+                    flex: 1;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    pointer-events: auto;
+                `;
+                header.textContent = 'Transitions';
+                header.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    showTransitionFrameProperties(frameUUID);
+                });
+                frameRect.appendChild(header);
+                
+                // Conditions container: bottom, full width
+                const conditionsContainer = document.createElement('div');
+                conditionsContainer.setAttribute('data-frame-conditions', frameUUID);
+                conditionsContainer.style.cssText = `
+                    background: #d4af37;
+                    border-top: 2px solid #d4af37;
+                    flex: 1;
+                    display: flex;
+                    align-items: flex-start;
+                    pointer-events: auto;
+                `;
+                
+                // Add condition boxes - sort by order first
+                const sortedConditions = frame.conditions
+                    .map(cId => currentTransitions.find(t => t.id === cId))
+                    .filter(t => t)
+                    .sort((a, b) => (a.order || 1) - (b.order || 1))
+                    .map(t => t.id);
+                
+                sortedConditions.forEach(conditionId => {
+                    const transition = currentTransitions.find(t => t.id === conditionId);
+                    const colors = getTransitionColors(transition ? transition.type : 'Success');
+                    
+                    const wrapper = document.createElement('div');
+                    wrapper.style.cssText = `
+                        position: relative;
+                        display: flex;
+                        flex-direction: column;
+                        align-items: center;
+                    `;
+                    
+                    const conditionBox = document.createElement('div');
+                    conditionBox.setAttribute('data-condition-id', conditionId);
+                    conditionBox.setAttribute('data-frame-id', frameUUID);
+                    conditionBox.style.cssText = `
+                        width: 56px;
+                        height: 28px;
+                        margin-right: 2px;
+                        background: ${colors.background};
+                        border: none;
+                        border-radius: 2px;
+                        text-align: center;
+                        color: ${colors.text || '#e0e0e0'};
+                        font-size: 0.7rem;
+                        font-weight: bold;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        user-select: none;
+                        flex-shrink: 0;
+                        cursor: pointer;
+                    `;
+                    conditionBox.textContent = transition ? (
+                        transition.type === 'Always/Logic' 
+                            ? (transition.conditions ? 'Logic' : 'Always')
+                            : transition.type
+                    ) : 'Success';
+                    conditionBox.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        showTransitionProperties(conditionId);
+                    });
+                    
+                    // Add drag functionality for horizontal layout
+                    let isDraggingCondition = false;
+                    let dragStartIndex = -1;
+                    
+                    conditionBox.addEventListener('mousedown', (e) => {
+                        if (e.button !== 0) return; // Only left mouse button
+                        e.stopPropagation();
+                        isDraggingCondition = true;
+                        dragStartIndex = sortedConditions.indexOf(conditionId);
+                        conditionBox.style.opacity = '0.6';
+                    });
+                    
+                    document.addEventListener('mousemove', (e) => {
+                        if (!isDraggingCondition || dragStartIndex === -1) return;
+                        
+                        // Find which condition box is under the cursor
+                        const conditionBoxes = conditionsContainer.querySelectorAll('[data-condition-id]');
+                        let targetIndex = -1;
+                        
+                        conditionBoxes.forEach((box, idx) => {
+                            const rect = box.getBoundingClientRect();
+                            if (e.clientX >= rect.left && e.clientX <= rect.right) {
+                                targetIndex = idx;
+                            }
+                        });
+                        
+                        if (targetIndex !== -1 && targetIndex !== dragStartIndex) {
+                            // Reorder conditions
+                            const draggedCondition = currentTransitions.find(t => t.id === conditionId);
+                            const targetCondition = currentTransitions.find(t => t.id === sortedConditions[targetIndex]);
+                            
+                            if (draggedCondition && targetCondition) {
+                                const draggedOrder = draggedCondition.order;
+                                const targetOrder = targetCondition.order;
+                                
+                                if (targetIndex > dragStartIndex) {
+                                    // Moving right - decrement orders of conditions we pass
+                                    for (let i = dragStartIndex + 1; i <= targetIndex; i++) {
+                                        const cond = currentTransitions.find(t => t.id === sortedConditions[i]);
+                                        if (cond) cond.order--;
+                                    }
+                                    draggedCondition.order = targetOrder;
+                                } else {
+                                    // Moving left - increment orders of conditions we pass
+                                    for (let i = targetIndex; i < dragStartIndex; i++) {
+                                        const cond = currentTransitions.find(t => t.id === sortedConditions[i]);
+                                        if (cond) cond.order++;
+                                    }
+                                    draggedCondition.order = targetOrder;
+                                }
+                                
+                                dragStartIndex = targetIndex;
+                                renderTransitionFrame(frameUUID, false);
+                                updatePreview();
+                            }
+                        }
+                    });
+                    
+                    document.addEventListener('mouseup', () => {
+                        isDraggingCondition = false;
+                        dragStartIndex = -1;
+                        conditionBox.style.opacity = '1';
+                    });
+                    
+                    wrapper.appendChild(conditionBox);
+                    
+                    // Down-pointing triangle
+                    const triangle = document.createElement('div');
+                    triangle.style.cssText = `
+                        position: absolute;
+                        width: 0;
+                        height: 0;
+                        border-left: 8px solid transparent;
+                        border-right: 8px solid transparent;
+                        border-top: 10px solid #d4af37;
+                        top: 28px;
+                        left: 50%;
+                        transform: translateX(-50%);
+                        pointer-events: none;
+                    `;
+                    wrapper.appendChild(triangle);
+                    
+                    conditionsContainer.appendChild(wrapper);
+                });
+                
+                // Add + button
+                const addButton = document.createElement('div');
+                addButton.setAttribute('data-add-condition-btn', frameUUID);
+                addButton.style.cssText = `
+                    width: 24px;
+                    height: 24px;
+                    padding: 0;
+                    margin: 0;
+                    background: #d4af37;
+                    border: 2px solid #d4af37;
+                    border-radius: 2px;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    color: #3a3a2a;
+                    font-size: 18px;
+                    cursor: pointer;
+                    user-select: none;
+                    flex-shrink: 0;
+                `;
+                addButton.textContent = '+';
+                addButton.addEventListener('click', addConditionToFrame(frameUUID, conditionsContainer));
+                conditionsContainer.appendChild(addButton);
+                
+                frameRect.appendChild(conditionsContainer);
+            }
+            
+            // Drag handling
+            let dragOffsetX = 0, dragOffsetY = 0;
+            frameRect.addEventListener('mousedown', (e) => {
+                if (e.target.closest('[data-frame-conditions]') && !e.target.closest('[data-condition-id]') && !e.target.closest('[data-add-condition-btn]')) {
+                    return; // Don't drag from conditions container
+                }
+                e.stopPropagation();
+                const canvasRect = canvas.getBoundingClientRect();
+                dragOffsetX = (e.clientX - canvasRect.left) / zoomLevel - parseInt(frameRect.style.left) + panX;
+                dragOffsetY = (e.clientY - canvasRect.top) / zoomLevel - parseInt(frameRect.style.top) + panY;
+                
+                document.addEventListener('mousemove', handleFrameDrag);
+                document.addEventListener('mouseup', stopFrameDrag);
+            });
+            
+            const handleFrameDrag = (e) => {
+                const canvasRect = canvas.getBoundingClientRect();
+                const screenX = e.clientX - canvasRect.left;
+                const screenY = e.clientY - canvasRect.top;
+                const gridX = (screenX / zoomLevel) + panX - dragOffsetX;
+                const gridY = (screenY / zoomLevel) + panY - dragOffsetY;
+                
+                frameRect.style.left = gridX + 'px';
+                frameRect.style.top = gridY + 'px';
+                
+                // Update blue lines connected to this frame
+                document.querySelectorAll(`[data-to-frame="${frameUUID}"]`).forEach(line => {
+                    const fromStepId = line.getAttribute('data-from-step');
+                    const fromPoint = line.getAttribute('data-from-point');
+                    const fromStep = canvas.querySelector(`[data-step-id="${fromStepId}"]`);
+                    if (fromStep) {
+                        const stepX = parseInt(fromStep.style.left);
+                        const stepY = parseInt(fromStep.style.top);
+                        const stepWidth = parseInt(fromStep.style.width);
+                        const stepHeight = parseInt(fromStep.style.height);
+                        
+                        // Calculate the actual connection point based on fromPoint
+                        let fromX = stepX + stepWidth / 2;
+                        let fromY = stepY + stepHeight / 2;
+                        
+                        if (fromPoint === 'top') {
+                            fromY = stepY;
+                        } else if (fromPoint === 'bottom') {
+                            fromY = stepY + stepHeight;
+                        } else if (fromPoint === 'left') {
+                            fromX = stepX;
+                        } else if (fromPoint === 'right') {
+                            fromX = stepX + stepWidth;
+                        }
+                        
+                        // Get frame's actual position accounting for canvas transform
+                        const frameElementRect = frameRect.getBoundingClientRect();
+                        const frameX = (frameElementRect.left - canvasRect.left) / zoomLevel + panX;
+                        const frameY = (frameElementRect.top - canvasRect.top) / zoomLevel + panY;
+                        
+                        // Use actual rendered dimensions converted to grid space
+                        const frameWidth = frameElementRect.width / zoomLevel;
+                        const frameHeight = frameElementRect.height / zoomLevel;
+                        
+                        // Find nearest side of frame
+                        const frameSideCenters = [
+                            { x: frameX + frameWidth / 2, y: frameY, name: 'top' },
+                            { x: frameX + frameWidth / 2, y: frameY + frameHeight, name: 'bottom' },
+                            { x: frameX, y: frameY + frameHeight / 2, name: 'left' },
+                            { x: frameX + frameWidth, y: frameY + frameHeight / 2, name: 'right' }
+                        ];
+                        
+                        let nearestSide = frameSideCenters[0];
+                        let minDistance = Infinity;
+                        frameSideCenters.forEach(side => {
+                            const distance = Math.hypot(fromX - side.x, fromY - side.y);
+                            if (distance < minDistance) {
+                                minDistance = distance;
+                                nearestSide = side;
+                            }
+                        });
+                        
+                        console.log('Drag update:', { fromX, fromY, frameX, frameY, gridX, gridY, nearestSideName: nearestSide.name });
+                        const path = createCurvedPath(fromX, fromY, fromPoint, nearestSide.x, nearestSide.y, nearestSide.name);
+                        line.innerHTML = `<defs><marker id="blueArrowhead" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><polygon points="0 0, 10 3, 0 6" fill="#3a7a99"/></marker></defs><path d="${path}" stroke="#3a7a99" stroke-width="2" fill="none" marker-end="url(#blueArrowhead)"/>`;
+                    }
+                });
+            };
+            
+            const stopFrameDrag = () => {
+                document.removeEventListener('mousemove', handleFrameDrag);
+                document.removeEventListener('mouseup', stopFrameDrag);
+            };
+            
+            // Frame click handler
+            frameRect.addEventListener('click', (e) => {
+                e.stopPropagation();
+                showTransitionFrameProperties(frameUUID);
+                
+                // Deselect all steps and frames
+                document.querySelectorAll('[data-step-id]').forEach(el => {
+                    el.style.borderColor = '#3a7a99';
+                });
+                frameRect.style.borderColor = '#ffff00';
+            });
+            
+            canvas.appendChild(frameRect);
+        }
+        
+        function addConditionToFrame(frameUUID, conditionsContainer) {
+            return (e) => {
+                e.stopPropagation();
+                const frame = currentTransitionFrames.find(f => f.id === frameUUID);
+                if (!frame) return;
+                
+                // Create new condition
+                transitionCounter++;
+                const newConditionId = String(transitionCounter);
+                // Calculate order based on how many conditions are already in this frame
+                const order = frame.conditions.length + 1;
+                const newConditionData = {
+                    id: newConditionId,
+                    name: '',
+                    type: 'Success',
+                    conditions: '',
+                    targetSteps: [],
+                    order: order
+                };
+                
+                // Add to frame and global list
+                frame.conditions.push(newConditionId);
+                currentTransitions.push(newConditionData);
+                
+                // Also add to the connected step's transitions array
+                for (const step of currentSteps) {
+                    const hasConditionFromFrame = step.transitions.some(t => 
+                        frame.conditions.includes(t.id)
+                    );
+                    if (hasConditionFromFrame) {
+                        step.transitions.push(newConditionData);
+                        break;
+                    }
+                }
+                
+                // Re-render the frame to include the new condition
+                const vertical = currentSteps.some(step => 
+                    step.transitions.some(t => frame.conditions.includes(t.id)) && step.trans_vertical
+                );
+                renderTransitionFrame(frameUUID, vertical);
+                
+                updatePreview();
+            };
+        }
+        
+        function applyFrameLayout(frameUUID, verticalLayout) {
+            // This function is now just a wrapper that calls renderTransitionFrame
+            renderTransitionFrame(frameUUID, verticalLayout);
+        }
+
+        function showTransitionFrameProperties(frameUUID) {
+            const frame = (currentTransitionFrames || []).find(f => f.id === frameUUID);
+            if (!frame) return;
+            
+            // Find the step(s) connected to this frame to get trans_vertical and trans_mode
+            let isVertical = false;
+            let executionMode = 'First';
+            for (const step of currentSteps) {
+                const hasConditionFromFrame = step.transitions.some(t => 
+                    frame.conditions.includes(t.id)
+                );
+                if (hasConditionFromFrame) {
+                    isVertical = step.trans_vertical || false;
+                    executionMode = step.trans_mode || 'First';
+                    frame.verticalLayout = isVertical;
+                    frame.execution = executionMode;
+                    break;
+                }
+            }
+            
+            const propertiesContent = document.getElementById('propertiesContent');
+            propertiesContent.innerHTML = `
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; padding-bottom: 10px; border-bottom: 1px solid #d4af37;">
+                    <div style="font-size: 0.9rem; color: #e0e0e0; font-weight: 500;">Transition Frame Properties</div>
+                    <button class="btn btn-red" onclick="deleteTransitionFrame('${frameUUID}')" style="padding: 6px 12px;">Delete</button>
+                </div>
+                <div style="display: flex; flex-direction: column; gap: 15px;">
+                    <div>
+                        <label style="display: block; font-size: 0.8rem; color: #b0b0b0; margin-bottom: 5px;">Execution Mode</label>
+                        <select id="frameExecution" class="form-field-input" style="width: 100%; padding: 6px; box-sizing: border-box; font-size: 0.85rem; background: #1a3540; color: #e0e0e0; border: 1px solid #3a7a99;">
+                            <option value="First" ${frame.execution === 'First' ? 'selected' : ''}>First</option>
+                            <option value="All" ${frame.execution === 'All' ? 'selected' : ''}>All</option>
+                        </select>
+                    </div>
+                    
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <input type="checkbox" id="verticalLayout" ${isVertical ? 'checked' : ''} style="cursor: pointer;">
+                        <label for="verticalLayout" style="font-size: 0.8rem; color: #b0b0b0; cursor: pointer; margin: 0;">Vertical Layout</label>
+                    </div>
+                </div>
+            `;
+            
+            const executionSelect = document.getElementById('frameExecution');
+            if (executionSelect) {
+                executionSelect.addEventListener('change', (e) => {
+                    frame.execution = e.target.value;
+                    
+                    // Update the step(s) connected to this frame
+                    currentSteps.forEach(step => {
+                        const hasConditionFromFrame = step.transitions.some(t => 
+                            frame.conditions.includes(t.id)
+                        );
+                        if (hasConditionFromFrame) {
+                            step.trans_mode = frame.execution;
+                        }
+                    });
+                    
+                    updatePreview();
+                });
+            }
+            
+            const verticalLayoutCheckbox = document.getElementById('verticalLayout');
+            if (verticalLayoutCheckbox) {
+                verticalLayoutCheckbox.addEventListener('change', (e) => {
+                    frame.verticalLayout = e.target.checked;
+                    applyFrameLayout(frameUUID, frame.verticalLayout);
+                    
+                    // Find the step(s) connected to this frame and update trans_vertical
+                    currentSteps.forEach(step => {
+                        // Check if any condition from this frame is in the step's transitions
+                        const hasConditionFromFrame = step.transitions.some(t => 
+                            frame.conditions.includes(t.id)
+                        );
+                        if (hasConditionFromFrame) {
+                            step.trans_vertical = frame.verticalLayout;
+                        }
+                    });
+                    
+                    updatePreview();
+                });
+            }
+        }
+
         function showTransitionProperties(transitionUUID) {
             const transition = (currentTransitions || []).find(t => t.id === transitionUUID);
             if (!transition) return;
@@ -802,11 +1724,11 @@
                         <select id="transitionType" class="form-field-input" style="width: 100%; padding: 6px; box-sizing: border-box; font-size: 0.85rem; background: #1a3540; color: #e0e0e0; border: 1px solid #3a7a99;">
                             <option value="Success" ${transition.type === 'Success' ? 'selected' : ''}>Success</option>
                             <option value="Failure" ${transition.type === 'Failure' ? 'selected' : ''}>Failure</option>
-                            <option value="Conditional" ${transition.type === 'Conditional' ? 'selected' : ''}>Conditional</option>
+                            <option value="Always/Logic" ${transition.type === 'Always/Logic' ? 'selected' : ''}>Always/Logic</option>
                         </select>
                     </div>
                     
-                    <div>
+                    <div id="conditionsDiv" style="display: ${transition.type === 'Always/Logic' ? 'block' : 'none'};">
                         <label style="display: block; font-size: 0.8rem; color: #b0b0b0; margin-bottom: 5px;">Conditions</label>
                         <div style="display: flex; gap: 8px;">
                             <input type="text" id="transitionConditions" class="form-field-input" value="${transition.conditions || ''}" style="flex: 1; padding: 6px; box-sizing: border-box; font-size: 0.85rem;" readonly>
@@ -829,24 +1751,25 @@
             document.getElementById('transitionType').addEventListener('change', (e) => {
                 transition.type = e.target.value;
                 
-                // Update transition box colors and text
+                // Show/hide conditions div based on type
+                const conditionsDiv = document.getElementById('conditionsDiv');
+                if (conditionsDiv) {
+                    conditionsDiv.style.display = transition.type === 'Always/Logic' ? 'block' : 'none';
+                }
+                
+                // Update condition box colors and text
                 const canvas = document.getElementById('workflowCanvas');
-                const transitionElement = canvas.querySelector(`[data-transition-uuid="${transitionUUID}"]`);
-                if (transitionElement) {
+                const conditionBox = canvas.querySelector(`[data-condition-id="${transitionUUID}"]`);
+                if (conditionBox) {
                     const newColors = getTransitionColors(transition.type);
-                    transitionElement.style.background = newColors.background;
-                    transitionElement.style.borderColor = newColors.border;
+                    conditionBox.style.background = newColors.background;
+                    conditionBox.style.color = newColors.text || '#e0e0e0';
                     
-                    // Update down arrow color
-                    const arrow = transitionElement.querySelector('.transition-bottom-arrow');
-                    if (arrow) {
-                        arrow.style.color = newColors.line;
-                    }
-                    
-                    // Update display text
-                    const typeText = transitionElement.querySelector('.transition-type-text');
-                    if (typeText) {
-                        typeText.textContent = getTransitionDisplayText(transition.type, transition.conditions);
+                    // For Always/Logic type, show "Always" or "Logic" based on conditions
+                    if (transition.type === 'Always/Logic') {
+                        conditionBox.textContent = transition.conditions ? 'Logic' : 'Always';
+                    } else {
+                        conditionBox.textContent = transition.type;
                     }
                 }
                 
@@ -867,12 +1790,11 @@
                         document.getElementById('transitionConditions').value = value;
                         transition.conditions = value;
                         
-                        // Update transition display text
+                        // Update condition box text for Always/Logic type
                         const canvas = document.getElementById('workflowCanvas');
-                        const transEl = canvas.querySelector(`[data-transition-uuid="${transitionUUID}"]`);
-                        if (transEl) {
-                            const txt = transEl.querySelector('div');
-                            if (txt) txt.textContent = getTransitionDisplayText(transition.type, value);
+                        const conditionBox = canvas.querySelector(`[data-condition-id="${transitionUUID}"]`);
+                        if (conditionBox && transition.type === 'Always/Logic') {
+                            conditionBox.textContent = value ? 'Logic' : 'Always';
                         }
                         
                         updatePreview();
@@ -1103,7 +2025,13 @@
             if (!previewElement) return; // Preview element doesn't exist, skip
             
             try {
-                const payload = { steps: currentSteps };
+                // Create a deep copy of currentSteps with sorted transitions
+                const stepsForExport = currentSteps.map(step => ({
+                    ...step,
+                    transitions: [...step.transitions].sort((a, b) => (a.order || 1) - (b.order || 1))
+                }));
+                
+                const payload = { steps: stepsForExport };
                 previewElement.textContent = JSON.stringify(payload, null, 2);
             } catch (e) {
                 previewElement.textContent = 'Error: ' + e.message;
@@ -1211,10 +2139,22 @@
         }
 
         function deleteTransition(transitionUUID) {
+            // Check if this is the only condition in a frame
+            const frame = currentTransitionFrames.find(f => f.conditions.includes(transitionUUID));
+            if (frame && frame.conditions.length === 1) {
+                alert('A transition frame must have at least one condition. Delete the frame instead.');
+                return;
+            }
+            
             showConfirmationModal(
                 'Delete Transition?',
                 'This transition and all its connections will be removed. This action cannot be undone.',
                 function() {
+                    // Remove from frame's conditions array if it's in a frame
+                    if (frame) {
+                        frame.conditions = frame.conditions.filter(c => c !== transitionUUID);
+                    }
+                    
                     // Remove from steps' transitions arrays
                     currentSteps.forEach(step => {
                         step.transitions = step.transitions.filter(t => t.id !== transitionUUID);
@@ -1224,14 +2164,63 @@
                     currentTransitions = currentTransitions.filter(t => t.id !== transitionUUID);
                     
                     // Remove the transition DOM element
-                    const transitionElement = document.querySelector(`[data-transition-uuid="${transitionUUID}"]`);
+                    const transitionElement = document.querySelector(`[data-condition-id="${transitionUUID}"]`);
                     if (transitionElement) {
-                        transitionElement.remove();
+                        transitionElement.parentElement.remove();
                     }
                     
                     // Remove all connection lines related to this transition
                     document.querySelectorAll(`[data-from-transition="${transitionUUID}"]`).forEach(line => line.remove());
-                    document.querySelectorAll(`[data-to-transition="${transitionUUID}"]`).forEach(line => line.remove());
+                    document.querySelectorAll(`[data-to-step]`).forEach(line => {
+                        if (line.getAttribute('data-to-step') === transitionUUID) line.remove();
+                    });
+                    
+                    // Re-render the frame to update height
+                    if (frame) {
+                        const vertical = currentSteps.some(step => 
+                            step.transitions.some(t => frame.conditions.includes(t.id)) && step.trans_vertical
+                        );
+                        renderTransitionFrame(frame.id, vertical);
+                    }
+                    
+                    document.getElementById('propertiesContent').innerHTML = '<div style="color: #b0b0b0; font-size: 0.85rem;">Select a step or transition to edit properties</div>';
+                    updatePreview();
+                }
+            );
+        }
+        
+        function deleteTransitionFrame(frameUUID) {
+            showConfirmationModal(
+                'Delete Transition Frame?',
+                'This frame and all its conditions and connections will be removed. This action cannot be undone.',
+                function() {
+                    const canvas = document.getElementById('workflowCanvas');
+                    
+                    // Get the frame
+                    const frame = (currentTransitionFrames || []).find(f => f.id === frameUUID);
+                    if (!frame) return;
+                    
+                    // Remove all conditions in the frame
+                    frame.conditions.forEach(conditionId => {
+                        currentTransitions = currentTransitions.filter(t => t.id !== conditionId);
+                    });
+                    
+                    // Remove from steps' transitions arrays
+                    currentSteps.forEach(step => {
+                        step.transitions = step.transitions.filter(t => t.id !== frameUUID);
+                    });
+                    
+                    // Remove from currentTransitionFrames
+                    currentTransitionFrames = currentTransitionFrames.filter(f => f.id !== frameUUID);
+                    
+                    // Remove the frame DOM element
+                    const frameElement = canvas.querySelector(`[data-transition-frame="${frameUUID}"]`);
+                    if (frameElement) {
+                        frameElement.remove();
+                    }
+                    
+                    // Remove all connection lines related to this frame
+                    document.querySelectorAll(`[data-to-frame="${frameUUID}"]`).forEach(line => line.remove());
                     
                     document.getElementById('propertiesContent').innerHTML = '<div style="color: #b0b0b0; font-size: 0.85rem;">Select a step or transition to edit properties</div>';
                     updatePreview();
@@ -1245,8 +2234,7 @@
                 return;
             }
 
-            // Reconstruct steps from form fields
-            rebuildStepsFromForm();
+            // Don't rebuild from form - we're using canvas-based transitions now
             const currentJson = JSON.stringify({ steps: currentSteps }, null, 2);
 
             // Check if changes were made
@@ -1284,19 +2272,28 @@
             const workflowName = document.getElementById('workflowName').value.trim();
             
             try {
-                // Rebuild steps from form fields
-                rebuildStepsFromForm();
+                // Rebuild steps from form fields - NOT NEEDED with canvas-based transitions
+                // rebuildStepsFromForm();
+                
+                console.log('currentSteps before sort:', JSON.stringify(currentSteps, null, 2));
+                
+                // Sort transitions by order before sending
+                const sortedSteps = currentSteps.map(step => ({
+                    ...step,
+                    transitions: [...step.transitions].sort((a, b) => (a.order || 1) - (b.order || 1))
+                }));
+                
+                console.log('sortedSteps:', JSON.stringify(sortedSteps, null, 2));
                 
                 const payload = {
-                    id: currentWorkflowId,
                     name: workflowName,
                     version: newVersion,
                     definition: {
-                        steps: currentSteps
+                        steps: sortedSteps
                     }
                 };
 
-                const response = await fetch(`https://localhost:1139/kore/workflows/${currentWorkflowId}`, {
+                const response = await fetch(`/kore/workflows/${currentWorkflowId}`, {
                     method: 'PUT',
                     headers: {
                         'Content-Type': 'application/json',
@@ -1306,6 +2303,7 @@
                 });
 
                 const data = await response.json();
+                console.log('Save response:', response.status, data);
                 const status = document.getElementById('status');
 
                 if (response.ok) {
@@ -1321,17 +2319,26 @@
                     versionSelect.insertBefore(option, versionSelect.firstChild);
                     versionSelect.value = newVersion;
 
-                    status.className = 'status show success';
-                    status.innerHTML = `? Workflow saved: <strong>${workflowName}@${newVersion}</strong>`;
-                    closeConfirmModal();
+                    if (status) {
+                        status.className = 'status show success';
+                        status.innerHTML = `✓ Workflow saved: <strong>${workflowName}@${newVersion}</strong>`;
+                    }
+                    // Close modal after a brief delay so user sees the success message
+                    setTimeout(() => {
+                        closeConfirmModal();
+                    }, 1500);
                 } else {
-                    status.className = 'status show error';
-                    status.innerHTML = `? Error: ${data.error || 'Unknown error'}`;
+                    if (status) {
+                        status.className = 'status show error';
+                        status.innerHTML = `✗ Error: ${data.error || 'Unknown error'}`;
+                    }
                 }
             } catch (err) {
                 const status = document.getElementById('status');
-                status.className = 'status show error';
-                status.innerHTML = `? Error: ${err.message}`;
+                if (status) {
+                    status.className = 'status show error';
+                    status.innerHTML = `✗ Error: ${err.message}`;
+                }
             }
         }
 
@@ -1549,19 +2556,19 @@
         function getTransitionColors(type) {
             const colors = {
                 'Success': {
-                    background: '#1a3a2a',
-                    border: '#00aa00',
-                    line: '#00aa00'
+                    background: '#0d5a2d',
+                    border: '#00ff00',
+                    line: '#00ff00'
                 },
                 'Failure': {
-                    background: '#3a1a1a',
-                    border: '#d9534f',
-                    line: '#d9534f'
+                    background: '#4a1a1a',
+                    border: '#ff4444',
+                    line: '#ff4444'
                 },
-                'Conditional': {
-                    background: '#2a2a2a',
-                    border: '#b0b0b0',
-                    line: '#b0b0b0'
+                'Always/Logic': {
+                    background: '#3a3a3a',
+                    border: '#d0d0d0',
+                    line: '#d0d0d0'
                 }
             };
             return colors[type] || colors['Success'];
@@ -1729,6 +2736,9 @@
                         const transColors = getTransitionColors(transObj ? transObj.type : 'Success');
                         el.style.borderColor = transColors.border;
                     });
+                    document.querySelectorAll('[data-transition-frame]').forEach(el => {
+                        el.style.borderColor = '#d4af37';
+                    });
                     document.getElementById('propertiesContent').innerHTML = '<div style="color: #b0b0b0; font-size: 0.85rem;">Select a step or transition to edit properties</div>';
                 }
             });
@@ -1756,10 +2766,10 @@
                 width: ${width}px;
                 height: ${height}px;
                 padding: 0;
-                background: #234656;
+                background: #0a3d55;
                 border: 2px solid #3a7a99;
                 border-radius: 4px;
-                color: #e0e0e0;
+                color: #ffffff;
                 font-size: 0.9rem;
                 cursor: move;
                 box-sizing: border-box;
@@ -1807,7 +2817,13 @@
                 type: stepType,
                 action: '',
                 variables: [],
-                transitions: []
+                transitions: [],
+                trans_vertical: false,
+                trans_mode: 'First',
+                position: {
+                    x: snappedX,
+                    y: snappedY
+                }
             };
             
             // Store step data and associate with DOM element
@@ -1862,6 +2878,7 @@
                 let startX, startY;
                 let fromStepId = null;
                 let fromConnectionPoint = point.name;
+                let frameUUID = ''; // Will be generated when drag completes
                 const MIN_DRAG_DISTANCE = 10; // pixels required to create a transition
                 
                 circle.addEventListener('mousedown', (e) => {
@@ -1933,105 +2950,77 @@
                             return;
                         }
                         
+                        // Generate unique frame ID
+                        frameUUID = String(Date.now()) + '-' + Math.random().toString(36).substr(2, 9);
+                        
                         // Snap to 30px grid
                         const snappedX = Math.round(gridEndX / 30) * 30;
                         const snappedY = Math.round(gridEndY / 30) * 30;
                         
-                        // Create transition rectangle: 2 grid wide (60px) x 1 grid high (30px)
-                        const transitionRect = document.createElement('div');
+                        // Store frame data
+                        const frameData = {
+                            id: frameUUID,
+                            execution: 'First',
+                            conditions: []
+                        };
+                        currentTransitionFrames = currentTransitionFrames || [];
+                        currentTransitionFrames.push(frameData);
                         
-                        // Generate simple numeric ID for transition
+                        // Create default Success condition
                         transitionCounter++;
-                        const transitionUUID = String(transitionCounter);
-                        
-                        transitionRect.setAttribute('data-transition-uuid', transitionUUID);
-                        // Create transition data object
-                        const transitionData = {
-                            id: transitionUUID,
-                            name: 'Transition',
+                        const defaultConditionId = String(transitionCounter);
+                        const defaultConditionData = {
+                            id: defaultConditionId,
+                            name: '',
                             type: 'Success',
                             conditions: '',
-                            targetSteps: []
+                            targetSteps: [],
+                            order: 1
                         };
                         
-                        // Get colors for this transition type
-                        const colors = getTransitionColors(transitionData.type);
+                        // Add condition to frame data
+                        frameData.conditions.push(defaultConditionId);
+                        currentTransitions.push(defaultConditionData);
                         
-                        transitionRect.style.cssText = `
-                            position: absolute;
-                            width: 60px;
-                            height: 30px;
-                            border-radius: 4px;
-                            background: ${colors.background};
-                            border: 2px solid ${colors.border};
-                            left: ${snappedX - 30}px;
-                            top: ${snappedY - 15}px;
-                            pointer-events: auto;
-                            cursor: move;
-                            box-sizing: border-box;
-                            display: flex;
-                            align-items: center;
-                            justify-content: center;
-                            z-index: 2;
-                        `;
+                        // Render the frame with the default condition
+                        renderTransitionFrame(frameUUID, false);
                         
-                        // Add text display for transition type
-                        const typeText = document.createElement('div');
-                        typeText.className = 'transition-type-text';
-                        typeText.style.cssText = `
-                            font-size: 0.7rem;
-                            color: #e0e0e0;
-                            user-select: none;
-                            pointer-events: none;
-                            text-align: center;
-                        `;
-                        typeText.textContent = getTransitionDisplayText(transitionData.type, transitionData.conditions);
-                        transitionRect.appendChild(typeText);
+                        // Get the rendered frame element
+                        const frameRect = canvas.querySelector(`[data-transition-frame="${frameUUID}"]`);
                         
-                        canvas.appendChild(transitionRect);
+                        // Position the frame at the snapped coordinates
+                        if (frameRect) {
+                            frameRect.style.left = (snappedX - 45) + 'px';
+                            frameRect.style.top = (snappedY - 30) + 'px';
+                        }
                         
-                        // Store transition data and associate with DOM element
-                        transitionRect.setAttribute('data-transition-uuid', transitionUUID);
-                        currentTransitions = currentTransitions || [];
-                        currentTransitions.push(transitionData);
-                        
-                        // Add click handler to show properties
-                        transitionRect.addEventListener('click', (e) => {
-                            e.stopPropagation();
-                            showTransitionProperties(transitionUUID);
-                            
-                            // Deselect all steps and transitions
-                            document.querySelectorAll('[data-step-id]').forEach(el => {
-                                el.style.borderColor = '#3a7a99';
-                            });
-                            document.querySelectorAll('[data-transition-uuid]').forEach(el => {
-                                const transId = el.getAttribute('data-transition-uuid');
-                                const transObj = currentTransitions.find(t => t.id === transId);
-                                const transColors = getTransitionColors(transObj ? transObj.type : 'Success');
-                                el.style.borderColor = transColors.border;
-                            });
-                            transitionRect.style.borderColor = '#ffff00';
-                        });
-                        
-                        // Update the preview line to be permanent, connecting to top center of rect
+                        // Update the preview line to be permanent, connecting to frame
                         let connectionLine = canvas.querySelector('[data-preview-line]');
                         if (connectionLine) {
                             connectionLine.removeAttribute('data-preview-line');
                             connectionLine.setAttribute('data-connection-line', 'true');
                             connectionLine.setAttribute('data-from-step', fromStepId);
                             connectionLine.setAttribute('data-from-point', fromConnectionPoint);
-                            connectionLine.setAttribute('data-to-transition', transitionUUID);
+                            connectionLine.setAttribute('data-to-frame', frameUUID);
                             
-                            // Update step's transitions array with the new transition object
+                            // Update step's transitions array with the new frame
                             const sourceStepElement = canvas.querySelector(`[data-step-id="${fromStepId}"]`);
                             if (sourceStepElement) {
                                 const sourceStepUUID = sourceStepElement.getAttribute('data-step-uuid');
                                 const sourceStepData = currentSteps.find(s => s.id === sourceStepUUID);
                                 if (sourceStepData) {
-                                    // Find the transition object we just created
-                                    const newTransition = (currentTransitions || []).find(t => t.id === transitionUUID);
-                                    if (newTransition && !sourceStepData.transitions.find(t => t.id === transitionUUID)) {
-                                        sourceStepData.transitions.push(newTransition);
+                                    // Add all conditions from the frame to the step's transitions
+                                    const frame = currentTransitionFrames.find(f => f.id === frameUUID);
+                                    if (frame) {
+                                        frame.conditions.forEach(conditionId => {
+                                            if (!sourceStepData.transitions.find(t => t.id === conditionId)) {
+                                                // Find the full transition object and add it
+                                                const transitionObj = currentTransitions.find(t => t.id === conditionId);
+                                                if (transitionObj) {
+                                                    sourceStepData.transitions.push(transitionObj);
+                                                }
+                                            }
+                                        });
                                         updatePreview();
                                     }
                                 }
@@ -2056,20 +3045,21 @@
                             }
                             
                             // Update line to use curved path
-                            // Find nearest side of transition to attach to
-                            // Transition is positioned at (snappedX - 30, snappedY - 15) and is 60px wide x 30px tall
-                            const transitionActualX = snappedX - 30;
-                            const transitionActualY = snappedY - 15;
-                            const transitionSideCenters = [
-                                { x: transitionActualX + 30, y: transitionActualY, name: 'top' },
-                                { x: transitionActualX + 30, y: transitionActualY + 30, name: 'bottom' },
-                                { x: transitionActualX, y: transitionActualY + 15, name: 'left' },
-                                { x: transitionActualX + 60, y: transitionActualY + 15, name: 'right' }
+                            // Frame is positioned at (snappedX - 45, snappedY - 30) and is 90px wide x 60px tall
+                            const frameActualX = snappedX - 45;
+                            const frameActualY = snappedY - 30;
+                            const frameWidth = frameRect ? frameRect.offsetWidth : 90;
+                            const frameHeight = frameRect ? frameRect.offsetHeight : 60;
+                            const frameSideCenters = [
+                                { x: frameActualX + frameWidth / 2, y: frameActualY, name: 'top' },
+                                { x: frameActualX + frameWidth / 2, y: frameActualY + frameHeight, name: 'bottom' },
+                                { x: frameActualX, y: frameActualY + frameHeight / 2, name: 'left' },
+                                { x: frameActualX + frameWidth, y: frameActualY + frameHeight / 2, name: 'right' }
                             ];
                             
-                            let nearestSide = transitionSideCenters[0];
+                            let nearestSide = frameSideCenters[0];
                             let minDistance = Infinity;
-                            transitionSideCenters.forEach(side => {
+                            frameSideCenters.forEach(side => {
                                 const distance = Math.hypot(startX - side.x, startY - side.y);
                                 if (distance < minDistance) {
                                     minDistance = distance;
@@ -2090,356 +3080,6 @@
                                 }
                             }
                         }
-                        
-                        // Add bottom down arrow (visual only, not draggable)
-                        const bottomArrow = document.createElement('div');
-                        bottomArrow.className = 'transition-bottom-arrow';
-                        bottomArrow.style.cssText = `
-                            position: absolute;
-                            width: 18px;
-                            height: 18px;
-                            top: 100%;
-                            left: 50%;
-                            transform: translateX(-50%) translateY(-3px);
-                            pointer-events: auto;
-                            font-size: 14px;
-                            color: ${colors.line};
-                            display: flex;
-                            align-items: center;
-                            justify-content: center;
-                            font-weight: bold;
-                            cursor: crosshair;
-                        `;
-                        bottomArrow.innerHTML = '&#9660;';
-                        transitionRect.appendChild(bottomArrow);
-                        
-                        // Make bottom arrow draggable to create connections to steps
-                        let isDrawingFromTransition = false;
-                        let transitionLineStartX, transitionLineStartY;
-                        let transitionLineColors = colors;  // Store colors for preview line
-                        
-                        bottomArrow.addEventListener('mousedown', (e) => {
-                            e.stopPropagation();
-                            isDrawingFromTransition = true;
-                            transitionLineColors = getTransitionColors(transitionData.type);  // Get current colors
-                            const arrowRect = bottomArrow.getBoundingClientRect();
-                            const canvasRect = canvas.getBoundingClientRect();
-                            const screenStartX = arrowRect.left - canvasRect.left + 9;
-                            const screenStartY = arrowRect.top - canvasRect.top + 9;
-                            // Convert to grid coordinates
-                            transitionLineStartX = (screenStartX / zoomLevel) + panX;
-                            transitionLineStartY = (screenStartY / zoomLevel) + panY;
-                        });
-                        
-                        document.addEventListener('mousemove', (e) => {
-                            if (isDrawingFromTransition) {
-                                const canvasRect = canvas.getBoundingClientRect();
-                                const screenCurrentX = e.clientX - canvasRect.left;
-                                const screenCurrentY = e.clientY - canvasRect.top;
-                                // Convert to grid coordinates
-                                const currentX = (screenCurrentX / zoomLevel) + panX;
-                                const currentY = (screenCurrentY / zoomLevel) + panY;
-                                
-                                // Update or create green line preview
-                                let transitionLine = canvas.querySelector('[data-transition-preview-line]');
-                                if (!transitionLine) {
-                                    transitionLine = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-                                    transitionLine.setAttribute('data-transition-preview-line', 'true');
-                                    transitionLine.style.cssText = `
-                                        position: absolute;
-                                        top: 0;
-                                        left: 0;
-                                        width: 100%;
-                                        height: 100%;
-                                        pointer-events: none;
-                                        z-index: 0;
-                                    `;
-                                    
-                                    // Add defs with marker for arrow
-                                    const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
-                                    const marker = document.createElementNS('http://www.w3.org/2000/svg', 'marker');
-                                    marker.setAttribute('id', 'greenArrowhead');
-                                    marker.setAttribute('markerWidth', '10');
-                                    marker.setAttribute('markerHeight', '10');
-                                    marker.setAttribute('refX', '9');
-                                    marker.setAttribute('refY', '3');
-                                    marker.setAttribute('orient', 'auto');
-                                    const polygon = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
-                                    polygon.setAttribute('points', '0 0, 10 3, 0 6');
-                                    polygon.setAttribute('fill', '#00aa00');
-                                    marker.appendChild(polygon);
-                                    defs.appendChild(marker);
-                                    transitionLine.appendChild(defs);
-                                    
-                                    canvas.appendChild(transitionLine);
-                                }
-                                
-                                transitionLine.innerHTML = `<defs><marker id="greenArrowhead" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><polygon points="0 0, 10 3, 0 6" fill="${transitionLineColors.line}"/></marker></defs><line x1="${transitionLineStartX}" y1="${transitionLineStartY}" x2="${currentX}" y2="${currentY}" stroke="${transitionLineColors.line}" stroke-width="2" marker-end="url(#greenArrowhead)"/>`;
-                            }
-                        });
-                        
-                        document.addEventListener('mouseup', (e) => {
-                            if (isDrawingFromTransition) {
-                                isDrawingFromTransition = false;
-                                
-                                const canvasRect = canvas.getBoundingClientRect();
-                                const endX = e.clientX - canvasRect.left;
-                                const endY = e.clientY - canvasRect.top;
-                                
-                                // Find if dropped on a step
-                                const steps = canvas.querySelectorAll('[data-step-id]');
-                                let targetStep = null;
-                                
-                                for (let step of steps) {
-                                    const rect = step.getBoundingClientRect();
-                                    const stepCanvasX = rect.left - canvasRect.left;
-                                    const stepCanvasY = rect.top - canvasRect.top;
-                                    
-                                    // Check if drop is within step bounds
-                                    if (endX >= stepCanvasX && endX <= stepCanvasX + 120 &&
-                                        endY >= stepCanvasY && endY <= stepCanvasY + 60) {
-                                        targetStep = step;
-                                        break;
-                                    }
-                                }
-                                
-                                // Only create line if dropped on a step
-                                if (targetStep) {
-                                    // Find parent step of this transition by looking for blue line
-                                    const blueLine = canvas.querySelector(`[data-to-transition="${transitionUUID}"]`);
-                                    let parentStepId = null;
-                                    if (blueLine) {
-                                        parentStepId = blueLine.getAttribute('data-from-step');
-                                    }
-                                    
-                                    const targetStepId = targetStep.getAttribute('data-step-id');
-                                    
-                                    // Don't allow connecting to parent step
-                                    if (parentStepId && targetStepId === parentStepId) {
-                                        // Remove preview line
-                                        const previewLine = canvas.querySelector('[data-transition-preview-line]');
-                                        if (previewLine) previewLine.remove();
-                                        return;
-                                    }
-                                    
-                                    const transitionLine = canvas.querySelector('[data-transition-preview-line]');
-                                    if (transitionLine) {
-                                        transitionLine.removeAttribute('data-transition-preview-line');
-                                        transitionLine.setAttribute('data-transition-connection-line', 'true');
-                                        const targetStepUUID = targetStep.getAttribute('data-step-uuid');
-                                        transitionLine.setAttribute('data-from-transition', transitionUUID);
-                                        transitionLine.setAttribute('data-to-step', targetStepUUID);
-                                        
-                                        // Update line colors to match transition type
-                                        const transitionData = (currentTransitions || []).find(t => t.id === transitionUUID);
-                                        if (transitionData) {
-                                            updateTransitionLineColors(transitionUUID, transitionData.type);
-                                        }
-                                        
-                                        // Update transition's targetSteps array
-                                        if (transitionData && targetStepUUID && !transitionData.targetSteps.includes(targetStepUUID)) {
-                                            transitionData.targetSteps.push(targetStepUUID);
-                                            updatePreview();
-                                        }
-                                        
-                                        const currentLine = transitionLine.querySelector('line');
-                                        if (currentLine) {
-                                            const targetRect = targetStep.getBoundingClientRect();
-                                            const targetStepCanvasX = targetRect.left - canvasRect.left;
-                                            const targetStepCanvasY = targetRect.top - canvasRect.top;
-                                            
-                                            // Convert screen coords to grid coords
-                                            const targetStepGridX = (targetStepCanvasX / zoomLevel) + panX;
-                                            const targetStepGridY = (targetStepCanvasY / zoomLevel) + panY;
-                                            
-                                            // Convert end position to grid coords
-                                            const endGridX = (endX / zoomLevel) + panX;
-                                            const endGridY = (endY / zoomLevel) + panY;
-                                            
-                                            // Use actual rendered width from style
-                                            const targetStepWidth = parseFloat(targetStep.style.width);
-                                            const targetStepCenterX = targetStepGridX + (targetStepWidth / 2);
-                                            
-                                            // Calculate distances to all 4 side centers (in grid space)
-                                            const sideCenters = [
-                                                { x: targetStepCenterX, y: targetStepGridY, name: 'top' },
-                                                { x: targetStepCenterX, y: targetStepGridY + 30, name: 'bottom' },
-                                                { x: targetStepGridX, y: targetStepGridY + 15, name: 'left' },
-                                                { x: targetStepGridX + targetStepWidth, y: targetStepGridY + 15, name: 'right' }
-                                            ];
-                                            
-                                            // Find nearest side center
-                                            let nearestSide = sideCenters[0];
-                                            let minDistance = Infinity;
-                                            sideCenters.forEach(side => {
-                                                const distance = Math.hypot(endGridX - side.x, endGridY - side.y);
-                                                if (distance < minDistance) {
-                                                    minDistance = distance;
-                                                    nearestSide = side;
-                                                }
-                                            });
-                                            
-                                            // Update with curved path
-                                            const greenCurvePath = createCurvedPath(transitionLineStartX, transitionLineStartY, 'bottom', nearestSide.x, nearestSide.y, nearestSide.name);
-                                            transitionLine.innerHTML = `<defs><marker id="greenArrowhead" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><polygon points="0 0, 10 3, 0 6" fill="${transitionLineColors.line}"/></marker></defs><path d="${greenCurvePath}" stroke="${transitionLineColors.line}" stroke-width="2" fill="none" marker-end="url(#greenArrowhead)"/>`;
-                                        }
-                                    }
-                                } else {
-                                    // Remove preview line if not dropped on step
-                                    const transitionLine = canvas.querySelector('[data-transition-preview-line]');
-                                    if (transitionLine) transitionLine.remove();
-                                }
-                            }
-                        });
-                        
-                        // Make rectangle draggable
-                        let isDraggingRect = false;
-                        let dragOffsetX = 0;
-                        let dragOffsetY = 0;
-                        
-                        transitionRect.addEventListener('mousedown', (e) => {
-                            e.stopPropagation();
-                            isDraggingRect = true;
-                            const rect = transitionRect.getBoundingClientRect();
-                            // Convert screen offset to grid offset, accounting for zoom
-                            dragOffsetX = (e.clientX - rect.left) / zoomLevel;
-                            dragOffsetY = (e.clientY - rect.top) / zoomLevel;
-                            transitionRect.style.opacity = '0.8';
-                        });
-                        
-                        document.addEventListener('mousemove', (e) => {
-                            if (isDraggingRect) {
-                                const canvasRect = canvas.getBoundingClientRect();
-                                // Convert screen coordinates to grid coordinates
-                                let newX = (e.clientX - canvasRect.left) / zoomLevel + panX - dragOffsetX;
-                                let newY = (e.clientY - canvasRect.top) / zoomLevel + panY - dragOffsetY;
-                                
-                                // Snap to 30px grid
-                                newX = Math.round(newX / 30) * 30;
-                                newY = Math.round(newY / 30) * 30;
-                                
-                                // Keep within canvas bounds
-                                newX = Math.max(0, newX);
-                                newY = Math.max(0, newY);
-                                
-                                transitionRect.style.left = newX + 'px';
-                                transitionRect.style.top = newY + 'px';
-                                
-                                // Get transitionId from the element's data attribute
-                                const transitionId = transitionRect.getAttribute('data-transition-uuid');
-                                
-                                // Update blue connection line (from step to transition)
-                                const blueLine = canvas.querySelector(`[data-connection-line][data-to-transition="${transitionId}"]`);
-                                if (blueLine) {
-                                    // Recalculate line start from step's current position
-                                    const fromStepId = blueLine.getAttribute('data-from-step');
-                                    const fromPoint = blueLine.getAttribute('data-from-point');
-                                    const fromStep = canvas.querySelector(`[data-step-id="${fromStepId}"]`);
-                                    
-                                    if (fromStep) {
-                                        const stepRect = fromStep.getBoundingClientRect();
-                                        const canvasRect = canvas.getBoundingClientRect();
-                                        const stepScreenX = stepRect.left - canvasRect.left;
-                                        const stepScreenY = stepRect.top - canvasRect.top;
-                                        // Convert screen coords back to grid coords
-                                        const stepCanvasX = (stepScreenX / zoomLevel) + panX;
-                                        const stepCanvasY = (stepScreenY / zoomLevel) + panY;
-                                        
-                                        // Get current step width for dynamic centering (from style, not affected by zoom transform)
-                                        const stepWidth = parseFloat(fromStep.style.width);
-                                        const stepCenterX = stepCanvasX + (stepWidth / 2);
-                                        
-                                        let lineStartX = stepCenterX;
-                                        let lineStartY = stepCanvasY + 15;
-                                        
-                                        if (fromPoint === 'top') {
-                                            lineStartX = stepCenterX;
-                                            lineStartY = stepCanvasY;
-                                        } else if (fromPoint === 'bottom') {
-                                            lineStartX = stepCenterX;
-                                            lineStartY = stepCanvasY + 30;
-                                        } else if (fromPoint === 'left') {
-                                            lineStartX = stepCanvasX;
-                                            lineStartY = stepCanvasY + 15;
-                                        } else if (fromPoint === 'right') {
-                                            lineStartX = stepCanvasX + stepWidth;
-                                            lineStartY = stepCanvasY + 15;
-                                        }
-                                        
-                                        // Find nearest side center of transition
-                                        const sideCenters = [
-                                            { x: newX + 30, y: newY, name: 'top' },
-                                            { x: newX + 30, y: newY + 30, name: 'bottom' },
-                                            { x: newX, y: newY + 15, name: 'left' },
-                                            { x: newX + 60, y: newY + 15, name: 'right' }
-                                        ];
-                                        
-                                        let nearestSide = sideCenters[0];
-                                        let minDistance = Infinity;
-                                        sideCenters.forEach(side => {
-                                            const distance = Math.hypot(lineStartX - side.x, lineStartY - side.y);
-                                            if (distance < minDistance) {
-                                                minDistance = distance;
-                                                nearestSide = side;
-                                            }
-                                        });
-                                        
-                                        const blueCurvePath = createCurvedPath(lineStartX, lineStartY, fromPoint, nearestSide.x, nearestSide.y, nearestSide.name);
-                                        blueLine.innerHTML = `<defs><marker id="blueArrowhead" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><polygon points="0 0, 10 3, 0 6" fill="#3a7a99"/></marker></defs><path d="${blueCurvePath}" stroke="#3a7a99" stroke-width="2" fill="none" marker-end="url(#blueArrowhead)"/>`;
-                                    }
-                                }
-                                
-                                // Update green lines (from transition to steps)
-                                const greenLines = canvas.querySelectorAll(`[data-from-transition="${transitionId}"]`);
-                                greenLines.forEach(line => {
-                                    const targetStepUUID = line.getAttribute('data-to-step');
-                                    const targetStep = canvas.querySelector(`[data-step-uuid="${targetStepUUID}"]`);
-                                    
-                                    if (targetStep) {
-                                        const targetRect = targetStep.getBoundingClientRect();
-                                        const canvasRect = canvas.getBoundingClientRect();
-                                        const targetScreenX = targetRect.left - canvasRect.left;
-                                        const targetScreenY = targetRect.top - canvasRect.top;
-                                        // Convert screen coords back to grid coords
-                                        const targetStepCanvasX = (targetScreenX / zoomLevel) + panX;
-                                        const targetStepCanvasY = (targetScreenY / zoomLevel) + panY;
-                                        const targetStepWidth = parseFloat(targetStep.style.width);
-                                        const targetStepCenterX = targetStepCanvasX + (targetStepWidth / 2);
-                                        
-                                        // Find nearest side of target step
-                                        const sideCenters = [
-                                            { x: targetStepCenterX, y: targetStepCanvasY, name: 'top' },
-                                            { x: targetStepCenterX, y: targetStepCanvasY + 30, name: 'bottom' },
-                                            { x: targetStepCanvasX, y: targetStepCanvasY + 15, name: 'left' },
-                                            { x: targetStepCanvasX + targetStepWidth, y: targetStepCanvasY + 15, name: 'right' }
-                                        ];
-                                        
-                                        let nearestSide = sideCenters[0];
-                                        let minDistance = Infinity;
-                                        sideCenters.forEach(side => {
-                                            const distance = Math.hypot((newX + 30) - side.x, (newY + 30) - side.y);
-                                            if (distance < minDistance) {
-                                                minDistance = distance;
-                                                nearestSide = side;
-                                            }
-                                        });
-                                        
-                                        // Update with curved path
-                                        const greenCurvePath = createCurvedPath(newX + 30, newY + 30, 'bottom', nearestSide.x, nearestSide.y, nearestSide.name);
-                                        const transitionData = currentTransitions.find(t => t.id === transitionId);
-                                        const transitionColors = getTransitionColors(transitionData ? transitionData.type : 'Success');
-                                        line.innerHTML = `<defs><marker id="greenArrowhead" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><polygon points="0 0, 10 3, 0 6" fill="${transitionColors.line}"/></marker></defs><path d="${greenCurvePath}" stroke="${transitionColors.line}" stroke-width="2" fill="none" marker-end="url(#greenArrowhead)"/>`;
-                                    }
-                                });
-                            }
-                        });
-                        
-                        document.addEventListener('mouseup', () => {
-                            if (isDraggingRect) {
-                                isDraggingRect = false;
-                                transitionRect.style.opacity = '1';
-                            }
-                        });
                     }
                 };
                 
@@ -2484,10 +3124,11 @@
                     const blueLines = canvas.querySelectorAll(`[data-connection-line][data-from-step="${stepId}"]`);
                     blueLines.forEach(line => {
                         const fromPoint = line.getAttribute('data-from-point');
-                        const toTransitionId = line.getAttribute('data-to-transition');
-                        const toTransition = canvas.querySelector(`[data-transition-uuid="${toTransitionId}"]`);
+                        const toFrameId = line.getAttribute('data-to-frame');
+                        const toFrame = canvas.querySelector(`[data-transition-frame="${toFrameId}"]`);
+                        console.log('Blue line update - toFrameId:', toFrameId, 'toFrame found:', !!toFrame);
                         
-                        if (toTransition) {
+                        if (toFrame) {
                             // Get current step width for dynamic centering (from style, not affected by zoom transform)
                             const stepWidth = parseFloat(stepElement.style.width);
                             const stepCenterX = newX + (stepWidth / 2);
@@ -2509,26 +3150,29 @@
                                 lineStartY = newY + 15;
                             }
                             
-                            // Get transition position in grid space
-                            const transitionRect = toTransition.getBoundingClientRect();
+                            // Get frame position in grid space
+                            const frameRect = toFrame.getBoundingClientRect();
                             const canvasRect = canvas.getBoundingClientRect();
-                            const transitionScreenX = transitionRect.left - canvasRect.left;
-                            const transitionScreenY = transitionRect.top - canvasRect.top;
+                            const frameScreenX = frameRect.left - canvasRect.left;
+                            const frameScreenY = frameRect.top - canvasRect.top;
                             // Convert screen coords back to grid coords
-                            const transitionActualX = (transitionScreenX / zoomLevel) + panX;
-                            const transitionActualY = (transitionScreenY / zoomLevel) + panY;
+                            const frameActualX = (frameScreenX / zoomLevel) + panX;
+                            const frameActualY = (frameScreenY / zoomLevel) + panY;
+                            console.log('Frame calc:', { frameScreenX, frameScreenY, zoomLevel, panX, panY, frameActualX, frameActualY });
                             
-                            // Find nearest side of transition
-                            const sideCenters = [
-                                { x: transitionActualX + 30, y: transitionActualY, name: 'top' },
-                                { x: transitionActualX + 30, y: transitionActualY + 30, name: 'bottom' },
-                                { x: transitionActualX, y: transitionActualY + 15, name: 'left' },
-                                { x: transitionActualX + 60, y: transitionActualY + 15, name: 'right' }
+                            // Find nearest side of frame (use actual frame dimensions in grid space)
+                            const frameWidth = frameRect.width / zoomLevel;
+                            console.log('Frame dims:', { frameWidth, frameHeight, width: frameRect.width, height: frameRect.height });
+                            const frameSideCenters = [
+                                { x: frameActualX + frameWidth / 2, y: frameActualY, name: 'top' },
+                                { x: frameActualX + frameWidth / 2, y: frameActualY + frameHeight, name: 'bottom' },
+                                { x: frameActualX, y: frameActualY + frameHeight / 2, name: 'left' },
+                                { x: frameActualX + frameWidth, y: frameActualY + frameHeight / 2, name: 'right' }
                             ];
                             
-                            let nearestSide = sideCenters[0];
+                            let nearestSide = frameSideCenters[0];
                             let minDistance = Infinity;
-                            sideCenters.forEach(side => {
+                            frameSideCenters.forEach(side => {
                                 const distance = Math.hypot(lineStartX - side.x, lineStartY - side.y);
                                 if (distance < minDistance) {
                                     minDistance = distance;
