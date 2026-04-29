@@ -426,6 +426,7 @@
     <script>
         const API_KEY = '393d5ca334f5b1b9e7127544460def61ca6be55eab20da08f1746f11f5d0b4e9';
         let currentWorkflowId = null;
+        let currentWorkflowName = null;
         let currentVersion = null;
         let allVersions = [];
         let currentSteps = [];
@@ -503,17 +504,23 @@
                 const workflow = await response.json();
                 console.log('Workflow loaded:', workflow);
                 
-                // Set the workflow name and version
+                // Load everything from definition (source of truth)
+                const definition = workflow.definition;
+                currentWorkflowName = definition.name;
+                currentVersion = definition.version;
+                allVersions = [definition.version];
+                
+                // Set the workflow name and version from definition
                 const nameField = document.getElementById('workflowName');
                 const versionField = document.getElementById('versionDisplay');
                 const preview = document.getElementById('preview');
                 
                 console.log('Version field element:', versionField);
-                console.log('Workflow version:', workflow.version);
+                console.log('Workflow version from definition:', definition.version);
                 
-                if (nameField) nameField.value = workflow.name;
+                if (nameField) nameField.value = definition.name;
                 if (versionField) {
-                    versionField.textContent = `v${workflow.version}`;
+                    versionField.textContent = `v${definition.version}`;
                     console.log('Version set to:', versionField.textContent);
                 }
                 
@@ -521,20 +528,20 @@
                 if (uuidField) {
                     uuidField.textContent = currentWorkflowId;
                 }
-                
-                currentVersion = workflow.version;
-                allVersions = [workflow.version];
 
                 // Load the workflow definition
-                currentSteps = workflow.definition.steps || [];
+                currentSteps = definition.steps || [];
                 
                 // Restore zoom and pan if they were saved
-                if (workflow.definition.zoom !== undefined) {
-                    zoomLevel = workflow.definition.zoom;
+                if (definition.zoom !== undefined) {
+                    zoomLevel = definition.zoom;
                 }
-                if (workflow.definition.pan) {
-                    panX = workflow.definition.pan.x || 0;
-                    panY = workflow.definition.pan.y || 0;
+                if (definition.pan) {
+                    const panParts = typeof definition.pan === 'string' 
+                        ? definition.pan.split(',').map(Number)
+                        : [definition.pan.x || 0, definition.pan.y || 0];
+                    panX = panParts[0];
+                    panY = panParts[1];
                 }
                 
                 // Apply zoom and pan to canvas
@@ -587,9 +594,12 @@
                 });
                 
                 originalJson = JSON.stringify({ 
-                    steps: currentSteps,
+                    id: currentWorkflowId,
+                    name: currentWorkflowName,
+                    version: currentVersion,
                     zoom: zoomLevel,
-                    pan: { x: panX, y: panY }
+                    pan: `${panX},${panY}`,
+                    steps: currentSteps
                 }, null, 2);
                 renderStepsEditor();
                 renderLoadedStepsOnCanvas();
@@ -974,6 +984,11 @@
             }));
             
             const workflowData = {
+                id: currentWorkflowId,
+                name: currentWorkflowName,
+                version: currentVersion,
+                zoom: zoomLevel,
+                pan: `${panX},${panY}`,
                 steps: stepsForExport
             };
             const jsonContent = JSON.stringify(workflowData, null, 2);
@@ -2471,9 +2486,12 @@
                 }));
                 
                 const payload = { 
-                    steps: stepsForExport,
+                    id: currentWorkflowId,
+                    name: currentWorkflowName,
+                    version: currentVersion,
                     zoom: zoomLevel,
-                    pan: { x: panX, y: panY }
+                    pan: `${panX},${panY}`,
+                    steps: stepsForExport
                 };
                 previewElement.textContent = JSON.stringify(payload, null, 2);
             } catch (e) {
@@ -2694,7 +2712,7 @@
             const currentJson = JSON.stringify({ 
                 steps: currentSteps,
                 zoom: zoomLevel,
-                pan: { x: panX, y: panY }
+                pan: `${panX},${panY}`
             }, null, 2);
 
             // Check if changes were made
@@ -2737,11 +2755,16 @@
             closeConfirmModal();
             
             try {
-                // Simply send currentSteps (transition is now a single object with cases array)
+                // Put all config in definition, including id, name, version, zoom, pan
                 const payload = {
                     name: workflowName,
                     version: newVersion,
                     definition: {
+                        id: currentWorkflowId,
+                        name: workflowName,
+                        version: newVersion,
+                        zoom: zoomLevel,
+                        pan: `${panX},${panY}`,
                         steps: currentSteps
                     }
                 };
@@ -2760,7 +2783,14 @@
 
                 if (response.ok) {
                     currentVersion = newVersion;
-                    originalJson = JSON.stringify({ steps: currentSteps }, null, 2);
+                    originalJson = JSON.stringify({
+                        id: currentWorkflowId,
+                        name: workflowName,
+                        version: newVersion,
+                        zoom: zoomLevel,
+                        pan: `${panX},${panY}`,
+                        steps: currentSteps
+                    }, null, 2);
                     
                     // Refresh version selector if it exists
                     const versionSelect = document.getElementById('versionSelector');
