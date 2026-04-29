@@ -1496,18 +1496,26 @@
                 }
                 
                 // Add options for each saved configuration
-                window.savedOrgVariables.forEach(config => {
+                const sortedConfigs = [...window.savedOrgVariables].sort((a, b) => {
+                    const nameA = (a.config_name || a.orgVarName || 'Unknown').toLowerCase();
+                    const nameB = (b.config_name || b.orgVarName || 'Unknown').toLowerCase();
+                    return nameA.localeCompare(nameB);
+                });
+                
+                sortedConfigs.forEach(config => {
                     console.log('Processing config:', config);
                     console.log('  config.config_name:', config.config_name);
                     console.log('  config.config_parsed:', config.config_parsed);
                     
                     // Use config_name which should already have the datatable name
                     const displayName = config.config_name || config.orgVarName || 'Unknown';
-                    console.log('  displayName:', displayName);
+                    const configId = config.config_id || '';
+                    const displayText = configId ? `${displayName} (ID: ${configId})` : displayName;
+                    console.log('  displayText:', displayText);
                     
                     const option = document.createElement('option');
                     option.value = config.config_id;
-                    option.textContent = displayName;
+                    option.textContent = displayText;
                     dropdown.appendChild(option);
                 });
                 
@@ -2188,12 +2196,18 @@
                         col_label: col.col_label || '',
                         col_desc: col.col_desc || '',
                         enum_values: col.enum_values || '',
+                        map: col.map || {},
+                        map_type: col.map_type || 'static',
+                        map_query: col.map_query || '',
+                        map_id_col: col.map_id_col || '',
+                        map_value_col: col.map_value_col || '',
                         required: col.required || false,
                         p_key: col.p_key || false,
                         hide_table: col.hide_table || false,
                         hide_edit: col.hide_edit || false,
                         editable: col.editable !== false,
                         gen: col.gen || false,
+                        span: col.span || false,
                         from_sql: col.from_sql || false,
                         not_null: col.not_null || false
                     }));
@@ -2248,6 +2262,7 @@
                     filters = config.filters.map(filterItem => ({
                         col_name: filterItem.col_name || '',
                         display_label: filterItem.display_label || '',
+                        condition: filterItem.condition || '',
                         default_checked: filterItem.default_checked !== false
                     }));
                 }
@@ -2942,11 +2957,17 @@
                     col_desc: '',
                     data_type: col.type,
                     enum_values: col.enumValues || '',
+                    map: {},
+                    map_type: 'static',
+                    map_query: '',
+                    map_id_col: '',
+                    map_value_col: '',
                     p_key: isPrimaryKey,
                     hide_table: false,
                     hide_edit: isPrimaryKey,
                     gen: col.isGenerated,
                     editable: !col.isGenerated,
+                    span: false,
                     from_sql: true,
                     not_null: !col.isNullable  // Convert isNullable to not_null (inverse)
                 });
@@ -2983,12 +3004,18 @@
                 col_desc: '',
                 data_type: '',
                 enum_values: '',
+                map: {},
+                map_type: 'static',
+                map_query: '',
+                map_id_col: '',
+                map_value_col: '',
                 required: false,
                 p_key: false,
                 hide_table: false,
                 hide_edit: false,
                 gen: false,
                 editable: true,
+                span: false,
                 not_null: false
             });
             
@@ -3064,6 +3091,14 @@
                                    onchange="updateFilterByIndex(${idx}, 'display_label', this.value)">
                         </div>
                         
+                        <div class="gp-row">
+                            <label>Condition:</label>
+                            <input type="text" class="form-input" 
+                                   value="${filter.condition || ''}" 
+                                   placeholder="SQL logic (ie, '= 1' or 'not in (9,99)')"
+                                   onchange="updateFilterByIndex(${idx}, 'condition', this.value)">
+                        </div>
+                        
                         <div class="checkbox-item">
                             <input type="checkbox" id="filter_default_${idx}" 
                                    ${filter.default_checked ? 'checked' : ''} 
@@ -3083,6 +3118,7 @@
             filters.push({
                 col_name: '',
                 display_label: '',
+                condition: '',
                 default_checked: true
             });
             
@@ -3411,7 +3447,7 @@
                                     <label for="editable_${idx}">Editable</label>
                                 </div>
                             </div>
-                            <div class="checkbox-col-right">
+                            <div class="checkbox-col-center">
                                 <div class="checkbox-item">
                                     <input type="checkbox" id="required_${idx}" ${col.required ? 'checked' : ''} 
                                            onchange="updateColumnByIndex(${idx}, 'required', this.checked)">
@@ -3428,6 +3464,13 @@
                                     <label for="hideEdit_${idx}">Hide in Edit</label>
                                 </div>
                             </div>
+                            <div class="checkbox-col-right">
+                                <div class="checkbox-item">
+                                    <input type="checkbox" id="span_${idx}" ${col.span ? 'checked' : ''} 
+                                           onchange="updateColumnByIndex(${idx}, 'span', this.checked)">
+                                    <label for="span_${idx}">Span</label>
+                                </div>
+                            </div>
                         </div>
                     </div>
                     <div class="gp-panel-right">
@@ -3435,7 +3478,10 @@
                             <button onclick="moveColumn(${idx}, 'up')" ${idx === 0 ? 'disabled' : ''} class="gp-move-btn">▲</button>
                             <button onclick="moveColumn(${idx}, 'down')" ${idx === columns.length - 1 ? 'disabled' : ''} class="gp-move-btn">▼</button>
                         </div>
-                        ${!col.from_sql && !sqlData.checked ? `<button class="btn btn-red btn-small" onclick="removeColumn(${idx})">Remove</button>` : (sqlData.checked ? `<button class="btn btn-red btn-small" onclick="removeColumn(${idx})" disabled>Remove</button>` : '')}
+                        <div style="display: flex; flex-direction: column; gap: 0.25rem;">
+                            ${['int', 'smallint', 'bigint', 'tinyint'].includes(col.data_type) ? `<button class="btn btn-blue btn-small" onclick="openMappingModal(${idx})">Mapping</button>` : ''}
+                            ${!col.from_sql && !sqlData.checked ? `<button class="btn btn-red btn-small" onclick="removeColumn(${idx})">Remove</button>` : (sqlData.checked ? `<button class="btn btn-red btn-small" onclick="removeColumn(${idx})" disabled>Remove</button>` : '')}
+                        </div>
                     </div>
                 </div>
             `).join('');
@@ -3500,12 +3546,24 @@
                     const colConfig = { col_name: col.col_name };
                     if (col.col_label) colConfig.col_label = col.col_label;
                     if (col.col_desc) colConfig.col_desc = col.col_desc;
-                    if (col.data_type === 'enum' && col.enum_values) colConfig.enum_values = col.enum_values;
+                    if (data_type === 'enum' && col.enum_values) colConfig.enum_values = col.enum_values;
+                    if (['int', 'smallint', 'bigint', 'tinyint'].includes(data_type)) {
+                        if (col.map_type === 'mysql') {
+                            colConfig.map_type = 'mysql';
+                            if (col.map_query) colConfig.map_query = col.map_query;
+                            if (col.map_id_col) colConfig.map_id_col = col.map_id_col;
+                            if (col.map_value_col) colConfig.map_value_col = col.map_value_col;
+                        } else if (col.map && Object.keys(col.map).length > 0) {
+                            colConfig.map_type = 'static';
+                            colConfig.map = col.map;
+                        }
+                    }
                     if (col.required) colConfig.required = true;
                     if (col.p_key) colConfig.p_key = true;
                     if (col.hide_table) colConfig.hide_table = true;
                     if (col.hide_edit) colConfig.hide_edit = true;
                     if (col.gen) colConfig.gen = true;
+                    if (col.span) colConfig.span = true;
                     if (from_sql) colConfig.from_sql = true;
                     colConfig.editable = col.editable;
                     colConfig.type = data_type;
@@ -3780,6 +3838,191 @@
             originalLoadedConfig = buildConfigObject();
         }
 
+        // ========================================
+        // COLUMN VALUE MAPPING MODAL
+        // ========================================
+        let currentMappingColIndex = null;
+        let mappingPairs = [];
+        let mappingType = 'static';
+
+        function openMappingModal(colIdx) {
+            currentMappingColIndex = colIdx;
+            const col = columns[colIdx];
+            
+            // Load mapping type and data
+            mappingType = col.map_type || 'static';
+            
+            // Set dropdown value
+            const dropdown = document.getElementById('mappingTypeSelect');
+            if (dropdown) dropdown.value = mappingType;
+            
+            if (mappingType === 'static') {
+                // Convert map object to pairs array
+                mappingPairs = col.map ? Object.entries(col.map).map(([val, label]) => ({value: val, label: label})) : [];
+            } else if (mappingType === 'mysql') {
+                // MySQL type just needs the query and column fields
+                mappingPairs = [];
+            }
+            
+            renderMappingPairs();
+            
+            const modal = document.getElementById('mappingModal');
+            const backdrop = document.getElementById('mappingModalBackdrop');
+            if (modal) modal.style.display = 'block';
+            if (backdrop) backdrop.style.display = 'block';
+        }
+
+        function closeMappingModal() {
+            const modal = document.getElementById('mappingModal');
+            const backdrop = document.getElementById('mappingModalBackdrop');
+            if (modal) modal.style.display = 'none';
+            if (backdrop) backdrop.style.display = 'none';
+            currentMappingColIndex = null;
+            mappingPairs = [];
+        }
+
+        function addMappingPair() {
+            mappingPairs.push({value: '', label: ''});
+            renderMappingPairs();
+        }
+
+        function removeMappingPair(pairIdx) {
+            mappingPairs.splice(pairIdx, 1);
+            renderMappingPairs();
+        }
+
+        function updateMappingPair(pairIdx, field, value) {
+            if (pairIdx >= 0 && pairIdx < mappingPairs.length) {
+                mappingPairs[pairIdx][field] = value;
+            }
+        }
+
+        function renderMappingPairs() {
+            const container = document.getElementById('mappingPairsContainer');
+            const addButton = document.getElementById('addMappingButton');
+            if (!container || !addButton) return;
+            
+            const col = columns[currentMappingColIndex];
+            
+            // Show/hide Add button based on mapping type
+            addButton.style.display = mappingType === 'static' ? 'block' : 'none';
+            
+            if (mappingType === 'static') {
+                container.innerHTML = mappingPairs.map((pair, idx) => `
+                    <div style="display: flex; gap: 0.5rem; align-items: flex-end; align-self: start;">
+                        <div style="flex: 1;">
+                            <label style="color: #888; font-size: 0.75rem; text-transform: uppercase; line-height: 1;">Value</label>
+                            <input type="text" value="${pair.value || ''}" 
+                                   placeholder="e.g., 1" 
+                                   onchange="updateMappingPair(${idx}, 'value', this.value)"
+                                   style="width: 100%; padding: 0.5rem; border: 1px solid #ddd; border-radius: 4px; font-family: monospace;">
+                        </div>
+                        <div style="flex: 2;">
+                            <label style="color: #888; font-size: 0.75rem; text-transform: uppercase; line-height: 1;">Label</label>
+                            <input type="text" value="${pair.label || ''}" 
+                                   placeholder="e.g., Active" 
+                                   onchange="updateMappingPair(${idx}, 'label', this.value)"
+                                   style="width: 100%; padding: 0.5rem; border: 1px solid #ddd; border-radius: 4px;">
+                        </div>
+                        <button onclick="removeMappingPair(${idx})" class="btn btn-red btn-small" style="margin-bottom: 0;">✕</button>
+                    </div>
+                `).join('');
+            } else if (mappingType === 'mysql') {
+                container.innerHTML = `
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+                        <div>
+                            <label style="color: #888; font-size: 0.75rem; text-transform: uppercase;">ID Column</label>
+                            <input type="text" value="${col.map_id_col || ''}" 
+                                   placeholder="e.g., id" 
+                                   onchange="updateMappingMySQLField('map_id_col', this.value)"
+                                   style="width: 100%; padding: 0.5rem; border: 1px solid #ddd; border-radius: 4px; margin-top: 0.25rem;">
+                        </div>
+                        <div>
+                            <label style="color: #888; font-size: 0.75rem; text-transform: uppercase;">Value Column</label>
+                            <input type="text" value="${col.map_value_col || ''}" 
+                                   placeholder="e.g., name" 
+                                   onchange="updateMappingMySQLField('map_value_col', this.value)"
+                                   style="width: 100%; padding: 0.5rem; border: 1px solid #ddd; border-radius: 4px; margin-top: 0.25rem;">
+                        </div>
+                    </div>
+                    <button onclick="openQueryEditorModal()" class="btn btn-blue btn-small" style="width: 100%; margin-top: 0.5rem;">Edit Query</button>
+                `;
+            }
+        }
+
+        function updateMappingType(newType) {
+            mappingType = newType;
+            renderMappingPairs();
+        }
+
+        function updateMappingMySQLField(field, value) {
+            if (currentMappingColIndex !== null) {
+                columns[currentMappingColIndex][field] = value;
+            }
+        }
+
+        function openQueryEditorModal() {
+            const col = columns[currentMappingColIndex];
+            const textarea = document.getElementById('queryEditorTextarea');
+            if (textarea) textarea.value = col.map_query || '';
+            
+            const modal = document.getElementById('queryEditorModal');
+            const backdrop = document.getElementById('queryEditorBackdrop');
+            if (modal) modal.style.display = 'flex';
+            if (backdrop) backdrop.style.display = 'block';
+        }
+
+        function closeQueryEditorModal() {
+            const modal = document.getElementById('queryEditorModal');
+            const backdrop = document.getElementById('queryEditorBackdrop');
+            if (modal) modal.style.display = 'none';
+            if (backdrop) backdrop.style.display = 'none';
+        }
+
+        function saveQueryEditorModal() {
+            if (currentMappingColIndex === null) return;
+            
+            const textarea = document.getElementById('queryEditorTextarea');
+            if (textarea) {
+                columns[currentMappingColIndex].map_query = textarea.value;
+                renderMappingPairs();
+            }
+            
+            closeQueryEditorModal();
+        }
+
+        function saveMappingModal() {
+            if (currentMappingColIndex === null) return;
+            
+            const col = columns[currentMappingColIndex];
+            
+            if (mappingType === 'static') {
+                // Build map object from pairs
+                const mapObj = {};
+                let hasValidPairs = false;
+                
+                mappingPairs.forEach(pair => {
+                    if (pair.value && pair.label) {
+                        mapObj[pair.value] = pair.label;
+                        hasValidPairs = true;
+                    }
+                });
+                
+                // Set static mapping
+                col.map = hasValidPairs ? mapObj : {};
+                col.map_type = 'static';
+            } else if (mappingType === 'mysql') {
+                // Clear static mapping for MySQL type
+                col.map = {};
+                col.map_type = 'mysql';
+                // map_query, map_id_col, map_value_col already set via updateMappingMySQLField and saveQueryEditorModal
+            }
+            
+            closeMappingModal();
+            renderColumns();
+            updateOutput();
+        }
+
         // Set up beforeunload event listener
         window.addEventListener('beforeunload', (e) => {
             // Check if we have unsaved changes (new config with changes or loaded config with changes)
@@ -3797,6 +4040,43 @@
             initializeApp();
         }
     </script>
+
+    <!-- Mapping Modal -->
+    <div id="mappingModalBackdrop" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.7); z-index: 9998;"></div>
+    <div id="mappingModal" style="display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #234656; border: 2px solid #404040; border-radius: 8px; padding: 15px; z-index: 9999; min-width: 400px; max-height: 80vh; overflow-y: auto; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3); flex-direction: column; gap: 1.5rem;">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+            <h3 style="margin: 0; color: #ffffff; font-size: 1.25rem;">Column Value Mapping</h3>
+            <button onclick="closeMappingModal()" style="background: none; border: none; color: #ffffff; font-size: 1.5rem; cursor: pointer; padding: 0; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center;">×</button>
+        </div>
+        <div>
+            <label style="color: #888; font-size: 0.75rem; text-transform: uppercase;">Mapping Type</label>
+            <select id="mappingTypeSelect" onchange="updateMappingType(this.value)" style="width: 100%; padding: 0.5rem; border: 1px solid #ddd; border-radius: 4px; margin-top: 0.25rem;">
+                <option value="static">Static</option>
+                <option value="mysql">MySQL</option>
+            </select>
+        </div>
+        <div style="display: flex; justify-content: flex-end;">
+            <button id="addMappingButton" onclick="addMappingPair()" class="btn btn-blue btn-small">Add</button>
+        </div>
+        <div id="mappingPairsContainer" style="max-height: 300px; overflow-y: auto; display: flex; flex-direction: column; gap: 0.75rem;"></div>
+        <div style="display: flex; gap: 0.75rem; justify-content: flex-end;">
+            <button onclick="closeMappingModal()" class="btn btn-bluegrey btn-small">Cancel</button>
+            <button onclick="saveMappingModal()" class="btn btn-green btn-small">Save</button>
+        </div>
+    </div>
+
+    <div id="queryEditorBackdrop" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.5); z-index: 9998;"></div>
+    <div id="queryEditorModal" style="display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #234656; border: 2px solid #404040; border-radius: 8px; padding: 15px; z-index: 9999; min-width: 500px; max-height: 80vh; overflow-y: auto; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3); flex-direction: column; gap: 1rem;">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+            <h3 style="margin: 0; color: #ffffff; font-size: 1.25rem;">Edit Query</h3>
+            <button onclick="closeQueryEditorModal()" style="background: none; border: none; color: #ffffff; font-size: 1.5rem; cursor: pointer; padding: 0; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center;">×</button>
+        </div>
+        <textarea id="queryEditorTextarea" style="width: 100%; padding: 0.75rem; border: 1px solid #ddd; border-radius: 4px; font-family: monospace; font-size: 0.85rem; min-height: 200px; resize: vertical; background: #f5f5f5; color: #333;"></textarea>
+        <div style="display: flex; gap: 0.75rem; justify-content: flex-end;">
+            <button onclick="closeQueryEditorModal()" class="btn btn-bluegrey btn-small">Cancel</button>
+            <button onclick="saveQueryEditorModal()" class="btn btn-green btn-small">Save</button>
+        </div>
+    </div>
 
     </div>
 </body>
