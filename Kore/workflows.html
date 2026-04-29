@@ -452,12 +452,20 @@
 
             try {
                 const workflowId = generateUUID();
+                const beginStepId = generateUUID();
                 const payload = {
                     id: workflowId,
                     name: name,
                     version: '1.0.0',
                     definition: {
-                        steps: []
+                        steps: [
+                            {
+                                id: beginStepId,
+                                name: 'BEGIN',
+                                type: 'Begin',
+                                position: '1,1'
+                            }
+                        ]
                     }
                 };
 
