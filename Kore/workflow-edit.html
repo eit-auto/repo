@@ -18,7 +18,7 @@
         }
 
         body {
-            background: #191A24;
+            background: #0d0e16;
             padding: 0;
             margin: 0;
             color: #e0e0e0;
@@ -201,15 +201,21 @@
         <div style="width: 150px; background: #234656; padding: 15px; overflow-y: auto; border-radius: 6px; box-sizing: border-box; margin-left: 6px; margin-top: 6px; margin-bottom: 6px;">
             <div style="font-size: 0.85rem; font-weight: 600; margin-bottom: 15px; color: #e0e0e0;">Step Types</div>
             <div id="stepTypesList" style="display: flex; flex-direction: column; gap: 8px;">
-                <div draggable="true" class="step-type-item" data-type="Generic" style="padding: 0; background: #0a3d55; border: 2px solid #3a7a99; border-radius: 4px; cursor: move; text-align: center; font-size: 0.9rem; color: #ffffff; user-select: none; display: flex; align-items: center; justify-content: center; height: 30px; box-sizing: border-box;">
+                <div draggable="true" class="step-type-item" data-type="Generic" style="padding: 0; background: #3a3a3a; border: 2px solid #666666; border-radius: 4px; cursor: move; text-align: center; font-size: 0.9rem; color: #ffffff; user-select: none; display: flex; align-items: center; justify-content: center; height: 30px; box-sizing: border-box;">
                     Generic
+                </div>
+                <div draggable="true" class="step-type-item" data-type="Test" style="padding: 0; background: #0a3d55; border: 2px solid #3a7a99; border-radius: 4px; cursor: move; text-align: center; font-size: 0.9rem; color: #ffffff; user-select: none; display: flex; align-items: center; justify-content: center; height: 30px; box-sizing: border-box;">
+                    Test
+                </div>
+                <div draggable="true" class="step-type-item" data-type="End" style="padding: 0; background: #5a1a1a; border: 2px solid #cc3333; border-radius: 4px; cursor: move; text-align: center; font-size: 0.9rem; color: #ffffff; user-select: none; display: flex; align-items: center; justify-content: center; height: 30px; box-sizing: border-box;">
+                    End
                 </div>
             </div>
         </div>
 
         <!-- Canvas Area -->
         <div id="canvasContainer" style="flex: 1; position: relative; overflow: hidden; box-sizing: border-box; user-select: none;">
-            <div id="workflowCanvas" style="position: absolute; top: 0; left: 0; width: 5000px; height: 5000px; transform-origin: 0 0; background: transparent; background-image: linear-gradient(rgba(128, 128, 128, 0.3) 1px, transparent 1px), linear-gradient(90deg, rgba(128, 128, 128, 0.3) 1px, transparent 1px); background-size: 30px 30px;">
+            <div id="workflowCanvas" style="position: absolute; top: 0; left: 0; width: 5000px; height: 5000px; transform-origin: 0 0; background: transparent; background-image: linear-gradient(rgba(128, 128, 128, 0.15) 1px, transparent 1px), linear-gradient(90deg, rgba(128, 128, 128, 0.15) 1px, transparent 1px); background-size: 30px 30px;">
             <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: #606060; text-align: center; font-size: 0.9rem; white-space: nowrap; user-select: none; pointer-events: none;">
                 Drag step types here to create steps
             </div>
@@ -355,6 +361,10 @@
             align-items: center;
             justify-content: center;
             z-index: 2;
+            background: #0a3d55 !important;
+            color: #ffffff;
+            border: 2px solid #3a7a99 !important;
+            border-radius: 4px;
         }
 
         /* Connection point base styles */
@@ -367,6 +377,8 @@
             pointer-events: auto;
             cursor: crosshair;
             z-index: 1;
+            background: #3a7a99;
+            border-color: #3a7a99;
         }
 
         /* Step type styles */
@@ -384,15 +396,27 @@
         }
 
         [data-step-type="Generic"] {
-            background: #0a3d55 !important;
+            background: #3a3a3a !important;
             color: #ffffff;
-            border: 2px solid #3a7a99 !important;
+            border: 2px solid #666666 !important;
             border-radius: 4px;
         }
 
         [data-step-type="Generic"] .connectionPoint {
-            background: #3a7a99;
-            border-color: #3a7a99;
+            background: #666666;
+            border-color: #666666;
+        }
+
+        [data-step-type="End"] {
+            background: #5a1a1a !important;
+            color: #ffffff;
+            border: 2px solid #cc3333 !important;
+            border-radius: 4px;
+        }
+
+        [data-step-type="End"] .connectionPoint {
+            background: #cc3333;
+            border-color: #cc3333;
         }
     </style>
 
@@ -614,7 +638,7 @@
                                     'top': 'top: -6px; left: 50%; transform: translateX(-50%);',
                                     'bottom': 'bottom: -6px; left: 50%; transform: translateX(-50%);',
                                     'left': 'left: -6px; top: 50%; transform: translateY(-50%);',
-                                    'right': 'right: -6px; top: 50%; transform: translateY(-50%);'
+                                    'right': 'right: -4px; top: 50%; transform: translateY(-50%);'
                                 };
                                 
                                 connectionPoint.setAttribute('data-connected', 'true');
@@ -670,7 +694,7 @@
                                 canvas.appendChild(caseLine);
                                 
                                 // Render the case line
-                                renderCaseLineFromElements(caseLine, conditionId, targetStepId, canvas);
+                                renderCaseLineInitial(caseLine, conditionId, targetStepId, canvas, frame);
                             });
                         }
                     });
@@ -742,7 +766,9 @@
                 name: '',
                 type: '',
                 action: '',
-                transitions: [],
+                width: 3,
+                height: 1,
+                overrideSize: false,
                 variables: []
             };
             currentSteps.push(newStep);
@@ -1112,15 +1138,16 @@
                     conditionBox.setAttribute('data-condition-id', conditionId);
                     conditionBox.setAttribute('data-transition-type', transition ? transition.type : 'Success');
                     conditionBox.setAttribute('data-frame-id', frameUUID);
+                    const boxColor = colors.color;
                     conditionBox.style.cssText = `
                         width: 56px;
                         height: 27px;
                         margin: 0 0 2px 0;
-                        background: ${colors.background};
+                        background: ${boxColor};
                         border: none;
                         border-radius: 2px;
                         text-align: center;
-                        color: ${colors.text || '#e0e0e0'};
+                        color: #ffffff;
                         font-size: 0.7rem;
                         font-weight: bold;
                         display: flex;
@@ -1130,11 +1157,7 @@
                         flex-shrink: 0;
                         cursor: pointer;
                     `;
-                    conditionBox.textContent = transition ? (
-                        transition.type === 'Always/Logic' 
-                            ? (transition.conditions ? 'Logic' : 'Always')
-                            : transition.type
-                    ) : 'Success';
+                    conditionBox.textContent = transition ? transition.type : 'Success';
                     conditionBox.addEventListener('click', (e) => {
                         e.stopPropagation();
                         showTransitionProperties(conditionId);
@@ -1344,15 +1367,16 @@
                     conditionBox.setAttribute('data-condition-id', conditionId);
                     conditionBox.setAttribute('data-transition-type', transition ? transition.type : 'Success');
                     conditionBox.setAttribute('data-frame-id', frameUUID);
+                    const boxColor = colors.color;
                     conditionBox.style.cssText = `
                         width: 56px;
                         height: 28px;
                         margin-right: 2px;
-                        background: ${colors.background};
+                        background: ${boxColor};
                         border: none;
                         border-radius: 2px;
                         text-align: center;
-                        color: ${colors.text || '#e0e0e0'};
+                        color: #ffffff;
                         font-size: 0.7rem;
                         font-weight: bold;
                         display: flex;
@@ -1362,11 +1386,7 @@
                         flex-shrink: 0;
                         cursor: pointer;
                     `;
-                    conditionBox.textContent = transition ? (
-                        transition.type === 'Always/Logic' 
-                            ? (transition.conditions ? 'Logic' : 'Always')
-                            : transition.type
-                    ) : 'Success';
+                    conditionBox.textContent = transition ? transition.type : 'Success';
                     conditionBox.addEventListener('click', (e) => {
                         e.stopPropagation();
                         showTransitionProperties(conditionId);
@@ -1610,7 +1630,7 @@
                                             const path = createCurvedPath(conditionCenterX, conditionCenterY, startDirection, lineEnd.x, lineEnd.y, nearestSide.name);
                                             
                                             const transitionColors = getTransitionColors(transition.type);
-                                            line.innerHTML = `<defs><marker id="caseArrowhead-${conditionId}" markerWidth="10" markerHeight="10" refX="0" refY="3" orient="auto"><polygon points="0 0, 6 3, 0 6" fill="${transitionColors.line}"/></marker></defs><path d="${path}" stroke="${transitionColors.line}" stroke-width="2" fill="none" marker-end="url(#caseArrowhead-${conditionId})"/><circle cx="${lineEnd.x}" cy="${lineEnd.y}" r="8" fill="transparent" data-case-arrow-hitbox="${conditionId}" style="cursor: grab; pointer-events: auto;" />`;
+                                            line.innerHTML = `<defs><marker id="caseArrowhead-${conditionId}" markerWidth="10" markerHeight="10" refX="0" refY="3" orient="auto"><polygon points="0 0, 6 3, 0 6" fill="${transitionColors.color}"/></marker></defs><path d="${path}" stroke="${transitionColors.color}" stroke-width="2" fill="none" marker-end="url(#caseArrowhead-${conditionId})"/><circle cx="${lineEnd.x}" cy="${lineEnd.y}" r="8" fill="transparent" data-case-arrow-hitbox="${conditionId}" style="cursor: grab; pointer-events: auto;" />`;
                                         }
                                     }
                                 }
@@ -1638,7 +1658,7 @@
                                     'top': 'top: -6px; left: 50%; transform: translateX(-50%);',
                                     'bottom': 'bottom: -6px; left: 50%; transform: translateX(-50%);',
                                     'left': 'left: -6px; top: 50%; transform: translateY(-50%);',
-                                    'right': 'right: -6px; top: 50%; transform: translateY(-50%);'
+                                    'right': 'right: -4px; top: 50%; transform: translateY(-50%);'
                                 };
                                 
                                 connectionPoint.classList.add('connectionPoint');
@@ -1877,7 +1897,7 @@
                                             const path = createCurvedPath(conditionCenterX, conditionCenterY, startDirection, lineEnd.x, lineEnd.y, nearestSide.name);
                                             
                                             const transitionColors = getTransitionColors(transition.type);
-                                            line.innerHTML = `<defs><marker id="caseArrowhead-${conditionId}" markerWidth="10" markerHeight="10" refX="0" refY="3" orient="auto"><polygon points="0 0, 6 3, 0 6" fill="${transitionColors.line}"/></marker></defs><path d="${path}" stroke="${transitionColors.line}" stroke-width="2" fill="none" marker-end="url(#caseArrowhead-${conditionId})"/><circle cx="${lineEnd.x}" cy="${lineEnd.y}" r="8" fill="transparent" data-case-arrow-hitbox="${conditionId}" style="cursor: grab; pointer-events: auto;" />`;
+                                            line.innerHTML = `<defs><marker id="caseArrowhead-${conditionId}" markerWidth="10" markerHeight="10" refX="0" refY="3" orient="auto"><polygon points="0 0, 6 3, 0 6" fill="${transitionColors.color}"/></marker></defs><path d="${path}" stroke="${transitionColors.color}" stroke-width="2" fill="none" marker-end="url(#caseArrowhead-${conditionId})"/><circle cx="${lineEnd.x}" cy="${lineEnd.y}" r="8" fill="transparent" data-case-arrow-hitbox="${conditionId}" style="cursor: grab; pointer-events: auto;" />`;
                                         }
                                     }
                                 }
@@ -1912,11 +1932,12 @@
                         <select id="transitionType" class="form-field-input" style="width: 100%; padding: 6px; box-sizing: border-box; font-size: 0.85rem; background: #1a3540; color: #e0e0e0; border: 1px solid #3a7a99;">
                             <option value="Success" ${transition.type === 'Success' ? 'selected' : ''}>Success</option>
                             <option value="Failure" ${transition.type === 'Failure' ? 'selected' : ''}>Failure</option>
-                            <option value="Always/Logic" ${transition.type === 'Always/Logic' ? 'selected' : ''}>Always/Logic</option>
+                            <option value="Logic" ${transition.type === 'Logic' ? 'selected' : ''}>Logic</option>
+                            <option value="Always" ${transition.type === 'Always' ? 'selected' : ''}>Always</option>
                         </select>
                     </div>
                     
-                    <div id="conditionsDiv" style="display: ${transition.type === 'Always/Logic' ? 'block' : 'none'};">
+                    <div id="conditionsDiv" style="display: ${transition.type === 'Logic' ? 'block' : 'none'}; margin-top: 10px;">">
                         <label style="display: block; font-size: 0.8rem; color: #b0b0b0; margin-bottom: 5px;">Conditions</label>
                         <div style="display: flex; gap: 8px;">
                             <input type="text" id="transitionConditions" class="form-field-input" value="${transition.conditions || ''}" style="flex: 1; padding: 6px; box-sizing: border-box; font-size: 0.85rem;" readonly>
@@ -1942,7 +1963,7 @@
                 // Show/hide conditions div based on type
                 const conditionsDiv = document.getElementById('conditionsDiv');
                 if (conditionsDiv) {
-                    conditionsDiv.style.display = transition.type === 'Always/Logic' ? 'block' : 'none';
+                    conditionsDiv.style.display = transition.type === 'Logic' ? 'block' : 'none';
                 }
                 
                 // Update condition box colors and text
@@ -1953,15 +1974,9 @@
                     conditionBox.setAttribute('data-transition-type', transition.type);
                     
                     const newColors = getTransitionColors(transition.type);
-                    conditionBox.style.background = newColors.background;
-                    conditionBox.style.color = newColors.text || '#e0e0e0';
-                    
-                    // For Always/Logic type, show "Always" or "Logic" based on conditions
-                    if (transition.type === 'Always/Logic') {
-                        conditionBox.textContent = transition.conditions ? 'Logic' : 'Always';
-                    } else {
-                        conditionBox.textContent = transition.type;
-                    }
+                    conditionBox.style.background = newColors.color;
+                    conditionBox.style.color = '#1a1a1a';
+                    conditionBox.textContent = transition.type;
                 }
                 
                 // Update connection line colors
@@ -1981,18 +1996,92 @@
                         document.getElementById('transitionConditions').value = value;
                         transition.conditions = value;
                         
-                        // Update condition box text for Always/Logic type
-                        const canvas = document.getElementById('workflowCanvas');
-                        const conditionBox = canvas.querySelector(`[data-condition-id="${transitionUUID}"]`);
-                        if (conditionBox && transition.type === 'Always/Logic') {
-                            conditionBox.textContent = value ? 'Logic' : 'Always';
-                        }
-                        
                         updatePreview();
                     });
                 }
             }
         });
+
+        function applyStepSizeOverride(stepUUID) {
+            const step = currentSteps.find(s => s.id === stepUUID);
+            if (!step) return;
+            
+            const canvas = document.getElementById('workflowCanvas');
+            const stepElement = canvas.querySelector(`[data-step-uuid="${stepUUID}"]`);
+            if (!stepElement) return;
+            
+            let newWidth, newHeight;
+            
+            if (step.overrideSize) {
+                // Use override values
+                newWidth = Math.max(2, step.width || 3) * 30;  // Convert grid units to pixels
+                newHeight = Math.max(1, step.height || 1) * 30;
+            } else {
+                // Auto-calculate width from text, height is 1 grid unit
+                const textDiv = stepElement.querySelector('div');
+                if (textDiv) {
+                    const textWidth = textDiv.offsetWidth;
+                    let requiredWidth = 90; // Start with minimum (3 grid units)
+                    if (textWidth > 82) {
+                        const gridSpaces = Math.ceil((textWidth - 82) / 30);
+                        requiredWidth = 90 + (gridSpaces * 30);
+                    }
+                    newWidth = requiredWidth;
+                } else {
+                    newWidth = 90;
+                }
+                newHeight = 30; // 1 grid unit
+            }
+            
+            // Update step data with final width/height values (in grid units for storage)
+            step.width = newWidth / 30;
+            step.height = newHeight / 30;
+            
+            // Apply sizing to element
+            stepElement.style.width = newWidth + 'px';
+            stepElement.style.height = newHeight + 'px';
+            
+            // Update all connection lines for this step
+            updateAllConnectionLinesForStep(stepUUID);
+        }
+
+        function updateAllConnectionLinesForStep(stepUUID) {
+            const canvas = document.getElementById('workflowCanvas');
+            const stepElement = canvas.querySelector(`[data-step-uuid="${stepUUID}"]`);
+            if (!stepElement) return;
+            
+            // Update blue lines from this step
+            const blueLines = canvas.querySelectorAll(`[data-connection-line][data-from-step="${stepUUID}"]`);
+            blueLines.forEach(line => {
+                const frameUUID = line.getAttribute('data-connection-line');
+                const frameElement = canvas.querySelector(`[data-transition-frame="${frameUUID}"]`);
+                if (frameElement) {
+                    const closestSide = getClosestSideToFrame(stepElement, frameElement, canvas);
+                    updateBlueTransitionLine(line, frameUUID, stepUUID, closestSide, canvas);
+                    
+                    // Update connection point
+                    const connectionPoint = stepElement.querySelector('[data-connection-point]');
+                    if (connectionPoint) {
+                        const positionStyles = {
+                            'top': 'top: -6px; left: 50%; transform: translateX(-50%);',
+                            'bottom': 'bottom: -6px; left: 50%; transform: translateX(-50%);',
+                            'left': 'left: -6px; top: 50%; transform: translateY(-50%);',
+                            'right': 'right: -4px; top: 50%; transform: translateY(-50%);'
+                        };
+                        connectionPoint.classList.add('connectionPoint');
+                        connectionPoint.style.cssText = positionStyles[closestSide];
+                    }
+                }
+            });
+            
+            // Update case lines pointing to this step
+            const caseLines = canvas.querySelectorAll(`[data-transition-connection-line][data-to-step="${stepUUID}"]`);
+            caseLines.forEach(line => {
+                const fromTransitionId = line.getAttribute('data-from-transition');
+                const frame = currentTransitionFrames.find(f => f.conditions.includes(fromTransitionId));
+                renderCaseLineInitial(line, fromTransitionId, stepUUID, canvas, frame);
+            });
+        }
 
         function showStepProperties(stepUUID) {
             const step = currentSteps.find(s => s.id === stepUUID);
@@ -2051,6 +2140,24 @@
                             ${variablesHTML}
                         </div>
                         <button id="addVariableBtn" class="btn btn-blue" style="width: 100%; padding: 6px; margin-top: 8px;">Add Variable</button>
+                    </div>
+                    
+                    <div style="border-top: 1px solid #3a7a99; padding-top: 10px; margin-top: 10px;">
+                        <label style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px; cursor: pointer;">
+                            <input type="checkbox" id="overrideSizeCheckbox" ${step.overrideSize ? 'checked' : ''} style="cursor: pointer;">
+                            <span style="font-size: 0.85rem; color: #b0b0b0;">Override Size</span>
+                        </label>
+                        
+                        <div id="sizeOverrideInputs" style="display: ${step.overrideSize ? 'flex' : 'none'}; flex-direction: column; gap: 10px;">
+                            <div>
+                                <label style="display: block; font-size: 0.8rem; color: #b0b0b0; margin-bottom: 5px;">Width (grid units)</label>
+                                <input type="number" id="overrideWidth" class="form-field-input" value="${step.width || 3}" min="2" style="width: 100%; padding: 6px; box-sizing: border-box; font-size: 0.85rem;">
+                            </div>
+                            <div>
+                                <label style="display: block; font-size: 0.8rem; color: #b0b0b0; margin-bottom: 5px;">Height (grid units)</label>
+                                <input type="number" id="overrideHeight" class="form-field-input" value="${step.height || 1}" min="1" style="width: 100%; padding: 6px; box-sizing: border-box; font-size: 0.85rem;">
+                            </div>
+                        </div>
                     </div>
                     
                     <div style="border-top: 1px solid #3a7a99; padding-top: 10px; margin-top: 10px;">
@@ -2184,7 +2291,7 @@
                                 const greenCurvePath = createCurvedPath(x1, y1, 'bottom', nearestSide.x, nearestSide.y, nearestSide.name);
                                 const transitionData = currentTransitions.find(t => t.id === fromTransitionId);
                                 const transitionColors = getTransitionColors(transitionData ? transitionData.type : 'Success');
-                                line.innerHTML = `<defs><marker id="greenArrowhead" markerWidth="10" markerHeight="10" refX="0" refY="3" orient="auto"><polygon points="0 0, 6 3, 0 6" fill="${transitionColors.line}"/></marker></defs><path d="${greenCurvePath}" stroke="${transitionColors.line}" stroke-width="2" fill="none" marker-end="url(#greenArrowhead)"/>`;
+                                line.innerHTML = `<defs><marker id="greenArrowhead" markerWidth="10" markerHeight="10" refX="0" refY="3" orient="auto"><polygon points="0 0, 6 3, 0 6" fill="${transitionColors.color}"/></marker></defs><path d="${greenCurvePath}" stroke="${transitionColors.color}" stroke-width="2" fill="none" marker-end="url(#greenArrowhead)"/>`;
                             }
                         });
                         }
@@ -2235,6 +2342,41 @@
                 showStepProperties(stepUUID); // Refresh to show new variable
                 updatePreview();
             });
+            
+            // Add event listeners for size override
+            const overrideSizeCheckbox = document.getElementById('overrideSizeCheckbox');
+            const sizeOverrideInputs = document.getElementById('sizeOverrideInputs');
+            const overrideWidthInput = document.getElementById('overrideWidth');
+            const overrideHeightInput = document.getElementById('overrideHeight');
+            
+            if (overrideSizeCheckbox) {
+                overrideSizeCheckbox.addEventListener('change', (e) => {
+                    step.overrideSize = e.target.checked;
+                    sizeOverrideInputs.style.display = e.target.checked ? 'flex' : 'none';
+                    applyStepSizeOverride(stepUUID);
+                    updatePreview();
+                });
+            }
+            
+            if (overrideWidthInput) {
+                overrideWidthInput.addEventListener('change', (e) => {
+                    const width = Math.max(2, parseInt(e.target.value) || 3);
+                    e.target.value = width;
+                    step.width = width;
+                    applyStepSizeOverride(stepUUID);
+                    updatePreview();
+                });
+            }
+            
+            if (overrideHeightInput) {
+                overrideHeightInput.addEventListener('change', (e) => {
+                    const height = Math.max(1, parseInt(e.target.value) || 1);
+                    e.target.value = height;
+                    step.height = height;
+                    applyStepSizeOverride(stepUUID);
+                    updatePreview();
+                });
+            }
         }
 
         function rebuildTransitionsFromUI() {
@@ -2746,38 +2888,40 @@
             pathElement.setAttribute('d', newPath);
         }
 
-        function renderCaseLineFromElements(line, conditionId, targetStepId, canvasElement) {
+        function renderCaseLineInitial(line, conditionId, targetStepId, canvasElement, frame) {
+            // Find the condition box to get the start point
+            const conditionBox = canvasElement.querySelector(`[data-condition-id="${conditionId}"]`);
             const targetStep = canvasElement.querySelector(`[data-step-uuid="${targetStepId}"]`);
-            if (!targetStep) return;
             
-            // Extract start point from existing path - never recalculate it
-            const pathElement = line.querySelector('path');
-            if (!pathElement) return;
+            if (!conditionBox || !targetStep) return;
             
-            const pathData = pathElement.getAttribute('d');
-            const pathMatch = pathData.match(/M\s+([\d.-]+)\s+([\d.-]+)/);
-            if (!pathMatch) return;
+            const conditionRect = conditionBox.getBoundingClientRect();
+            const canvasRect = canvasElement.getBoundingClientRect();
             
-            const startX = parseFloat(pathMatch[1]);
-            const startY = parseFloat(pathMatch[2]);
+            let startX, startY, startDirection;
             
-            // Get the container that applies the transform
-            const container = document.getElementById('canvasContainer');
-            if (!container) return;
+            if (frame && frame.verticalLayout) {
+                // Vertical layout: start from right edge at arrow center
+                startX = conditionRect.right - canvasRect.left;
+                startY = conditionRect.top - canvasRect.top + conditionRect.height / 2;
+                startDirection = 'right';
+            } else {
+                // Horizontal layout: start from bottom + arrow offset
+                startX = conditionRect.left - canvasRect.left + conditionRect.width / 2;
+                startY = conditionRect.bottom - canvasRect.top + 5;
+                startDirection = 'bottom';
+            }
             
-            const containerRect = container.getBoundingClientRect();
-            
-            // Measure step position in screen space
+            // Get target step position
             const stepRect = targetStep.getBoundingClientRect();
             const stepScreenCenterX = stepRect.left + stepRect.width / 2;
             const stepScreenCenterY = stepRect.top + stepRect.height / 2;
             
-            // Convert step position to canvas grid coordinates
-            const stepCenterX = ((stepScreenCenterX - containerRect.left) / zoomLevel) + panX;
-            const stepCenterY = ((stepScreenCenterY - containerRect.top) / zoomLevel) + panY;
+            const stepCenterX = stepScreenCenterX - canvasRect.left;
+            const stepCenterY = stepScreenCenterY - canvasRect.top;
             
-            const stepWidth = (stepRect.width / zoomLevel);
-            const stepHeight = (stepRect.height / zoomLevel);
+            const stepWidth = stepRect.width;
+            const stepHeight = stepRect.height;
             
             // Find nearest side of step
             const stepSideCenters = [
@@ -2800,23 +2944,13 @@
             // Offset endpoint 15 grid units away from edge
             const lineEnd = offsetPointFromEdge(nearestSide.x, nearestSide.y, nearestSide.name, 15);
             
-            // Determine start direction based on the frame's layout mode
-            const transition = currentTransitions.find(t => t.id === conditionId);
-            let startDirection = 'bottom'; // default
-            
-            if (transition) {
-                // Find the frame that contains this condition
-                const frame = currentTransitionFrames.find(f => f.conditions.includes(conditionId));
-                if (frame && frame.verticalLayout) {
-                    startDirection = 'right';
-                }
-            }
-            
             const path = createCurvedPath(startX, startY, startDirection, lineEnd.x, lineEnd.y, nearestSide.name);
             
+            const transition = currentTransitions.find(t => t.id === conditionId);
             const transitionColors = transition ? getTransitionColors(transition.type) : getTransitionColors('Success');
-            line.innerHTML = `<defs><marker id="caseArrowhead-${conditionId}" markerWidth="10" markerHeight="10" refX="0" refY="3" orient="auto"><polygon points="0 0, 6 3, 0 6" fill="${transitionColors.line}"/></marker></defs><path d="${path}" stroke="${transitionColors.line}" stroke-width="2" fill="none" marker-end="url(#caseArrowhead-${conditionId})"/><circle cx="${lineEnd.x}" cy="${lineEnd.y}" r="8" fill="transparent" data-case-arrow-hitbox="${conditionId}" style="cursor: grab; pointer-events: auto;" />`;
+            line.innerHTML = `<defs><marker id="caseArrowhead-${conditionId}" markerWidth="10" markerHeight="10" refX="0" refY="3" orient="auto"><polygon points="0 0, 6 3, 0 6" fill="${transitionColors.color}"/></marker></defs><path d="${path}" stroke="${transitionColors.color}" stroke-width="2" fill="none" marker-end="url(#caseArrowhead-${conditionId})"/><circle cx="${lineEnd.x}" cy="${lineEnd.y}" r="8" fill="transparent" data-case-arrow-hitbox="${conditionId}" style="cursor: grab; pointer-events: auto;" />`;
         }
+
 
         // Helper function to create curved SVG path from one side of a box to another
         function offsetPointFromEdge(x, y, side, offset = 6) {
@@ -2904,8 +3038,8 @@
                 width: 58px;
                 height: 28px;
                 border-radius: 4px;
-                background: ${colors.background};
-                border: 2px solid ${colors.border};
+                background: ${colors.color};
+                border: none;
                 pointer-events: auto;
                 cursor: move;
                 box-sizing: border-box;
@@ -2921,12 +3055,12 @@
             typeText.className = 'transition-type-text';
             typeText.style.cssText = `
                 font-size: 0.7rem;
-                color: #e0e0e0;
+                color: #ffffff;
                 user-select: none;
                 pointer-events: none;
                 text-align: center;
             `;
-            typeText.textContent = getTransitionDisplayText(transitionData.type, transitionData.conditions);
+            typeText.textContent = transitionData.type;
             conditionBox.appendChild(typeText);
             
             // Add bottom down arrow (visual only, not draggable)
@@ -2941,7 +3075,7 @@
                 transform: translateX(-50%) translateY(-3px);
                 pointer-events: auto;
                 font-size: 14px;
-                color: ${colors.line};
+                color: ${colors.color};
                 display: flex;
                 align-items: center;
                 justify-content: center;
@@ -3047,19 +3181,16 @@
         function getTransitionColors(type) {
             const colors = {
                 'Success': {
-                    background: '#0d5a2d',
-                    border: '#00ff00',
-                    line: '#00ff00'
+                    color: '#008000'
                 },
                 'Failure': {
-                    background: '#4a1a1a',
-                    border: '#ff4444',
-                    line: '#ff4444'
+                    color: '#a00000'
                 },
-                'Always/Logic': {
-                    background: '#3a3a3a',
-                    border: '#d0d0d0',
-                    line: '#d0d0d0'
+                'Logic': {
+                    color: '#1a5577'
+                },
+                'Always': {
+                    color: '#666666'
                 }
             };
             return colors[type] || colors['Success'];
@@ -3076,11 +3207,10 @@
                 let innerHTML = line.innerHTML;
                 
                 // Replace any hex color (#xxxxxx) with the new color
-                // This handles green (#00aa00), red (#d9534f), grey (#b0b0b0), etc.
-                innerHTML = innerHTML.replace(/#[0-9a-fA-F]{6}/g, colors.line);
+                innerHTML = innerHTML.replace(/#[0-9a-fA-F]{6}/g, colors.color);
                 
-                // Also replace greenArrowhead with a unique ID for this transition
-                innerHTML = innerHTML.replace(/greenArrowhead/g, `arrowhead-${transitionId}`);
+                // Also replace arrowhead ID
+                innerHTML = innerHTML.replace(/arrowhead-[^"]+/g, `arrowhead-${transitionId}`);
                 
                 // Update the innerHTML to apply the new colors
                 line.innerHTML = innerHTML;
@@ -3309,7 +3439,7 @@
                         if (transition) {
                             const transitionColors = getTransitionColors(transition.type);
                             const path = createCurvedPath(caseArrowStartX, caseArrowStartY, 'bottom', currentX, currentY, 'bottom');
-                            previewLine.innerHTML = `<path d="${path}" stroke="${transitionColors.line}" stroke-width="2" fill="none" stroke-dasharray="5,5"/>`;
+                            previewLine.innerHTML = `<path d="${path}" stroke="${transitionColors.color}" stroke-width="2" fill="none" stroke-dasharray="5,5"/>`;
                         }
                     };
                     
@@ -3366,44 +3496,16 @@
                                 if (oldCaseLine) oldCaseLine.remove();
                                 
                                 // Recreate the case line with the new target
-                                const targetStep = canvas.querySelector(`[data-step-uuid="${droppedOnStep}"]`);
-                                if (targetStep) {
-                                    const stepX = parseInt(targetStep.style.left);
-                                    const stepY = parseInt(targetStep.style.top);
-                                    const stepWidth = parseInt(targetStep.style.width);
-                                    const stepHeight = parseInt(targetStep.style.height);
-                                    
-                                    const stepSideCenters = [
-                                        { x: stepX + stepWidth / 2, y: stepY, name: 'top' },
-                                        { x: stepX + stepWidth / 2, y: stepY + stepHeight, name: 'bottom' },
-                                        { x: stepX, y: stepY + stepHeight / 2, name: 'left' },
-                                        { x: stepX + stepWidth, y: stepY + stepHeight / 2, name: 'right' }
-                                    ];
-                                    
-                                    let nearestSide = stepSideCenters[0];
-                                    let minDistance = Infinity;
-                                    stepSideCenters.forEach(side => {
-                                        const distance = Math.hypot(caseArrowStartX - side.x, caseArrowStartY - side.y);
-                                        if (distance < minDistance) {
-                                            minDistance = distance;
-                                            nearestSide = side;
-                                        }
-                                    });
-                                    
-                                    const lineEnd = offsetPointFromEdge(nearestSide.x, nearestSide.y, nearestSide.name, 15);
-                                    const path = createCurvedPath(caseArrowStartX, caseArrowStartY, 'bottom', lineEnd.x, lineEnd.y, nearestSide.name);
-                                    
-                                    const newLine = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-                                    newLine.setAttribute('data-transition-connection-line', 'true');
-                                    newLine.setAttribute('data-from-transition', draggedCaseConditionId);
-                                    newLine.setAttribute('data-to-step', droppedOnStep);
-                                    newLine.style.cssText = `position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: auto; z-index: 0;`;
-                                    
-                                    const transitionColors = getTransitionColors(transition.type);
-                                    newLine.innerHTML = `<defs><marker id="caseArrowhead-${draggedCaseConditionId}" markerWidth="10" markerHeight="10" refX="0" refY="3" orient="auto"><polygon points="0 0, 6 3, 0 6" fill="${transitionColors.line}"/></marker></defs><path d="${path}" stroke="${transitionColors.line}" stroke-width="2" fill="none" marker-end="url(#caseArrowhead-${draggedCaseConditionId})"/><circle cx="${lineEnd.x}" cy="${lineEnd.y}" r="8" fill="transparent" data-case-arrow-hitbox="${draggedCaseConditionId}" style="cursor: grab; pointer-events: auto;" />`;
-                                    
-                                    canvas.appendChild(newLine);
-                                }
+                                const newLine = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+                                newLine.setAttribute('data-transition-connection-line', 'true');
+                                newLine.setAttribute('data-from-transition', draggedCaseConditionId);
+                                newLine.setAttribute('data-to-step', droppedOnStep);
+                                newLine.style.cssText = `position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: auto; z-index: 0;`;
+                                canvas.appendChild(newLine);
+                                
+                                // Use the standard case line rendering
+                                const frame = currentTransitionFrames.find(f => f.conditions.includes(draggedCaseConditionId));
+                                renderCaseLineInitial(newLine, draggedCaseConditionId, droppedOnStep, canvas, frame);
                             } else if (!droppedOnStep && draggedCaseTargetStepId) {
                                 console.log('Deleting connection');
                                 // Dropped on empty space - delete the connection
@@ -3532,39 +3634,9 @@
                             `;
                             canvas.appendChild(connectionLine);
                             
-                            // Draw the curved line
-                            const stepRect = stepElement.getBoundingClientRect();
-                            const canvasRect = canvas.getBoundingClientRect();
-                            const stepX = (stepRect.left - canvasRect.left) / zoomLevel + panX;
-                            const stepY = (stepRect.top - canvasRect.top) / zoomLevel + panY;
-                            const stepWidth = stepRect.width / zoomLevel;
-                            const stepHeight = stepRect.height / zoomLevel;
-                            
-                            // Find nearest side of step
-                            const stepSideCenters = [
-                                { x: stepX + stepWidth / 2, y: stepY, name: 'top' },
-                                { x: stepX + stepWidth / 2, y: stepY + stepHeight, name: 'bottom' },
-                                { x: stepX, y: stepY + stepHeight / 2, name: 'left' },
-                                { x: stepX + stepWidth, y: stepY + stepHeight / 2, name: 'right' }
-                            ];
-                            
-                            let nearestSide = stepSideCenters[0];
-                            let minDistance = Infinity;
-                            stepSideCenters.forEach(side => {
-                                const distance = Math.hypot(transitionStartX - side.x, transitionStartY - side.y);
-                                if (distance < minDistance) {
-                                    minDistance = distance;
-                                    nearestSide = side;
-                                }
-                            });
-                            
-                            // Use edge center offset 6px away as endpoint
-                            const lineEnd = offsetPointFromEdge(nearestSide.x, nearestSide.y, nearestSide.name, 15);
-                            const curvedPath = createCurvedPath(transitionStartX, transitionStartY, 'bottom', lineEnd.x, lineEnd.y, nearestSide.name);
-                            
-                            // Get transition colors based on type
-                            const transitionColors = getTransitionColors(transition.type);
-                            connectionLine.innerHTML = `<defs><marker id="caseArrowhead-${savedTransitionId}" markerWidth="10" markerHeight="10" refX="0" refY="3" orient="auto"><polygon points="0 0, 6 3, 0 6" fill="${transitionColors.line}"/></marker></defs><path d="${curvedPath}" stroke="${transitionColors.line}" stroke-width="2" fill="none" marker-end="url(#caseArrowhead-${savedTransitionId})"/><circle cx="${lineEnd.x}" cy="${lineEnd.y}" r="8" fill="transparent" data-case-arrow-hitbox="${savedTransitionId}" style="cursor: grab; pointer-events: auto;" />`;
+                            // Use standard case line rendering
+                            const frame = currentTransitionFrames.find(f => f.conditions.includes(savedTransitionId));
+                            renderCaseLineInitial(connectionLine, savedTransitionId, targetStepId, canvas, frame);
                             
                             updatePreview();
                         }
@@ -3621,9 +3693,18 @@
                 posY = gridY * 30;
             }
             
-            // Initial size: 90px width (3 gridboxes) x 30px height
-            let width = 90;
-            let height = 30;
+            // Determine size: use override if set, otherwise auto-calculate
+            let width, height;
+            
+            if (stepData.overrideSize) {
+                // Use override values (in grid units, convert to pixels)
+                width = Math.max(2, stepData.width || 3) * 30;
+                height = Math.max(1, stepData.height || 1) * 30;
+            } else {
+                // Default values
+                width = 90;  // 3 grid units
+                height = 30; // 1 grid unit
+            }
             
             // Only set positioning and sizing in inline styles
             stepElement.style.cssText = `
@@ -3650,12 +3731,16 @@
             const textWidth = textContainer.offsetWidth;
             const textHeight = textContainer.offsetHeight;
             
-            // Expand width if needed (82px threshold with 30px grid increments)
-            if (textWidth > 82) {
+            // If not overriding size, expand width if needed (82px threshold with 30px grid increments)
+            if (!stepData.overrideSize && textWidth > 82) {
                 const gridSpaces = Math.ceil((textWidth - 82) / 30);
                 width = 90 + (gridSpaces * 30);
                 stepElement.style.width = width + 'px';
             }
+            
+            // Always store the final width/height in step data (in grid units)
+            stepData.width = width / 30;
+            stepData.height = height / 30;
             
             // Add click handler to show properties
             stepElement.addEventListener('click', (e) => {
@@ -3698,6 +3783,7 @@
             // Add drag-to-draw line functionality
             let isDrawing = false;
             let startX, startY;
+            let screenStartX, screenStartY;
             let fromStepId = null;
             let fromStepUUID = null;  // Store the step UUID for updateBlueTransitionLine
             let frameUUID = ''; // Will be generated when drag completes
@@ -3710,8 +3796,9 @@
                 const rect = stepElement.getBoundingClientRect();
                 const canvasRect = canvas.getBoundingClientRect();
                 const circleRect = circle.getBoundingClientRect();
-                const screenStartX = circleRect.left - canvasRect.left + 6; // Center of circle
-                const screenStartY = circleRect.top - canvasRect.top + 6;
+                // Store for use in handleMouseMove
+                screenStartX = circleRect.left - canvasRect.left + 6;
+                screenStartY = circleRect.top - canvasRect.top + 6;
                 // Convert to grid coordinates
                 startX = (screenStartX / zoomLevel) + panX;
                 startY = (screenStartY / zoomLevel) + panY;
@@ -3728,11 +3815,8 @@
                     const canvasRect = canvas.getBoundingClientRect();
                     const screenCurrentX = e.clientX - canvasRect.left;
                     const screenCurrentY = e.clientY - canvasRect.top;
-                    // Convert to grid coordinates
-                    const currentX = (screenCurrentX / zoomLevel) + panX;
-                    const currentY = (screenCurrentY / zoomLevel) + panY;
                     
-                    // Update or create line preview
+                    // Update or create line preview (use screen coordinates)
                     let line = canvas.querySelector('[data-preview-line]');
                     if (!line) {
                         line = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
@@ -3749,7 +3833,7 @@
                         canvas.appendChild(line);
                     }
                     
-                    line.innerHTML = `<line x1="${startX}" y1="${startY}" x2="${currentX}" y2="${currentY}" stroke="#3a7a99" stroke-width="2"/>`;
+                    line.innerHTML = `<line x1="${screenStartX}" y1="${screenStartY}" x2="${screenCurrentX}" y2="${screenCurrentY}" stroke="#3a7a99" stroke-width="2"/>`;
                 }
             };
             
@@ -3763,9 +3847,9 @@
                         const screenEndX = e.clientX - canvasRect.left;
                         const screenEndY = e.clientY - canvasRect.top;
                         
-                        // Convert to grid coordinates
-                        const gridEndX = (screenEndX / zoomLevel) + panX;
-                        const gridEndY = (screenEndY / zoomLevel) + panY;
+                        // Convert to grid coordinates (no pan offset - we're measuring screen space directly)
+                        const gridEndX = (screenEndX / zoomLevel);
+                        const gridEndY = (screenEndY / zoomLevel);
                         
                         // Check minimum drag distance
                         const dragDistance = Math.hypot(gridEndX - startX, gridEndY - startY);
@@ -3777,9 +3861,14 @@
                         // Generate unique frame ID
                         frameUUID = String(Date.now()) + '-' + Math.random().toString(36).substr(2, 9);
                         
-                        // Snap to 15px grid (half-grid) visually, but store as 30px grid coordinates
-                        const snappedX = Math.round(gridEndX / 15) * 15;
-                        const snappedY = Math.round(gridEndY / 15) * 15;
+                        // Frame is 90px wide x 60px tall, so center offset is 45px x 30px
+                        // Calculate center point of frame in grid units
+                        const frameCenterGridX = gridEndX - (45 / zoomLevel);
+                        const frameCenterGridY = gridEndY - (30 / zoomLevel);
+                        
+                        // Snap center to nearest half-grid (15px)
+                        const snappedX = Math.round(frameCenterGridX / 15) * 15;
+                        const snappedY = Math.round(frameCenterGridY / 15) * 15;
                         
                         // Convert to 30px grid coordinates for storage
                         const frameGridX = snappedX / 30;
@@ -4036,7 +4125,7 @@
                                         'top': 'top: -6px; left: 50%; transform: translateX(-50%);',
                                         'bottom': 'bottom: -6px; left: 50%; transform: translateX(-50%);',
                                         'left': 'left: -6px; top: 50%; transform: translateY(-50%);',
-                                        'right': 'right: -6px; top: 50%; transform: translateY(-50%);'
+                                        'right': 'right: -4px; top: 50%; transform: translateY(-50%);'
                                     };
                                     
                                     connectionPoint.classList.add('connectionPoint');
@@ -4052,7 +4141,8 @@
                     const caseLines = canvas.querySelectorAll(`[data-transition-connection-line][data-to-step="${stepData.id}"]`);
                     caseLines.forEach(line => {
                         const fromTransitionId = line.getAttribute('data-from-transition');
-                        renderCaseLineFromElements(line, fromTransitionId, stepData.id, canvas);
+                        const frame = currentTransitionFrames.find(f => f.conditions.includes(fromTransitionId));
+                        renderCaseLineInitial(line, fromTransitionId, stepData.id, canvas, frame);
                     });
                 }
                 
@@ -4107,6 +4197,9 @@
                 name: stepType === 'Generic' ? 'Generic' : `${stepType} Step`,
                 type: stepType,
                 action: '',
+                width: 3,
+                height: 1,
+                overrideSize: false,
                 variables: [],
                 position: `${gridX},${gridY}`
             };
