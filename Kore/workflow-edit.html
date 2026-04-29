@@ -201,14 +201,20 @@
         <div style="width: 150px; background: #234656; padding: 15px; overflow-y: auto; border-radius: 6px; box-sizing: border-box; margin-left: 6px; margin-top: 6px; margin-bottom: 6px;">
             <div style="font-size: 0.85rem; font-weight: 600; margin-bottom: 15px; color: #e0e0e0;">Step Types</div>
             <div id="stepTypesList" style="display: flex; flex-direction: column; gap: 8px;">
-                <div draggable="true" class="step-type-item" data-type="Generic" style="padding: 0; background: #3a3a3a; border: 2px solid #666666; border-radius: 4px; cursor: move; text-align: center; font-size: 0.9rem; color: #ffffff; user-select: none; display: flex; align-items: center; justify-content: center; height: 30px; box-sizing: border-box;">
-                    Generic
+                <div draggable="true" class="step-type-item" data-type="Kore" style="padding: 0; background: #3a3a3a; border: 2px solid #666666; border-radius: 4px; cursor: move; text-align: center; font-size: 0.9rem; color: #ffffff; user-select: none; display: flex; align-items: center; justify-content: center; height: 30px; box-sizing: border-box;">
+                    Kore
                 </div>
                 <div draggable="true" class="step-type-item" data-type="Test" style="padding: 0; background: #0a3d55; border: 2px solid #3a7a99; border-radius: 4px; cursor: move; text-align: center; font-size: 0.9rem; color: #ffffff; user-select: none; display: flex; align-items: center; justify-content: center; height: 30px; box-sizing: border-box;">
                     Test
                 </div>
                 <div draggable="true" class="step-type-item" data-type="End" style="padding: 0; background: #5a1a1a; border: 2px solid #cc3333; border-radius: 4px; cursor: move; text-align: center; font-size: 0.9rem; color: #ffffff; user-select: none; display: flex; align-items: center; justify-content: center; height: 30px; box-sizing: border-box;">
                     End
+                </div>
+                <div draggable="true" class="step-type-item" data-type="Workflow" style="padding: 0; background: #4a1f77; border: 2px solid #7733bb; border-radius: 4px; cursor: move; text-align: center; font-size: 0.9rem; color: #ffffff; user-select: none; display: flex; align-items: center; justify-content: center; height: 30px; box-sizing: border-box;">
+                    Workflow
+                </div>
+                <div draggable="true" class="step-type-item" data-type="RMM" style="padding: 0; background: #0a3d55; border: 2px solid #3a7a99; border-radius: 4px; cursor: move; text-align: center; font-size: 0.9rem; color: #ffffff; user-select: none; display: flex; align-items: center; justify-content: center; height: 30px; box-sizing: border-box;">
+                    RMM
                 </div>
             </div>
         </div>
@@ -219,6 +225,14 @@
             <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: #606060; text-align: center; font-size: 0.9rem; white-space: nowrap; user-select: none; pointer-events: none;">
                 Drag step types here to create steps
             </div>
+            </div>
+            
+            <!-- Zoom Control -->
+            <div style="position: absolute; bottom: 0; right: 0; margin-bottom: 6px; margin-right: 6px; background: #234656; border: 1px solid #234656; border-radius: 4px; display: flex; align-items: center; justify-content: center; user-select: none; z-index: 100;">
+                <button onclick="zoomOut()" style="background: transparent; border: none; color: #ffffff; cursor: pointer; font-size: 1.2rem; display: flex; align-items: center; justify-content: center; width: 24px; height: 24px;">−</button>
+                <span id="zoomDisplay" style="color: #ffffff; background: #1a3245; border: 1px solid #234656; border-radius: 6px; font-size: 0.9rem; width: 41px; text-align: center;">100%</span>
+                <button onclick="zoomIn()" style="background: transparent; border: none; color: #ffffff; cursor: pointer; font-size: 1.2rem; display: flex; align-items: center; justify-content: center; width: 24px; height: 24px;">+</button>
+                <button onclick="resetZoom()" style="background: transparent; border: none; color: #ffffff; cursor: pointer; font-size: 1rem; display: flex; align-items: center; justify-content: center; width: 24px; height: 24px;">&#8635;</button>
             </div>
         </div>
 
@@ -358,13 +372,17 @@
             cursor: move;
             box-sizing: border-box;
             display: flex;
-            align-items: center;
-            justify-content: center;
+            align-items: stretch;
+            justify-content: flex-start;
             z-index: 2;
-            background: #0a3d55 !important;
             color: #ffffff;
-            border: 2px solid #3a7a99 !important;
+            border: 2px solid #3a7a99;
+            background: #3a7a99;
             border-radius: 4px;
+        }
+
+        .step.selected {
+            border-color: #ffffff;
         }
 
         /* Connection point base styles */
@@ -383,10 +401,9 @@
 
         /* Step type styles */
         [data-step-type="Begin"] {
-            background: #0a4d3a !important;
+            background: #00aa00;
             color: #ffffff;
-            font-weight: bold;
-            border: 2px solid #00cc66 !important;
+            border: 2px solid #00aa00;
             border-radius: 4px;
         }
 
@@ -395,28 +412,63 @@
             border-color: #00cc66;
         }
 
-        [data-step-type="Generic"] {
-            background: #3a3a3a !important;
+        [data-step-type="Begin"].selected {
+            border-color: #ffffff;
+        }
+
+        [data-step-type="Kore"] {
+            background: #666666;
             color: #ffffff;
-            border: 2px solid #666666 !important;
+            border: 2px solid #666666;
             border-radius: 4px;
         }
 
-        [data-step-type="Generic"] .connectionPoint {
+        [data-step-type="Kore"] .connectionPoint {
             background: #666666;
             border-color: #666666;
         }
 
+        [data-step-type="Kore"].selected {
+            border-color: #ffffff;
+        }
+
         [data-step-type="End"] {
-            background: #5a1a1a !important;
+            background: #cc3333;
             color: #ffffff;
-            border: 2px solid #cc3333 !important;
+            border: 2px solid #cc3333;
             border-radius: 4px;
         }
 
-        [data-step-type="End"] .connectionPoint {
-            background: #cc3333;
-            border-color: #cc3333;
+        [data-step-type="Workflow"] {
+            background: #7733bb;
+            color: #ffffff;
+            border: 2px solid #7733bb;
+            border-radius: 4px;
+        }
+
+        [data-step-type="Workflow"] .connectionPoint {
+            background: #7733bb;
+            border-color: #7733bb;
+        }
+
+        [data-step-type="Workflow"].selected {
+            border-color: #ffffff;
+        }
+
+        [data-step-type="RMM"] {
+            background: #3a7a99;
+            color: #ffffff;
+            border: 2px solid #3a7a99;
+            border-radius: 4px;
+        }
+
+        [data-step-type="RMM"] .connectionPoint {
+            background: #3a7a99;
+            border-color: #3a7a99;
+        }
+
+        [data-step-type="RMM"].selected {
+            border-color: #ffffff;
         }
     </style>
 
@@ -428,6 +480,7 @@
         let currentWorkflowId = null;
         let currentWorkflowName = null;
         let currentVersion = null;
+        let currentMetadata = null;
         let allVersions = [];
         let currentSteps = [];
         let currentTransitions = [];
@@ -435,6 +488,102 @@
         let transitionFrameCounter = 0;
         let transitionCounter = 0;
         let originalJson = null;
+        
+        // Definition tracking
+        let originalDefinition = null;
+        let currentDefinition = null;
+        let unsavedChanges = false;
+
+        function updateSaveButtonState() {
+            const hasChanges = JSON.stringify(currentDefinition) !== JSON.stringify(originalDefinition);
+            unsavedChanges = hasChanges;
+            const saveBtn = document.getElementById('saveWorkflowBtn');
+            if (saveBtn) {
+                saveBtn.disabled = !hasChanges;
+            }
+        }
+
+        function updateZoomDisplay() {
+            const zoomDisplay = document.getElementById('zoomDisplay');
+            if (zoomDisplay) {
+                zoomDisplay.textContent = Math.round(zoomLevel * 100) + '%';
+            }
+        }
+
+        function zoomIn() {
+            const canvas = document.getElementById('workflowCanvas');
+            const container = document.getElementById('canvasContainer');
+            if (!canvas || !container) return;
+            
+            const rect = container.getBoundingClientRect();
+            const centerX = rect.width / 2;
+            const centerY = rect.height / 2;
+            
+            const newZoom = Math.min(2, zoomLevel * 1.05);
+            
+            // Adjust pan to zoom toward center
+            panX = centerX / newZoom + (panX * zoomLevel / newZoom) - centerX / newZoom;
+            panY = centerY / newZoom + (panY * zoomLevel / newZoom) - centerY / newZoom;
+            
+            zoomLevel = newZoom;
+            
+            // Clamp pan
+            const containerWidth = rect.width;
+            const containerHeight = rect.height;
+            const GRID_SIZE_PX = 5000;
+            const maxPanX = GRID_SIZE_PX - (containerWidth / zoomLevel);
+            const maxPanY = GRID_SIZE_PX - (containerHeight / zoomLevel);
+            panX = Math.min(panX, maxPanX);
+            panY = Math.min(panY, maxPanY);
+            
+            canvas.style.transform = `scale(${zoomLevel}) translate(${-panX}px, ${-panY}px)`;
+            updateZoomDisplay();
+            updatePreview();
+        }
+
+        function zoomOut() {
+            const canvas = document.getElementById('workflowCanvas');
+            const container = document.getElementById('canvasContainer');
+            if (!canvas || !container) return;
+            
+            const rect = container.getBoundingClientRect();
+            const centerX = rect.width / 2;
+            const centerY = rect.height / 2;
+            
+            const newZoom = Math.max(0.55, zoomLevel * 0.95);
+            
+            // Adjust pan to zoom toward center
+            panX = centerX / newZoom + (panX * zoomLevel / newZoom) - centerX / newZoom;
+            panY = centerY / newZoom + (panY * zoomLevel / newZoom) - centerY / newZoom;
+            
+            zoomLevel = newZoom;
+            
+            // Clamp pan
+            const containerWidth = rect.width;
+            const containerHeight = rect.height;
+            const GRID_SIZE_PX = 5000;
+            const maxPanX = GRID_SIZE_PX - (containerWidth / zoomLevel);
+            const maxPanY = GRID_SIZE_PX - (containerHeight / zoomLevel);
+            panX = Math.min(panX, maxPanX);
+            panY = Math.min(panY, maxPanY);
+            
+            canvas.style.transform = `scale(${zoomLevel}) translate(${-panX}px, ${-panY}px)`;
+            updateZoomDisplay();
+            updatePreview();
+        }
+
+        function resetZoom() {
+            const canvas = document.getElementById('workflowCanvas');
+            if (!canvas) return;
+            
+            zoomLevel = 1;
+            panX = 0;
+            panY = 0;
+            
+            canvas.style.transform = `scale(1) translate(0px, 0px)`;
+            updateZoomDisplay();
+            updatePreview();
+        }
 
         async function authenticate() {
             console.log('authenticate() called');
@@ -508,6 +657,7 @@
                 const definition = workflow.definition;
                 currentWorkflowName = definition.name;
                 currentVersion = definition.version;
+                currentMetadata = definition.metadata;
                 allVersions = [definition.version];
                 
                 // Set the workflow name and version from definition
@@ -532,22 +682,27 @@
                 // Load the workflow definition
                 currentSteps = definition.steps || [];
                 
-                // Restore zoom and pan if they were saved
-                if (definition.zoom !== undefined) {
-                    zoomLevel = definition.zoom;
+                // Restore zoom and pan from view if they were saved
+                let targetZoom = 1;
+                let targetPanX = 0;
+                let targetPanY = 0;
+                
+                if (definition.view && definition.view.zoom !== undefined) {
+                    targetZoom = definition.view.zoom;
                 }
-                if (definition.pan) {
-                    const panParts = typeof definition.pan === 'string' 
-                        ? definition.pan.split(',').map(Number)
-                        : [definition.pan.x || 0, definition.pan.y || 0];
-                    panX = panParts[0];
-                    panY = panParts[1];
+                if (definition.view && definition.view.pan) {
+                    const panParts = typeof definition.view.pan === 'string' 
+                        ? definition.view.pan.split(',').map(Number)
+                        : [definition.view.pan.x || 0, definition.view.pan.y || 0];
+                    // Convert from grid coordinates to pixel coordinates
+                    targetPanX = panParts[0] * 30;
+                    targetPanY = panParts[1] * 30;
                 }
                 
-                // Apply zoom and pan to canvas
+                // Apply zoom and pan to canvas - translate first, then scale
                 const canvasContainer = document.getElementById('canvasContainer');
                 if (canvasContainer) {
-                    canvasContainer.style.transform = `scale(${zoomLevel}) translate(${panX}px, ${panY}px)`;
+                    canvasContainer.style.transform = `translate(${panX}px, ${panY}px) scale(${zoomLevel})`;
                 }
                 
                 // Ensure all steps have variables array
@@ -597,13 +752,81 @@
                     id: currentWorkflowId,
                     name: currentWorkflowName,
                     version: currentVersion,
-                    zoom: zoomLevel,
-                    pan: `${panX},${panY}`,
+                    view: {
+                        zoom: zoomLevel,
+                        pan: `${(panX / 30).toFixed(2)},${(panY / 30).toFixed(2)}`
+                    },
+                    metadata: currentMetadata,
                     steps: currentSteps
                 }, null, 2);
+                
+                // Set definition tracking variables
+                originalDefinition = {
+                    id: currentWorkflowId,
+                    name: currentWorkflowName,
+                    version: currentVersion,
+                    view: {
+                        zoom: zoomLevel,
+                        pan: `${(panX / 30).toFixed(2)},${(panY / 30).toFixed(2)}`
+                    },
+                    metadata: currentMetadata,
+                    steps: currentSteps
+                };
+                currentDefinition = JSON.parse(JSON.stringify(originalDefinition)); // Deep copy
+                unsavedChanges = false;
+                updateSaveButtonState();
+                
                 renderStepsEditor();
                 renderLoadedStepsOnCanvas();
                 updatePreview();
+                
+                // Hide canvas while applying pan/zoom to avoid visual shifting
+                const canvas = document.getElementById('workflowCanvas');
+                if (canvas) {
+                    canvas.style.visibility = 'hidden';
+                }
+                
+                // Apply zoom and pan after rendering by simulating user actions
+                setTimeout(() => {
+                    // Set pan and zoom values
+                    panX = targetPanX;
+                    panY = targetPanY;
+                    zoomLevel = targetZoom;
+                    
+                    // Clamp pan to prevent showing empty space beyond grid boundaries
+                    const container = document.getElementById('canvasContainer');
+                    const canvas = document.getElementById('workflowCanvas');
+                    if (container && canvas) {
+                        const containerRect = container.getBoundingClientRect();
+                        const containerWidth = containerRect.width;
+                        const containerHeight = containerRect.height;
+                        
+                        // Calculate visible area in grid space
+                        const visibleWidth = containerWidth / zoomLevel;
+                        const visibleHeight = containerHeight / zoomLevel;
+                        
+                        // Grid size is 5000px = 166.67 grid units
+                        const GRID_SIZE_PX = 5000;
+                        
+                        // Clamp: viewport's right edge can't go left of grid's right edge
+                        // and viewport's bottom edge can't go above grid's bottom edge
+                        const maxPanX = GRID_SIZE_PX - (containerWidth / zoomLevel);
+                        const maxPanY = GRID_SIZE_PX - (containerHeight / zoomLevel);
+                        
+                        panX = Math.min(panX, maxPanX);
+                        panY = Math.min(panY, maxPanY);
+                        
+                        // Apply transform
+                        canvas.style.transform = `scale(${zoomLevel}) translate(${-panX}px, ${-panY}px)`;
+                        canvas.style.transformOrigin = '0 0';
+                        
+                        // Show canvas after transform is applied
+                        canvas.style.visibility = 'visible';
+                        
+                        // Update zoom display
+                        updateZoomDisplay();
+                    }
+                }, 50); // Wait for DOM to settle
             } catch (err) {
                 console.error('Error loading workflow:', err);
                 const preview = document.getElementById('preview');
@@ -987,8 +1210,11 @@
                 id: currentWorkflowId,
                 name: currentWorkflowName,
                 version: currentVersion,
-                zoom: zoomLevel,
-                pan: `${panX},${panY}`,
+                view: {
+                    zoom: zoomLevel,
+                    pan: `${(panX / 30).toFixed(2)},${(panY / 30).toFixed(2)}`
+                },
+                metadata: currentMetadata,
                 steps: stepsForExport
             };
             const jsonContent = JSON.stringify(workflowData, null, 2);
@@ -2222,17 +2448,38 @@
                     // Update display text on canvas
                     const stepElement = document.querySelector(`[data-step-uuid="${stepUUID}"]`);
                     if (stepElement) {
-                        const textDiv = stepElement.querySelector('div');
-                        textDiv.textContent = step.name;
-                        
-                        // Calculate required width for text with 82px threshold
-                        const textWidth = textDiv.offsetWidth;
-                        let requiredWidth = 90; // Start with minimum (86px content + 2px border)
-                        if (textWidth > 82) {
-                            // Expand in 30px increments when text exceeds 82px
-                            const gridSpaces = Math.ceil((textWidth - 82) / 30);
-                            requiredWidth = 90 + (gridSpaces * 30);
+                        // Get the content area - it's the div with flex: 1 and background color (not transparent)
+                        const contentArea = Array.from(stepElement.children).find(child => 
+                            child.tagName === 'DIV' && 
+                            child.style.background !== 'transparent' && 
+                            child.style.flex === '1 1 0%'
+                        );
+                        if (contentArea) {
+                            contentArea.textContent = step.name;
+                            
+                            // Measure text width with a temporary element
+                            const tempDiv = document.createElement('div');
+                            tempDiv.style.cssText = `
+                                position: absolute;
+                                visibility: hidden;
+                                font-size: 0.9rem;
+                                white-space: nowrap;
+                            `;
+                            tempDiv.textContent = step.name;
+                            document.body.appendChild(tempDiv);
+                            const textWidth = tempDiv.offsetWidth;
+                            document.body.removeChild(tempDiv);
+                            
+                            // Calculate required width
+                            let requiredWidth = 120;
+                            if (textWidth > 80) {
+                                const gridSpaces = Math.ceil((textWidth - 80) / 30);
+                                requiredWidth = 120 + (gridSpaces * 30);
+                            } else {
+                                requiredWidth = 120; // Minimum size
+                            }
                         }
+                        
                         const currentWidth = stepElement.offsetWidth;
                         
                         // Update width if needed (both expanding and shrinking)
@@ -2489,10 +2736,18 @@
                     id: currentWorkflowId,
                     name: currentWorkflowName,
                     version: currentVersion,
-                    zoom: zoomLevel,
-                    pan: `${panX},${panY}`,
+                    view: {
+                        zoom: zoomLevel,
+                        pan: `${(panX / 30).toFixed(2)},${(panY / 30).toFixed(2)}`
+                    },
+                    metadata: currentMetadata,
                     steps: stepsForExport
                 };
+                
+                // Update currentDefinition and check for changes
+                currentDefinition = payload;
+                updateSaveButtonState();
+                
                 previewElement.textContent = JSON.stringify(payload, null, 2);
             } catch (e) {
                 previewElement.textContent = 'Error: ' + e.message;
@@ -2712,7 +2967,7 @@
             const currentJson = JSON.stringify({ 
                 steps: currentSteps,
                 zoom: zoomLevel,
-                pan: `${panX},${panY}`
+                pan: `${(panX / 30).toFixed(2)},${(panY / 30).toFixed(2)}`
             }, null, 2);
 
             // Check if changes were made
@@ -2755,7 +3010,50 @@
             closeConfirmModal();
             
             try {
-                // Put all config in definition, including id, name, version, zoom, pan
+                // Final check: do one more comparison to ensure unsavedChanges flag is accurate
+                const finalDefinition = {
+                    id: currentWorkflowId,
+                    name: workflowName,
+                    version: newVersion,
+                    view: {
+                        zoom: zoomLevel,
+                        pan: `${(panX / 30).toFixed(2)},${(panY / 30).toFixed(2)}`
+                    },
+                    metadata: currentMetadata,
+                    steps: currentSteps
+                };
+                
+                const hasChanges = JSON.stringify(finalDefinition) !== JSON.stringify(originalDefinition);
+                
+                if (!hasChanges) {
+                    // No actual changes - show message and reset flag
+                    unsavedChanges = false;
+                    updateSaveButtonState();
+                    
+                    const modal = document.createElement('div');
+                    modal.style.cssText = `
+                        position: fixed;
+                        top: 0;
+                        left: 0;
+                        width: 100%;
+                        height: 100%;
+                        background: rgba(0, 0, 0, 0.7);
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        z-index: 1000;
+                    `;
+                    modal.innerHTML = `
+                        <div style="background: #1a3540; border: 1px solid #3a7a99; border-radius: 6px; padding: 30px; text-align: center; color: #ffffff;">
+                            <p style="margin: 0; font-size: 1.1rem;">No changes to save.</p>
+                            <button onclick="this.closest('div').parentElement.remove()" style="margin-top: 20px; padding: 8px 16px; background: #0a5a7a; border: 1px solid #3a7a99; border-radius: 4px; color: #ffffff; cursor: pointer;">OK</button>
+                        </div>
+                    `;
+                    document.body.appendChild(modal);
+                    return;
+                }
+                
+                // Put all config in definition, with view containing zoom and pan
                 const payload = {
                     name: workflowName,
                     version: newVersion,
@@ -2763,8 +3061,11 @@
                         id: currentWorkflowId,
                         name: workflowName,
                         version: newVersion,
-                        zoom: zoomLevel,
-                        pan: `${panX},${panY}`,
+                        view: {
+                            zoom: zoomLevel,
+                            pan: `${(panX / 30).toFixed(2)},${(panY / 30).toFixed(2)}`
+                        },
+                        metadata: currentMetadata,
                         steps: currentSteps
                     }
                 };
@@ -2783,14 +3084,41 @@
 
                 if (response.ok) {
                     currentVersion = newVersion;
+                    currentWorkflowName = workflowName;
+                    // Update metadata timestamps on successful save
+                    const now = new Date().toISOString();
+                    currentMetadata = {
+                        ...(currentMetadata || {}),
+                        updated_at: now,
+                        updated_by: 'user'
+                    };
                     originalJson = JSON.stringify({
                         id: currentWorkflowId,
                         name: workflowName,
                         version: newVersion,
-                        zoom: zoomLevel,
-                        pan: `${panX},${panY}`,
+                        view: {
+                            zoom: zoomLevel,
+                            pan: `${(panX / 30).toFixed(2)},${(panY / 30).toFixed(2)}`
+                        },
+                        metadata: currentMetadata,
                         steps: currentSteps
                     }, null, 2);
+                    
+                    // Reset definition tracking after successful save
+                    originalDefinition = {
+                        id: currentWorkflowId,
+                        name: workflowName,
+                        version: newVersion,
+                        view: {
+                            zoom: zoomLevel,
+                            pan: `${(panX / 30).toFixed(2)},${(panY / 30).toFixed(2)}`
+                        },
+                        metadata: currentMetadata,
+                        steps: currentSteps
+                    };
+                    currentDefinition = JSON.parse(JSON.stringify(originalDefinition)); // Deep copy
+                    unsavedChanges = false;
+                    updateSaveButtonState();
                     
                     // Refresh version selector if it exists
                     const versionSelect = document.getElementById('versionSelector');
@@ -3364,7 +3692,7 @@
             }
             
             function updateTransform() {
-                canvas.style.transform = `translate(${-panX}px, ${-panY}px) scale(${zoomLevel})`;
+                canvas.style.transform = `scale(${zoomLevel}) translate(${-panX}px, ${-panY}px)`;
                 canvas.style.transformOrigin = '0 0';
             }
             
@@ -3372,7 +3700,7 @@
             canvas.addEventListener('wheel', (e) => {
                 e.preventDefault();
                 
-                const zoomFactor = e.deltaY > 0 ? 0.9 : 1.1;
+                const zoomFactor = e.deltaY > 0 ? 0.95 : 1.05;
                 const newZoom = Math.max(0.55, Math.min(2, zoomLevel * zoomFactor));
                 
                 // Adjust pan to zoom toward mouse cursor
@@ -3386,6 +3714,7 @@
                 zoomLevel = newZoom;
                 clampPan();
                 updateTransform();
+                updateZoomDisplay();
             }, { passive: false });
             
             // Pan with left mouse button (on empty canvas only)
@@ -3724,12 +4053,7 @@
                     document.querySelectorAll('[data-step-id]').forEach(el => {
                         const stepUUID = el.getAttribute('data-step-uuid');
                         const step = currentSteps.find(s => s.id === stepUUID);
-                        // BEGIN steps have no border
-                        if (step && step.type === 'Begin') {
-                            el.style.border = 'none';
-                        } else {
-                            el.style.borderColor = '#3a7a99';
-                        }
+                        el.classList.remove('selected');
                     });
                     document.querySelectorAll('[data-transition-uuid]').forEach(el => {
                         const transId = el.getAttribute('data-transition-uuid');
@@ -3773,7 +4097,7 @@
                 height = Math.max(1, stepData.height || 1) * 30;
             } else {
                 // Default values
-                width = 90;  // 3 grid units
+                width = 120;  // 4 grid units
                 height = 30; // 1 grid unit
             }
             
@@ -3785,27 +4109,153 @@
                 height: ${height}px;
             `;
             
-            // Create a temporary text container to measure
-            const textContainer = document.createElement('div');
-            textContainer.style.cssText = `
-                padding: 0;
-                white-space: nowrap;
-                font-size: 0.9rem;
+            // Determine colors for name column based on step type
+            // Dark color goes on name column only
+            let darkColor = '#0a3d55';      // Default dark (dark blue)
+            
+            if (stepData.type === 'Begin') {
+                darkColor = '#0a4d3a';      // Dark green
+            } else if (stepData.type === 'End') {
+                darkColor = '#5a1a1a';      // Dark red
+            } else if (stepData.type === 'Kore') {
+                darkColor = '#3a3a3a';      // Dark gray
+            } else if (stepData.type === 'Workflow') {
+                darkColor = '#4a1f77';      // Darker purple
+            } else if (stepData.type === 'RMM') {
+                darkColor = '#0a3d55';      // Dark blue (standard)
+            }
+            
+            // Create the step content with left column (transparent) and name column (dark)
+            // Left column (30px wide, transparent) with icon
+            const leftColumn = document.createElement('div');
+            leftColumn.style.cssText = `
+                width: 30px;
+                height: 100%;
+                background: transparent;
+                flex-shrink: 0;
+                display: flex;
+                align-items: center;
+                justify-content: center;
             `;
-            textContainer.textContent = stepData.name || `${stepData.type} Step`;
-            stepElement.appendChild(textContainer);
+            
+            // Add icon based on step type
+            if (stepData.type === 'Begin') {
+                // Arrow pointing diagonally toward lower right (rotated 90 degrees)
+                const icon = document.createElement('div');
+                icon.style.cssText = `
+                    font-size: 28px;
+                    color: #ffffff;
+                    line-height: 1;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    transform: rotate(90deg);
+                    font-weight: bold;
+                `;
+                icon.innerHTML = '&#8599;';
+                leftColumn.appendChild(icon);
+            } else if (stepData.type === 'End') {
+                // X icon (&#10005;)
+                const icon = document.createElement('div');
+                icon.style.cssText = `
+                    font-size: 20px;
+                    color: #ffffff;
+                    line-height: 1;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    font-weight: bold;
+                `;
+                icon.innerHTML = '&#10005;';
+                leftColumn.appendChild(icon);
+            } else if (stepData.type === 'Kore') {
+                // Diamond icon (&#9830;)
+                const icon = document.createElement('div');
+                icon.style.cssText = `
+                    font-size: 24px;
+                    color: #ffffff;
+                    line-height: 1;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    font-weight: bold;
+                `;
+                icon.innerHTML = '&#9830;';
+                leftColumn.appendChild(icon);
+            } else if (stepData.type === 'Workflow') {
+                // WF text with circle outline
+                const icon = document.createElement('div');
+                icon.style.cssText = `
+                    width: 24px;
+                    height: 24px;
+                    border: 2px solid #ffffff;
+                    border-radius: 50%;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    font-size: 11px;
+                    color: #ffffff;
+                    font-weight: bold;
+                `;
+                icon.innerHTML = 'WF';
+                leftColumn.appendChild(icon);
+            } else {
+                // Standard/Function - Gear icon (&#9881;)
+                const icon = document.createElement('div');
+                icon.style.cssText = `
+                    font-size: 24px;
+                    color: #ffffff;
+                    line-height: 1;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    font-weight: bold;
+                `;
+                icon.innerHTML = '&#9881;';
+                leftColumn.appendChild(icon);
+            }
+            
+            stepElement.appendChild(leftColumn);
+            
+            // Name/content area (dark color background and border)
+            const contentArea = document.createElement('div');
+            contentArea.style.cssText = `
+                flex: 1;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                background: ${darkColor};
+                border: 1px solid ${darkColor};
+                border-radius: 4px;
+            `;
+            contentArea.textContent = stepData.name || (stepData.type === 'Begin' ? 'BEGIN' : stepData.type === 'End' ? 'End' : stepData.type === 'Test' ? 'Test' : stepData.type === 'Workflow' ? 'Workflow' : stepData.type === 'RMM' ? 'RMM Step' : stepData.type === 'Kore' ? 'Kore' : `${stepData.type} Step`);
+            stepElement.appendChild(contentArea);
             
             // Add to canvas temporarily to measure
             canvas.appendChild(stepElement);
             
-            // Measure the text
-            const textWidth = textContainer.offsetWidth;
-            const textHeight = textContainer.offsetHeight;
+            // Measure the content to auto-resize if needed
+            // Create a temporary element to measure text width
+            const tempDiv = document.createElement('div');
+            tempDiv.style.cssText = `
+                position: absolute;
+                visibility: hidden;
+                font-size: 0.9rem;
+                white-space: nowrap;
+            `;
+            tempDiv.textContent = stepData.name || `${stepData.type} Step`;
+            document.body.appendChild(tempDiv);
+            const textWidth = tempDiv.offsetWidth;
+            document.body.removeChild(tempDiv);
             
-            // If not overriding size, expand width if needed (82px threshold with 30px grid increments)
-            if (!stepData.overrideSize && textWidth > 82) {
-                const gridSpaces = Math.ceil((textWidth - 82) / 30);
-                width = 90 + (gridSpaces * 30);
+            // Calculate required width: need space for icon (30px) + text + margins
+            // 90px available for text in default 120px step (30 icon + 90 content)
+            if (!stepData.overrideSize && textWidth > 80) {
+                const gridSpaces = Math.ceil((textWidth - 80) / 30);
+                width = 120 + (gridSpaces * 30);
                 stepElement.style.width = width + 'px';
             }
             
@@ -3818,27 +4268,15 @@
                 e.stopPropagation();
                 showStepProperties(stepData.id);
                 
-                // Deselect all other steps and transitions (use appropriate colors)
+                // Deselect all other steps and transitions
                 document.querySelectorAll('[data-step-id]').forEach(el => {
-                    const stepUUID = el.getAttribute('data-step-uuid');
-                    const step = currentSteps.find(s => s.id === stepUUID);
-                    // BEGIN steps have no border
-                    if (step && step.type === 'Begin') {
-                        el.style.border = 'none';
-                    } else {
-                        el.style.borderColor = '#3a7a99';
-                    }
+                    el.classList.remove('selected');
                 });
                 document.querySelectorAll('[data-transition-uuid]').forEach(el => {
-                    el.style.borderColor = '#00aa00';
+                    el.classList.remove('selected');
                 });
-                // Highlight selected step - BEGIN has no border, others get bright blue
-                const selectedStep = currentSteps.find(s => s.id === stepData.id);
-                if (selectedStep && selectedStep.type === 'Begin') {
-                    stepElement.style.border = 'none';
-                } else {
-                    stepElement.style.borderColor = '#00ff00';
-                }
+                // Highlight selected step
+                stepElement.classList.add('selected');
             });
             
             // Add single connection point (bottom initially, but will move to nearest side)
@@ -4271,7 +4709,7 @@
             // Create step data object
             const stepData = {
                 id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-                name: stepType === 'Generic' ? 'Generic' : `${stepType} Step`,
+                name: stepType === 'Begin' ? 'BEGIN' : stepType === 'End' ? 'End' : stepType === 'Test' ? 'Test' : stepType === 'Workflow' ? 'Workflow' : stepType === 'RMM' ? 'RMM Step' : stepType === 'Kore' ? 'Kore' : `${stepType} Step`,
                 type: stepType,
                 action: '',
                 width: 3,
