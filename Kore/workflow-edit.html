@@ -439,6 +439,15 @@
             border-radius: 4px;
         }
 
+        [data-step-type="End"] .connectionPoint {
+            background: #ff6666;
+            border-color: #ff6666;
+        }
+
+        [data-step-type="End"].selected {
+            border-color: #ffffff;
+        }
+
         [data-step-type="Workflow"] {
             background: #7733bb;
             color: #ffffff;
@@ -1108,7 +1117,7 @@
                         </div>
                     </div>
                     <div style="display: flex; align-items: flex-end;">
-                        <button class="btn btn-red btn-small" onclick="deleteTransition(${stepIndex}, ${transitionIndex})" title="Delete transition" style="padding: 6px 8px; height: 36px; min-width: auto;">&#8856;</button>
+                        <button class="btn btn-red btn-small" onclick="deleteTransitionFromList(${stepIndex}, ${transitionIndex})" title="Delete transition" style="padding: 6px 8px; height: 36px; min-width: auto;">&#8856;</button>
                     </div>
                 `;
                 transitionsContainer.appendChild(transitionDiv);
@@ -1126,7 +1135,7 @@
             renderTransitions(stepIndex);
         }
 
-        function deleteTransition(stepIndex, transitionIndex) {
+        function deleteTransitionFromList(stepIndex, transitionIndex) {
             if (confirm('Delete this transition?')) {
                 currentSteps[stepIndex].transitions.splice(transitionIndex, 1);
                 renderTransitions(stepIndex);
@@ -2249,7 +2258,7 @@
                     
                     const newColors = getTransitionColors(transition.type);
                     conditionBox.style.background = newColors.color;
-                    conditionBox.style.color = '#1a1a1a';
+                    conditionBox.style.color = '#ffffff';
                     conditionBox.textContent = transition.type;
                 }
                 
@@ -2375,35 +2384,76 @@
                 `).join('');
             }
             
-            // Determine if this is a BEGIN step
+            // Determine step type for conditional fields
             const isBeginStep = step.type === 'Begin';
+            const isKoreType = step.type === 'Kore';
+            const isWorkflowType = step.type === 'Workflow';
+            const isRMMType = step.type === 'RMM';
+            const isEndType = step.type === 'End';
             
             // Build delete button HTML (hidden for BEGIN steps)
             const deleteButtonHTML = isBeginStep ? '' : `<button class="btn btn-red" onclick="deleteStep('${stepUUID}')" style="padding: 6px 12px;">Delete</button>`;
             
-            // Build Action field HTML (hidden for Generic type)
-            const isGenericType = step.type === 'Generic';
-            const actionFieldHTML = isGenericType ? '' : `
+            // Build Action field HTML based on type
+            let actionFieldHTML = '';
+            if (isBeginStep || isEndType) {
+                // No action field for Begin and End
+                actionFieldHTML = '';
+            } else if (isKoreType) {
+                // Dropdown for Kore
+                actionFieldHTML = `
+                    <div>
+                        <label style="display: block; font-size: 0.8rem; color: #b0b0b0; margin-bottom: 5px;">Action</label>
+                        <select id="stepAction" class="form-field-input" style="width: 100%; padding: 6px; box-sizing: border-box; font-size: 0.85rem;">
+                            <option value="None" ${step.action === 'None' || !step.action ? 'selected' : ''}>None</option>
+                        </select>
+                    </div>
+                `;
+            } else if (isWorkflowType) {
+                // Dropdown for Workflow
+                actionFieldHTML = `
+                    <div>
+                        <label style="display: block; font-size: 0.8rem; color: #b0b0b0; margin-bottom: 5px;">Workflow</label>
+                        <select id="stepAction" class="form-field-input" style="width: 100%; padding: 6px; box-sizing: border-box; font-size: 0.85rem;">
+                            <option value="">-- Select Workflow --</option>
+                        </select>
+                    </div>
+                `;
+            } else if (isRMMType) {
+                // RMM Type dropdown and Action dropdown
+                actionFieldHTML = `
+                    <div>
+                        <label style="display: block; font-size: 0.8rem; color: #b0b0b0; margin-bottom: 5px;">RMM Type</label>
+                        <select id="stepRMMType" class="form-field-input" style="width: 100%; padding: 6px; box-sizing: border-box; font-size: 0.85rem;">
+                            <option value="cwm" ${step.rmmType === 'cwm' ? 'selected' : ''}>Connectwise Automate</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label style="display: block; font-size: 0.8rem; color: #b0b0b0; margin-bottom: 5px;">Action</label>
+                        <select id="stepAction" class="form-field-input" style="width: 100%; padding: 6px; box-sizing: border-box; font-size: 0.85rem;">
+                            <option value="">-- Select Action --</option>
+                        </select>
+                    </div>
+                `;
+            } else {
+                // Text input for other standard steps (Test, etc)
+                actionFieldHTML = `
                     <div>
                         <label style="display: block; font-size: 0.8rem; color: #b0b0b0; margin-bottom: 5px;">Action</label>
                         <input type="text" id="stepAction" class="form-field-input" value="${step.action || ''}" style="width: 100%; padding: 6px; box-sizing: border-box; font-size: 0.85rem;">
                     </div>
-                    `;
+                `;
+            }
             
             propertiesContent.innerHTML = `
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; padding-bottom: 10px; border-bottom: 1px solid #3a7a99;">
-                    <div style="font-size: 0.9rem; color: #e0e0e0; font-weight: 500;">Step Properties</div>
+                    <div style="font-size: 0.9rem; color: #e0e0e0; font-weight: 500;">${step.type} Step Properties</div>
                     ${deleteButtonHTML}
                 </div>
                 <div style="display: flex; flex-direction: column; gap: 15px;">
                     <div>
                         <label style="display: block; font-size: 0.8rem; color: #b0b0b0; margin-bottom: 5px;">Name</label>
                         <input type="text" id="stepName" class="form-field-input" value="${step.name || ''}" ${isBeginStep ? 'readonly' : ''} style="width: 100%; padding: 6px; box-sizing: border-box; font-size: 0.85rem;">
-                    </div>
-                    
-                    <div>
-                        <label style="display: block; font-size: 0.8rem; color: #b0b0b0; margin-bottom: 5px;">Type</label>
-                        <input type="text" id="stepType" class="form-field-input" value="${step.type || ''}" style="width: 100%; padding: 6px; box-sizing: border-box; font-size: 0.85rem;">
                     </div>
                     
                     ${actionFieldHTML}
@@ -2425,7 +2475,7 @@
                         <div id="sizeOverrideInputs" style="display: ${step.overrideSize ? 'flex' : 'none'}; flex-direction: column; gap: 10px;">
                             <div>
                                 <label style="display: block; font-size: 0.8rem; color: #b0b0b0; margin-bottom: 5px;">Width (grid units)</label>
-                                <input type="number" id="overrideWidth" class="form-field-input" value="${step.width || 3}" min="2" style="width: 100%; padding: 6px; box-sizing: border-box; font-size: 0.85rem;">
+                                <input type="number" id="overrideWidth" class="form-field-input" value="${step.width || 4}" min="2" style="width: 100%; padding: 6px; box-sizing: border-box; font-size: 0.85rem;">
                             </div>
                             <div>
                                 <label style="display: block; font-size: 0.8rem; color: #b0b0b0; margin-bottom: 5px;">Height (grid units)</label>
@@ -2595,10 +2645,14 @@
             });
             }
             
-            document.getElementById('stepType').addEventListener('change', (e) => {
-                step.type = e.target.value;
-                updatePreview();
-            });
+            // RMM Type field handler
+            const rmmTypeInput = document.getElementById('stepRMMType');
+            if (rmmTypeInput) {
+                rmmTypeInput.addEventListener('change', (e) => {
+                    step.rmmType = e.target.value;
+                    updatePreview();
+                });
+            }
             
             const stepActionInput = document.getElementById('stepAction');
             if (stepActionInput) {
@@ -2873,7 +2927,9 @@
                     
                     // Remove from steps' transitions arrays
                     currentSteps.forEach(step => {
-                        step.transitions = step.transitions.filter(t => t.id !== transitionUUID);
+                        if (step.transitions) {
+                            step.transitions = step.transitions.filter(t => t.id !== transitionUUID);
+                        }
                     });
                     
                     // Remove from currentTransitions
@@ -2887,14 +2943,11 @@
                     
                     // Remove all connection lines related to this transition
                     document.querySelectorAll(`[data-from-transition="${transitionUUID}"]`).forEach(line => line.remove());
-                    document.querySelectorAll(`[data-to-step]`).forEach(line => {
-                        if (line.getAttribute('data-to-step') === transitionUUID) line.remove();
-                    });
                     
                     // Re-render the frame to update height
                     if (frame) {
                         const vertical = currentSteps.some(step => 
-                            step.transitions.some(t => frame.conditions.includes(t.id)) && step.trans_vertical
+                            step.transitions && step.transitions.some(t => frame.conditions.includes(t.id)) && step.trans_vertical
                         );
                         renderTransitionFrame(frame.id, vertical);
                     }
@@ -3301,13 +3354,13 @@
             
             if (frame && frame.verticalLayout) {
                 // Vertical layout: start from right edge at arrow center
-                startX = conditionRect.right - canvasRect.left;
-                startY = conditionRect.top - canvasRect.top + conditionRect.height / 2;
+                startX = (conditionRect.right - canvasRect.left) / zoomLevel + panX;
+                startY = (conditionRect.top - canvasRect.top + conditionRect.height / 2) / zoomLevel + panY;
                 startDirection = 'right';
             } else {
                 // Horizontal layout: start from bottom + arrow offset
-                startX = conditionRect.left - canvasRect.left + conditionRect.width / 2;
-                startY = conditionRect.bottom - canvasRect.top + 5;
+                startX = (conditionRect.left - canvasRect.left + conditionRect.width / 2) / zoomLevel + panX;
+                startY = (conditionRect.bottom - canvasRect.top + 5) / zoomLevel + panY;
                 startDirection = 'bottom';
             }
             
@@ -3316,11 +3369,11 @@
             const stepScreenCenterX = stepRect.left + stepRect.width / 2;
             const stepScreenCenterY = stepRect.top + stepRect.height / 2;
             
-            const stepCenterX = stepScreenCenterX - canvasRect.left;
-            const stepCenterY = stepScreenCenterY - canvasRect.top;
+            const stepCenterX = (stepScreenCenterX - canvasRect.left) / zoomLevel + panX;
+            const stepCenterY = (stepScreenCenterY - canvasRect.top) / zoomLevel + panY;
             
-            const stepWidth = stepRect.width;
-            const stepHeight = stepRect.height;
+            const stepWidth = stepRect.width / zoomLevel;
+            const stepHeight = stepRect.height / zoomLevel;
             
             // Find nearest side of step
             const stepSideCenters = [
@@ -4279,14 +4332,14 @@
                 stepElement.classList.add('selected');
             });
             
-            // Add single connection point (bottom initially, but will move to nearest side)
+            // Add single connection point (right side by default)
             const circle = document.createElement('div');
             circle.setAttribute('data-connection-point', 'dynamic');
             circle.classList.add('connectionPoint');
             circle.style.cssText = `
-                bottom: -6px;
-                left: 50%;
-                transform: translateX(-50%);
+                right: -6px;
+                top: 50%;
+                transform: translateY(-50%);
             `;
             
             // Add drag-to-draw line functionality
