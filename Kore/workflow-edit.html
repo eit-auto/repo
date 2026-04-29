@@ -528,7 +528,7 @@
             const centerX = rect.width / 2;
             const centerY = rect.height / 2;
             
-            const newZoom = Math.min(2, zoomLevel * 1.05);
+            const newZoom = Math.min(2, zoomLevel + 0.05);
             
             // Adjust pan to zoom toward center
             panX = centerX / newZoom + (panX * zoomLevel / newZoom) - centerX / newZoom;
@@ -559,7 +559,7 @@
             const centerX = rect.width / 2;
             const centerY = rect.height / 2;
             
-            const newZoom = Math.max(0.55, zoomLevel * 0.95);
+            const newZoom = Math.max(0.55, zoomLevel - 0.05);
             
             // Adjust pan to zoom toward center
             panX = centerX / newZoom + (panX * zoomLevel / newZoom) - centerX / newZoom;
@@ -2123,68 +2123,8 @@
                         const caseLines = canvas.querySelectorAll(`[data-transition-connection-line][data-from-transition="${conditionId}"]`);
                         caseLines.forEach(line => {
                             const toStepId = line.getAttribute('data-to-step');
-                            const transition = currentTransitions.find(t => t.id === conditionId);
-                            if (transition) {
-                                // Get the frame's current element
-                                const frameRect = canvas.querySelector(`[data-transition-frame="${frameUUID}"]`);
-                                if (frameRect) {
-                                    // Find the condition box and calculate its center
-                                    const conditionBox = frameRect.querySelector(`[data-condition-id="${conditionId}"]`);
-                                    if (conditionBox) {
-                                        const conditionRect = conditionBox.getBoundingClientRect();
-                                        const canvasRect = canvas.getBoundingClientRect();
-                                        // Convert screen coordinates to grid coordinates
-                                        // For vertical layout, use the right edge + arrow offset; for horizontal, use center bottom
-                                        let conditionScreenCenterX, conditionScreenCenterY;
-                                        if (frame.verticalLayout) {
-                                            // Right edge of condition box + arrow point (about 10px out)
-                                            conditionScreenCenterX = conditionRect.right + 5;
-                                            conditionScreenCenterY = conditionRect.top + conditionRect.height / 2;
-                                        } else {
-                                            // Center bottom for horizontal layout
-                                            conditionScreenCenterX = conditionRect.left + conditionRect.width / 2;
-                                            conditionScreenCenterY = conditionRect.bottom + 5;
-                                        }
-                                        const conditionCenterX = ((conditionScreenCenterX - canvasRect.left) / zoomLevel) + panX;
-                                        const conditionCenterY = ((conditionScreenCenterY - canvasRect.top) / zoomLevel) + panY;
-                                        
-                                        // Determine start direction based on layout
-                                        const startDirection = frame.verticalLayout ? 'right' : 'bottom';
-                                        
-                                        // Get the target step
-                                        const targetStep = canvas.querySelector(`[data-step-uuid="${toStepId}"]`);
-                                        if (targetStep) {
-                                            const stepX = parseInt(targetStep.style.left);
-                                            const stepY = parseInt(targetStep.style.top);
-                                            const stepWidth = parseInt(targetStep.style.width);
-                                            const stepHeight = parseInt(targetStep.style.height);
-                                            
-                                            const stepSideCenters = [
-                                                { x: stepX + stepWidth / 2, y: stepY, name: 'top' },
-                                                { x: stepX + stepWidth / 2, y: stepY + stepHeight, name: 'bottom' },
-                                                { x: stepX, y: stepY + stepHeight / 2, name: 'left' },
-                                                { x: stepX + stepWidth, y: stepY + stepHeight / 2, name: 'right' }
-                                            ];
-                                            
-                                            let nearestSide = stepSideCenters[0];
-                                            let minDistance = Infinity;
-                                            stepSideCenters.forEach(side => {
-                                                const distance = Math.hypot(conditionCenterX - side.x, conditionCenterY - side.y);
-                                                if (distance < minDistance) {
-                                                    minDistance = distance;
-                                                    nearestSide = side;
-                                                }
-                                            });
-                                            
-                                            const lineEnd = offsetPointFromEdge(nearestSide.x, nearestSide.y, nearestSide.name, 15);
-                                            const path = createCurvedPath(conditionCenterX, conditionCenterY, startDirection, lineEnd.x, lineEnd.y, nearestSide.name);
-                                            
-                                            const transitionColors = getTransitionColors(transition.type);
-                                            line.innerHTML = `<defs><marker id="caseArrowhead-${conditionId}" markerWidth="10" markerHeight="10" refX="0" refY="3" orient="auto"><polygon points="0 0, 6 3, 0 6" fill="${transitionColors.color}"/></marker></defs><path d="${path}" stroke="${transitionColors.color}" stroke-width="2" fill="none" marker-end="url(#caseArrowhead-${conditionId})"/><circle cx="${lineEnd.x}" cy="${lineEnd.y}" r="8" fill="transparent" data-case-arrow-hitbox="${conditionId}" style="cursor: grab; pointer-events: auto;" />`;
-                                        }
-                                    }
-                                }
-                            }
+                            // Re-render the case line using the standard function
+                            renderCaseLineInitial(line, conditionId, toStepId, canvas, frame);
                         });
                     });
                     
@@ -3353,14 +3293,14 @@
             let startX, startY, startDirection;
             
             if (frame && frame.verticalLayout) {
-                // Vertical layout: start from right edge at arrow center
-                startX = (conditionRect.right - canvasRect.left) / zoomLevel + panX;
-                startY = (conditionRect.top - canvasRect.top + conditionRect.height / 2) / zoomLevel + panY;
+                // Vertical layout: start from right edge at arrow center, offset 4px right and 1px down
+                startX = (conditionRect.right - canvasRect.left + 4) / zoomLevel;
+                startY = (conditionRect.top - canvasRect.top + conditionRect.height / 2 + 1) / zoomLevel;
                 startDirection = 'right';
             } else {
                 // Horizontal layout: start from bottom + arrow offset
-                startX = (conditionRect.left - canvasRect.left + conditionRect.width / 2) / zoomLevel + panX;
-                startY = (conditionRect.bottom - canvasRect.top + 5) / zoomLevel + panY;
+                startX = (conditionRect.left - canvasRect.left + conditionRect.width / 2) / zoomLevel;
+                startY = (conditionRect.bottom - canvasRect.top + 5) / zoomLevel;
                 startDirection = 'bottom';
             }
             
@@ -3369,8 +3309,8 @@
             const stepScreenCenterX = stepRect.left + stepRect.width / 2;
             const stepScreenCenterY = stepRect.top + stepRect.height / 2;
             
-            const stepCenterX = (stepScreenCenterX - canvasRect.left) / zoomLevel + panX;
-            const stepCenterY = (stepScreenCenterY - canvasRect.top) / zoomLevel + panY;
+            const stepCenterX = (stepScreenCenterX - canvasRect.left) / zoomLevel;
+            const stepCenterY = (stepScreenCenterY - canvasRect.top) / zoomLevel;
             
             const stepWidth = stepRect.width / zoomLevel;
             const stepHeight = stepRect.height / zoomLevel;
@@ -3753,8 +3693,8 @@
             canvas.addEventListener('wheel', (e) => {
                 e.preventDefault();
                 
-                const zoomFactor = e.deltaY > 0 ? 0.95 : 1.05;
-                const newZoom = Math.max(0.55, Math.min(2, zoomLevel * zoomFactor));
+                const zoomIncrement = e.deltaY > 0 ? -0.05 : 0.05;
+                const newZoom = Math.max(0.55, Math.min(2, zoomLevel + zoomIncrement));
                 
                 // Adjust pan to zoom toward mouse cursor
                 const rect = container.getBoundingClientRect();
