@@ -528,6 +528,21 @@
                 // Load the workflow definition
                 currentSteps = workflow.definition.steps || [];
                 
+                // Restore zoom and pan if they were saved
+                if (workflow.definition.zoom !== undefined) {
+                    zoomLevel = workflow.definition.zoom;
+                }
+                if (workflow.definition.pan) {
+                    panX = workflow.definition.pan.x || 0;
+                    panY = workflow.definition.pan.y || 0;
+                }
+                
+                // Apply zoom and pan to canvas
+                const canvasContainer = document.getElementById('canvasContainer');
+                if (canvasContainer) {
+                    canvasContainer.style.transform = `scale(${zoomLevel}) translate(${panX}px, ${panY}px)`;
+                }
+                
                 // Ensure all steps have variables array
                 currentSteps.forEach(step => {
                     if (!Array.isArray(step.variables)) {
@@ -571,7 +586,11 @@
                     }
                 });
                 
-                originalJson = JSON.stringify({ steps: currentSteps }, null, 2);
+                originalJson = JSON.stringify({ 
+                    steps: currentSteps,
+                    zoom: zoomLevel,
+                    pan: { x: panX, y: panY }
+                }, null, 2);
                 renderStepsEditor();
                 renderLoadedStepsOnCanvas();
                 updatePreview();
@@ -638,7 +657,7 @@
                                     'top': 'top: -6px; left: 50%; transform: translateX(-50%);',
                                     'bottom': 'bottom: -6px; left: 50%; transform: translateX(-50%);',
                                     'left': 'left: -6px; top: 50%; transform: translateY(-50%);',
-                                    'right': 'right: -4px; top: 50%; transform: translateY(-50%);'
+                                    'right': 'right: -6px; top: 50%; transform: translateY(-50%);'
                                 };
                                 
                                 connectionPoint.setAttribute('data-connected', 'true');
@@ -1561,6 +1580,18 @@
                 if (frameData) {
                     frameData.position = `${frameGridX},${frameGridY}`;
                     
+                    // Sync frame position back to the step's transition data
+                    currentSteps.forEach(step => {
+                        if (step.transition && step.transition.cases) {
+                            const hasConditionFromFrame = step.transition.cases.some(c => 
+                                frameData.conditions.includes(currentTransitions.find(t => t.order === c.order)?.id)
+                            );
+                            if (hasConditionFromFrame) {
+                                step.transition.position = `${frameGridX},${frameGridY}`;
+                            }
+                        }
+                    });
+                    
                     // Update case lines from ALL conditions in this frame
                     frameData.conditions.forEach(conditionId => {
                         const caseLines = canvas.querySelectorAll(`[data-transition-connection-line][data-from-transition="${conditionId}"]`);
@@ -1658,7 +1689,7 @@
                                     'top': 'top: -6px; left: 50%; transform: translateX(-50%);',
                                     'bottom': 'bottom: -6px; left: 50%; transform: translateX(-50%);',
                                     'left': 'left: -6px; top: 50%; transform: translateY(-50%);',
-                                    'right': 'right: -4px; top: 50%; transform: translateY(-50%);'
+                                    'right': 'right: -6px; top: 50%; transform: translateY(-50%);'
                                 };
                                 
                                 connectionPoint.classList.add('connectionPoint');
@@ -1669,6 +1700,8 @@
                         }
                     }
                 });
+                
+                updatePreview();
             };
             
             const stopFrameDrag = () => {
@@ -2066,7 +2099,7 @@
                             'top': 'top: -6px; left: 50%; transform: translateX(-50%);',
                             'bottom': 'bottom: -6px; left: 50%; transform: translateX(-50%);',
                             'left': 'left: -6px; top: 50%; transform: translateY(-50%);',
-                            'right': 'right: -4px; top: 50%; transform: translateY(-50%);'
+                            'right': 'right: -6px; top: 50%; transform: translateY(-50%);'
                         };
                         connectionPoint.classList.add('connectionPoint');
                         connectionPoint.style.cssText = positionStyles[closestSide];
@@ -2437,7 +2470,11 @@
                     } : undefined
                 }));
                 
-                const payload = { steps: stepsForExport };
+                const payload = { 
+                    steps: stepsForExport,
+                    zoom: zoomLevel,
+                    pan: { x: panX, y: panY }
+                };
                 previewElement.textContent = JSON.stringify(payload, null, 2);
             } catch (e) {
                 previewElement.textContent = 'Error: ' + e.message;
@@ -2653,8 +2690,12 @@
                 return;
             }
 
-            // Don't rebuild from form - we're using canvas-based transitions now
-            const currentJson = JSON.stringify({ steps: currentSteps }, null, 2);
+            // Include steps, zoom, and pan in the saved data
+            const currentJson = JSON.stringify({ 
+                steps: currentSteps,
+                zoom: zoomLevel,
+                pan: { x: panX, y: panY }
+            }, null, 2);
 
             // Check if changes were made
             if (currentJson === originalJson) {
@@ -3833,7 +3874,13 @@
                         canvas.appendChild(line);
                     }
                     
-                    line.innerHTML = `<line x1="${screenStartX}" y1="${screenStartY}" x2="${screenCurrentX}" y2="${screenCurrentY}" stroke="#3a7a99" stroke-width="2"/>`;
+                    // Scale screen coordinates to canvas space
+                    const scaledX1 = screenStartX / zoomLevel;
+                    const scaledY1 = screenStartY / zoomLevel;
+                    const scaledX2 = screenCurrentX / zoomLevel;
+                    const scaledY2 = screenCurrentY / zoomLevel;
+                    
+                    line.innerHTML = `<line x1="${scaledX1}" y1="${scaledY1}" x2="${scaledX2}" y2="${scaledY2}" stroke="#3a7a99" stroke-width="2"/>`;
                 }
             };
             
@@ -4125,7 +4172,7 @@
                                         'top': 'top: -6px; left: 50%; transform: translateX(-50%);',
                                         'bottom': 'bottom: -6px; left: 50%; transform: translateX(-50%);',
                                         'left': 'left: -6px; top: 50%; transform: translateY(-50%);',
-                                        'right': 'right: -4px; top: 50%; transform: translateY(-50%);'
+                                        'right': 'right: -6px; top: 50%; transform: translateY(-50%);'
                                     };
                                     
                                     connectionPoint.classList.add('connectionPoint');
