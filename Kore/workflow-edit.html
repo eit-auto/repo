@@ -374,7 +374,7 @@
             display: flex;
             align-items: stretch;
             justify-content: flex-start;
-            z-index: 2;
+            z-index: 3;
             color: #ffffff;
             border: 2px solid #3a7a99;
             background: #3a7a99;
@@ -408,8 +408,8 @@
         }
 
         [data-step-type="Begin"] .connectionPoint {
-            background: #00cc66;
-            border-color: #00cc66;
+            background: #00aa00;
+            border-color: #00aa00;
         }
 
         [data-step-type="Begin"].selected {
@@ -736,7 +736,9 @@
                             execution: step.transition.mode || 'First',
                             conditions: [],
                             position: step.transition.position || '0,0',
-                            verticalLayout: step.transition.vertical || false
+                            verticalLayout: step.transition.vertical || false,
+                            attached: step.transition.attached === true,
+                            attachedToStepId: step.transition.attached === true ? step.id : null
                         };
                         
                         // Convert cases to transitions
@@ -871,6 +873,44 @@
                 renderTransitionFrame(frame.id, frame.verticalLayout);
             });
             
+            // Restore frame attachments to steps immediately after rendering
+            const workflowCanvas = document.getElementById('workflowCanvas');
+            currentTransitionFrames.forEach(frame => {
+                if (frame.attachedToStepId) {
+                    const attachedStep = currentSteps.find(s => s.id === frame.attachedToStepId);
+                    if (attachedStep) {
+                        const stepElement = workflowCanvas.querySelector(`[data-step-uuid="${attachedStep.id}"]`);
+                        const frameElement = workflowCanvas.querySelector(`[data-transition-frame="${frame.id}"]`);
+                        if (stepElement && frameElement) {
+                            // Position frame at same location as step
+                            const stepPos = attachedStep.position.split(',').map(Number);
+                            frameElement.style.left = (stepPos[0] * 30) + 'px';
+                            frameElement.style.top = (stepPos[1] * 30) + 'px';
+                            
+                            const stepWidth = parseInt(stepElement.style.width);
+                            const frameWidth = parseInt(frameElement.style.width);
+                            
+                            // Apply the appropriate border radius based on width comparison
+                            if (stepWidth > frameWidth) {
+                                stepElement.style.borderRadius = '4px 4px 4px 0px';
+                            } else {
+                                stepElement.style.borderRadius = '4px 4px 0px 0px';
+                            }
+                            
+                            // Hide connection circle
+                            const connectionPoint = stepElement.querySelector('[data-connection-point]');
+                            if (connectionPoint) {
+                                connectionPoint.style.display = 'none';
+                            }
+                            
+                            // Hide blue connection line from this step
+                            const blueLines = workflowCanvas.querySelectorAll(`[data-connection-line][data-from-step="${attachedStep.id}"]`);
+                            blueLines.forEach(line => line.style.display = 'none');
+                        }
+                    }
+                }
+            });
+            
             // Use setTimeout to ensure all DOM elements are ready before repositioning connections
             setTimeout(() => {
                 requestAnimationFrame(() => {
@@ -961,7 +1001,7 @@
                     });
                 });
                 });
-            }, 200);
+            }, 300);
         }
 
         function renderStepsEditor() {
@@ -1318,16 +1358,16 @@
             frameRect.setAttribute('data-transition-frame', frameUUID);
             
             if (vertical) {
-                // Vertical layout: 90px wide, height grows with conditions
-                // Base: 60px (1 condition), +30px for each additional condition
-                const frameHeight = 60 + Math.max(0, (frame.conditions.length - 1) * 30);
+                // Vertical layout: 60px wide, height grows with conditions
+                // Base: 45px (1 condition), +30px for each additional condition
+                const frameHeight = 45 + Math.max(0, (frame.conditions.length - 1) * 30);
                 frameRect.style.cssText = `
                     position: absolute;
-                    width: 90px;
+                    width: 60px;
                     height: ${frameHeight}px;
                     left: ${framePosition.left};
                     top: ${framePosition.top};
-                    background: #3a3a2a;
+                    background: #d4af37;
                     border: 2px solid #d4af37;
                     border-radius: 4px;
                     pointer-events: auto;
@@ -1360,6 +1400,7 @@
                     pointer-events: auto;
                     white-space: nowrap;
                     flex-shrink: 0;
+                    border-radius: 4px;
                 `;
                 header.textContent = 'Transitions';
                 header.addEventListener('click', (e) => {
@@ -1409,9 +1450,9 @@
                     conditionBox.setAttribute('data-frame-id', frameUUID);
                     const boxColor = colors.color;
                     conditionBox.style.cssText = `
-                        width: 56px;
-                        height: 27px;
-                        margin: 0 0 2px 0;
+                        width: 26px;
+                        height: 26px;
+                        margin: 0 0 3px 0;
                         background: ${boxColor};
                         border: none;
                         border-radius: 2px;
@@ -1425,8 +1466,16 @@
                         user-select: none;
                         flex-shrink: 0;
                         cursor: pointer;
+                        line-height: 1;
                     `;
-                    conditionBox.textContent = transition ? transition.type : 'Success';
+                    const transitionType = transition ? transition.type : 'Success';
+                    let icon = '&#10003;';  // ✓ checkmark for Success
+                    if (transitionType === 'Failure') icon = '&#10005;';  // ✕ X for Failure
+                    else if (transitionType === 'Logic') {
+                        icon = `<span style="font-size: 0.85rem;">&lt;&gt;</span>`;  // < > larger
+                    }
+                    else if (transitionType === 'Always') icon = `<span style="display: inline-block; transform: scaleY(2);">&#9658;</span>`;  // ▶ right triangle stretched
+                    conditionBox.innerHTML = icon;
                     conditionBox.addEventListener('click', (e) => {
                         e.stopPropagation();
                         showTransitionProperties(conditionId);
@@ -1507,7 +1556,7 @@
                         border-top: 8px solid transparent;
                         border-bottom: 8px solid transparent;
                         border-left: 10px solid #d4af37;
-                        left: 56px;
+                        left: 26px;
                         top: 50%;
                         transform: translateY(-50%);
                     `;
@@ -1519,7 +1568,7 @@
                         position: absolute;
                         width: 25px;
                         height: 30px;
-                        left: 60px;
+                        left: 30px;
                         top: 50%;
                         transform: translateY(-50%);
                         cursor: crosshair;
@@ -1536,7 +1585,8 @@
                 addButton.setAttribute('data-add-condition-btn', frameUUID);
                 addButton.style.cssText = `
                     width: 100%;
-                    height: calc(100% - 1px);
+                    height: 15px;
+                    max-height: 15px;
                     padding: 0;
                     margin: 0;
                     background: #d4af37;
@@ -1549,6 +1599,8 @@
                     font-size: 18px;
                     cursor: pointer;
                     user-select: none;
+                    flex-shrink: 0;
+                    flex-grow: 0;
                 `;
                 addButton.textContent = '+';
                 addButton.addEventListener('click', addConditionToFrame(frameUUID, conditionsContainer));
@@ -1556,16 +1608,16 @@
                 
                 frameRect.appendChild(conditionsContainer);
             } else {
-                // Horizontal layout: 90px base + 60px per additional condition
+                // Horizontal layout: 60px base + 30px per additional condition
                 const numConditions = frame.conditions.length;
-                const frameWidth = 90 + Math.max(0, (numConditions - 1) * 60);
+                const frameWidth = 60 + Math.max(0, (numConditions - 1) * 30);
                 frameRect.style.cssText = `
                     position: absolute;
                     width: ${frameWidth}px;
                     height: 60px;
                     left: ${framePosition.left};
                     top: ${framePosition.top};
-                    background: #3a3a2a;
+                    background: #d4af37;
                     border: 2px solid #d4af37;
                     border-radius: 4px;
                     pointer-events: auto;
@@ -1588,11 +1640,13 @@
                     font-weight: normal;
                     cursor: pointer;
                     user-select: none;
-                    flex: 1;
+                    height: 28px;
                     display: flex;
                     align-items: center;
                     justify-content: center;
                     pointer-events: auto;
+                    border-radius: 4px;
+                    flex-shrink: 0;
                 `;
                 header.textContent = 'Transitions';
                 header.addEventListener('click', (e) => {
@@ -1606,11 +1660,13 @@
                 conditionsContainer.setAttribute('data-frame-conditions', frameUUID);
                 conditionsContainer.style.cssText = `
                     background: #d4af37;
-                    border-top: 2px solid #d4af37;
                     flex: 1;
                     display: flex;
                     align-items: flex-start;
                     pointer-events: auto;
+                    margin-top: 2px;
+                    height: 26px;
+                    overflow: visible;
                 `;
                 
                 // Add condition boxes - sort by order first
@@ -1638,8 +1694,8 @@
                     conditionBox.setAttribute('data-frame-id', frameUUID);
                     const boxColor = colors.color;
                     conditionBox.style.cssText = `
-                        width: 56px;
-                        height: 28px;
+                        width: 28px;
+                        height: 26px;
                         margin-right: 2px;
                         background: ${boxColor};
                         border: none;
@@ -1654,8 +1710,16 @@
                         user-select: none;
                         flex-shrink: 0;
                         cursor: pointer;
+                        line-height: 1;
                     `;
-                    conditionBox.textContent = transition ? transition.type : 'Success';
+                    const transitionType = transition ? transition.type : 'Success';
+                    let icon = '&#10003;';  // ✓ checkmark for Success
+                    if (transitionType === 'Failure') icon = '&#10005;';  // ✕ X for Failure
+                    else if (transitionType === 'Logic') {
+                        icon = `<span style="font-size: 0.85rem;">&lt;&gt;</span>`;  // < > larger
+                    }
+                    else if (transitionType === 'Always') icon = '&#9660;';  // ▼ down triangle
+                    conditionBox.innerHTML = icon;
                     conditionBox.addEventListener('click', (e) => {
                         e.stopPropagation();
                         showTransitionProperties(conditionId);
@@ -1764,20 +1828,21 @@
                 const addButton = document.createElement('div');
                 addButton.setAttribute('data-add-condition-btn', frameUUID);
                 addButton.style.cssText = `
-                    width: 24px;
-                    height: 24px;
+                    flex: 1;
                     padding: 0;
                     margin: 0;
                     background: #d4af37;
-                    border: 2px solid #d4af37;
-                    border-radius: 2px;
+                    border: none;
+                    border-radius: 0;
                     display: flex;
                     align-items: center;
                     justify-content: center;
                     color: #3a3a2a;
                     font-size: 18px;
+                    font-weight: bold;
                     cursor: pointer;
                     user-select: none;
+                    height: 26px;
                     flex-shrink: 0;
                 `;
                 addButton.textContent = '+';
@@ -1785,15 +1850,43 @@
                 conditionsContainer.appendChild(addButton);
                 
                 frameRect.appendChild(conditionsContainer);
+                
+                // Add grab indicator to add button if frame is attached
+                if (frame.attachedToStepId) {
+                    const grabIndicator = document.createElement('div');
+                    grabIndicator.style.cssText = `
+                        position: absolute;
+                        bottom: 0px;
+                        right: 1px;
+                        width: 0;
+                        height: 0;
+                        border-right: 8px solid #3a3a2a;
+                        border-top: 8px solid transparent;
+                        pointer-events: none;
+                    `;
+                    addButton.style.position = 'relative';
+                    addButton.appendChild(grabIndicator);
+                }
             }
             
             // Drag handling
             let dragOffsetX = 0, dragOffsetY = 0;
+            let isFrameDragging = false;
+            let frameMouseDownX = 0, frameMouseDownY = 0;
+            let wasJustDetached = false;  // Flag to prevent re-attachment after detach
+            const DRAG_THRESHOLD = 5; // pixels
+            
             frameRect.addEventListener('mousedown', (e) => {
-                if (e.target.closest('[data-frame-conditions]') && !e.target.closest('[data-condition-id]') && !e.target.closest('[data-add-condition-btn]')) {
-                    return; // Don't drag from conditions container
+                // Don't drag from condition boxes
+                if (e.target.closest('[data-condition-id]')) {
+                    return;
                 }
+                
                 e.stopPropagation();
+                frameMouseDownX = e.clientX;
+                frameMouseDownY = e.clientY;
+                wasJustDetached = false;  // Reset flag on new drag
+                
                 const canvasRect = canvas.getBoundingClientRect();
                 
                 // Get current position and snap top-left corner
@@ -1810,6 +1903,19 @@
             });
             
             const handleFrameDrag = (e) => {
+                const frameData = currentTransitionFrames.find(f => f.id === frameUUID);
+                if (!frameData) return;
+                
+                // Only start dragging if movement exceeds threshold
+                if (!isFrameDragging) {
+                    const deltaX = Math.abs(e.clientX - frameMouseDownX);
+                    const deltaY = Math.abs(e.clientY - frameMouseDownY);
+                    if (deltaX < DRAG_THRESHOLD && deltaY < DRAG_THRESHOLD) {
+                        return; // Still within click threshold
+                    }
+                    isFrameDragging = true;
+                }
+                
                 const canvasRect = canvas.getBoundingClientRect();
                 const screenX = e.clientX - canvasRect.left;
                 const screenY = e.clientY - canvasRect.top;
@@ -1823,24 +1929,111 @@
                 frameRect.style.left = snappedX + 'px';
                 frameRect.style.top = snappedY + 'px';
                 
+                // If frame is currently attached to a step, check if it's being detached
+                if (frameData.attachedToStepId) {
+                    const attachedStep = currentSteps.find(s => s.id === frameData.attachedToStepId);
+                    if (attachedStep) {
+                        const stepElement = canvas.querySelector(`[data-step-uuid="${attachedStep.id}"]`);
+                        const frameElement = frameRect;
+                        
+                        const stepRect = stepElement.getBoundingClientRect();
+                        const frameRect_check = frameElement.getBoundingClientRect();
+                        
+                        // Check if frame is no longer touching the step
+                        if (Math.abs(frameRect_check.top - stepRect.top) >= 5 || 
+                            frameRect_check.left > stepRect.right || 
+                            frameRect_check.right < stepRect.left) {
+                            
+                            wasJustDetached = true;  // Prevent re-attachment on release
+                            
+                            // Detach the frame
+                            frameData.attachedToStepId = null;
+                            frameData.attached = false;  // Mark as detached
+                            
+                            // Restore step border radius only
+                            stepElement.style.borderRadius = '4px';
+                            
+                            // Show connection circle
+                            const connectionPoint = stepElement.querySelector('[data-connection-point]');
+                            if (connectionPoint) {
+                                connectionPoint.style.display = '';
+                            }
+                            
+                            // Recalculate step width based on text
+                            const tempDiv = document.createElement('div');
+                            tempDiv.style.cssText = `
+                                position: absolute;
+                                visibility: hidden;
+                                font-size: 0.9rem;
+                                white-space: nowrap;
+                            `;
+                            tempDiv.textContent = attachedStep.name || `${attachedStep.type} Step`;
+                            document.body.appendChild(tempDiv);
+                            const textWidth = tempDiv.offsetWidth;
+                            document.body.removeChild(tempDiv);
+                            
+                            let width = 120;  // Default 4 grid units
+                            if (textWidth > 80) {
+                                const gridSpaces = Math.ceil((textWidth - 80) / 30);
+                                width = 120 + (gridSpaces * 30);
+                            }
+                            stepElement.style.width = width + 'px';
+                            attachedStep.width = width / 30;
+                            attachedStep.overrideSize = false;
+                            
+                            // Re-establish blue connection line
+                            const frameElement_render = canvas.querySelector(`[data-transition-frame="${frameData.id}"]`);
+                            if (frameElement_render) {
+                                // Create blue connection line if it doesn't exist
+                                let connectionLine = canvas.querySelector(`[data-connection-line][data-from-step="${attachedStep.id}"]`);
+                                if (!connectionLine) {
+                                    connectionLine = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+                                    connectionLine.setAttribute('data-connection-line', frameData.id);
+                                    connectionLine.setAttribute('data-from-step', attachedStep.id);
+                                    connectionLine.setAttribute('width', '100%');
+                                    connectionLine.setAttribute('height', '100%');
+                                    connectionLine.style.cssText = `
+                                        position: absolute;
+                                        top: 0;
+                                        left: 0;
+                                        width: 100%;
+                                        height: 100%;
+                                        pointer-events: none;
+                                        z-index: 1;
+                                    `;
+                                    canvas.appendChild(connectionLine);
+                                }
+                                
+                                // Update the blue line
+                                const stepEl = canvas.querySelector(`[data-step-uuid="${attachedStep.id}"]`);
+                                if (stepEl) {
+                                    const closestSide = getClosestSideToFrame(stepEl, frameElement_render, canvas);
+                                    updateBlueTransitionLine(connectionLine, frameData.id, attachedStep.id, closestSide, canvas);
+                                }
+                            }
+                        }
+                    }
+                }
+                
                 // Update frame position in data using 30px grid coordinates
                 const frameGridX = snappedX / 30;
                 const frameGridY = snappedY / 30;
-                const frameData = currentTransitionFrames.find(f => f.id === frameUUID);
                 if (frameData) {
                     frameData.position = `${frameGridX},${frameGridY}`;
                     
-                    // Sync frame position back to the step's transition data
-                    currentSteps.forEach(step => {
-                        if (step.transition && step.transition.cases) {
-                            const hasConditionFromFrame = step.transition.cases.some(c => 
-                                frameData.conditions.includes(currentTransitions.find(t => t.order === c.order)?.id)
-                            );
-                            if (hasConditionFromFrame) {
-                                step.transition.position = `${frameGridX},${frameGridY}`;
+                    // Only sync to step if not attached
+                    if (!frameData.attachedToStepId) {
+                        currentSteps.forEach(step => {
+                            if (step.transition && step.transition.cases) {
+                                const hasConditionFromFrame = step.transition.cases.some(c => 
+                                    frameData.conditions.includes(currentTransitions.find(t => t.order === c.order)?.id)
+                                );
+                                if (hasConditionFromFrame) {
+                                    step.transition.position = `${frameGridX},${frameGridY}`;
+                                }
                             }
-                        }
-                    });
+                        });
+                    }
                     
                     // Update case lines from ALL conditions in this frame
                     frameData.conditions.forEach(conditionId => {
@@ -1955,8 +2148,113 @@
             };
             
             const stopFrameDrag = () => {
+                console.log('stopFrameDrag START, wasJustDetached:', wasJustDetached, 'frameUUID:', frameUUID);
                 document.removeEventListener('mousemove', handleFrameDrag);
                 document.removeEventListener('mouseup', stopFrameDrag);
+                if (isFrameDragging) {
+                    frameRect._isFrameDragging = true;
+                }
+                const wasDragging = isFrameDragging;
+                isFrameDragging = false;
+                const frameData = currentTransitionFrames.find(f => f.id === frameUUID);
+                if (!frameData) return;
+                console.log('frameData found, verticalLayout:', frameData.verticalLayout);
+                
+                // Check if frame should attach to a step (Horizontal frames only)
+                // Skip if we just detached the frame
+                console.log('About to check attachment: verticalLayout=', !frameData.verticalLayout, 'wasJustDetached=', !wasJustDetached, 'condition result=', !frameData.verticalLayout && !wasJustDetached);
+                if (!frameData.verticalLayout && !wasJustDetached && (wasDragging || !frameData.attachedToStepId)) {
+                    const frameElement = canvas.querySelector(`[data-transition-frame="${frameUUID}"]`);
+                    const frameRect = frameElement.getBoundingClientRect();
+                    const frameBottom = frameRect.bottom;
+                    
+                    // Check all steps to see if frame is touching or overlapping their bottom
+                    let attachedToStep = null;
+                    currentSteps.forEach(step => {
+                        const stepElement = canvas.querySelector(`[data-step-uuid="${step.id}"]`);
+                        if (stepElement) {
+                            const stepRect = stepElement.getBoundingClientRect();
+                            
+                            // Check if frame is touching or overlapping the top of the step
+                            // Frame and step tops should be close together, and frame should horizontally overlap
+                            const frameTop = frameRect.top;
+                            const stepTop = stepRect.top;
+                            const horizontalOverlap = frameRect.left < stepRect.right && frameRect.right > stepRect.left;
+                            
+                            // Allow frame to be anywhere from 10px above step top to 30px below (for drag tolerance)
+                            if (frameTop <= (stepTop + 30) && frameTop >= (stepTop - 10) && horizontalOverlap) {
+                                attachedToStep = step;
+                            }
+                        }
+                    });
+                    
+                    if (attachedToStep) {
+                        // Attach frame to step
+                        frameData.attachedToStepId = attachedToStep.id;
+                        frameData.attached = true;  // Mark as attached for JSON persistence
+                        
+                        // Get frame width
+                        const stepElement = canvas.querySelector(`[data-step-uuid="${attachedToStep.id}"]`);
+                        const frameElement = canvas.querySelector(`[data-transition-frame="${frameUUID}"]`);
+                        const frameWidth = parseInt(frameElement.style.width);
+                        const stepWidth = parseInt(stepElement.style.width);
+                        
+                        if (stepWidth > frameWidth) {
+                            // Step is wider than frame: keep frame at step left edge, remove only bottom left corner radius
+                            stepElement.style.borderRadius = '4px 4px 4px 0px';
+                        } else {
+                            // Frame is same width or wider: expand step if needed, remove all bottom corners radius
+                            if (frameWidth > stepWidth) {
+                                stepElement.style.width = frameWidth + 'px';
+                                attachedToStep.width = frameWidth / 30;  // Store in grid units
+                            }
+                            
+                            // Remove border radius from step bottom corners
+                            stepElement.style.borderRadius = '4px 4px 0px 0px';
+                        }
+                        
+                        // Hide connection circle
+                        const connectionPoint = stepElement.querySelector('[data-connection-point]');
+                        if (connectionPoint) {
+                            connectionPoint.style.display = 'none';
+                        }
+                        
+                        // Position frame at the same position as step (top of step, so name panel hides behind)
+                        const stepPos = attachedToStep.position.split(',').map(Number);
+                        frameData.position = `${stepPos[0]},${stepPos[1]}`;
+                        frameData.attachedToStepId = attachedToStep.id;
+                        
+                        // Remove blue connection line
+                        const blueLines = canvas.querySelectorAll(`[data-connection-line][data-from-step="${attachedToStep.id}"]`);
+                        blueLines.forEach(line => line.remove());
+                        
+                        // Update frame position on canvas
+                        frameElement.style.left = (stepPos[0] * 30) + 'px';
+                        frameElement.style.top = (stepPos[1] * 30) + 'px';
+                        
+                        // Re-render all case lines from this frame's conditions
+                        frameData.conditions.forEach(conditionId => {
+                            const caseLines = canvas.querySelectorAll(`[data-transition-connection-line][data-from-transition="${conditionId}"]`);
+                            caseLines.forEach(line => {
+                                const toStepId = line.getAttribute('data-to-step');
+                                renderCaseLineInitial(line, conditionId, toStepId, canvas, frameData);
+                            });
+                        });
+                        
+                        // Re-render frame to add grab indicator
+                        renderTransitionFrame(frameUUID, false);
+                        
+                        // Update preview
+                        updatePreview();
+                    }
+                }
+                
+                // If frame was just detached, re-render it to remove the grab indicator
+                if (wasJustDetached) {
+                    console.log('Re-rendering detached frame');
+                    renderTransitionFrame(frameUUID, false);
+                    wasJustDetached = false;
+                }
             };
             
             // Frame click handler
@@ -1964,9 +2262,9 @@
                 e.stopPropagation();
                 showTransitionFrameProperties(frameUUID);
                 
-                // Deselect all steps and frames
+                // Deselect all steps (remove inline border colors so CSS applies)
                 document.querySelectorAll('[data-step-id]').forEach(el => {
-                    el.style.borderColor = '#3a7a99';
+                    el.style.borderColor = '';
                 });
                 frameRect.style.borderColor = '#ffff00';
             });
@@ -1977,6 +2275,14 @@
         function addConditionToFrame(frameUUID, conditionsContainer) {
             return (e) => {
                 e.stopPropagation();
+                
+                // Don't add if we just dragged the frame
+                const frameElement = document.querySelector(`[data-transition-frame="${frameUUID}"]`);
+                if (frameElement && frameElement._isFrameDragging) {
+                    frameElement._isFrameDragging = false;
+                    return;
+                }
+                
                 const frame = currentTransitionFrames.find(f => f.id === frameUUID);
                 if (!frame) return;
                 
@@ -2023,6 +2329,27 @@
                 );
                 renderTransitionFrame(frameUUID, vertical);
                 
+                // If frame is attached to a step, check if step needs to expand
+                const attachedStep = currentSteps.find(s => s.id === frame.attachedToStepId);
+                if (attachedStep) {
+                    setTimeout(() => {
+                        const canvas = document.getElementById('workflowCanvas');
+                        const stepElement = canvas.querySelector(`[data-step-uuid="${attachedStep.id}"]`);
+                        const frameElement = canvas.querySelector(`[data-transition-frame="${frameUUID}"]`);
+                        
+                        if (stepElement && frameElement) {
+                            const stepWidth = parseInt(stepElement.style.width);
+                            const frameWidth = parseInt(frameElement.style.width);
+                            
+                            // If frame is now wider than step, expand step
+                            if (frameWidth > stepWidth) {
+                                stepElement.style.width = frameWidth + 'px';
+                                stepElement.style.borderRadius = '4px 4px 0px 0px';
+                            }
+                        }
+                    }, 0);
+                }
+                
                 updatePreview();
             };
         }
@@ -2030,6 +2357,100 @@
         function applyFrameLayout(frameUUID, verticalLayout) {
             // This function is now just a wrapper that calls renderTransitionFrame
             renderTransitionFrame(frameUUID, verticalLayout);
+        }
+        
+        function detachFrameFromStep(frameUUID) {
+            const canvas = document.getElementById('workflowCanvas');
+            const frame = currentTransitionFrames.find(f => f.id === frameUUID);
+            if (!frame || !frame.attachedToStepId) return;
+            
+            const attachedStep = currentSteps.find(s => s.id === frame.attachedToStepId);
+            if (!attachedStep) return;
+            
+            const stepElement = canvas.querySelector(`[data-step-uuid="${attachedStep.id}"]`);
+            if (!stepElement) return;
+            
+            // Detach the frame
+            frame.attachedToStepId = null;
+            frame.attached = false;
+            
+            // Restore step border radius
+            stepElement.style.borderRadius = '4px';
+            
+            // Show connection circle
+            const connectionPoint = stepElement.querySelector('[data-connection-point]');
+            if (connectionPoint) {
+                connectionPoint.style.display = '';
+            }
+            
+            // Recalculate step width based on text
+            const tempDiv = document.createElement('div');
+            tempDiv.style.cssText = `
+                position: absolute;
+                visibility: hidden;
+                font-size: 0.9rem;
+                white-space: nowrap;
+            `;
+            tempDiv.textContent = attachedStep.name || `${attachedStep.type} Step`;
+            document.body.appendChild(tempDiv);
+            const textWidth = tempDiv.offsetWidth;
+            document.body.removeChild(tempDiv);
+            
+            let width = 120;  // Default 4 grid units
+            if (textWidth > 80) {
+                const gridSpaces = Math.ceil((textWidth - 80) / 30);
+                width = 120 + (gridSpaces * 30);
+            }
+            stepElement.style.width = width + 'px';
+            attachedStep.width = width / 30;
+            attachedStep.overrideSize = false;
+            
+            // Position frame below step
+            const stepPos = attachedStep.position.split(',').map(Number);
+            frame.position = `${stepPos[0]},${stepPos[1] + 1}`;
+            const frameElement = canvas.querySelector(`[data-transition-frame="${frameUUID}"]`);
+            if (frameElement) {
+                frameElement.style.left = (stepPos[0] * 30) + 'px';
+                frameElement.style.top = ((stepPos[1] + 1) * 30) + 'px';
+            }
+            
+            // Re-establish blue connection line and re-render frame to remove detach tag
+            
+            // Create blue connection line if it doesn't exist
+            let connectionLine = canvas.querySelector(`[data-connection-line][data-from-step="${attachedStep.id}"]`);
+            if (!connectionLine) {
+                connectionLine = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+                connectionLine.setAttribute('data-connection-line', frameUUID);
+                connectionLine.setAttribute('data-from-step', attachedStep.id);
+                connectionLine.setAttribute('width', '100%');
+                connectionLine.setAttribute('height', '100%');
+                connectionLine.style.cssText = `
+                    position: absolute;
+                    top: 0;
+                    left: 0;
+                    width: 100%;
+                    height: 100%;
+                    pointer-events: none;
+                    z-index: 1;
+                `;
+                canvas.appendChild(connectionLine);
+            }
+            
+            // Re-render frame first to remove grab indicator
+            renderTransitionFrame(frameUUID, false);
+            
+            // Update blue line after frame is re-rendered
+            setTimeout(() => {
+                const stepElementForLine = canvas.querySelector(`[data-step-uuid="${attachedStep.id}"]`);
+                const frameElementForLine = canvas.querySelector(`[data-transition-frame="${frameUUID}"]`);
+                const connLine = canvas.querySelector(`[data-connection-line][data-from-step="${attachedStep.id}"]`);
+                
+                if (stepElementForLine && frameElementForLine && connLine) {
+                    const closestSide = getClosestSideToFrame(stepElementForLine, frameElementForLine, canvas);
+                    updateBlueTransitionLine(connLine, frameUUID, attachedStep.id, closestSide, canvas);
+                }
+            }, 0);
+            updatePreview();
         }
 
         function showTransitionFrameProperties(frameUUID) {
@@ -2691,9 +3112,15 @@
             // Sync all transition frames and their cases back to the step data
             currentSteps.forEach(step => {
                 if (step.transition) {
-                    // Find the frame for this step
-                    const frame = currentTransitionFrames.find(f => f.position === step.transition.position);
+                    // Find the frame for this step - either by position or by attachedToStepId
+                    let frame = currentTransitionFrames.find(f => f.position === step.transition.position);
+                    if (!frame) {
+                        frame = currentTransitionFrames.find(f => f.attachedToStepId === step.id);
+                    }
                     if (frame) {
+                        // Set attached flag based on whether frame has attachedToStepId
+                        step.transition.attached = frame.attachedToStepId !== null && frame.attachedToStepId !== undefined;
+                        
                         // Rebuild cases from the current conditions in the frame
                         step.transition.cases = frame.conditions.map(conditionId => {
                             const caseObj = currentTransitions.find(t => t.id === conditionId);
@@ -2722,6 +3149,7 @@
                     ...step,
                     transition: step.transition ? {
                         ...step.transition,
+                        attached: step.transition.attached === true,
                         cases: [...step.transition.cases].sort((a, b) => (a.order || 1) - (b.order || 1))
                     } : undefined
                 }));
@@ -2886,10 +3314,56 @@
                     
                     // Re-render the frame to update height
                     if (frame) {
-                        const vertical = currentSteps.some(step => 
-                            step.transitions && step.transitions.some(t => frame.conditions.includes(t.id)) && step.trans_vertical
-                        );
-                        renderTransitionFrame(frame.id, vertical);
+                        const canvas = document.getElementById('workflowCanvas');
+                        renderTransitionFrame(frame.id, frame.verticalLayout);
+                        
+                        // If frame is attached to a step, handle step width adjustment after frame re-renders
+                        setTimeout(() => {
+                            const attachedStep = currentSteps.find(s => s.id === frame.attachedToStepId);
+                            if (attachedStep) {
+                                const stepElement = canvas.querySelector(`[data-step-uuid="${attachedStep.id}"]`);
+                                const frameElement = canvas.querySelector(`[data-transition-frame="${frame.id}"]`);
+                                if (stepElement && frameElement) {
+                                    const currentStepWidth = parseInt(stepElement.style.width);
+                                    const frameWidth = parseInt(frameElement.style.width);
+                                    
+                                    // Calculate the original step width (before attachment)
+                                    const tempDiv = document.createElement('div');
+                                    tempDiv.style.cssText = `
+                                        position: absolute;
+                                        visibility: hidden;
+                                        font-size: 0.9rem;
+                                        white-space: nowrap;
+                                    `;
+                                    tempDiv.textContent = attachedStep.name || `${attachedStep.type} Step`;
+                                    document.body.appendChild(tempDiv);
+                                    const textWidth = tempDiv.offsetWidth;
+                                    document.body.removeChild(tempDiv);
+                                    
+                                    let originalWidth = 120;  // Default 4 grid units
+                                    if (textWidth > 80) {
+                                        const gridSpaces = Math.ceil((textWidth - 80) / 30);
+                                        originalWidth = 120 + (gridSpaces * 30);
+                                    }
+                                    
+                                    // If step is wider than frame, reduce by 30px but not below original width
+                                    if (currentStepWidth > frameWidth) {
+                                        const newWidth = Math.max(originalWidth, currentStepWidth - 30);
+                                        stepElement.style.width = newWidth + 'px';
+                                        attachedStep.width = newWidth / 30;
+                                        
+                                        // Adjust border radius based on comparison to frame width
+                                        if (newWidth > frameWidth) {
+                                            // Step is still wider than frame: de-radius only bottom left corner
+                                            stepElement.style.borderRadius = '4px 4px 4px 0px';
+                                        } else {
+                                            // Frame is now same width or wider: de-radius both bottom corners
+                                            stepElement.style.borderRadius = '4px 4px 0px 0px';
+                                        }
+                                    }
+                                }
+                            }
+                        }, 50);
                     }
                     
                     document.getElementById('propertiesContent').innerHTML = '<div style="color: #b0b0b0; font-size: 0.85rem;">Select a step or transition to edit properties</div>';
@@ -2932,6 +3406,9 @@
                     
                     // Remove all connection lines related to this frame
                     document.querySelectorAll(`[data-to-frame="${frameUUID}"]`).forEach(line => line.remove());
+                    
+                    // Remove blue connection lines from steps to this frame
+                    document.querySelectorAll(`[data-connection-line="${frameUUID}"]`).forEach(line => line.remove());
                     
                     // Remove orphaned case lines (lines whose condition no longer exists)
                     document.querySelectorAll('[data-transition-connection-line]').forEach(line => {
@@ -3293,14 +3770,14 @@
             let startX, startY, startDirection;
             
             if (frame && frame.verticalLayout) {
-                // Vertical layout: start from right edge at arrow center, offset 4px right and 1px down
-                startX = (conditionRect.right - canvasRect.left + 4) / zoomLevel;
-                startY = (conditionRect.top - canvasRect.top + conditionRect.height / 2 + 1) / zoomLevel;
+                // Vertical layout: start from right edge at arrow center, no horizontal offset and 3px down
+                startX = (conditionRect.right - canvasRect.left) / zoomLevel;
+                startY = (conditionRect.top - canvasRect.top + conditionRect.height / 2 + 3) / zoomLevel;
                 startDirection = 'right';
             } else {
                 // Horizontal layout: start from bottom + arrow offset
-                startX = (conditionRect.left - canvasRect.left + conditionRect.width / 2) / zoomLevel;
-                startY = (conditionRect.bottom - canvasRect.top + 5) / zoomLevel;
+                startX = (conditionRect.left - canvasRect.left + conditionRect.width / 2 + 1) / zoomLevel;
+                startY = (conditionRect.bottom - canvasRect.top + 11) / zoomLevel;
                 startDirection = 'bottom';
             }
             
@@ -3335,6 +3812,9 @@
             
             // Offset endpoint 15 grid units away from edge
             const lineEnd = offsetPointFromEdge(nearestSide.x, nearestSide.y, nearestSide.name, 15);
+            lineEnd.y -= 2;  // Move arrow up by 2px (was 1px)
+            lineEnd.x += 1;  // Shift endpoint right by 1px
+            lineEnd.y += 3;  // Shift endpoint down by 3px
             
             const path = createCurvedPath(startX, startY, startDirection, lineEnd.x, lineEnd.y, nearestSide.name);
             
@@ -3496,7 +3976,8 @@
                 id: frameUUID,
                 execution: 'First', // 'First' or 'All'
                 conditions: [], // Array of transition condition IDs
-                position: `${frameGridX},${frameGridY}`
+                position: `${frameGridX},${frameGridY}`,
+                verticalLayout: false // Default to horizontal layout
             };
             
             // Create frame container (3x2 = 90px x 60px)
@@ -4387,7 +4868,8 @@
                             id: frameUUID,
                             execution: 'First',
                             conditions: [],
-                            position: `${frameGridX},${frameGridY}`
+                            position: `${frameGridX},${frameGridY}`,
+                            verticalLayout: false // Default to horizontal layout
                         };
                         currentTransitionFrames = currentTransitionFrames || [];
                         currentTransitionFrames.push(frameData);
@@ -4596,8 +5078,9 @@
                 if (isDragging) {
                     const canvasRect = canvas.getBoundingClientRect();
                     // Convert screen coordinates to grid coordinates
-                    let newX = (e.clientX - canvasRect.left) / zoomLevel + panX - dragOffsetX;
-                    let newY = (e.clientY - canvasRect.top) / zoomLevel + panY - dragOffsetY;
+                    // canvasRect already includes the pan transform, so no need to add panX/panY
+                    let newX = (e.clientX - canvasRect.left) / zoomLevel - dragOffsetX;
+                    let newY = (e.clientY - canvasRect.top) / zoomLevel - dragOffsetY;
                     
                     // Snap to 15px grid (half-grid) visually, but store as 30px grid coordinates
                     newX = Math.round(newX / 15) * 15;
@@ -4614,6 +5097,27 @@
                     const gridX = newX / 30;
                     const gridY = newY / 30;
                     stepData.position = `${gridX},${gridY}`;
+                    
+                    // If this step has an attached frame, move it too
+                    const attachedFrame = currentTransitionFrames.find(f => f.attachedToStepId === stepData.id);
+                    if (attachedFrame) {
+                        const frameElement = canvas.querySelector(`[data-transition-frame="${attachedFrame.id}"]`);
+                        if (frameElement) {
+                            // Position frame at same Y as step (so name panel hides behind step)
+                            frameElement.style.top = newY + 'px';
+                            frameElement.style.left = newX + 'px';
+                            attachedFrame.position = `${gridX},${gridY}`;
+                            
+                            // Update all case lines from conditions in this frame
+                            attachedFrame.conditions.forEach(conditionId => {
+                                const caseLines = canvas.querySelectorAll(`[data-transition-connection-line][data-from-transition="${conditionId}"]`);
+                                caseLines.forEach(line => {
+                                    const toStepId = line.getAttribute('data-to-step');
+                                    renderCaseLineInitial(line, conditionId, toStepId, canvas, attachedFrame);
+                                });
+                            });
+                        }
+                    }
                     
                     // Update any blue connection lines from this step
                     const blueLines = canvas.querySelectorAll(`[data-connection-line][data-from-step="${stepData.id}"]`);
