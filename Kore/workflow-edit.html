@@ -204,17 +204,14 @@
                 <div draggable="true" class="step-type-item" data-type="Kore" style="padding: 0; background: #3a3a3a; border: 2px solid #666666; border-radius: 4px; cursor: move; text-align: center; font-size: 0.9rem; color: #ffffff; user-select: none; display: flex; align-items: center; justify-content: center; height: 30px; box-sizing: border-box;">
                     Kore
                 </div>
-                <div draggable="true" class="step-type-item" data-type="Test" style="padding: 0; background: #0a3d55; border: 2px solid #3a7a99; border-radius: 4px; cursor: move; text-align: center; font-size: 0.9rem; color: #ffffff; user-select: none; display: flex; align-items: center; justify-content: center; height: 30px; box-sizing: border-box;">
-                    Test
-                </div>
-                <div draggable="true" class="step-type-item" data-type="End" style="padding: 0; background: #5a1a1a; border: 2px solid #cc3333; border-radius: 4px; cursor: move; text-align: center; font-size: 0.9rem; color: #ffffff; user-select: none; display: flex; align-items: center; justify-content: center; height: 30px; box-sizing: border-box;">
-                    End
-                </div>
                 <div draggable="true" class="step-type-item" data-type="Workflow" style="padding: 0; background: #4a1f77; border: 2px solid #7733bb; border-radius: 4px; cursor: move; text-align: center; font-size: 0.9rem; color: #ffffff; user-select: none; display: flex; align-items: center; justify-content: center; height: 30px; box-sizing: border-box;">
                     Workflow
                 </div>
                 <div draggable="true" class="step-type-item" data-type="RMM" style="padding: 0; background: #0a3d55; border: 2px solid #3a7a99; border-radius: 4px; cursor: move; text-align: center; font-size: 0.9rem; color: #ffffff; user-select: none; display: flex; align-items: center; justify-content: center; height: 30px; box-sizing: border-box;">
                     RMM
+                </div>
+                <div draggable="true" class="step-type-item" data-type="End" style="padding: 0; background: #5a1a1a; border: 2px solid #cc3333; border-radius: 4px; cursor: move; text-align: center; font-size: 0.9rem; color: #ffffff; user-select: none; display: flex; align-items: center; justify-content: center; height: 30px; box-sizing: border-box;">
+                    End
                 </div>
             </div>
         </div>
@@ -738,7 +735,8 @@
                             position: step.transition.position || '0,0',
                             verticalLayout: step.transition.vertical || false,
                             attached: step.transition.attached === true,
-                            attachedToStepId: step.transition.attached === true ? step.id : null
+                            attachedToStepId: step.transition.attached === true ? step.id : null,
+                            parentStepId: step.id  // Store the step that owns this frame
                         };
                         
                         // Convert cases to transitions
@@ -989,10 +987,17 @@
                                     left: 0;
                                     width: 100%;
                                     height: 100%;
-                                    pointer-events: none;
-                                    z-index: 0;
+                                    pointer-events: auto;
+                                    z-index: 5;
                                 `;
                                 canvas.appendChild(caseLine);
+                                
+                                // Add mousedown listener to prevent frame drag when clicking case arrow
+                                caseLine.addEventListener('mousedown', (e) => {
+                                    if (e.target.closest('[data-case-arrow-hitbox]')) {
+                                        e.stopPropagation();
+                                    }
+                                });
                                 
                                 // Render the case line
                                 renderCaseLineInitial(caseLine, conditionId, targetStepId, canvas, frame);
@@ -1359,8 +1364,8 @@
             
             if (vertical) {
                 // Vertical layout: 60px wide, height grows with conditions
-                // Base: 45px (1 condition), +30px for each additional condition
-                const frameHeight = 45 + Math.max(0, (frame.conditions.length - 1) * 30);
+                // Minimum: 60px (2 gridboxes), +30px for each additional condition
+                const frameHeight = Math.max(60, 45 + (frame.conditions.length - 1) * 30);
                 frameRect.style.cssText = `
                     position: absolute;
                     width: 60px;
@@ -1584,9 +1589,9 @@
                 const addButton = document.createElement('div');
                 addButton.setAttribute('data-add-condition-btn', frameUUID);
                 addButton.style.cssText = `
-                    width: 100%;
-                    height: 15px;
-                    max-height: 15px;
+                    width: 26px;
+                    height: 26px;
+                    max-height: 26px;
                     padding: 0;
                     margin: 0;
                     background: #d4af37;
@@ -1631,12 +1636,13 @@
                 // Header: top, full width
                 const header = document.createElement('div');
                 header.setAttribute('data-frame-header', frameUUID);
+                const headerFontSize = frameWidth === 60 ? '0.7rem' : '0.8rem';
                 header.style.cssText = `
                     padding: 0;
                     background: #2a2a1a;
                     text-align: center;
                     color: #d4af37;
-                    font-size: 0.8rem;
+                    font-size: ${headerFontSize};
                     font-weight: normal;
                     cursor: pointer;
                     user-select: none;
@@ -1874,15 +1880,30 @@
             let isFrameDragging = false;
             let frameMouseDownX = 0, frameMouseDownY = 0;
             let wasJustDetached = false;  // Flag to prevent re-attachment after detach
+            let isDraggingCaseArrow = false;  // Flag to indicate case arrow is being dragged
             const DRAG_THRESHOLD = 5; // pixels
             
             frameRect.addEventListener('mousedown', (e) => {
-                // Don't drag from condition boxes
-                if (e.target.closest('[data-condition-id]')) {
+                // Check if clicking on a valid drag handle area
+                const frameData = currentTransitionFrames.find(f => f.id === frameUUID);
+                if (!frameData) return;
+                
+                let isDragHandle = false;
+                
+                if (frameData.verticalLayout) {
+                    // Vertical mode: only allow drag on left panel (first 60px) or add button
+                    const clickX = e.clientX - frameRect.getBoundingClientRect().left;
+                    isDragHandle = clickX < 60 || e.target.closest('[data-add-condition-btn]');
+                } else {
+                    // Horizontal mode: only allow drag on header (top 28px) or add button
+                    const clickY = e.clientY - frameRect.getBoundingClientRect().top;
+                    isDragHandle = clickY < 28 || e.target.closest('[data-add-condition-btn]');
+                }
+                
+                if (!isDragHandle) {
                     return;
                 }
                 
-                e.stopPropagation();
                 frameMouseDownX = e.clientX;
                 frameMouseDownY = e.clientY;
                 wasJustDetached = false;  // Reset flag on new drag
@@ -1903,6 +1924,11 @@
             });
             
             const handleFrameDrag = (e) => {
+                // Don't drag frame if we're dragging a case arrow
+                if (isDraggingCaseArrow) {
+                    return;
+                }
+                
                 const frameData = currentTransitionFrames.find(f => f.id === frameUUID);
                 if (!frameData) return;
                 
@@ -2104,7 +2130,7 @@
                                             const path = createCurvedPath(conditionCenterX, conditionCenterY, startDirection, lineEnd.x, lineEnd.y, nearestSide.name);
                                             
                                             const transitionColors = getTransitionColors(transition.type);
-                                            line.innerHTML = `<defs><marker id="caseArrowhead-${conditionId}" markerWidth="10" markerHeight="10" refX="0" refY="3" orient="auto"><polygon points="0 0, 6 3, 0 6" fill="${transitionColors.color}"/></marker></defs><path d="${path}" stroke="${transitionColors.color}" stroke-width="2" fill="none" marker-end="url(#caseArrowhead-${conditionId})"/><circle cx="${lineEnd.x}" cy="${lineEnd.y}" r="8" fill="transparent" data-case-arrow-hitbox="${conditionId}" style="cursor: grab; pointer-events: auto;" />`;
+                                            line.innerHTML = `<defs><marker id="caseArrowhead-${conditionId}" markerWidth="10" markerHeight="10" refX="0" refY="3" orient="auto"><polygon points="0 0, 6 3, 0 6" fill="${transitionColors.color}"/></marker></defs><path d="${path}" stroke="${transitionColors.color}" stroke-width="2" fill="none" marker-end="url(#caseArrowhead-${conditionId})" style="pointer-events: none;"/><circle cx="${lineEnd.x}" cy="${lineEnd.y}" r="8" fill="transparent" data-case-arrow-hitbox="${conditionId}" style="cursor: grab; pointer-events: auto;" />`;
                                         }
                                     }
                                 }
@@ -2151,6 +2177,12 @@
                 console.log('stopFrameDrag START, wasJustDetached:', wasJustDetached, 'frameUUID:', frameUUID);
                 document.removeEventListener('mousemove', handleFrameDrag);
                 document.removeEventListener('mouseup', stopFrameDrag);
+                
+                // Don't process frame drag if we're dragging a case arrow
+                if (isDraggingCaseArrow) {
+                    return;
+                }
+                
                 if (isFrameDragging) {
                     frameRect._isFrameDragging = true;
                 }
@@ -2182,7 +2214,8 @@
                             const horizontalOverlap = frameRect.left < stepRect.right && frameRect.right > stepRect.left;
                             
                             // Allow frame to be anywhere from 10px above step top to 30px below (for drag tolerance)
-                            if (frameTop <= (stepTop + 30) && frameTop >= (stepTop - 10) && horizontalOverlap) {
+                            // But only if this step is the frame's parent (Stranger Danger rule)
+                            if (frameTop <= (stepTop + 30) && frameTop >= (stepTop - 10) && horizontalOverlap && step.id === frameData.parentStepId) {
                                 attachedToStep = step;
                             }
                         }
@@ -3820,7 +3853,7 @@
             
             const transition = currentTransitions.find(t => t.id === conditionId);
             const transitionColors = transition ? getTransitionColors(transition.type) : getTransitionColors('Success');
-            line.innerHTML = `<defs><marker id="caseArrowhead-${conditionId}" markerWidth="10" markerHeight="10" refX="0" refY="3" orient="auto"><polygon points="0 0, 6 3, 0 6" fill="${transitionColors.color}"/></marker></defs><path d="${path}" stroke="${transitionColors.color}" stroke-width="2" fill="none" marker-end="url(#caseArrowhead-${conditionId})"/><circle cx="${lineEnd.x}" cy="${lineEnd.y}" r="8" fill="transparent" data-case-arrow-hitbox="${conditionId}" style="cursor: grab; pointer-events: auto;" />`;
+            line.innerHTML = `<defs><marker id="caseArrowhead-${conditionId}" markerWidth="10" markerHeight="10" refX="0" refY="3" orient="auto"><polygon points="0 0, 6 3, 0 6" fill="${transitionColors.color}"/></marker></defs><path d="${path}" stroke="${transitionColors.color}" stroke-width="2" fill="none" marker-end="url(#caseArrowhead-${conditionId})" style="pointer-events: none;"/><circle cx="${lineEnd.x}" cy="${lineEnd.y}" r="8" fill="transparent" data-case-arrow-hitbox="${conditionId}" style="cursor: grab; pointer-events: auto;" />`;
         }
 
 
@@ -3961,7 +3994,7 @@
         }
 
         // Create a transition frame (3x2 by default, expandable)
-        function createTransitionFrame(frameX, frameY) {
+        function createTransitionFrame(frameX, frameY, parentStepId = null) {
             const canvas = document.getElementById('workflowCanvas');
             
             // Create frame data object
@@ -3977,7 +4010,8 @@
                 execution: 'First', // 'First' or 'All'
                 conditions: [], // Array of transition condition IDs
                 position: `${frameGridX},${frameGridY}`,
-                verticalLayout: false // Default to horizontal layout
+                verticalLayout: false, // Default to horizontal layout
+                parentStepId: parentStepId  // Store the step that owns this frame
             };
             
             // Create frame container (3x2 = 90px x 60px)
@@ -4231,20 +4265,20 @@
             let transitionStartY = 0;
             
             // Drag case line end arrows to move or delete connections
-            let isDraggingCaseArrow = false;
             let draggedCaseConditionId = null;
             let draggedCaseTargetStepId = null;
             let caseArrowStartX = 0;
             let caseArrowStartY = 0;
             
             document.addEventListener('mousedown', (e) => {
-                // Check if clicking on a case line arrow hitbox
+                // Check if clicking on a case line arrow hitbox (using capture phase to intercept early)
                 const hitbox = e.target.closest('[data-case-arrow-hitbox]');
                 if (hitbox) {
                     const canvas = document.getElementById('workflowCanvas');
                     if (!canvas) return;
                     
                     e.stopPropagation();
+                    e.preventDefault();
                     isDraggingCaseArrow = true;
                     draggedCaseConditionId = hitbox.getAttribute('data-case-arrow-hitbox');
                     
@@ -4294,7 +4328,7 @@
                             width: 100%;
                             height: 100%;
                             pointer-events: none;
-                            z-index: 0;
+                            z-index: 5;
                         `;
                         canvas.appendChild(previewLine);
                     }
@@ -4374,8 +4408,15 @@
                                 newLine.setAttribute('data-transition-connection-line', 'true');
                                 newLine.setAttribute('data-from-transition', draggedCaseConditionId);
                                 newLine.setAttribute('data-to-step', droppedOnStep);
-                                newLine.style.cssText = `position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: auto; z-index: 0;`;
+                                newLine.style.cssText = `position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: auto; z-index: 5;`;
                                 canvas.appendChild(newLine);
+                                
+                                // Add mousedown listener to prevent frame drag when clicking case arrow
+                                newLine.addEventListener('mousedown', (e) => {
+                                    if (e.target.closest('[data-case-arrow-hitbox]')) {
+                                        e.stopPropagation();
+                                    }
+                                });
                                 
                                 // Use the standard case line rendering
                                 const frame = currentTransitionFrames.find(f => f.conditions.includes(draggedCaseConditionId));
@@ -4451,7 +4492,7 @@
                             width: 100%;
                             height: 100%;
                             pointer-events: none;
-                            z-index: 0;
+                            z-index: 5;
                         `;
                         canvas.appendChild(line);
                     }
@@ -4504,7 +4545,7 @@
                                 width: 100%;
                                 height: 100%;
                                 pointer-events: none;
-                                z-index: 0;
+                                z-index: 5;
                             `;
                             canvas.appendChild(connectionLine);
                             
@@ -4705,7 +4746,7 @@
                 border: 1px solid ${darkColor};
                 border-radius: 4px;
             `;
-            contentArea.textContent = stepData.name || (stepData.type === 'Begin' ? 'BEGIN' : stepData.type === 'End' ? 'End' : stepData.type === 'Test' ? 'Test' : stepData.type === 'Workflow' ? 'Workflow' : stepData.type === 'RMM' ? 'RMM Step' : stepData.type === 'Kore' ? 'Kore' : `${stepData.type} Step`);
+            contentArea.textContent = stepData.name || (stepData.type === 'Begin' ? 'BEGIN' : stepData.type === 'End' ? 'End' : stepData.type === 'Workflow' ? 'Workflow' : stepData.type === 'RMM' ? 'RMM Step' : stepData.type === 'Kore' ? 'Kore' : `${stepData.type} Step`);
             stepElement.appendChild(contentArea);
             
             // Add to canvas temporarily to measure
@@ -4811,7 +4852,7 @@
                             width: 100%;
                             height: 100%;
                             pointer-events: none;
-                            z-index: 0;
+                            z-index: 5;
                         `;
                         canvas.appendChild(line);
                     }
@@ -4869,7 +4910,8 @@
                             execution: 'First',
                             conditions: [],
                             position: `${frameGridX},${frameGridY}`,
-                            verticalLayout: false // Default to horizontal layout
+                            verticalLayout: false, // Default to horizontal layout
+                            parentStepId: fromStepUUID  // Store the step that owns this frame
                         };
                         currentTransitionFrames = currentTransitionFrames || [];
                         currentTransitionFrames.push(frameData);
@@ -5206,7 +5248,7 @@
             // Create step data object
             const stepData = {
                 id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-                name: stepType === 'Begin' ? 'BEGIN' : stepType === 'End' ? 'End' : stepType === 'Test' ? 'Test' : stepType === 'Workflow' ? 'Workflow' : stepType === 'RMM' ? 'RMM Step' : stepType === 'Kore' ? 'Kore' : `${stepType} Step`,
+                name: stepType === 'Begin' ? 'BEGIN' : stepType === 'End' ? 'End' : stepType === 'Workflow' ? 'Workflow' : stepType === 'RMM' ? 'RMM Step' : stepType === 'Kore' ? 'Kore' : `${stepType} Step`,
                 type: stepType,
                 action: '',
                 width: 3,
