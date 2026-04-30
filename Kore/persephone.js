@@ -46,9 +46,25 @@ const Persephone = (() => {
     async function validateWorkflow(definition) {
         const errors = [];
 
+        // Validate critical top-level fields
+        if (!definition.id) {
+            errors.push('Workflow must have an id');
+        }
+        if (!definition.name) {
+            errors.push('Workflow must have a name');
+        }
+        if (!definition.version) {
+            errors.push('Workflow must have a version');
+        }
+
         // Basic structure validation
         if (!definition.steps || !Array.isArray(definition.steps)) {
             errors.push('Workflow must have a steps array');
+        }
+
+        // Validate metadata exists and is an object (but not its sub-elements)
+        if (!definition.metadata || typeof definition.metadata !== 'object') {
+            errors.push('Workflow must have a metadata object');
         }
 
         // Validate each step
@@ -98,31 +114,39 @@ const Persephone = (() => {
             throw new Error(`Workflow validation failed: ${validation.errors.join(', ')}`);
         }
 
-        // Store only steps in definition
+        // Add/update metadata, preserve everything else in definition as-is
+        const now = new Date().toISOString();
         const definitionToStore = {
-            steps: definition.steps || []
+            ...definition,
+            metadata: {
+                ...(definition.metadata || {}),
+                created_at: definition.metadata?.created_at || now,
+                created_by: definition.metadata?.created_by || createdBy || 'api',
+                updated_at: now,
+                updated_by: createdBy || 'api'
+            }
         };
 
         const conn = await pools.kore.getConnection();
         try {
-            // Insert into pers_workflows (current version)
+            // Insert into pers_workflows (id, name, version, definition only)
             await conn.execute(
                 `INSERT INTO pers_workflows 
-                 (id, name, version, definition, status, created_by) 
-                 VALUES (?, ?, ?, ?, 'active', ?)`,
-                [id, name, version, JSON.stringify(definitionToStore), createdBy]
+                 (id, name, version, definition) 
+                 VALUES (?, ?, ?, ?)`,
+                [id, name, version, JSON.stringify(definitionToStore)]
             );
 
-            // Insert into pers_workflows_hist (history)
+            // Insert into pers_workflows_hist (workflow_id, version, definition only)
             await conn.execute(
                 `INSERT INTO pers_workflows_hist 
-                 (workflow_id, version, definition, status, created_by) 
-                 VALUES (?, ?, ?, 'active', ?)`,
-                [id, version, JSON.stringify(definitionToStore), createdBy]
+                 (workflow_id, version, definition) 
+                 VALUES (?, ?, ?)`,
+                [id, version, JSON.stringify(definitionToStore)]
             );
 
             console.log(`[Persephone] Workflow created: ${id} (${name})@${version}`);
-            return { id, name, version, status: 'active' };
+            return { id, name, version };
         } finally {
             conn.release();
         }
@@ -135,19 +159,15 @@ const Persephone = (() => {
         const conn = await pools.kore.getConnection();
         try {
             const [rows] = await conn.execute(
-                `SELECT id, name, version, status, created_at, updated_at, created_by 
+                `SELECT id, name, version 
                  FROM pers_workflows 
-                 ORDER BY updated_at DESC`
+                 ORDER BY name ASC`
             );
 
             return rows.map(row => ({
                 id: row.id,
                 name: row.name,
-                version: row.version,
-                status: row.status,
-                created_at: row.created_at,
-                updated_at: row.updated_at,
-                created_by: row.created_by
+                version: row.version
             }));
         } finally {
             conn.release();
@@ -170,7 +190,7 @@ const Persephone = (() => {
             } else {
                 // Get current version from main table
                 query = `SELECT * FROM pers_workflows 
-                        WHERE id = ? AND status = 'active'`;
+                        WHERE id = ?`;
                 params = [workflowId];
             }
 
@@ -184,11 +204,7 @@ const Persephone = (() => {
                 id: row.id || row.workflow_id,
                 name: row.name,
                 version: row.version,
-                definition,
-                status: row.status,
-                created_at: row.created_at,
-                updated_at: row.updated_at,
-                created_by: row.created_by
+                definition
             };
         } finally {
             conn.release();
@@ -529,14 +545,20 @@ const Persephone = (() => {
             throw new Error(`Workflow validation failed: ${validation.errors.join(', ')}`);
         }
 
-        // Store only steps in definition
+        // Update metadata timestamps, preserve everything else in definition as-is
+        const now = new Date().toISOString();
         const definitionToStore = {
-            steps: definition.steps || []
+            ...definition,
+            metadata: {
+                ...(definition.metadata || {}),
+                updated_at: now,
+                updated_by: createdBy || 'api'
+            }
         };
 
         const conn = await pools.kore.getConnection();
         try {
-            // Update pers_workflows (current version)
+            // Update pers_workflows (id, name, version, definition only)
             await conn.execute(
                 `UPDATE pers_workflows 
                  SET name = ?, version = ?, definition = ?
@@ -544,16 +566,16 @@ const Persephone = (() => {
                 [name, version, JSON.stringify(definitionToStore), id]
             );
 
-            // Insert into pers_workflows_hist (history)
+            // Insert into pers_workflows_hist (workflow_id, version, definition only)
             await conn.execute(
                 `INSERT INTO pers_workflows_hist 
-                 (workflow_id, version, definition, status, created_by) 
-                 VALUES (?, ?, ?, 'active', ?)`,
-                [id, version, JSON.stringify(definitionToStore), createdBy]
+                 (workflow_id, version, definition) 
+                 VALUES (?, ?, ?)`,
+                [id, version, JSON.stringify(definitionToStore)]
             );
 
             console.log(`[Persephone] Workflow updated: ${id} (${name})@${version}`);
-            return { id, name, version, status: 'active' };
+            return { id, name, version };
         } finally {
             conn.release();
         }
