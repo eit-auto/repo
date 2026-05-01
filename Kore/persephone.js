@@ -29,6 +29,36 @@ const Persephone = (() => {
         cwa: null
     };
 
+    // Route registry for dynamic route handling
+    const routes = [];
+
+    /**
+     * Register an endpoint with the route registry
+     */
+    function registerRoute(pattern, handler) {
+        routes.push({ pattern, handler });
+    }
+
+    /**
+     * Check if a URL matches any registered route and handle it
+     */
+    function handleRegisteredRoute(req, res) {
+        for (const route of routes) {
+            if (typeof route.pattern === 'string') {
+                // Exact match or startsWith for query params
+                if (req.url === route.pattern || req.url.startsWith(route.pattern + '?')) {
+                    return route.handler(req, res);
+                }
+            } else if (route.pattern instanceof RegExp) {
+                // Regex match
+                if (route.pattern.test(req.url)) {
+                    return route.handler(req, res);
+                }
+            }
+        }
+        return false; // No route matched
+    }
+
     /**
      * Initialize Persephone with MySQL pools for all three databases
      */
@@ -37,6 +67,13 @@ const Persephone = (() => {
         pools.rewst = rewstPool;
         pools.cwa = cwaPool;
         nunjucks.configure({ autoescape: false });
+        
+        // Register Persephone API routes
+        registerRoute('/kore/workflows', handleWorkflowRequest);
+        registerRoute('/kore/execute', handleExecuteRequest);
+        registerRoute('/kore/executions', handleExecutionRequest);
+        registerRoute('/api/render-template', handleRenderTemplate);
+        
         console.log('[Persephone] Engine initialized with MySQL pools (kore, rewst, cwa)');
     }
 
@@ -835,6 +872,61 @@ const Persephone = (() => {
         }
     }
 
+    /**
+     * Render a Jinja2 template with given context
+     */
+    async function renderTemplate(template, context) {
+        try {
+            const result = nunjucks.renderString(template, context);
+            return { success: true, result };
+        } catch (error) {
+            return { success: false, error: error.message };
+        }
+    }
+
+    /**
+     * Handle template rendering request
+     */
+    async function handleRenderTemplate(req, res) {
+        try {
+            // Read request body
+            let body = '';
+            req.on('data', chunk => {
+                body += chunk.toString();
+            });
+            
+            req.on('end', async () => {
+                try {
+                    const { template, context } = JSON.parse(body);
+                    
+                    if (!template) {
+                        res.writeHead(400, { 'Content-Type': 'application/json' });
+                        return res.end(JSON.stringify({ error: 'Template is required' }));
+                    }
+                    
+                    const contextData = context || {};
+                    const renderResult = await renderTemplate(template, contextData);
+                    
+                    if (renderResult.success) {
+                        res.writeHead(200, { 'Content-Type': 'application/json' });
+                        res.end(JSON.stringify({ result: renderResult.result }));
+                    } else {
+                        res.writeHead(400, { 'Content-Type': 'application/json' });
+                        res.end(JSON.stringify({ error: renderResult.error }));
+                    }
+                } catch (error) {
+                    console.error('[Persephone] Template rendering error:', error.message);
+                    res.writeHead(500, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify({ error: error.message }));
+                }
+            });
+        } catch (error) {
+            console.error('[Persephone] Template rendering error:', error.message);
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: error.message }));
+        }
+    }
+
     // Public API
     return {
         initialize,
@@ -847,7 +939,11 @@ const Persephone = (() => {
         getExecutionStatus,
         handleWorkflowRequest,
         handleExecuteRequest,
-        handleExecutionRequest
+        handleExecutionRequest,
+        renderTemplate,
+        handleRenderTemplate,
+        registerRoute,
+        handleRegisteredRoute
     };
 })();
 
