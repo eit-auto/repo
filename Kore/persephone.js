@@ -17,6 +17,9 @@
  *   GET    /kore/executions              - List executions (with filters)
  */
 
+const fs = require('fs');
+const path = require('path');
+const url = require('url');
 const nunjucks = require('nunjucks');
 const { v4: uuidv4 } = require('uuid');
 const mysql = require('mysql2/promise');
@@ -69,10 +72,10 @@ const Persephone = (() => {
         nunjucks.configure({ autoescape: false });
         
         // Register Persephone API routes
-        registerRoute('/kore/workflows', handleWorkflowRequest);
-        registerRoute('/kore/execute', handleExecuteRequest);
-        registerRoute('/kore/executions', handleExecutionRequest);
-        registerRoute('/api/render-template', handleRenderTemplate);
+        registerRoute('/workflows', handleWorkflowRequest);
+        registerRoute('/execute', handleExecuteRequest);
+        registerRoute('/executions', handleExecutionRequest);
+        registerRoute('/render-template', handleRenderTemplate);
         
         console.log('[Persephone] Engine initialized with MySQL pools (kore, rewst, cwa)');
     }
