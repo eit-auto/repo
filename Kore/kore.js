@@ -2,6 +2,7 @@
  * Kore Central Automation Platform
  * 
  * Unified integration platform for MeshCentral, ConnectWise Manage API, and database operations.
+ * Includes Persephone workflow automation engine.
  * 
  * Endpoints:
  *   POST /auth                - Get session token for authenticated requests
@@ -12,14 +13,26 @@
  *   GET  /status              - Server health and status check
  *   GET  /nodes               - List MeshCentral nodes
  *   POST /api-cwm             - ConnectWise Manage API passthrough
+ * 
+ * Persephone Automation Engine:
+ *   POST   /kore/workflows               - Create new workflow
+ *   GET    /kore/workflows/:id           - Get latest workflow version
+ *   GET    /kore/workflows/:id/:version  - Get specific workflow version
+ *   DELETE /kore/workflows/:id/:version  - Archive workflow version
+ *   POST   /kore/execute                 - Execute workflow
+ *   GET    /kore/executions/:executionId - Get execution status
+ *   POST   /kore/executions/:executionId/cancel - Cancel execution
  */
 
 const https = require('https');
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const url = require('url');
 const WebSocket = require('ws');
 const mysql = require('mysql2/promise');
+const Persephone = require('./persephone');
+const { handleWorkflowRequest, handleExecuteRequest, handleExecutionRequest } = require('./persephone');
 
 // ========== SECURITY CONFIGURATION ==========
 // IP Whitelist (no rate limits applied)
@@ -82,8 +95,28 @@ function checkRateLimit(ip, endpoint) {
     };
 }
 
+function stripVariableColumns(result) {
+    if (!Array.isArray(result)) {
+        return result;
+    }
+    
+    return result.map(row => {
+        if (typeof row !== 'object' || row === null) {
+            return row;
+        }
+        
+        const cleaned = {};
+        for (const key in row) {
+            // Strip @ prefix from key names, keep the value
+            const cleanKey = key.startsWith('@') ? key.substring(1) : key;
+            cleaned[cleanKey] = row[key];
+        }
+        return cleaned;
+    });
+}
+
 // Daily logging setup
-const LOGS_DIR = 'C:\\Apps\\Kore\\logs';
+const LOGS_DIR = 'D:\\Kore\\logs';
 let logStream = null;
 let currentLogDate = null;
 
@@ -98,9 +131,11 @@ function getLogFilePath() {
 function ensureLogStream() {
     const now = new Date();
     const today = now.toDateString(); // "Thu Apr 23 2026"
+    const logFile = getLogFilePath();
     
     // Check if we need to switch to a new log file (date changed or first time)
-    if (currentLogDate !== today) {
+    // OR if the current log file was deleted
+    if (currentLogDate !== today || !fs.existsSync(logFile)) {
         // Close old stream if it exists
         if (logStream) {
             logStream.end();
@@ -112,9 +147,21 @@ function ensureLogStream() {
         }
         
         // Open new stream for today
-        const logFile = getLogFilePath();
-        logStream = fs.createWriteStream(logFile, { flags: 'a' });
-        currentLogDate = today;
+        try {
+            logStream = fs.createWriteStream(logFile, { flags: 'a' });
+            
+            // Handle stream errors
+            logStream.on('error', (err) => {
+                // Don't use console.error here - causes infinite recursion
+                process.stderr.write(`[${new Date().toISOString()}] Log stream error: ${err.message}\n`);
+                logStream = null;
+            });
+            
+            currentLogDate = today;
+        } catch (err) {
+            process.stderr.write(`[${new Date().toISOString()}] ERROR opening log stream: ${err.message}\n`);
+            logStream = null;
+        }
     }
     
     return logStream;
@@ -127,29 +174,47 @@ function initializeLogging() {
     // Redirect console.log
     const originalLog = console.log;
     console.log = function(...args) {
-        const message = args.map(arg => 
-            typeof arg === 'object' ? JSON.stringify(arg, null, 2) : String(arg)
-        ).join(' ');
-        const timestamp = `[${new Date().toISOString()}]`;
-        const output = `${timestamp} ${message}\n`;
-        
+        // Always print to console first
         originalLog.apply(console, args);
-        const stream = ensureLogStream();
-        if (stream) stream.write(output);
+        
+        // Also write to file
+        try {
+            const message = args.map(arg => 
+                typeof arg === 'object' ? JSON.stringify(arg, null, 2) : String(arg)
+            ).join(' ');
+            const timestamp = `[${new Date().toISOString()}]`;
+            const output = `${timestamp} ${message}\n`;
+            
+            const stream = ensureLogStream();
+            if (stream && !stream.closed) {
+                stream.write(output);
+            }
+        } catch (err) {
+            // Silently ignore file write errors to avoid breaking console
+        }
     };
     
     // Redirect console.error
     const originalError = console.error;
     console.error = function(...args) {
-        const message = args.map(arg => 
-            typeof arg === 'object' ? JSON.stringify(arg, null, 2) : String(arg)
-        ).join(' ');
-        const timestamp = `[${new Date().toISOString()}]`;
-        const output = `${timestamp} ERROR: ${message}\n`;
-        
+        // Always print to console first
         originalError.apply(console, args);
-        const stream = ensureLogStream();
-        if (stream) stream.write(output);
+        
+        // Also write to file
+        try {
+            const message = args.map(arg => 
+                typeof arg === 'object' ? JSON.stringify(arg, null, 2) : String(arg)
+            ).join(' ');
+            const timestamp = `[${new Date().toISOString()}]`;
+            const output = `${timestamp} ERROR: ${message}\n`;
+            
+            const stream = ensureLogStream();
+            if (stream && !stream.closed) {
+                stream.write(output);
+            }
+        } catch (err) {
+            // Silently ignore file write errors to avoid breaking console
+        }
     };
     
     console.log(`[${new Date().toISOString()}] Kore logging initialized - ${getLogFilePath()}`);
@@ -162,9 +227,9 @@ initializeLogging();
 const MESHCENTRAL_HOST = '192.168.141.40';
 const MESHCENTRAL_PORT = 1138;
 const PROXY_PORT = 1139;
-const CREDENTIALS_FILE = 'C:\\Apps\\Kore\\credentials.json';
-const SESSIONS_FILE = 'C:\\Apps\\Kore\\sessions.json';
-const LOG_FILE = 'C:\\Apps\\Kore\\proxy-errors.log';
+const CREDENTIALS_FILE = 'D:\\Kore\\credentials.json';
+const SESSIONS_FILE = 'D:\\Kore\\sessions.json';
+const LOG_FILE = 'D:\\Kore\\proxy-errors.log';
 
 // Error logging helper
 function logError(message, errorObj = null) {
@@ -211,8 +276,8 @@ async function processSessionWriteQueue() {
         setImmediate(processSessionWriteQueue);
     }
 }
-const MYSQL_CONFIG_FILE = 'C:\\Apps\\Kore\\mysql-config.json';
-const API_CONFIG_FILE = 'C:\\Apps\\Kore\\api-config.json';
+const MYSQL_CONFIG_FILE = 'D:\\Kore\\mysql-config.json';
+const API_CONFIG_FILE = 'D:\\Kore\\api-config.json';
 const MESHCENTRAL_USER = '~t:HnFCPNFuaFf3Wr55';
 const MESHCENTRAL_PASS = 'l1teqFCwQu5oIigiVAAV';
 
@@ -229,6 +294,7 @@ const POOL_IDLE_TIMEOUT_MS = 60000;  // Close idle connections after 60 seconds
 // MySQL connection pools
 let mysqlPool = null;    // Rewst database pool
 let cwaPool = null;      // CWA/LabTech database pool
+let korePool = null;     // Kore database pool (Persephone)
 
 console.log(`[${new Date().toISOString()}] Starting MeshCentral WebSocket Proxy`);
 console.log(`[${new Date().toISOString()}] MeshCentral: ${MESHCENTRAL_HOST}:${MESHCENTRAL_PORT}`);
@@ -247,7 +313,7 @@ process.on('uncaughtException', (err) => {
     const logMsg = `[${new Date().toISOString()}] FATAL UNCAUGHT EXCEPTION: ${err.message}\n${err.stack}\n`;
     console.error(logMsg);
     try {
-        fs.appendFileSync('C:\\Apps\\Kore\\error.log', logMsg);
+        fs.appendFileSync('D:\\Kore\\error.log', logMsg);
     } catch (e) {
         console.error('Failed to write error.log:', e.message);
     }
@@ -429,10 +495,27 @@ async function initializeMySQLPool() {
             waitForConnections: true,
             connectionLimit: 10,
             queueLimit: 0,
-            enableKeepAlive: true
+            enableKeepAlive: true,
+            multipleStatements: true
         });
         
         console.log(`[${new Date().toISOString()}] CWA MySQL connection pool created (${mysqlConfig.cwa.host}:${mysqlConfig.cwa.port}/${mysqlConfig.cwa.database})`);
+        
+        // Create Kore connection pool
+        korePool = mysql.createPool({
+            host: mysqlConfig.kore.host,
+            port: mysqlConfig.kore.port,
+            database: mysqlConfig.kore.database,
+            user: mysqlConfig.kore.user,
+            password: mysqlConfig.kore.password,
+            waitForConnections: true,
+            connectionLimit: 10,
+            queueLimit: 0,
+            enableKeepAlive: true,
+            multipleStatements: true
+        });
+        
+        console.log(`[${new Date().toISOString()}] Kore MySQL connection pool created (${mysqlConfig.kore.host}:${mysqlConfig.kore.port}/${mysqlConfig.kore.database})`);
         
         // Load API config
         const apiConfigJson = fs.readFileSync(API_CONFIG_FILE, 'utf8');
@@ -2025,11 +2108,11 @@ function handleQueryRequest(req, res) {
             let rows;
             try {
                 // Set a 30-second query timeout
-                await connection.execute('SET SESSION max_execution_time=30000');
+                await connection.query('SET SESSION max_execution_time=30000');
                 console.log(`[${new Date().toISOString()}] Query timeout set to 30 seconds`);
                 
                 console.log(`[${new Date().toISOString()}] About to execute: ${query.substring(0, 150)}...`);
-                [rows] = await connection.execute(query);
+                [rows] = await connection.query(query);
                 console.log(`[${new Date().toISOString()}] Query executed successfully, rows affected: ${rows?.affectedRows || rows?.length || 0}`);
             } catch (queryError) {
                 console.error(`[${new Date().toISOString()}] QUERY EXECUTION FAILED`);
@@ -2044,11 +2127,22 @@ function handleQueryRequest(req, res) {
             }
             
             // Return results
+            // When multipleStatements are used, rows is an array of results for each statement
+            // Extract the last result which is the actual SELECT query result
+            let finalResult = rows;
+            if (Array.isArray(rows) && rows.length > 0 && Array.isArray(rows[rows.length - 1])) {
+                finalResult = rows[rows.length - 1];
+                console.log(`[${new Date().toISOString()}] Extracted final result from ${rows.length} statements`);
+            }
+            
+            // Strip MySQL user variable columns (those starting with @)
+            finalResult = stripVariableColumns(finalResult);
+            
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({
                 success: true,
-                result: rows,
-                rowCount: rows.length,
+                result: finalResult,
+                rowCount: Array.isArray(finalResult) ? finalResult.length : 0,
                 timestamp: new Date().toISOString()
             }));
             
@@ -2117,9 +2211,11 @@ function handleCwaQueryRequest(req, res) {
     });
     
     req.on('end', async () => {
+        let query = null;  // Declare here so it's available in catch block
+        let session = null;  // Declare here so it's available in catch block
         try {
             const data = JSON.parse(body);
-            const query = data.query;
+            query = data.query;
             const userFromBody = data.user;
             
             // Handle optional timeout parameter (in milliseconds)
@@ -2153,7 +2249,7 @@ function handleCwaQueryRequest(req, res) {
             }
             
             // Find matching session
-            const session = sessionsData.sessions.find(s => s.token === sessionTokenFromHeader);
+            session = sessionsData.sessions.find(s => s.token === sessionTokenFromHeader);
             
             if (!session) {
                 console.log(`[${new Date().toISOString()}] CWA Query failed: session token not found`);
@@ -2194,11 +2290,11 @@ function handleCwaQueryRequest(req, res) {
             let rows;
             try {
                 // Set a 30-second query timeout
-                await connection.execute('SET SESSION max_execution_time=30000');
+                await connection.query('SET SESSION max_execution_time=30000');
                 console.log(`[${new Date().toISOString()}] CWA Query timeout set to 30 seconds`);
                 
                 console.log(`[${new Date().toISOString()}] About to execute: ${query.substring(0, 150)}...`);
-                [rows] = await connection.execute(query);
+                [rows] = await connection.query(query);
                 console.log(`[${new Date().toISOString()}] CWA Query executed successfully, rows affected: ${rows?.affectedRows || rows?.length || 0}`);
             } catch (queryError) {
                 console.error(`[${new Date().toISOString()}] CWA QUERY EXECUTION FAILED`);
@@ -2213,11 +2309,22 @@ function handleCwaQueryRequest(req, res) {
             }
             
             // Return results
+            // When multipleStatements are used, rows is an array of results for each statement
+            // Extract the last result which is the actual SELECT query result
+            let finalResult = rows;
+            if (Array.isArray(rows) && rows.length > 0 && Array.isArray(rows[rows.length - 1])) {
+                finalResult = rows[rows.length - 1];
+                console.log(`[${new Date().toISOString()}] Extracted final result from ${rows.length} statements`);
+            }
+            
+            // Strip MySQL user variable columns (those starting with @)
+            finalResult = stripVariableColumns(finalResult);
+            
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({
                 success: true,
-                result: rows,
-                rowCount: rows.length,
+                result: finalResult,
+                rowCount: Array.isArray(finalResult) ? finalResult.length : 0,
                 timestamp: new Date().toISOString()
             }));
             
@@ -2551,8 +2658,57 @@ function handleCwmApiRequest(req, res) {
 
 // ===== END CWM API Handler =====
 
-const certPath = 'C:\\Apps\\meshcentral-data\\webserver-cert-public.crt';
-const keyPath = 'C:\\Apps\\meshcentral-data\\webserver-cert-private.key';
+/**
+ * Serve static HTML files from D:\Kore\
+ */
+function serveStaticFile(req, res) {
+    // Parse URL to get just the pathname, stripping query parameters
+    const parsedUrl = url.parse(req.url, true);
+    let filePath = parsedUrl.pathname === '/' ? '/test-persephone.html' : parsedUrl.pathname;
+    
+    // Normalize path separators (convert forward slashes to backslashes on Windows)
+    filePath = filePath.replace(/\//g, '\\');
+    const fullPath = path.join('D:\\Kore\\web', filePath);
+    
+    console.log(`[StaticFile] Requested: ${parsedUrl.pathname}`);
+    console.log(`[StaticFile] Full path: ${fullPath}`);
+    
+    // Security: prevent directory traversal
+    if (!fullPath.startsWith('D:\\Kore\\web')) {
+        console.log(`[StaticFile] Access denied - path traversal attempt`);
+        res.writeHead(403, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Forbidden' }));
+        return;
+    }
+    
+    fs.readFile(fullPath, 'utf8', (err, data) => {
+        if (err) {
+            console.log(`[StaticFile] Error reading file: ${err.message}`);
+            res.writeHead(404, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'File not found' }));
+            return;
+        }
+        
+        // Determine content type based on file extension
+        let contentType = 'text/plain';
+        if (filePath.endsWith('.html')) {
+            contentType = 'text/html';
+        } else if (filePath.endsWith('.css')) {
+            contentType = 'text/css';
+        } else if (filePath.endsWith('.js')) {
+            contentType = 'application/javascript';
+        } else if (filePath.endsWith('.json')) {
+            contentType = 'application/json';
+        }
+        
+        console.log(`[StaticFile] Serving ${filePath} as ${contentType}`);
+        res.writeHead(200, { 'Content-Type': contentType });
+        res.end(data);
+    });
+}
+
+const certPath = 'D:\\Kore\\Certs\\webserver-cert-public.crt';
+const keyPath = 'D:\\Kore\\Certs\\webserver-cert-private.key';
 
 let serverOptions = null;
 try {
@@ -2616,9 +2772,30 @@ const requestHandler = (req, res) => {
         handleNodesRequest(req, res);
     } else if (req.url === '/api-cwm' || req.url.startsWith('/api-cwm?')) {
         handleCwmApiRequest(req, res);
+    } else if (req.url.startsWith('/kore/workflows')) {
+        handleWorkflowRequest(req, res);
+    } else if (req.url === '/kore/execute' || req.url.startsWith('/kore/execute?')) {
+        handleExecuteRequest(req, res);
+    } else if (req.url.startsWith('/kore/executions')) {
+        handleExecutionRequest(req, res);
+    } else if (req.url === '/api/render-template') {
+        Persephone.handleRenderTemplate(req, res);
+    } else if (req.url === '/favicon.ico') {
+        res.writeHead(204);
+        res.end();
+    } else if (Persephone.handleRegisteredRoute(req, res)) {
+        // Route was handled by registry
     } else {
-        res.writeHead(404, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'Not found' }));
+        // Parse URL to get pathname without query string
+        const parsedUrl = url.parse(req.url, true);
+        const pathname = parsedUrl.pathname;
+        
+        if (pathname.endsWith('.html') || pathname.endsWith('.css') || pathname.endsWith('.js') || pathname === '/') {
+            serveStaticFile(req, res);
+        } else {
+            res.writeHead(404, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Not found' }));
+        }
     }
 };
 
@@ -2709,6 +2886,14 @@ server.listen(PROXY_PORT, '0.0.0.0', async () => {
     
     // Initialize MySQL pool
     await initializeMySQLPool();
+    
+    // Initialize Persephone automation engine
+    try {
+        await Persephone.initialize(korePool, mysqlPool, cwaPool);
+        console.log(`[${new Date().toISOString()}] Persephone automation engine initialized`);
+    } catch (err) {
+        console.error(`[${new Date().toISOString()}] ERROR initializing Persephone:`, err.message);
+    }
 });
 
 server443.listen(443, '0.0.0.0', () => {
@@ -2765,25 +2950,80 @@ process.on('unhandledRejection', (reason, promise) => {
 });
 process.on('SIGTERM', () => {
     console.log(`[${new Date().toISOString()}] SIGTERM received, shutting down...`);
+    
+    // Force exit after 5 seconds if graceful shutdown takes too long
+    const forceExitTimeout = setTimeout(() => {
+        console.error(`[${new Date().toISOString()}] Forced exit after shutdown timeout`);
+        process.exit(1);
+    }, 5000);
+    
     if (global.meshWS) {
         global.meshWS.close();
     }
+    
+    let closedCount = 0;
+    const totalToClose = 2; // server + server443
+    
+    const checkAllClosed = () => {
+        closedCount++;
+        if (closedCount >= totalToClose) {
+            clearTimeout(forceExitTimeout);
+            // Close database pools
+            if (mysqlPool) mysqlPool.end();
+            if (cwaPool) cwaPool.end();
+            if (korePool) korePool.end();
+            console.log(`[${new Date().toISOString()}] Shutdown complete`);
+            process.exit(0);
+        }
+    };
+    
     server.close(() => {
         console.log(`[${new Date().toISOString()}] Server (1139) closed`);
+        checkAllClosed();
     });
+    
     server443.close(() => {
         console.log(`[${new Date().toISOString()}] Server (443) closed`);
-        process.exit(0);
+        checkAllClosed();
     });
 });
 
 process.on('SIGINT', () => {
     console.log(`[${new Date().toISOString()}] SIGINT received, shutting down...`);
+    
+    // Force exit after 5 seconds if graceful shutdown takes too long
+    const forceExitTimeout = setTimeout(() => {
+        console.error(`[${new Date().toISOString()}] Forced exit after shutdown timeout`);
+        process.exit(1);
+    }, 5000);
+    
     if (global.meshWS) {
         global.meshWS.close();
     }
+    
+    let closedCount = 0;
+    const totalToClose = 2; // server + server443
+    
+    const checkAllClosed = () => {
+        closedCount++;
+        if (closedCount >= totalToClose) {
+            clearTimeout(forceExitTimeout);
+            // Close database pools
+            if (mysqlPool) mysqlPool.end();
+            if (cwaPool) cwaPool.end();
+            if (korePool) korePool.end();
+            console.log(`[${new Date().toISOString()}] Shutdown complete`);
+            process.exit(0);
+        }
+    };
+    
     server.close(() => {
-        console.log(`[${new Date().toISOString()}] Server closed`);
-        process.exit(0);
+        console.log(`[${new Date().toISOString()}] Server (1139) closed`);
+        checkAllClosed();
+    });
+    
+    server443.close(() => {
+        console.log(`[${new Date().toISOString()}] Server (443) closed`);
+        checkAllClosed();
     });
 });
