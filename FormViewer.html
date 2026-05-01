@@ -130,6 +130,13 @@
             border: 1px solid #404040;
         }
 
+        .nested-array-instance {
+            padding: 0 !important;
+            border: none !important;
+            background: transparent !important;
+            align-items: flex-end;
+        }
+
         .array-instance-fields {
             display: grid;
             grid-template-columns: repeat(3, 1fr);
@@ -2292,6 +2299,11 @@
                                 </div>`;
                             }
                         }
+                        else if (itemConfig.type === 'array') {
+                            // Nested array: render checkbox + hidden container
+                            fieldHtml = renderNestedArrayHtml(config.field_name, 0, itemConfig);
+                            return fieldHtml;
+                        }
                         else {
                             // Default to text input for unknown types
                             fieldHtml = `<input type="text" name="${fieldId}" id="${fieldId}" data-array-field="${fieldName}" placeholder="${escapeHtml(displayName)}">`;
@@ -2850,25 +2862,64 @@
         function extractImplicitDependencies(config) {
             const variables = new Set();
             
-            // Match [[variable_name.property]] or [[variable_name]]
-            const regex = /\[\[([a-zA-Z_][a-zA-Z0-9_]*)/g;
+            // Helper to extract variables from text, respecting conditional blocks
+            function extractVariablesFromText(text) {
+                const vars = new Set();
+                
+                // First, remove all [[ if ]]...[[ endif ]] blocks where condition is false
+                let processedText = text;
+                
+                // Find all if/endif blocks
+                const ifBlockRegex = /\[\[\s*if\s+([^\]]+)\]\]([\s\S]*?)\[\[\s*endif\s*\]\]/g;
+                let match;
+                
+                // Create a map of block positions and whether they should be kept
+                const blocksToRemove = [];
+                while ((match = ifBlockRegex.exec(text)) !== null) {
+                    const condition = match[1].trim();
+                    const blockContent = match[2];
+                    const blockStart = match.index;
+                    const blockEnd = match.index + match[0].length;
+                    
+                    // Evaluate the condition against pageVariables
+                    const conditionMet = RewstLib.forms.evaluateCondition(condition, window.pageVariables || {});
+                    
+                    if (!conditionMet) {
+                        // Mark this block for removal
+                        blocksToRemove.push({ start: blockStart, end: blockEnd, content: blockContent });
+                    }
+                }
+                
+                // Remove blocks in reverse order to preserve positions
+                for (let i = blocksToRemove.length - 1; i >= 0; i--) {
+                    const block = blocksToRemove[i];
+                    processedText = processedText.substring(0, block.start) + processedText.substring(block.end);
+                }
+                
+                // Also remove the if/endif markers from true blocks for cleaner scanning
+                processedText = processedText.replace(/\[\[\s*if\s+[^\]]+\]\]/g, '').replace(/\[\[\s*endif\s*\]\]/g, '');
+                
+                // Now scan the processed text for variable references
+                const varRegex = /\[\[([a-zA-Z_][a-zA-Z0-9_]*)/g;
+                let varMatch;
+                while ((varMatch = varRegex.exec(processedText)) !== null) {
+                    vars.add(varMatch[1]);
+                }
+                
+                return vars;
+            }
             
             // Check all string properties in config
             Object.values(config).forEach(value => {
                 if (typeof value === 'string') {
-                    let match;
-                    while ((match = regex.exec(value)) !== null) {
-                        variables.add(match[1]);
-                    }
+                    const extracted = extractVariablesFromText(value);
+                    extracted.forEach(v => variables.add(v));
                 } else if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
                     // For nested objects (like workflow_input), also check their string values
                     Object.values(value).forEach(nestedValue => {
                         if (typeof nestedValue === 'string') {
-                            const nestedRegex = /\[\[([a-zA-Z_][a-zA-Z0-9_]*)/g;
-                            let match;
-                            while ((match = nestedRegex.exec(nestedValue)) !== null) {
-                                variables.add(match[1]);
-                            }
+                            const extracted = extractVariablesFromText(nestedValue);
+                            extracted.forEach(v => variables.add(v));
                         }
                     });
                 }
@@ -5054,6 +5105,49 @@
                                 </div>`;
                             }
                         }
+                        else if (itemConfig.type === 'dropdown_prefetch') {
+                            // Prefetch dropdown - check if searchable (default true)
+                            if (itemConfig.searchable !== false) {
+                                // Searchable single-select structure
+                                fieldHtml = `<div class="array-field-input-wrapper" style="position: relative; box-sizing: border-box;">
+                                    <input type="text" class="searchable-select-input" placeholder="Search or select..." style="width: 100%; padding: 8px; padding-right: 56px; border: 1px solid #555; border-radius: 4px; background: #1a3540; color: #ffffff; box-sizing: border-box;">
+                                    <div class="searchable-select-clear" style="display: none;">✕</div>
+                                    <div class="searchable-select-toggle">▼</div>
+                                    <select class="searchable-select-hidden-select" name="${fieldId}" id="${fieldId}" data-array-field="${fieldName}"></select>
+                                    <div class="searchable-select-dropdown" style="display: none;"></div>
+                                </div>`;
+                            } else {
+                                // Non-searchable plain select
+                                fieldHtml = `<div class="array-field-input-wrapper" style="display: flex; gap: 8px; align-items: center;">
+                                    <select name="${fieldId}" id="${fieldId}" data-array-field="${fieldName}" style="flex: 1;"><option value="">-- Select --</option></select>
+                                    <button type="button" class="btn btn-small dropdown-refresh-btn" data-field-name="${fieldId}" style="width: auto; padding: 0.2rem 0.15rem;">↻</button>
+                                </div>`;
+                            }
+                        }
+                        else if (['dropdown_mysql', 'dropdown_cwa_mysql', 'dropdown_mesh', 'dropdown_psa'].includes(itemConfig.type)) {
+                            // MySQL, CWA MySQL, Mesh, and PSA dropdowns - check if searchable (default true)
+                            if (itemConfig.searchable !== false) {
+                                // Searchable single-select structure
+                                fieldHtml = `<div class="array-field-input-wrapper" style="position: relative; box-sizing: border-box;">
+                                    <input type="text" class="searchable-select-input" placeholder="Search or select..." style="width: 100%; padding: 8px; padding-right: 56px; border: 1px solid #555; border-radius: 4px; background: #1a3540; color: #ffffff; box-sizing: border-box;">
+                                    <div class="searchable-select-clear" style="display: none;">✕</div>
+                                    <div class="searchable-select-toggle">▼</div>
+                                    <select class="searchable-select-hidden-select" name="${fieldId}" id="${fieldId}" data-array-field="${fieldName}"></select>
+                                    <div class="searchable-select-dropdown" style="display: none;"></div>
+                                </div>`;
+                            } else {
+                                // Non-searchable plain select
+                                fieldHtml = `<div class="array-field-input-wrapper" style="display: flex; gap: 8px; align-items: center;">
+                                    <select name="${fieldId}" id="${fieldId}" data-array-field="${fieldName}" style="flex: 1;"><option value="">Loading options...</option></select>
+                                    <button type="button" class="btn btn-small dropdown-refresh-btn" data-field-name="${fieldId}" style="width: auto; padding: 0.2rem 0.15rem;">↻</button>
+                                </div>`;
+                            }
+                        }
+                        else if (itemConfig.type === 'array') {
+                            // Nested array: render checkbox + hidden container
+                            fieldHtml = renderNestedArrayHtml(config.field_name, instanceIndex, itemConfig);
+                            return fieldHtml;
+                        }
                         else {
                             // Default to text input for unknown types
                             fieldHtml = `<input type="text" name="${fieldId}" id="${fieldId}" data-array-field="${fieldName}" placeholder="${escapeHtml(displayName)}">`;
@@ -5081,6 +5175,22 @@
                         newInstance.remove();
                     });
                     
+                    // Attach nested array checkbox handlers to new instance
+                    newInstance.querySelectorAll('.nested-array-toggle').forEach(checkbox => {
+                        const parentFieldName = checkbox.getAttribute('data-parent-field');
+                        const parentInstanceIndex = checkbox.getAttribute('data-parent-index');
+                        const nestedFieldName = checkbox.getAttribute('data-nested-field-name');
+                        
+                        // Find the nested array config
+                        const parentArrayConfig = fieldConfigs.find(fc => fc.field_name === parentFieldName);
+                        if (parentArrayConfig && parentArrayConfig.items) {
+                            const nestedArrayConfig = parentArrayConfig.items.find(item => item.name === nestedFieldName);
+                            if (nestedArrayConfig) {
+                                setupNestedArrayCheckbox(checkbox, parentFieldName, parseInt(parentInstanceIndex), nestedArrayConfig, fieldConfigs, formConfig);
+                            }
+                        }
+                    });
+                    
                     // Attach refresh button handlers for new instance
                     setupRefreshButtonHandlers(fieldConfigs, formConfig);
                     
@@ -5093,6 +5203,22 @@
                     deleteBtn.addEventListener('click', () => {
                         deleteBtn.closest('.array-instance').remove();
                     });
+                });
+                
+                // Attach nested array checkbox handlers to initial instance
+                arrayContainer.querySelectorAll('.nested-array-toggle').forEach(checkbox => {
+                    const parentFieldName = checkbox.getAttribute('data-parent-field');
+                    const parentInstanceIndex = checkbox.getAttribute('data-parent-index');
+                    const nestedFieldName = checkbox.getAttribute('data-nested-field-name');
+                    
+                    // Find the nested array config
+                    const parentArrayConfig = fieldConfigs.find(fc => fc.field_name === parentFieldName);
+                    if (parentArrayConfig && parentArrayConfig.items) {
+                        const nestedArrayConfig = parentArrayConfig.items.find(item => item.name === nestedFieldName);
+                        if (nestedArrayConfig) {
+                            setupNestedArrayCheckbox(checkbox, parentFieldName, parseInt(parentInstanceIndex), nestedArrayConfig, fieldConfigs, formConfig);
+                        }
+                    }
                 });
                 
                 // Attach refresh button handlers to all array instances (initial and existing)
@@ -5182,6 +5308,230 @@
             });
         }
 
+        /**
+         * Render nested array HTML structure (checkbox + hidden container)
+         * Called during initial render and when new parent array instance is added
+         */
+        function renderNestedArrayHtml(parentFieldName, parentInstanceIndex, nestedArrayConfig) {
+            const nestedFieldName = nestedArrayConfig.name;
+            const nestedDisplayName = nestedArrayConfig.display_name || nestedFieldName;
+            
+            // Checkbox field ID: prod_pc_incl_hardware_0
+            const checkboxId = `${parentFieldName}_${nestedFieldName}_${parentInstanceIndex}`;
+            
+            // Container ID for nested array: nested_array_prod_pc_0_incl_hardware
+            const containerId = `nested_array_${parentFieldName}_${parentInstanceIndex}_${nestedFieldName}`;
+            const arrayId = `nested_array_${parentFieldName}_${parentInstanceIndex}_${nestedFieldName}_instances`;
+            
+            // Build nested array UI immediately with Add button but no instances
+            // Header with button is BELOW the instances container
+            const nestedArrayHtml = `
+                <div class="nested-array-instances" id="${arrayId}" data-parent-field="${parentFieldName}" data-parent-index="${parentInstanceIndex}" data-nested-field="${nestedFieldName}"></div>
+                <div class="nested-array-field-header" style="margin-top: 1rem;">
+                    <button type="button" class="btn btn-blue nested-array-add-btn" data-parent-field="${parentFieldName}" data-parent-index="${parentInstanceIndex}" data-nested-field="${nestedFieldName}" data-array-id="${arrayId}" style="width: auto;">+ Add Item</button>
+                </div>
+            `;
+            
+            // Full HTML: checkbox wrapper spans columns, container nested inside with full nested array UI
+            const html = `
+                <div class="array-instance-field nested-array-checkbox-wrapper" data-field-name="${checkboxId}" style="grid-column: 1 / -1;">
+                    <label>
+                        <input type="checkbox" id="${checkboxId}" name="${checkboxId}" data-nested-array-toggle="${containerId}" data-nested-field-name="${nestedFieldName}" data-parent-field="${parentFieldName}" data-parent-index="${parentInstanceIndex}" class="nested-array-toggle">
+                        <span>${escapeHtml(nestedDisplayName)}</span>
+                    </label>
+                    <div class="nested-array-container" id="${containerId}" style="display: none; margin-top: 1rem; padding-left: 1rem; border-left: 3px solid #666; margin-left: 0;">
+                        ${nestedArrayHtml}
+                    </div>
+                </div>
+            `;
+            
+            return html;
+        }
+
+        /**
+         * Setup checkbox handler for nested array toggle
+         * Lazily renders the nested array UI on checkbox check
+         */
+        function setupNestedArrayCheckbox(checkboxElement, parentFieldName, parentInstanceIndex, nestedArrayConfig, fieldConfigs, formConfig) {
+            const checkboxId = checkboxElement.id;
+            const containerId = checkboxElement.getAttribute('data-nested-array-toggle');
+            const container = document.getElementById(containerId);
+            
+            console.log(`[NESTED ARRAY] Setting up checkbox: ${checkboxId}, container: ${containerId}, found: ${!!container}`);
+            
+            if (!checkboxElement || !container) {
+                console.warn(`[NESTED ARRAY] Failed to find checkbox or container. Checkbox: ${!!checkboxElement}, Container: ${!!container}`);
+                return;
+            }
+            
+            // Attach nested array instance handlers immediately (UI is already built)
+            console.log(`[NESTED ARRAY] Attaching nested array instance handlers for ${nestedArrayConfig.name}`);
+            setupNestedArrayInstanceHandlers(parentFieldName, parentInstanceIndex, nestedArrayConfig);
+            
+            // Handle checkbox change for show/hide
+            checkboxElement.addEventListener('change', () => {
+                console.log(`[NESTED ARRAY] Checkbox ${checkboxId} changed. Checked: ${checkboxElement.checked}`);
+                
+                if (checkboxElement.checked) {
+                    console.log(`[NESTED ARRAY] Showing container`);
+                    container.style.display = 'block';
+                } else {
+                    console.log(`[NESTED ARRAY] Hiding container`);
+                    container.style.display = 'none';
+                }
+            });
+        }
+
+        /**
+         * Render nested array instances HTML (includes Add button and first instance)
+         */
+        function renderNestedArrayInstancesHtml(parentFieldName, parentInstanceIndex, nestedArrayConfig) {
+            const nestedFieldName = nestedArrayConfig.name;
+            const nestedDisplayName = nestedArrayConfig.display_name || nestedFieldName;
+            const arrayId = `nested_array_${parentFieldName}_${parentInstanceIndex}_${nestedFieldName}_instances`;
+            
+            // Render first instance
+            const itemsArray = Array.isArray(nestedArrayConfig.items) ? nestedArrayConfig.items : [];
+            const firstInstanceHtml = renderNestedArrayInstanceHtml(
+                parentFieldName, 
+                parentInstanceIndex, 
+                nestedFieldName, 
+                0, 
+                itemsArray
+            );
+            
+            // Calculate grid layout
+            const itemCount = itemsArray.length;
+            let numRows = 1;
+            if (itemCount > 6) numRows = 3;
+            else if (itemCount > 3) numRows = 2;
+            const numCols = Math.ceil(itemCount / numRows);
+            
+            const html = `
+                <div class="nested-array-field-header">
+                    <label>${escapeHtml(nestedDisplayName)}</label>
+                    <button type="button" class="btn btn-blue nested-array-add-btn" data-parent-field="${parentFieldName}" data-parent-index="${parentInstanceIndex}" data-nested-field="${nestedFieldName}" data-array-id="${arrayId}" style="width: auto;">Add</button>
+                </div>
+                <div class="nested-array-instances" id="${arrayId}" data-parent-field="${parentFieldName}" data-parent-index="${parentInstanceIndex}" data-nested-field="${nestedFieldName}">
+                    ${firstInstanceHtml}
+                </div>
+            `;
+            
+            return html;
+        }
+
+        /**
+         * Render a single nested array instance
+         */
+        function renderNestedArrayInstanceHtml(parentFieldName, parentInstanceIndex, nestedFieldName, instanceIndex, itemsArray) {
+            const itemsHtml = itemsArray.map(itemConfig => {
+                const fieldName = itemConfig.name;
+                const displayName = itemConfig.display_name || fieldName;
+                // Field ID: prod_pc_incl_hardware_items_0_0_name
+                const fieldId = `${parentFieldName}_${nestedFieldName}_items_${parentInstanceIndex}_${instanceIndex}_${fieldName}`;
+                
+                let fieldHtml = '';
+                
+                if (itemConfig.type === 'text') {
+                    fieldHtml = `<input type="text" name="${fieldId}" id="${fieldId}" placeholder="${escapeHtml(displayName)}">`;
+                } else if (itemConfig.type === 'dropdown_static') {
+                    const options = itemConfig.options || {};
+                    const optionsHtml = Object.entries(options)
+                        .map(([label, value]) => `<option value="${escapeHtml(String(value))}">${escapeHtml(label)}</option>`)
+                        .join('');
+                    fieldHtml = `<select name="${fieldId}" id="${fieldId}"><option value="">-- Select --</option>${optionsHtml}</select>`;
+                } else {
+                    // Default to text
+                    fieldHtml = `<input type="text" name="${fieldId}" id="${fieldId}" placeholder="${escapeHtml(displayName)}">`;
+                }
+                
+                return `<div class="array-instance-field" data-field-name="${fieldId}"><label>${escapeHtml(displayName)}</label>${fieldHtml}</div>`;
+            }).join('');
+            
+            // Calculate grid layout
+            const itemCount = itemsArray.length;
+            let numRows = 1;
+            if (itemCount > 6) numRows = 3;
+            else if (itemCount > 3) numRows = 2;
+            const numCols = Math.ceil(itemCount / numRows);
+            
+            const html = `
+                <div class="array-instance nested-array-instance" data-instance-index="${instanceIndex}" data-parent-index="${parentInstanceIndex}" data-parent-field="${parentFieldName}" data-nested-field="${nestedFieldName}">
+                    <div class="array-instance-fields" data-cols="${numCols}">
+                        ${itemsHtml}
+                    </div>
+                    <button type="button" class="array-instance-delete nested-array-instance-delete" title="Delete this row">×</button>
+                </div>
+            `;
+            
+            return html;
+        }
+
+        /**
+         * Setup event handlers for nested array instances (Add/Delete buttons)
+         */
+        function setupNestedArrayInstanceHandlers(parentFieldName, parentInstanceIndex, nestedArrayConfig) {
+            const nestedFieldName = nestedArrayConfig.name;
+            const arrayId = `nested_array_${parentFieldName}_${parentInstanceIndex}_${nestedFieldName}_instances`;
+            const arrayContainer = document.getElementById(arrayId);
+            
+            console.log(`[NESTED ARRAY HANDLERS] Setting up handlers for arrayId: ${arrayId}, container found: ${!!arrayContainer}`);
+            
+            if (!arrayContainer) {
+                console.warn(`[NESTED ARRAY HANDLERS] Array container not found: ${arrayId}`);
+                return;
+            }
+            
+            const itemsArray = Array.isArray(nestedArrayConfig.items) ? nestedArrayConfig.items : [];
+            
+            // Setup Add button
+            const addBtn = arrayContainer.parentElement.querySelector('.nested-array-add-btn');
+            console.log(`[NESTED ARRAY HANDLERS] Looking for add button in parent element. Parent: ${arrayContainer.parentElement?.className}, found button: ${!!addBtn}`);
+            
+            if (addBtn && !addBtn.dataset.handlerAttached) {
+                console.log(`[NESTED ARRAY HANDLERS] Attaching click handler to Add button`);
+                addBtn.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    
+                    // Get current instance count
+                    const instanceCount = arrayContainer.children.length;
+                    console.log(`[NESTED ARRAY HANDLERS] Add button clicked, current instance count: ${instanceCount}`);
+                    
+                    // Render new instance
+                    const newInstanceHtml = renderNestedArrayInstanceHtml(
+                        parentFieldName,
+                        parentInstanceIndex,
+                        nestedFieldName,
+                        instanceCount,
+                        itemsArray
+                    );
+                    
+                    arrayContainer.insertAdjacentHTML('beforeend', newInstanceHtml);
+                    
+                    // Attach delete handler to new instance
+                    const newInstance = arrayContainer.lastElementChild;
+                    const deleteBtn = newInstance.querySelector('.nested-array-instance-delete');
+                    deleteBtn.addEventListener('click', () => {
+                        newInstance.remove();
+                    });
+                });
+                
+                addBtn.dataset.handlerAttached = 'true';
+            } else {
+                console.warn(`[NESTED ARRAY HANDLERS] Add button not found or already has handler attached`);
+            }
+            
+            // Setup Delete buttons for existing instances
+            arrayContainer.querySelectorAll('.nested-array-instance-delete').forEach(deleteBtn => {
+                if (!deleteBtn.dataset.handlerAttached) {
+                    deleteBtn.addEventListener('click', () => {
+                        deleteBtn.closest('.nested-array-instance').remove();
+                    });
+                    deleteBtn.dataset.handlerAttached = 'true';
+                }
+            });
+        }
+
 
         function reloadArrayWorkflowDropdowns(fieldConfigs, formConfig) {
             console.log(`[ARRAY WORKFLOW] Checking which array workflows need to reload`);
@@ -5214,10 +5564,17 @@
                     
                     console.log(`[ARRAY DROPDOWN] Loading ${itemConfig.type} for ${arrayConfig.field_name}.${fieldName}`);
                     
-                    // Reload for all instances
+                    // Reload for all instances, but skip ones that already have values
                     arrayContainer.querySelectorAll('.array-instance').forEach(instance => {
                         const instanceIndex = instance.getAttribute('data-instance-index');
                         const fieldId = `${arrayConfig.field_name}_${fieldName}_${instanceIndex}`;
+                        
+                        // Check if this field already has a value - if so, skip it
+                        const existingField = document.querySelector(`select[name="${fieldId}"]`);
+                        if (existingField && existingField.value) {
+                            console.log(`[ARRAY DROPDOWN] Skipping reload for ${fieldId} - already has value "${existingField.value}"`);
+                            return;
+                        }
                         
                         // Create a pseudo-config that looks like a regular dropdown
                         const pseudoConfig = {
@@ -5255,6 +5612,13 @@
                         
                         // Load the workflow/GraphQL options
                         // loadFieldOptions will find the element with data-field-name="${fieldId}" and show/hide loading messages
+                        // Check if dependencies are met before loading
+                        const allDepsMet = RewstLib.utils.areDependenciesMet(pseudoConfig, fieldConfigs);
+                        if (!allDepsMet) {
+                            console.log(`[ARRAY DROPDOWN] Dependencies not met for ${arrayConfig.field_name}.${fieldName}, skipping load`);
+                            return;
+                        }
+                        
                         loadFieldOptions(pseudoConfig, fieldConfigs, formConfig);
                     });
                 });
@@ -5350,6 +5714,15 @@
                 
                 // Handle MySQL data source
                 if (config.data_source_type === 'mysql') {
+                    // Skip if query is empty or missing
+                    if (!resolvedConfig.query || resolvedConfig.query.trim() === '') {
+                        console.log(`[DATA_RETRIEVAL] Skipping MySQL for ${config.field_name}: query is empty`);
+                        if (formGroup) {
+                            RewstLib.utils.hideLoadingMessage(formGroup, config);
+                        }
+                        return;
+                    }
+                    
                     console.log('[DATA_RETRIEVAL] Executing MySQL query:', resolvedConfig.query);
                     
                     try {
@@ -5397,6 +5770,15 @@
                 
                 // Handle CWA MySQL data source
                 if (config.data_source_type === 'cwa_mysql') {
+                    // Skip if query is empty or missing
+                    if (!resolvedConfig.query || resolvedConfig.query.trim() === '') {
+                        console.log(`[DATA_RETRIEVAL] Skipping CWA MySQL for ${config.field_name}: query is empty`);
+                        if (formGroup) {
+                            RewstLib.utils.hideLoadingMessage(formGroup, config);
+                        }
+                        return;
+                    }
+                    
                     console.log('[DATA_RETRIEVAL] Executing CWA MySQL query:', resolvedConfig.query);
                     
                     try {
@@ -5780,6 +6162,9 @@
             
             if (!input) return;
             
+            // Preserve the currently selected value before reinitializing
+            const previousValue = input.value;
+            
             const options = cachedData.options || [];
             
             // Store metadata about this dropdown's data source
@@ -5802,6 +6187,23 @@
                         label: item[config.label_name] || item.name
                     }));
                     RewstLib.utils.initializeSingleSelect(config.field_name, singleOptions, config);
+                    
+                    // Restore previously selected value if it still exists in the new options
+                    if (previousValue) {
+                        const optionExists = singleOptions.some(opt => opt.value === previousValue);
+                        if (optionExists) {
+                            input.value = previousValue;
+                            // Update the visible text for searchable dropdowns
+                            const textInput = formGroup?.querySelector('.searchable-select-input');
+                            if (textInput) {
+                                const selectedLabel = singleOptions.find(opt => opt.value === previousValue)?.label;
+                                if (selectedLabel) {
+                                    textInput.value = selectedLabel;
+                                }
+                            }
+                            console.log(`[DROPDOWN] Restored value "${previousValue}" for field ${config.field_name}`);
+                        }
+                    }
                 }
             } else {
                 input.innerHTML = `<option value="">${RewstLib.utils.getGrammaticalPhrase(config.field_displayname, 'Select', {noResults: true})}</option>`;
@@ -6357,35 +6759,112 @@
                                         const fieldName = itemConfig.name;
                                         const fieldId = `${config.field_name}_${fieldName}_${instanceIndex}`;
                                         
-                                        // Look for any field type (input, select, textarea) using the ID
-                                        const field = instance.querySelector(`#${fieldId}`);
-                                        console.log(`[SUBMIT DEBUG] Looking for field #${fieldId} (type: ${itemConfig.type}), found:`, !!field);
-                                        
-                                        if (field) {
-                                            let value = '';
-                                            if (field.tagName === 'SELECT') {
-                                                value = field.value;
-                                            } else if (field.tagName === 'INPUT') {
-                                                if (field.type === 'checkbox') {
-                                                    value = field.checked;
-                                                } else if (field.type === 'radio') {
-                                                    value = field.checked ? field.value : '';
-                                                } else {
+                                        if (itemConfig.type === 'array') {
+                                            // Nested array: collect checkbox state and nested instances
+                                            const checkboxId = `${config.field_name}_${fieldName}_${instanceIndex}`;
+                                            const checkboxField = instance.querySelector(`#${checkboxId}`);
+                                            const isChecked = checkboxField ? checkboxField.checked : false;
+                                            
+                                            // Store checkbox state
+                                            instanceData[fieldName] = isChecked;
+                                            console.log(`[SUBMIT DEBUG] Nested array checkbox ${fieldName} = ${isChecked}`);
+                                            
+                                            if (isChecked) {
+                                                // Collect nested array instances
+                                                const nestedArrayId = `nested_array_${config.field_name}_${instanceIndex}_${fieldName}`;
+                                                const nestedContainer = document.getElementById(nestedArrayId);
+                                                const nestedArrayInstancesContainer = nestedContainer?.querySelector('.nested-array-instances');
+                                                
+                                                if (nestedArrayInstancesContainer) {
+                                                    const nestedInstances = [];
+                                                    const nestedInstanceElements = nestedArrayInstancesContainer.querySelectorAll('.nested-array-instance');
+                                                    
+                                                    nestedInstanceElements.forEach(nestedInstance => {
+                                                        const nestedInstanceData = {};
+                                                        const nestedInstanceIndex = nestedInstance.getAttribute('data-instance-index');
+                                                        
+                                                        // Get the nested array config
+                                                        const nestedArrayConfig = itemConfig.items || [];
+                                                        
+                                                        nestedArrayConfig.forEach(nestedItemConfig => {
+                                                            const nestedFieldName = nestedItemConfig.name;
+                                                            const nestedFieldId = `${config.field_name}_${fieldName}_items_${instanceIndex}_${nestedInstanceIndex}_${nestedFieldName}`;
+                                                            const nestedField = nestedInstance.querySelector(`#${nestedFieldId}`);
+                                                            
+                                                            if (nestedField) {
+                                                                let nestedValue = '';
+                                                                if (nestedField.tagName === 'SELECT') {
+                                                                    nestedValue = nestedField.value;
+                                                                } else if (nestedField.tagName === 'INPUT') {
+                                                                    if (nestedField.type === 'checkbox') {
+                                                                        nestedValue = nestedField.checked;
+                                                                    } else {
+                                                                        nestedValue = nestedField.value;
+                                                                    }
+                                                                } else if (nestedField.tagName === 'TEXTAREA') {
+                                                                    nestedValue = nestedField.value;
+                                                                }
+                                                                
+                                                                nestedInstanceData[nestedFieldName] = nestedValue;
+                                                                console.log(`[SUBMIT DEBUG] Nested field ${nestedFieldName} = ${nestedValue}`);
+                                                            }
+                                                        });
+                                                        
+                                                        // Check if nested instance has values
+                                                        const hasNestedValues = Object.values(nestedInstanceData).some(value => {
+                                                            if (typeof value === 'string') {
+                                                                return value && value.trim() !== '';
+                                                            }
+                                                            return value !== '' && value !== false;
+                                                        });
+                                                        
+                                                        if (hasNestedValues) {
+                                                            nestedInstances.push(nestedInstanceData);
+                                                        }
+                                                    });
+                                                    
+                                                    // Store nested instances under items field name
+                                                    instanceData[`${fieldName}_items`] = nestedInstances;
+                                                    console.log(`[SUBMIT DEBUG] Nested array ${fieldName}_items: ${nestedInstances.length} instances`, nestedInstances);
+                                                }
+                                            } else {
+                                                // Not checked - empty nested array
+                                                instanceData[`${fieldName}_items`] = [];
+                                            }
+                                        } else {
+                                            // Regular field: Look for any field type (input, select, textarea) using the ID
+                                            const field = instance.querySelector(`#${fieldId}`);
+                                            console.log(`[SUBMIT DEBUG] Looking for field #${fieldId} (type: ${itemConfig.type}), found:`, !!field);
+                                            
+                                            if (field) {
+                                                let value = '';
+                                                if (field.tagName === 'SELECT') {
+                                                    value = field.value;
+                                                } else if (field.tagName === 'INPUT') {
+                                                    if (field.type === 'checkbox') {
+                                                        value = field.checked;
+                                                    } else if (field.type === 'radio') {
+                                                        value = field.checked ? field.value : '';
+                                                    } else {
+                                                        value = field.value;
+                                                    }
+                                                } else if (field.tagName === 'TEXTAREA') {
                                                     value = field.value;
                                                 }
-                                            } else if (field.tagName === 'TEXTAREA') {
-                                                value = field.value;
+                                                
+                                                instanceData[fieldName] = value;
+                                                console.log(`[SUBMIT DEBUG] Field ${fieldName} = ${value}`);
                                             }
-                                            
-                                            instanceData[fieldName] = value;
-                                            console.log(`[SUBMIT DEBUG] Field ${fieldName} = ${value}`);
                                         }
                                     });
                                     
-                                    // Check if at least one field has a value
+                                    // Check if at least one field has a value (excluding empty arrays)
                                     const hasAtLeastOneValue = Object.values(instanceData).some(value => {
                                         if (typeof value === 'string') {
                                             return value && value.trim() !== '';
+                                        }
+                                        if (Array.isArray(value)) {
+                                            return value.length > 0; // Exclude empty arrays
                                         }
                                         return value !== '' && value !== false;
                                     });
@@ -6431,13 +6910,19 @@
                 // Find all form-groups that are NOT in the main config (these are extended fields)
                 const baseFieldNames = new Set(formConfig && formConfig.field_configs ? formConfig.field_configs.map(f => f.field_name) : []);
                 const arrayInstancePattern = /_\w+_\d+$/; // Pattern for array instance fields (e.g., m365_errors_client_0)
+                const nestedArrayItemPattern = /_items_\d+_\d+_\w+$/; // Pattern for nested array item fields (e.g., prod_pc_incl_hardware_items_0_0_name)
                 
                 document.querySelectorAll('[data-field-name]').forEach(formGroup => {
                     const fieldName = formGroup.getAttribute('data-field-name');
                     
-                    // Skip array instance fields and hidden fields
+                    // Skip array instance fields, nested array item fields, and hidden fields
                     if (arrayInstancePattern.test(fieldName)) {
                         console.log(`[SUBMIT] Skipping array instance field: ${fieldName}`);
+                        return;
+                    }
+                    
+                    if (nestedArrayItemPattern.test(fieldName)) {
+                        console.log(`[SUBMIT] Skipping nested array item field: ${fieldName}`);
                         return;
                     }
                     
