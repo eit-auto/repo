@@ -14,7 +14,8 @@
           "template": "{{ 3.14 | abs }}",
           "output": "3.14"
         }
-      ]
+      ],
+      "source": "nunjucks-core"
     },
     {
       "name": "batch",
@@ -41,7 +42,8 @@
           "template": "{% for batch in [1, 2, 3, 4, 5] | batch(2, null) %}{{ batch }}{% endfor %}",
           "output": "[1, 2]\n[3, 4]\n[5, null]"
         }
-      ]
+      ],
+      "source": "nunjucks-core"
     },
     {
       "name": "capitalize",
@@ -57,7 +59,8 @@
           "template": "{{ 'HELLO' | capitalize }}",
           "output": "Hello"
         }
-      ]
+      ],
+      "source": "nunjucks-core"
     },
     {
       "name": "center",
@@ -84,7 +87,8 @@
           "template": "{{ 'hello' | center(11, '-') }}",
           "output": "'---hello---'"
         }
-      ]
+      ],
+      "source": "nunjucks-core"
     },
     {
       "name": "default",
@@ -115,7 +119,8 @@
           "template": "{{ 'hello' | default('fallback') }}",
           "output": "hello"
         }
-      ]
+      ],
+      "source": "nunjucks-core"
     },
     {
       "name": "dictsort",
@@ -142,7 +147,8 @@
           "template": "{% for key, value in {b: 2, a: 1} | dictsort(true) %}{{ key }}: {{ value }}{% endfor %}",
           "output": "b: 2\na: 1"
         }
-      ]
+      ],
+      "source": "nunjucks-core"
     },
     {
       "name": "dump",
@@ -164,7 +170,8 @@
           "template": "{{ {a: 1, b: 2} | dump(2) }}",
           "output": "{\n  \"a\": 1,\n  \"b\": 2\n}"
         }
-      ]
+      ],
+      "source": "nunjucks-core"
     },
     {
       "name": "escape",
@@ -180,7 +187,8 @@
           "template": "{{ '<div>hello</div>' | e }}",
           "output": "&lt;div&gt;hello&lt;/div&gt;"
         }
-      ]
+      ],
+      "source": "nunjucks-core"
     },
     {
       "name": "first",
@@ -196,7 +204,8 @@
           "template": "{{ 'hello' | first }}",
           "output": "h"
         }
-      ]
+      ],
+      "source": "nunjucks-core"
     },
     {
       "name": "float",
@@ -222,7 +231,8 @@
           "template": "{{ 'abc' | float(1.5) }}",
           "output": "1.5"
         }
-      ]
+      ],
+      "source": "nunjucks-core"
     },
     {
       "name": "forceescape",
@@ -234,7 +244,8 @@
           "template": "{{ '&lt;div&gt;' | forceescape }}",
           "output": "&amp;lt;div&amp;gt;"
         }
-      ]
+      ],
+      "source": "nunjucks-core"
     },
     {
       "name": "groupby",
@@ -262,7 +273,8 @@
           "template": "{% for category, items in products | groupby('category') %}{{ category }}: {{ items | length }} items{% endfor %}",
           "output": "electronics: 3 items\nfruit: 2 items"
         }
-      ]
+      ],
+      "source": "nunjucks-core"
     },
     {
       "name": "indent",
@@ -294,7 +306,8 @@
           "template": "{{ 'line1\\nline2' | indent('  ', true, true) }}",
           "output": "  line1\n  line2"
         }
-      ]
+      ],
+      "source": "nunjucks-core"
     },
     {
       "name": "int",
@@ -325,7 +338,8 @@
           "template": "{{ 'abc' | int(0) }}",
           "output": "0"
         }
-      ]
+      ],
+      "source": "nunjucks-core"
     },
     {
       "name": "join",
@@ -352,7 +366,8 @@
           "template": "{{ [1, 2, 3] | join('-') }}",
           "output": "1-2-3"
         }
-      ]
+      ],
+      "source": "nunjucks-core"
     },
     {
       "name": "last",
@@ -368,7 +383,8 @@
           "template": "{{ 'hello' | last }}",
           "output": "o"
         }
-      ]
+      ],
+      "source": "nunjucks-core"
     },
     {
       "name": "length",
@@ -388,7 +404,8 @@
           "template": "{{ {a: 1, b: 2} | length }}",
           "output": "2"
         }
-      ]
+      ],
+      "source": "nunjucks-core"
     },
     {
       "name": "list",
@@ -404,7 +421,8 @@
           "template": "{{ range(3) | list }}",
           "output": "[0, 1, 2]"
         }
-      ]
+      ],
+      "source": "nunjucks-core"
     },
     {
       "name": "lower",
@@ -420,7 +438,8 @@
           "template": "{{ 'HeLLo WoRLd' | lower }}",
           "output": "hello world"
         }
-      ]
+      ],
+      "source": "nunjucks-core"
     },
     {
       "name": "nl2br",
@@ -432,7 +451,8 @@
           "template": "{{ 'line1\\nline2' | nl2br }}",
           "output": "line1<br>\nline2"
         }
-      ]
+      ],
+      "source": "nunjucks-core"
     },
     {
       "name": "random",
@@ -444,7 +464,8 @@
           "template": "{{ ['red', 'blue', 'green'] | random }}",
           "output": "red (or blue or green)"
         }
-      ]
+      ],
+      "source": "nunjucks-core"
     },
     {
       "name": "reject",
@@ -462,7 +483,8 @@
           "template": "{{ [1, 2, 3, 4, 5] | reject('odd') | list }}",
           "output": "[2, 4]"
         }
-      ]
+      ],
+      "source": "nunjucks-core"
     },
     {
       "name": "rejectattr",
@@ -485,7 +507,8 @@
           "template": "{{ users | rejectattr('active') | map(attribute='name') | list }}",
           "output": "Users with active=false"
         }
-      ]
+      ],
+      "source": "nunjucks-core"
     },
     {
       "name": "replace",
@@ -517,7 +540,8 @@
           "template": "{{ 'aaa' | replace('a', 'b', 2) }}",
           "output": "bba"
         }
-      ]
+      ],
+      "source": "nunjucks-core"
     },
     {
       "name": "reverse",
@@ -533,7 +557,8 @@
           "template": "{{ 'hello' | reverse | list }}",
           "output": "['o', 'l', 'l', 'e', 'h']"
         }
-      ]
+      ],
+      "source": "nunjucks-core"
     },
     {
       "name": "round",
@@ -564,7 +589,8 @@
           "template": "{{ 3.9 | round(0, 'floor') }}",
           "output": "3"
         }
-      ]
+      ],
+      "source": "nunjucks-core"
     },
     {
       "name": "safe",
@@ -576,7 +602,8 @@
           "template": "{{ '<b>bold</b>' | safe }}",
           "output": "<b>bold</b>"
         }
-      ]
+      ],
+      "source": "nunjucks-core"
     },
     {
       "name": "select",
@@ -594,7 +621,8 @@
           "template": "{{ [1, 2, 3, 4, 5] | select('even') | list }}",
           "output": "[2, 4]"
         }
-      ]
+      ],
+      "source": "nunjucks-core"
     },
     {
       "name": "selectattr",
@@ -617,7 +645,8 @@
           "template": "{{ users | selectattr('active') | map(attribute='name') | list }}",
           "output": "Users with active=true"
         }
-      ]
+      ],
+      "source": "nunjucks-core"
     },
     {
       "name": "slice",
@@ -640,7 +669,8 @@
           "template": "{% for items in [1, 2, 3, 4, 5] | slice(2) %}{{ items }}{% endfor %}",
           "output": "[1, 2]\n[3, 4]\n[5]"
         }
-      ]
+      ],
+      "source": "nunjucks-core"
     },
     {
       "name": "sort",
@@ -672,7 +702,8 @@
           "template": "{{ users | sort(attribute='name') | map(attribute='name') | list }}",
           "output": "Sorted by name"
         }
-      ]
+      ],
+      "source": "nunjucks-core"
     },
     {
       "name": "string",
@@ -688,7 +719,8 @@
           "template": "{{ true | string }}",
           "output": "'True'"
         }
-      ]
+      ],
+      "source": "nunjucks-core"
     },
     {
       "name": "striptags",
@@ -706,7 +738,8 @@
           "template": "{{ '<p>Hello <b>world</b></p>' | striptags }}",
           "output": "Hello world"
         }
-      ]
+      ],
+      "source": "nunjucks-core"
     },
     {
       "name": "sum",
@@ -733,7 +766,8 @@
           "template": "{{ [1, 2, 3] | sum(10) }}",
           "output": "16"
         }
-      ]
+      ],
+      "source": "nunjucks-core"
     },
     {
       "name": "title",
@@ -749,7 +783,8 @@
           "template": "{{ 'the quick brown fox' | title }}",
           "output": "The Quick Brown Fox"
         }
-      ]
+      ],
+      "source": "nunjucks-core"
     },
     {
       "name": "trim",
@@ -771,7 +806,8 @@
           "template": "{{ 'xxxhelloxxx' | trim('x') }}",
           "output": "'hello'"
         }
-      ]
+      ],
+      "source": "nunjucks-core"
     },
     {
       "name": "truncate",
@@ -808,7 +844,8 @@
           "template": "{{ 'This is a long sentence.' | truncate(10, true) }}",
           "output": "This is a ..."
         }
-      ]
+      ],
+      "source": "nunjucks-core"
     },
     {
       "name": "upper",
@@ -824,7 +861,8 @@
           "template": "{{ 'HeLLo WoRLd' | upper }}",
           "output": "HELLO WORLD"
         }
-      ]
+      ],
+      "source": "nunjucks-core"
     },
     {
       "name": "urlencode",
@@ -840,7 +878,8 @@
           "template": "{{ {name: 'John', age: 30} | urlencode }}",
           "output": "name=John&age=30"
         }
-      ]
+      ],
+      "source": "nunjucks-core"
     },
     {
       "name": "urlize",
@@ -868,7 +907,8 @@
           "template": "{{ 'Visit http://example.com' | urlize }}",
           "output": "Visit <a href=\"http://example.com\">http://example.com</a>"
         }
-      ]
+      ],
+      "source": "nunjucks-core"
     },
     {
       "name": "wordcount",
@@ -884,7 +924,8 @@
           "template": "{{ 'hello world' | wordcount }}",
           "output": "2"
         }
-      ]
+      ],
+      "source": "nunjucks-core"
     },
     {
       "name": "wordwrap",
@@ -912,7 +953,8 @@
           "template": "{{ 'Hello world from Jinja' | wordwrap(8) }}",
           "output": "Hello\nworld\nfrom\nJinja"
         }
-      ]
+      ],
+      "source": "nunjucks-core"
     }
   ]
 }
