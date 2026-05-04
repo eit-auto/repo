@@ -1,0 +1,918 @@
+{
+  "filters": [
+    {
+      "name": "abs",
+      "category": "math",
+      "description": "Returns the absolute value of a number.",
+      "parameters": [],
+      "examples": [
+        {
+          "template": "{{ -5 | abs }}",
+          "output": "5"
+        },
+        {
+          "template": "{{ 3.14 | abs }}",
+          "output": "3.14"
+        }
+      ]
+    },
+    {
+      "name": "batch",
+      "category": "array",
+      "description": "Batches items from a list into smaller lists of a specified size. If you provide a second parameter, it's used to fill up missing items.",
+      "parameters": [
+        {
+          "name": "size",
+          "type": "number",
+          "description": "The number of items per batch"
+        },
+        {
+          "name": "fillValue",
+          "type": "any",
+          "description": "Optional value to pad the final batch if it's incomplete"
+        }
+      ],
+      "examples": [
+        {
+          "template": "{% for batch in [1, 2, 3, 4, 5] | batch(2) %}{{ batch }}{% endfor %}",
+          "output": "[1, 2]\n[3, 4]\n[5]"
+        },
+        {
+          "template": "{% for batch in [1, 2, 3, 4, 5] | batch(2, null) %}{{ batch }}{% endfor %}",
+          "output": "[1, 2]\n[3, 4]\n[5, null]"
+        }
+      ]
+    },
+    {
+      "name": "capitalize",
+      "category": "string",
+      "description": "Capitalizes the first character of a string and makes all other characters lowercase.",
+      "parameters": [],
+      "examples": [
+        {
+          "template": "{{ 'hello world' | capitalize }}",
+          "output": "Hello world"
+        },
+        {
+          "template": "{{ 'HELLO' | capitalize }}",
+          "output": "Hello"
+        }
+      ]
+    },
+    {
+      "name": "center",
+      "category": "string",
+      "description": "Centers a string in a field of a given width by padding it with a character on both sides.",
+      "parameters": [
+        {
+          "name": "width",
+          "type": "number",
+          "description": "The total width of the resulting string"
+        },
+        {
+          "name": "fillChar",
+          "type": "string",
+          "description": "Optional character to use for padding (default is space)"
+        }
+      ],
+      "examples": [
+        {
+          "template": "{{ 'hello' | center(11) }}",
+          "output": "'   hello   '"
+        },
+        {
+          "template": "{{ 'hello' | center(11, '-') }}",
+          "output": "'---hello---'"
+        }
+      ]
+    },
+    {
+      "name": "default",
+      "category": "conditional",
+      "description": "Returns a default value if the input is undefined. If the second parameter is true, also returns default for falsy values (0, false, empty string, etc).",
+      "parameters": [
+        {
+          "name": "defaultValue",
+          "type": "any",
+          "description": "The value to return if input is undefined"
+        },
+        {
+          "name": "boolean",
+          "type": "boolean",
+          "description": "Optional flag to treat falsy values as undefined (default: false)"
+        }
+      ],
+      "examples": [
+        {
+          "template": "{{ undefinedVar | default('N/A') }}",
+          "output": "N/A"
+        },
+        {
+          "template": "{{ '' | default('empty', true) }}",
+          "output": "empty"
+        },
+        {
+          "template": "{{ 'hello' | default('fallback') }}",
+          "output": "hello"
+        }
+      ]
+    },
+    {
+      "name": "dictsort",
+      "category": "object",
+      "description": "Sorts an object by its keys and yields (key, value) tuples. Useful when you need to iterate over objects in a specific order.",
+      "parameters": [
+        {
+          "name": "reverse",
+          "type": "boolean",
+          "description": "Optional flag to sort in reverse order (default: false)"
+        },
+        {
+          "name": "attribute",
+          "type": "string",
+          "description": "Optional attribute name to sort by instead of keys"
+        }
+      ],
+      "examples": [
+        {
+          "template": "{% for key, value in {b: 2, a: 1} | dictsort %}{{ key }}: {{ value }}{% endfor %}",
+          "output": "a: 1\nb: 2"
+        },
+        {
+          "template": "{% for key, value in {b: 2, a: 1} | dictsort(true) %}{{ key }}: {{ value }}{% endfor %}",
+          "output": "b: 2\na: 1"
+        }
+      ]
+    },
+    {
+      "name": "dump",
+      "category": "conversion",
+      "description": "Converts a value to a JSON string. Useful for debugging or outputting data structures.",
+      "parameters": [
+        {
+          "name": "indent",
+          "type": "number",
+          "description": "Optional number of spaces for indentation (for pretty-printing)"
+        }
+      ],
+      "examples": [
+        {
+          "template": "{{ {a: 1, b: 2} | dump }}",
+          "output": "{\"a\":1,\"b\":2}"
+        },
+        {
+          "template": "{{ {a: 1, b: 2} | dump(2) }}",
+          "output": "{\n  \"a\": 1,\n  \"b\": 2\n}"
+        }
+      ]
+    },
+    {
+      "name": "escape",
+      "category": "html",
+      "description": "Escapes HTML special characters (&, <, >, ', \") so they can be safely displayed in HTML without being interpreted as markup. Alias: e",
+      "parameters": [],
+      "examples": [
+        {
+          "template": "{{ '<script>alert(1)</script>' | escape }}",
+          "output": "&lt;script&gt;alert(1)&lt;/script&gt;"
+        },
+        {
+          "template": "{{ '<div>hello</div>' | e }}",
+          "output": "&lt;div&gt;hello&lt;/div&gt;"
+        }
+      ]
+    },
+    {
+      "name": "first",
+      "category": "array",
+      "description": "Returns the first item from a sequence.",
+      "parameters": [],
+      "examples": [
+        {
+          "template": "{{ [1, 2, 3] | first }}",
+          "output": "1"
+        },
+        {
+          "template": "{{ 'hello' | first }}",
+          "output": "h"
+        }
+      ]
+    },
+    {
+      "name": "float",
+      "category": "conversion",
+      "description": "Converts a value to a floating point number. Returns 0.0 if conversion fails, unless a default is provided.",
+      "parameters": [
+        {
+          "name": "default",
+          "type": "number",
+          "description": "Optional default value if conversion fails (default: 0.0)"
+        }
+      ],
+      "examples": [
+        {
+          "template": "{{ '3.14' | float }}",
+          "output": "3.14"
+        },
+        {
+          "template": "{{ 'abc' | float }}",
+          "output": "0.0"
+        },
+        {
+          "template": "{{ 'abc' | float(1.5) }}",
+          "output": "1.5"
+        }
+      ]
+    },
+    {
+      "name": "forceescape",
+      "category": "html",
+      "description": "Enforces HTML escaping by escaping already-escaped content. May result in double-escaping.",
+      "parameters": [],
+      "examples": [
+        {
+          "template": "{{ '&lt;div&gt;' | forceescape }}",
+          "output": "&amp;lt;div&amp;gt;"
+        }
+      ]
+    },
+    {
+      "name": "groupby",
+      "category": "array",
+      "description": "Groups a sequence of objects by an attribute. Returns an iterator of (grouper, list) tuples where grouper is the attribute value and list contains items with that value. Results are sorted.",
+      "parameters": [
+        {
+          "name": "attribute",
+          "type": "string",
+          "description": "The attribute to group by (supports dot notation for nested access)"
+        },
+        {
+          "name": "default",
+          "type": "any",
+          "description": "Optional default value for objects missing the attribute"
+        },
+        {
+          "name": "case_sensitive",
+          "type": "boolean",
+          "description": "Optional flag for case-sensitive grouping (default: false)"
+        }
+      ],
+      "examples": [
+        {
+          "template": "{% for category, items in products | groupby('category') %}{{ category }}: {{ items | length }} items{% endfor %}",
+          "output": "electronics: 3 items\nfruit: 2 items"
+        }
+      ]
+    },
+    {
+      "name": "indent",
+      "category": "string",
+      "description": "Indents every line of a string. The first line and blank lines are not indented by default.",
+      "parameters": [
+        {
+          "name": "width",
+          "type": "number|string",
+          "description": "Number of spaces or a string to indent by"
+        },
+        {
+          "name": "first",
+          "type": "boolean",
+          "description": "Whether to indent the first line (default: false)"
+        },
+        {
+          "name": "blank",
+          "type": "boolean",
+          "description": "Whether to indent empty lines (default: false)"
+        }
+      ],
+      "examples": [
+        {
+          "template": "{{ 'line1\\nline2' | indent(4) }}",
+          "output": "line1\n    line2"
+        },
+        {
+          "template": "{{ 'line1\\nline2' | indent('  ', true, true) }}",
+          "output": "  line1\n  line2"
+        }
+      ]
+    },
+    {
+      "name": "int",
+      "category": "conversion",
+      "description": "Converts a value to an integer. Returns 0 if conversion fails, unless a default is provided. The base (2-36) can be overridden for strings with prefixes like 0b, 0o, 0x.",
+      "parameters": [
+        {
+          "name": "default",
+          "type": "number",
+          "description": "Optional default value if conversion fails (default: 0)"
+        },
+        {
+          "name": "base",
+          "type": "number",
+          "description": "Optional base for conversion (default: 10)"
+        }
+      ],
+      "examples": [
+        {
+          "template": "{{ '42' | int }}",
+          "output": "42"
+        },
+        {
+          "template": "{{ 3.14 | int }}",
+          "output": "3"
+        },
+        {
+          "template": "{{ 'abc' | int(0) }}",
+          "output": "0"
+        }
+      ]
+    },
+    {
+      "name": "join",
+      "category": "array",
+      "description": "Joins a list of strings with a separator. Can optionally extract an attribute from a list of objects.",
+      "parameters": [
+        {
+          "name": "separator",
+          "type": "string",
+          "description": "String to insert between items (default: empty string)"
+        },
+        {
+          "name": "attribute",
+          "type": "string",
+          "description": "Optional attribute name to extract from objects before joining"
+        }
+      ],
+      "examples": [
+        {
+          "template": "{{ ['a', 'b', 'c'] | join(', ') }}",
+          "output": "a, b, c"
+        },
+        {
+          "template": "{{ [1, 2, 3] | join('-') }}",
+          "output": "1-2-3"
+        }
+      ]
+    },
+    {
+      "name": "last",
+      "category": "array",
+      "description": "Returns the last item from a sequence.",
+      "parameters": [],
+      "examples": [
+        {
+          "template": "{{ [1, 2, 3] | last }}",
+          "output": "3"
+        },
+        {
+          "template": "{{ 'hello' | last }}",
+          "output": "o"
+        }
+      ]
+    },
+    {
+      "name": "length",
+      "category": "array",
+      "description": "Returns the number of items in a container (list, string, object, etc).",
+      "parameters": [],
+      "examples": [
+        {
+          "template": "{{ 'hello' | length }}",
+          "output": "5"
+        },
+        {
+          "template": "{{ [1, 2, 3] | length }}",
+          "output": "3"
+        },
+        {
+          "template": "{{ {a: 1, b: 2} | length }}",
+          "output": "2"
+        }
+      ]
+    },
+    {
+      "name": "list",
+      "category": "conversion",
+      "description": "Converts an iterable (string, object, etc) to a list.",
+      "parameters": [],
+      "examples": [
+        {
+          "template": "{{ 'abc' | list }}",
+          "output": "['a', 'b', 'c']"
+        },
+        {
+          "template": "{{ range(3) | list }}",
+          "output": "[0, 1, 2]"
+        }
+      ]
+    },
+    {
+      "name": "lower",
+      "category": "string",
+      "description": "Converts a string to lowercase.",
+      "parameters": [],
+      "examples": [
+        {
+          "template": "{{ 'HELLO' | lower }}",
+          "output": "hello"
+        },
+        {
+          "template": "{{ 'HeLLo WoRLd' | lower }}",
+          "output": "hello world"
+        }
+      ]
+    },
+    {
+      "name": "nl2br",
+      "category": "html",
+      "description": "Replaces newline characters with HTML <br> tags.",
+      "parameters": [],
+      "examples": [
+        {
+          "template": "{{ 'line1\\nline2' | nl2br }}",
+          "output": "line1<br>\nline2"
+        }
+      ]
+    },
+    {
+      "name": "random",
+      "category": "array",
+      "description": "Returns a random item from a sequence.",
+      "parameters": [],
+      "examples": [
+        {
+          "template": "{{ ['red', 'blue', 'green'] | random }}",
+          "output": "red (or blue or green)"
+        }
+      ]
+    },
+    {
+      "name": "reject",
+      "category": "array",
+      "description": "Filters a sequence by rejecting items that pass a test. If no test is specified, falsy items are rejected.",
+      "parameters": [
+        {
+          "name": "test",
+          "type": "string",
+          "description": "Optional test name like 'odd', 'even', 'defined', etc"
+        }
+      ],
+      "examples": [
+        {
+          "template": "{{ [1, 2, 3, 4, 5] | reject('odd') | list }}",
+          "output": "[2, 4]"
+        }
+      ]
+    },
+    {
+      "name": "rejectattr",
+      "category": "array",
+      "description": "Filters a sequence of objects by rejecting those where a specified attribute passes a test.",
+      "parameters": [
+        {
+          "name": "attribute",
+          "type": "string",
+          "description": "The attribute to test"
+        },
+        {
+          "name": "test",
+          "type": "string",
+          "description": "Optional test name"
+        }
+      ],
+      "examples": [
+        {
+          "template": "{{ users | rejectattr('active') | map(attribute='name') | list }}",
+          "output": "Users with active=false"
+        }
+      ]
+    },
+    {
+      "name": "replace",
+      "category": "string",
+      "description": "Replaces all occurrences of a substring with another string. Optionally limit to the first N replacements.",
+      "parameters": [
+        {
+          "name": "old",
+          "type": "string",
+          "description": "The substring to find"
+        },
+        {
+          "name": "new",
+          "type": "string",
+          "description": "The string to replace it with"
+        },
+        {
+          "name": "count",
+          "type": "number",
+          "description": "Optional maximum number of replacements"
+        }
+      ],
+      "examples": [
+        {
+          "template": "{{ 'hello world' | replace('world', 'universe') }}",
+          "output": "hello universe"
+        },
+        {
+          "template": "{{ 'aaa' | replace('a', 'b', 2) }}",
+          "output": "bba"
+        }
+      ]
+    },
+    {
+      "name": "reverse",
+      "category": "array",
+      "description": "Reverses a sequence or returns an iterator that reverses the order.",
+      "parameters": [],
+      "examples": [
+        {
+          "template": "{{ [1, 2, 3] | reverse | list }}",
+          "output": "[3, 2, 1]"
+        },
+        {
+          "template": "{{ 'hello' | reverse | list }}",
+          "output": "['o', 'l', 'l', 'e', 'h']"
+        }
+      ]
+    },
+    {
+      "name": "round",
+      "category": "math",
+      "description": "Rounds a number to a given precision. The rounding method can be 'common' (round half up), 'ceil' (always up), or 'floor' (always down).",
+      "parameters": [
+        {
+          "name": "precision",
+          "type": "number",
+          "description": "Number of decimal places (default: 0)"
+        },
+        {
+          "name": "method",
+          "type": "string",
+          "description": "Rounding method: 'common', 'ceil', or 'floor' (default: 'common')"
+        }
+      ],
+      "examples": [
+        {
+          "template": "{{ 3.14159 | round(2) }}",
+          "output": "3.14"
+        },
+        {
+          "template": "{{ 3.14159 | round(2, 'ceil') }}",
+          "output": "3.15"
+        },
+        {
+          "template": "{{ 3.9 | round(0, 'floor') }}",
+          "output": "3"
+        }
+      ]
+    },
+    {
+      "name": "safe",
+      "category": "html",
+      "description": "Marks a string as safe for direct output, bypassing HTML escaping. Use with caution!",
+      "parameters": [],
+      "examples": [
+        {
+          "template": "{{ '<b>bold</b>' | safe }}",
+          "output": "<b>bold</b>"
+        }
+      ]
+    },
+    {
+      "name": "select",
+      "category": "array",
+      "description": "Filters a sequence by selecting only items that pass a test. If no test is specified, truthy items are selected.",
+      "parameters": [
+        {
+          "name": "test",
+          "type": "string",
+          "description": "Optional test name like 'odd', 'even', 'defined', etc"
+        }
+      ],
+      "examples": [
+        {
+          "template": "{{ [1, 2, 3, 4, 5] | select('even') | list }}",
+          "output": "[2, 4]"
+        }
+      ]
+    },
+    {
+      "name": "selectattr",
+      "category": "array",
+      "description": "Filters a sequence of objects by selecting those where a specified attribute passes a test.",
+      "parameters": [
+        {
+          "name": "attribute",
+          "type": "string",
+          "description": "The attribute to test"
+        },
+        {
+          "name": "test",
+          "type": "string",
+          "description": "Optional test name"
+        }
+      ],
+      "examples": [
+        {
+          "template": "{{ users | selectattr('active') | map(attribute='name') | list }}",
+          "output": "Users with active=true"
+        }
+      ]
+    },
+    {
+      "name": "slice",
+      "category": "array",
+      "description": "Slices an iterator and returns a list of lists containing those items. If you pass a second argument, it's used to fill missing values on the last iteration.",
+      "parameters": [
+        {
+          "name": "size",
+          "type": "number",
+          "description": "The number of items per slice"
+        },
+        {
+          "name": "fillValue",
+          "type": "any",
+          "description": "Optional value to pad the final slice if incomplete"
+        }
+      ],
+      "examples": [
+        {
+          "template": "{% for items in [1, 2, 3, 4, 5] | slice(2) %}{{ items }}{% endfor %}",
+          "output": "[1, 2]\n[3, 4]\n[5]"
+        }
+      ]
+    },
+    {
+      "name": "sort",
+      "category": "array",
+      "description": "Sorts an iterable using Python-style sorting. For objects/dicts, can sort by an attribute or multiple attributes.",
+      "parameters": [
+        {
+          "name": "reverse",
+          "type": "boolean",
+          "description": "Sort descending instead of ascending (default: false)"
+        },
+        {
+          "name": "case_sensitive",
+          "type": "boolean",
+          "description": "When sorting strings, sort upper and lower case separately (default: false)"
+        },
+        {
+          "name": "attribute",
+          "type": "string",
+          "description": "For objects/dicts, the attribute to sort by (supports dot notation and comma-separated list)"
+        }
+      ],
+      "examples": [
+        {
+          "template": "{{ [3, 1, 2] | sort }}",
+          "output": "[1, 2, 3]"
+        },
+        {
+          "template": "{{ users | sort(attribute='name') | map(attribute='name') | list }}",
+          "output": "Sorted by name"
+        }
+      ]
+    },
+    {
+      "name": "string",
+      "category": "conversion",
+      "description": "Converts an object to a string representation if it isn't already. Preserves Markup strings.",
+      "parameters": [],
+      "examples": [
+        {
+          "template": "{{ 123 | string }}",
+          "output": "'123'"
+        },
+        {
+          "template": "{{ true | string }}",
+          "output": "'True'"
+        }
+      ]
+    },
+    {
+      "name": "striptags",
+      "category": "html",
+      "description": "Removes HTML/XML tags from a string, leaving only the content inside.",
+      "parameters": [
+        {
+          "name": "preserve_linebreaks",
+          "type": "boolean",
+          "description": "Optional flag to preserve line breaks (default: false)"
+        }
+      ],
+      "examples": [
+        {
+          "template": "{{ '<p>Hello <b>world</b></p>' | striptags }}",
+          "output": "Hello world"
+        }
+      ]
+    },
+    {
+      "name": "sum",
+      "category": "math",
+      "description": "Returns the sum of a sequence of numbers plus the value of an optional 'start' parameter (default 0). Can sum attributes from a list of objects.",
+      "parameters": [
+        {
+          "name": "start",
+          "type": "number",
+          "description": "Starting value for the sum (default: 0)"
+        },
+        {
+          "name": "attribute",
+          "type": "string",
+          "description": "Optional attribute name to sum from a list of objects"
+        }
+      ],
+      "examples": [
+        {
+          "template": "{{ [1, 2, 3] | sum }}",
+          "output": "6"
+        },
+        {
+          "template": "{{ [1, 2, 3] | sum(10) }}",
+          "output": "16"
+        }
+      ]
+    },
+    {
+      "name": "title",
+      "category": "string",
+      "description": "Returns a titlecased version of the string where the first character of each word is uppercase and remaining characters are lowercase.",
+      "parameters": [],
+      "examples": [
+        {
+          "template": "{{ 'hello world' | title }}",
+          "output": "Hello World"
+        },
+        {
+          "template": "{{ 'the quick brown fox' | title }}",
+          "output": "The Quick Brown Fox"
+        }
+      ]
+    },
+    {
+      "name": "trim",
+      "category": "string",
+      "description": "Strips leading and trailing characters from a string. By default removes whitespace.",
+      "parameters": [
+        {
+          "name": "chars",
+          "type": "string",
+          "description": "Optional characters to strip (default: whitespace)"
+        }
+      ],
+      "examples": [
+        {
+          "template": "{{ '  hello  ' | trim }}",
+          "output": "'hello'"
+        },
+        {
+          "template": "{{ 'xxxhelloxxx' | trim('x') }}",
+          "output": "'hello'"
+        }
+      ]
+    },
+    {
+      "name": "truncate",
+      "category": "string",
+      "description": "Truncates a string to a specified length. By default, cuts at word boundaries and adds an ellipsis.",
+      "parameters": [
+        {
+          "name": "length",
+          "type": "number",
+          "description": "Maximum length of the string (default: 255)"
+        },
+        {
+          "name": "killwords",
+          "type": "boolean",
+          "description": "If true, cut the text at exactly length instead of at word boundaries (default: false)"
+        },
+        {
+          "name": "end",
+          "type": "string",
+          "description": "String to append at the end (default: '...')"
+        },
+        {
+          "name": "leeway",
+          "type": "number",
+          "description": "Tolerance in characters before truncating (default: 5)"
+        }
+      ],
+      "examples": [
+        {
+          "template": "{{ 'This is a long sentence.' | truncate(10) }}",
+          "output": "This is..."
+        },
+        {
+          "template": "{{ 'This is a long sentence.' | truncate(10, true) }}",
+          "output": "This is a ..."
+        }
+      ]
+    },
+    {
+      "name": "upper",
+      "category": "string",
+      "description": "Converts a string to uppercase.",
+      "parameters": [],
+      "examples": [
+        {
+          "template": "{{ 'hello' | upper }}",
+          "output": "HELLO"
+        },
+        {
+          "template": "{{ 'HeLLo WoRLd' | upper }}",
+          "output": "HELLO WORLD"
+        }
+      ]
+    },
+    {
+      "name": "urlencode",
+      "category": "string",
+      "description": "Quotes data for use in a URL. For strings, escapes special characters. For dicts/iterables, creates a query string.",
+      "parameters": [],
+      "examples": [
+        {
+          "template": "{{ 'hello world' | urlencode }}",
+          "output": "hello%20world"
+        },
+        {
+          "template": "{{ {name: 'John', age: 30} | urlencode }}",
+          "output": "name=John&age=30"
+        }
+      ]
+    },
+    {
+      "name": "urlize",
+      "category": "html",
+      "description": "Converts URLs in text into clickable links. Works with http://, https://, www., mailto:, and email addresses.",
+      "parameters": [
+        {
+          "name": "trim_url_limit",
+          "type": "number",
+          "description": "Shorten displayed URL values to this length"
+        },
+        {
+          "name": "nofollow",
+          "type": "boolean",
+          "description": "Add rel=nofollow attribute to links"
+        },
+        {
+          "name": "target",
+          "type": "string",
+          "description": "Add target attribute to links (e.g., '_blank')"
+        }
+      ],
+      "examples": [
+        {
+          "template": "{{ 'Visit http://example.com' | urlize }}",
+          "output": "Visit <a href=\"http://example.com\">http://example.com</a>"
+        }
+      ]
+    },
+    {
+      "name": "wordcount",
+      "category": "string",
+      "description": "Counts the number of words in a string.",
+      "parameters": [],
+      "examples": [
+        {
+          "template": "{{ 'one two three' | wordcount }}",
+          "output": "3"
+        },
+        {
+          "template": "{{ 'hello world' | wordcount }}",
+          "output": "2"
+        }
+      ]
+    },
+    {
+      "name": "wordwrap",
+      "category": "string",
+      "description": "Wraps a string to the given width, breaking lines at word boundaries. Existing newlines are treated as paragraph breaks.",
+      "parameters": [
+        {
+          "name": "width",
+          "type": "number",
+          "description": "Maximum line width (default: 79)"
+        },
+        {
+          "name": "break_long_words",
+          "type": "boolean",
+          "description": "Break words longer than width (default: true)"
+        },
+        {
+          "name": "break_on_hyphens",
+          "type": "boolean",
+          "description": "Allow breaking on hyphens (default: true)"
+        }
+      ],
+      "examples": [
+        {
+          "template": "{{ 'Hello world from Jinja' | wordwrap(8) }}",
+          "output": "Hello\nworld\nfrom\nJinja"
+        }
+      ]
+    }
+  ]
+}
