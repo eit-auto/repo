@@ -224,7 +224,7 @@ function initializeLogging() {
 initializeLogging();
 
 // Configuration
-const MESHCENTRAL_HOST = '192.168.141.40';
+const MESHCENTRAL_HOST = 'app.equinoxits.com';
 const MESHCENTRAL_PORT = 1138;
 const PROXY_PORT = 1139;
 const CREDENTIALS_FILE = 'D:\\Kore\\credentials.json';
@@ -2659,31 +2659,53 @@ function handleCwmApiRequest(req, res) {
 // ===== END CWM API Handler =====
 
 /**
- * Serve static HTML files from D:\Kore\
+ * Generalized static file server with configurable base paths and allowed extensions
+ * Handles security, content-type detection, and error handling for multiple file repositories
  */
-function serveStaticFile(req, res) {
+function serveStaticFile(req, res, config) {
+    // config = { basePath, allowedExtensions, logPrefix }
+    const basePath = config.basePath;
+    const allowedExtensions = config.allowedExtensions || ['.html', '.css', '.js', '.json'];
+    const logPrefix = config.logPrefix || '[StaticFile]';
+    
     // Parse URL to get just the pathname, stripping query parameters
-    const parsedUrl = url.parse(req.url, true);
+    const parsedUrl = require('url').parse(req.url, true);
     let filePath = parsedUrl.pathname === '/' ? '/test-persephone.html' : parsedUrl.pathname;
     
-    // Normalize path separators (convert forward slashes to backslashes on Windows)
-    filePath = filePath.replace(/\//g, '\\');
-    const fullPath = path.join('D:\\Kore\\web', filePath);
+    // For /node_modules/ requests, strip the prefix to avoid doubling the directory
+    if (basePath.includes('node_modules') && filePath.startsWith('/node_modules/')) {
+        filePath = filePath.substring('/node_modules'.length);
+    }
     
-    console.log(`[StaticFile] Requested: ${parsedUrl.pathname}`);
-    console.log(`[StaticFile] Full path: ${fullPath}`);
+    console.log(`${logPrefix} Requested: ${parsedUrl.pathname}`);
     
-    // Security: prevent directory traversal
-    if (!fullPath.startsWith('D:\\Kore\\web')) {
-        console.log(`[StaticFile] Access denied - path traversal attempt`);
+    // Security: only allow safe file types
+    const isSafeFile = allowedExtensions.some(ext => filePath.endsWith(ext));
+    
+    if (!isSafeFile) {
+        console.log(`${logPrefix} Access denied - unsafe file type: ${filePath}`);
         res.writeHead(403, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: 'Forbidden' }));
         return;
     }
     
-    fs.readFile(fullPath, 'utf8', (err, data) => {
+    // Normalize path separators (convert forward slashes to backslashes on Windows)
+    let normalizedPath = filePath.replace(/\//g, '\\');
+    const fullPath = require('path').join(basePath, normalizedPath);
+    
+    console.log(`${logPrefix} Full path: ${fullPath}`);
+    
+    // Security: prevent directory traversal
+    if (!fullPath.startsWith(basePath)) {
+        console.log(`${logPrefix} Access denied - path traversal attempt`);
+        res.writeHead(403, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Forbidden' }));
+        return;
+    }
+    
+    require('fs').readFile(fullPath, 'utf8', (err, data) => {
         if (err) {
-            console.log(`[StaticFile] Error reading file: ${err.message}`);
+            console.log(`${logPrefix} Error reading file: ${err.message}`);
             res.writeHead(404, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ error: 'File not found' }));
             return;
@@ -2699,9 +2721,13 @@ function serveStaticFile(req, res) {
             contentType = 'application/javascript';
         } else if (filePath.endsWith('.json')) {
             contentType = 'application/json';
+        } else if (filePath.endsWith('.d.ts')) {
+            contentType = 'application/typescript';
+        } else if (filePath.endsWith('.map')) {
+            contentType = 'application/json';
         }
         
-        console.log(`[StaticFile] Serving ${filePath} as ${contentType}`);
+        console.log(`${logPrefix} Serving ${filePath} as ${contentType}`);
         res.writeHead(200, { 'Content-Type': contentType });
         res.end(data);
     });
@@ -2715,10 +2741,26 @@ try {
     const cert = fs.readFileSync(certPath, 'utf8');
     const key = fs.readFileSync(keyPath, 'utf8');
     
+    // Try to load CA bundle for full certificate chain (ZeroSSL requires this)
+    const caPath = 'D:\\Kore\\Certs\\ca_bundle.crt';
+    let ca = null;
+    try {
+        ca = fs.readFileSync(caPath, 'utf8');
+        console.log(`[${new Date().toISOString()}] CA bundle loaded from ${caPath}`);
+    } catch (caErr) {
+        console.warn(`[${new Date().toISOString()}] WARNING: CA bundle not found at ${caPath} - cert chain may be incomplete`);
+    }
+    
     serverOptions = {
         cert: cert,
         key: key
     };
+    
+    // Add CA chain if available
+    if (ca) {
+        serverOptions.ca = ca;
+    }
+    
     console.log(`[${new Date().toISOString()}] SSL certificate loaded from ZeroSSL (app.equinoxits.com)`);
 } catch (err) {
     console.error(`[${new Date().toISOString()}] ERROR: Could not load certificate: ${err.message}`);
@@ -2772,17 +2814,15 @@ const requestHandler = (req, res) => {
         handleNodesRequest(req, res);
     } else if (req.url === '/api-cwm' || req.url.startsWith('/api-cwm?')) {
         handleCwmApiRequest(req, res);
-    } else if (req.url.startsWith('/kore/workflows')) {
-        handleWorkflowRequest(req, res);
-    } else if (req.url === '/kore/execute' || req.url.startsWith('/kore/execute?')) {
-        handleExecuteRequest(req, res);
-    } else if (req.url.startsWith('/kore/executions')) {
-        handleExecutionRequest(req, res);
-    } else if (req.url === '/api/render-template') {
-        Persephone.handleRenderTemplate(req, res);
     } else if (req.url === '/favicon.ico') {
         res.writeHead(204);
         res.end();
+    } else if (req.url.startsWith('/node_modules/')) {
+        serveStaticFile(req, res, {
+            basePath: 'D:\\Kore\\node_modules',
+            allowedExtensions: ['.js', '.d.ts', '.json', '.map'],
+            logPrefix: '[NodeModules]'
+        });
     } else if (Persephone.handleRegisteredRoute(req, res)) {
         // Route was handled by registry
     } else {
@@ -2790,8 +2830,12 @@ const requestHandler = (req, res) => {
         const parsedUrl = url.parse(req.url, true);
         const pathname = parsedUrl.pathname;
         
-        if (pathname.endsWith('.html') || pathname.endsWith('.css') || pathname.endsWith('.js') || pathname === '/') {
-            serveStaticFile(req, res);
+        if (pathname.endsWith('.html') || pathname.endsWith('.css') || pathname.endsWith('.js') || pathname.endsWith('.json') || pathname === '/') {
+            serveStaticFile(req, res, {
+                basePath: 'D:\\Kore\\web',
+                allowedExtensions: ['.html', '.css', '.js', '.json'],
+                logPrefix: '[StaticWeb]'
+            });
         } else {
             res.writeHead(404, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ error: 'Not found' }));
