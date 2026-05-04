@@ -48,52 +48,46 @@ function setupCodeMirror() {
 }
 
 // ============================================================================
-// Jinja Filters Metadata
+// Jinja Filters Metadata (Loaded Dynamically)
 // ============================================================================
 
-const JINJA_FILTERS_METADATA = [
-    { name: 'upper', args: '()', description: 'Convert to uppercase', usage: '{{ name | upper }}' },
-    { name: 'lower', args: '()', description: 'Convert to lowercase', usage: '{{ name | lower }}' },
-    { name: 'capitalize', args: '()', description: 'Capitalize first letter', usage: '{{ name | capitalize }}' },
-    { name: 'title', args: '()', description: 'Titlecase each word', usage: '{{ name | title }}' },
-    { name: 'length', args: '()', description: 'Get length of sequence', usage: '{{ items | length }}' },
-    { name: 'reverse', args: '()', description: 'Reverse sequence', usage: '{{ items | reverse }}' },
-    { name: 'sort', args: '()', description: 'Sort a list', usage: '{{ items | sort }}' },
-    { name: 'join', args: '(sep)', description: 'Join list items with separator', usage: '{{ items | join(\", \") }}' },
-    { name: 'split', args: '(sep)', description: 'Split string by separator', usage: '{{ text | split(\",\") }}' },
-    { name: 'replace', args: '(old, new)', description: 'Replace substring', usage: '{{ text | replace(\"old\", \"new\") }}' },
-    { name: 'default', args: '(value)', description: 'Provide default value', usage: '{{ value | default(\"N/A\") }}' },
-    { name: 'abs', args: '()', description: 'Absolute value', usage: '{{ num | abs }}' },
-    { name: 'round', args: '(places)', description: 'Round number', usage: '{{ price | round(2) }}' },
-    { name: 'int', args: '()', description: 'Convert to integer', usage: '{{ text | int }}' },
-    { name: 'float', args: '()', description: 'Convert to float', usage: '{{ text | float }}' },
-    { name: 'string', args: '()', description: 'Convert to string', usage: '{{ num | string }}' },
-    { name: 'list', args: '()', description: 'Convert to list', usage: '{{ text | list }}' },
-    { name: 'trim', args: '()', description: 'Remove whitespace', usage: '{{ text | trim }}' },
-    { name: 'striptags', args: '()', description: 'Remove HTML tags', usage: '{{ html | striptags }}' },
-    { name: 'safe', args: '()', description: 'Mark as safe HTML', usage: '{{ html | safe }}' },
-    { name: 'urlize', args: '()', description: 'Convert URLs to links', usage: '{{ text | urlize }}' },
-    { name: 'dictsort', args: '()', description: 'Sort dict by keys', usage: '{{ dict | dictsort }}' },
-    { name: 'groupby', args: '(attr)', description: 'Group by attribute', usage: '{{ items | groupby(\"category\") }}' },
-    { name: 'map', args: '(attr)', description: 'Map attribute from list', usage: '{{ items | map(attribute=\"name\") }}' },
-    { name: 'select', args: '(test)', description: 'Filter list by test', usage: '{{ items | select(\"defined\") }}' },
-    { name: 'reject', args: '(test)', description: 'Filter out items by test', usage: '{{ items | reject(\"undefined\") }}' },
-    { name: 'first', args: '()', description: 'Get first item', usage: '{{ items | first }}' },
-    { name: 'last', args: '()', description: 'Get last item', usage: '{{ items | last }}' },
-    { name: 'min', args: '()', description: 'Get minimum value', usage: '{{ nums | min }}' },
-    { name: 'max', args: '()', description: 'Get maximum value', usage: '{{ nums | max }}' },
-    { name: 'sum', args: '()', description: 'Sum all values', usage: '{{ nums | sum }}' },
-    { name: 'slice', args: '(size)', description: 'Slice list into chunks', usage: '{{ items | slice(2) }}' },
-    { name: 'batch', args: '(size)', description: 'Batch items', usage: '{{ items | batch(5) }}' },
-    { name: 'escape', args: '()', description: 'Escape HTML special chars', usage: '{{ text | escape }}' },
-    { name: 'truncate', args: '(length)', description: 'Truncate string', usage: '{{ text | truncate(50) }}' },
-];
+let JINJA_FILTERS_METADATA = [];
+let filtersLoaded = false;
+
+/**
+ * Load filters from Persephone /filters endpoint
+ * Fails gracefully if endpoint unavailable
+ */
+async function loadFiltersMetadata() {
+    if (filtersLoaded) return; // Only load once
+    
+    try {
+        const response = await fetch('/filters');
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        
+        const data = await response.json();
+        if (data.filters && Array.isArray(data.filters)) {
+            JINJA_FILTERS_METADATA = data.filters;
+            filtersLoaded = true;
+            console.log(`[jinja-json] Loaded ${JINJA_FILTERS_METADATA.length} filters`);
+        } else {
+            throw new Error('Invalid filter data structure');
+        }
+    } catch (error) {
+        console.warn(`[jinja-json] Failed to load filters from /filters endpoint:`, error.message);
+        // Fail gracefully - filters simply won't be available for autocomplete
+        filtersLoaded = true; // Mark as attempted to avoid retries
+    }
+}
 
 // ============================================================================
 // Jinja Editor Creation: Call this to create an editor
 // ============================================================================
 
 async function createJinjaEditor(containerId, templateText, contextData, renderCommands = null) {
+    // Load filters metadata from endpoint (once)
+    await loadFiltersMetadata();
+    
     // Import all needed modules
     const { EditorView } = await import('codemirror');
     const { EditorState, StateField, RangeSet } = await import('@codemirror/state');
@@ -345,17 +339,88 @@ async function createJinjaEditor(containerId, templateText, contextData, renderC
             // Accept if it's just spaces and word chars (including empty)
             if (!/^[\s\w]*$/.test(afterPipe)) return null;
 
-            const completions = JINJA_FILTERS_METADATA.map(filter => ({
-                label: filter.args === '()' ? filter.name : filter.name + '()',
-                detail: '',
-                info: `${filter.description}\n\nUsage: ${filter.usage}`
-            }));
+            const completions = JINJA_FILTERS_METADATA.map((filter, index) => {
+                // Determine label: name + () if has parameters
+                const hasParams = filter.parameters && filter.parameters.length > 0;
+                const label = hasParams ? filter.name + '()' : filter.name;
+                
+                // Return info as a function that creates a DOM element with HTML content
+                const infoFn = () => {
+                    const div = document.createElement('div');
+                    let html = `<strong>${filter.description || ''}</strong>`;
+                    
+                    if (filter.parameters && filter.parameters.length > 0) {
+                        html += '<div style="margin-top: 8px;"><strong>Parameters:</strong><ul style="margin: 4px 0; padding-left: 20px;">';
+                        filter.parameters.forEach(param => {
+                            html += `<li><code>${param.name}</code> <em>(${param.type})</em>: ${param.description}</li>`;
+                        });
+                        html += '</ul></div>';
+                    }
+                    
+                    if (filter.examples && filter.examples.length > 0) {
+                        html += '<div style="margin-top: 8px;"><strong>Examples:</strong><ul style="margin: 4px 0; padding-left: 20px;">';
+                        filter.examples.forEach(example => {
+                            html += `<li><code>${example.template}</code> &#8594; <code>${example.output}</code></li>`;
+                        });
+                        html += '</ul></div>';
+                    }
+                    
+                    div.innerHTML = html;
+                    return div;
+                };
+                
+                return {
+                    label: label,
+                    detail: filter.category ? `[${filter.category}]` : '',
+                    info: infoFn,
+                    apply: label
+                };
+            });
 
-            return {
+            const result = {
                 from: lastPipe + 1,
                 to: context.pos,
                 options: completions
             };
+            
+            // After a tiny delay, set up hover handlers on the completion items
+            setTimeout(() => {
+                const completion = document.querySelector('.cm-completionInfo');
+                const listContainer = document.querySelector('.cm-completion ul');
+                
+                if (listContainer) {
+                    const items = listContainer.querySelectorAll('li');
+                    items.forEach((item, idx) => {
+                        // Remove previous listeners by cloning
+                        const newItem = item.cloneNode(true);
+                        item.parentNode.replaceChild(newItem, item);
+                        
+                        newItem.addEventListener('mouseover', (e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            
+                            // Remove cm-option-selected from all items
+                            listContainer.querySelectorAll('li').forEach(li => {
+                                li.classList.remove('cm-option-selected');
+                            });
+                            
+                            // Add to this item
+                            newItem.classList.add('cm-option-selected');
+                            
+                            // Manually trigger the keyboard event to update info panel
+                            const keyEvent = new KeyboardEvent('keydown', {
+                                key: 'ArrowDown',
+                                code: 'ArrowDown',
+                                keyCode: 40,
+                                bubbles: true
+                            });
+                            listContainer.dispatchEvent(keyEvent);
+                        });
+                    });
+                }
+            }, 10);
+            
+            return result;
         };
     };
 
@@ -1052,6 +1117,37 @@ async function createOutputEditor(containerId, outputText) {
 // Template Renderer and Output Update
 // ============================================================================
 
+// ============================================================================
+// Persephone Template Rendering via HTTP
+// ============================================================================
+
+async function renderTemplateWithPersephone(template, context) {
+    try {
+        // Send request to Persephone's /render-template endpoint
+        const response = await fetch('/render-template', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                template: template,
+                context: context
+            })
+        });
+
+        const data = await response.json();
+
+        if (response.ok && data.result !== undefined) {
+            return { success: true, result: data.result };
+        } else {
+            return { success: false, error: data.error || 'Unknown rendering error' };
+        }
+    } catch (error) {
+        return { success: false, error: error.message };
+    }
+}
+
+// Legacy stub for backwards compatibility (deprecated)
 function renderTemplate(template, context) {
     let output = template;
     
@@ -1080,6 +1176,9 @@ function renderTemplate(template, context) {
 // ============================================================================
 
 async function initializeEditors(jsonContainerId, jinjaContainerId, outputContainerId) {
+    // Load filters metadata from endpoint (once)
+    await loadFiltersMetadata();
+    
     // Expanded sample context data
     const contextData = {
         name: "Alice Johnson",
@@ -1148,7 +1247,7 @@ PROJECTS
 ITEMS
 ---------------------------------
 {% for item in items %}
-  • {{ item }}
+  ? {{ item }}
 {% endfor %}
 
 {% if show_footer %}
@@ -1166,22 +1265,32 @@ End of Report
     const renderCommands = [
         { 
             key: 'Ctrl-Enter', 
-            run: () => { 
+            run: async () => { 
                 if (jinjaEditorRef) {
                     const templateText = jinjaEditorRef.state.doc.toString();
-                    const rendered = renderTemplate(templateText, contextData);
-                    createOutputEditor(outputContainerId, rendered);
+                    const result = await renderTemplateWithPersephone(templateText, contextData);
+                    
+                    if (result.success) {
+                        createOutputEditor(outputContainerId, result.result);
+                    } else {
+                        createOutputEditor(outputContainerId, `ERROR: ${result.error}`);
+                    }
                 }
                 return true; 
             } 
         },
         { 
             key: 'Cmd-Enter', 
-            run: () => { 
+            run: async () => { 
                 if (jinjaEditorRef) {
                     const templateText = jinjaEditorRef.state.doc.toString();
-                    const rendered = renderTemplate(templateText, contextData);
-                    createOutputEditor(outputContainerId, rendered);
+                    const result = await renderTemplateWithPersephone(templateText, contextData);
+                    
+                    if (result.success) {
+                        createOutputEditor(outputContainerId, result.result);
+                    } else {
+                        createOutputEditor(outputContainerId, `ERROR: ${result.error}`);
+                    }
                 }
                 return true; 
             } 
@@ -1199,4 +1308,4 @@ End of Report
 }
 
 // Export for use in other modules
-export { createJinjaEditor, createJsonEditor, createOutputEditor, renderTemplate, initializeEditors };
+export { createJinjaEditor, createJsonEditor, createOutputEditor, renderTemplate, renderTemplateWithPersephone, initializeEditors };
