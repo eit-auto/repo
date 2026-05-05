@@ -188,8 +188,9 @@
                     <span id="versionDisplay">-</span> - <span id="uuidDisplay" style="font-family: monospace; font-size: 0.8rem; color: #909090;">-</span>
                 </div>
                 <div style="display: flex; gap: 8px;">
-                    <button class="btn btn-blue" onclick="showJSONModal()" style="padding: 8px 16px;">View JSON</button>
-                    <button class="btn btn-green" onclick="saveWorkflow()" style="padding: 8px 16px;">Save Workflow</button>
+                    <button class="btn btn-blue" onclick="showWorkflowSettingsModal()" style="padding: 0; width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; font-size: 24px;" title="Workflow Settings">&#9998;</button>
+                    <button class="btn btn-blue" onclick="showJSONModal()" style="padding: 0; width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; font-size: 18px;" title="View JSON">{ [ ] }</button>
+                    <button class="btn btn-green" onclick="saveWorkflow()" style="padding: 0; width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; font-size: 24px;" title="Save Workflow">&#128427;</button>
                 </div>
             </div>
         </div>
@@ -226,7 +227,7 @@
             
             <!-- Zoom Control -->
             <div style="position: absolute; bottom: 0; right: 0; margin-bottom: 6px; margin-right: 6px; background: #234656; border: 1px solid #234656; border-radius: 4px; display: flex; align-items: center; justify-content: center; user-select: none; z-index: 100;">
-                <button onclick="zoomOut()" style="background: transparent; border: none; color: #ffffff; cursor: pointer; font-size: 1.2rem; display: flex; align-items: center; justify-content: center; width: 24px; height: 24px;">−</button>
+                <button onclick="zoomOut()" style="background: transparent; border: none; color: #ffffff; cursor: pointer; font-size: 1.2rem; display: flex; align-items: center; justify-content: center; width: 24px; height: 24px;">-</button>
                 <span id="zoomDisplay" style="color: #ffffff; background: #1a3245; border: 1px solid #234656; border-radius: 6px; font-size: 0.9rem; width: 41px; text-align: center;">100%</span>
                 <button onclick="zoomIn()" style="background: transparent; border: none; color: #ffffff; cursor: pointer; font-size: 1.2rem; display: flex; align-items: center; justify-content: center; width: 24px; height: 24px;">+</button>
                 <button onclick="resetZoom()" style="background: transparent; border: none; color: #ffffff; cursor: pointer; font-size: 1rem; display: flex; align-items: center; justify-content: center; width: 24px; height: 24px;">&#8635;</button>
@@ -291,6 +292,47 @@
             
             <div class="modal-buttons" style="margin-top: 1em; justify-content: center;">
                 <button class="btn btn-blue" onclick="closeFailureModal()">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Workflow Settings Modal -->
+    <div class="modal" id="workflowSettingsModal">
+        <div class="modal-content form-container" style="max-width: 90dvw; max-height: 90dvh; overflow-y: auto;">
+            <h2 class="modal-title">Workflow Settings</h2>
+            
+            <!-- Input Variables Section -->
+            <div style="margin-bottom: 24px; padding-top: 12px; border-top: 1px solid #ffffff;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; margin-top: 12px;">
+                    <div style="font-size: 0.95rem; font-weight: 600; color: #e0e0e0;">
+                        Input Variables
+                    </div>
+                    <button class="btn btn-blue btn-small" onclick="addInputVariable()">
+                        + Add Input Variable
+                    </button>
+                </div>
+                
+                <div id="inputVariablesList" style="margin-bottom: 0;"></div>
+            </div>
+
+            <!-- Output Variables Section -->
+            <div style="margin-bottom: 24px; padding-top: 12px; border-top: 1px solid #ffffff;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; margin-top: 12px;">
+                    <div style="font-size: 0.95rem; font-weight: 600; color: #e0e0e0;">
+                        Output Variables
+                    </div>
+                    <button class="btn btn-blue btn-small" onclick="addOutputVariable()">
+                        + Add Output Variable
+                    </button>
+                </div>
+                
+                <div id="outputVariablesList" style="margin-bottom: 0;"></div>
+            </div>
+
+            <!-- Modal Buttons -->
+            <div class="modal-buttons">
+                <button class="btn btn-grey" onclick="closeWorkflowSettingsModal()">Close</button>
+                <button class="btn btn-blue" onclick="saveWorkflowSettings()">Save Settings</button>
             </div>
         </div>
     </div>
@@ -481,8 +523,11 @@
     </div>
     </div><!-- close 100dvh x 100dvw wrapper -->
 
+    <script src="lib/kore-lib.js"></script>
+    <script src="lib/workflow.js"></script>
+    <script src="lib/jinja-json.js"></script>
     <script>
-        const API_KEY = '393d5ca334f5b1b9e7127544460def61ca6be55eab20da08f1746f11f5d0b4e9';
+        // API_KEY is defined in kore-lib.js
         let currentWorkflowId = null;
         let currentWorkflowName = null;
         let currentVersion = null;
@@ -491,6 +536,8 @@
         let currentSteps = [];
         let currentTransitions = [];
         let currentTransitionFrames = [];
+        let currentInputVariables = [];
+        let currentOutputVariables = [];
         let transitionFrameCounter = 0;
         let transitionCounter = 0;
         let originalJson = null;
@@ -591,36 +638,6 @@
             updatePreview();
         }
 
-        async function authenticate() {
-            console.log('authenticate() called');
-            try {
-                const response = await fetch('/auth', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-Kore-Token': API_KEY
-                    },
-                    body: JSON.stringify({
-                        user: 'test@localhost',
-                        origin: 'https://localhost'
-                    })
-                });
-
-                console.log('Auth response status:', response.status);
-                const data = await response.json();
-                console.log('Auth data:', data);
-                if (data.sessionToken) {
-                    sessionToken = data.sessionToken;
-                    console.log('Session token set, calling loadWorkflow');
-                    loadWorkflow();
-                } else {
-                    console.log('No sessionToken in response');
-                }
-            } catch (err) {
-                console.error('Auth error:', err.message);
-            }
-        }
-
         function getUrlParams() {
             const params = new URLSearchParams(window.location.search);
             return {
@@ -657,7 +674,6 @@
                 }
 
                 const workflow = await response.json();
-                console.log('Workflow loaded:', workflow);
                 
                 // Load everything from definition (source of truth)
                 const definition = workflow.definition;
@@ -671,13 +687,10 @@
                 const versionField = document.getElementById('versionDisplay');
                 const preview = document.getElementById('preview');
                 
-                console.log('Version field element:', versionField);
-                console.log('Workflow version from definition:', definition.version);
                 
                 if (nameField) nameField.value = definition.name;
                 if (versionField) {
                     versionField.textContent = `v${definition.version}`;
-                    console.log('Version set to:', versionField.textContent);
                 }
                 
                 const uuidField = document.getElementById('uuidDisplay');
@@ -687,6 +700,8 @@
 
                 // Load the workflow definition
                 currentSteps = definition.steps || [];
+                currentInputVariables = definition.inputs || [];
+                currentOutputVariables = definition.outputs || [];
                 
                 // Restore zoom and pan from view if they were saved
                 let targetZoom = 1;
@@ -766,6 +781,8 @@
                         pan: `${(panX / 30).toFixed(2)},${(panY / 30).toFixed(2)}`
                     },
                     metadata: currentMetadata,
+                    inputs: currentInputVariables,
+                    outputs: currentOutputVariables,
                     steps: currentSteps
                 }, null, 2);
                 
@@ -779,6 +796,8 @@
                         pan: `${(panX / 30).toFixed(2)},${(panY / 30).toFixed(2)}`
                     },
                     metadata: currentMetadata,
+                    inputs: currentInputVariables,
+                    outputs: currentOutputVariables,
                     steps: currentSteps
                 };
                 currentDefinition = JSON.parse(JSON.stringify(originalDefinition)); // Deep copy
@@ -841,14 +860,6 @@
                 const preview = document.getElementById('preview');
                 if (preview) preview.textContent = 'Error loading workflow: ' + err.message;
             }
-        }
-
-        function generateUUID() {
-            return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
-                const r = Math.random() * 16 | 0;
-                const v = c === 'x' ? r : (r & 0x3 | 0x8);
-                return v.toString(16);
-            });
         }
 
         function renderLoadedStepsOnCanvas() {
@@ -930,42 +941,42 @@
                                     stepElement.appendChild(connectionPoint);
                                 }
                                 
-                                // Calculate which side of the step is closest to the frame
-                                const connectionSide = getClosestSideToFrame(stepElement, frameElement, canvas);
-                                
-                                const positionStyles = {
-                                    'top': 'top: -6px; left: 50%; transform: translateX(-50%);',
-                                    'bottom': 'bottom: -6px; left: 50%; transform: translateX(-50%);',
-                                    'left': 'left: -6px; top: 50%; transform: translateY(-50%);',
-                                    'right': 'right: -6px; top: 50%; transform: translateY(-50%);'
-                                };
-                                
-                                connectionPoint.setAttribute('data-connected', 'true');
-                                connectionPoint.classList.add('connectionPoint');
-                                connectionPoint.style.cssText = `
-                                    ${positionStyles[connectionSide]}
+                            // Calculate which side of the step is closest to the frame
+                            const connectionSide = getClosestSideToFrame(stepElement, frameElement, canvas);
+                            
+                            const positionStyles = {
+                                'top': 'top: -6px; left: 50%; transform: translateX(-50%);',
+                                'bottom': 'bottom: -6px; left: 50%; transform: translateX(-50%);',
+                                'left': 'left: -6px; top: 50%; transform: translateY(-50%);',
+                                'right': 'right: -6px; top: 50%; transform: translateY(-50%);'
+                            };
+                            
+                            connectionPoint.setAttribute('data-connected', 'true');
+                            connectionPoint.classList.add('connectionPoint');
+                            connectionPoint.style.cssText = `
+                                ${positionStyles[connectionSide]}
+                            `;
+                            
+                            // Create and update the blue connection line
+                            let connectionLine = canvas.querySelector(`[data-connection-line][data-from-step="${owningStep.id}"]`);
+                            if (!connectionLine) {
+                                connectionLine = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+                                connectionLine.setAttribute('data-connection-line', frame.id);  // Use frame.id directly, not 'connection-' + frame.id
+                                connectionLine.setAttribute('data-from-step', owningStep.id);
+                                connectionLine.style.cssText = `
+                                    position: absolute;
+                                    top: 0;
+                                    left: 0;
+                                    width: 100%;
+                                    height: 100%;
+                                    pointer-events: none;
+                                    z-index: 1;
                                 `;
-                                
-                                // Create and update the blue connection line
-                                let connectionLine = canvas.querySelector(`[data-connection-line][data-from-step="${owningStep.id}"]`);
-                                if (!connectionLine) {
-                                    connectionLine = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-                                    connectionLine.setAttribute('data-connection-line', frame.id);  // Use frame.id directly, not 'connection-' + frame.id
-                                    connectionLine.setAttribute('data-from-step', owningStep.id);
-                                    connectionLine.style.cssText = `
-                                        position: absolute;
-                                        top: 0;
-                                        left: 0;
-                                        width: 100%;
-                                        height: 100%;
-                                        pointer-events: none;
-                                        z-index: 1;
-                                    `;
-                                    canvas.appendChild(connectionLine);
-                                }
-                                
-                                // Update the connection line with the correct side
-                                updateBlueTransitionLine(connectionLine, frame.id, owningStep.id, connectionSide, canvas);
+                                canvas.appendChild(connectionLine);
+                            }
+                            
+                            // Update the connection line with the correct side
+                            updateBlueTransitionLine(connectionLine, frame.id, owningStep.id, connectionSide, canvas);
                             }
                         }
                     }
@@ -987,8 +998,8 @@
                                     left: 0;
                                     width: 100%;
                                     height: 100%;
-                                    pointer-events: auto;
-                                    z-index: 5;
+                                    pointer-events: none;
+                                    z-index: 1;
                                 `;
                                 canvas.appendChild(caseLine);
                                 
@@ -1004,6 +1015,29 @@
                             });
                         }
                     });
+                });
+                
+                // After all connections are created, hide those belonging to attached frames
+                currentTransitionFrames.forEach(frame => {
+                    if (frame.attachedToStepId) {
+                        const owningStep = currentSteps.find(step => step.transition && step.transition.position === frame.position);
+                        if (owningStep) {
+                            // Hide connection point
+                            const stepElement = canvas.querySelector(`[data-step-uuid="${owningStep.id}"]`);
+                            if (stepElement) {
+                                const connectionPoint = stepElement.querySelector('[data-connection-point]');
+                                if (connectionPoint) {
+                                    connectionPoint.style.display = 'none';
+                                }
+                            }
+                            
+                            // Hide blue connection line
+                            const connectionLine = canvas.querySelector(`[data-connection-line][data-from-step="${owningStep.id}"]`);
+                            if (connectionLine) {
+                                connectionLine.style.display = 'none';
+                            }
+                        }
+                    }
                 });
                 });
             }, 300);
@@ -1251,6 +1285,10 @@
         }
 
         function showJSONModal() {
+            // Rebuild input and output variables from form to get current state
+            rebuildInputVariablesFromForm();
+            rebuildOutputVariablesFromForm();
+            
             // Sort cases by order within each transition
             const stepsForExport = currentSteps.map(step => ({
                 ...step,
@@ -1269,6 +1307,8 @@
                     pan: `${(panX / 30).toFixed(2)},${(panY / 30).toFixed(2)}`
                 },
                 metadata: currentMetadata,
+                inputs: currentInputVariables,
+                outputs: currentOutputVariables,
                 steps: stepsForExport
             };
             const jsonContent = JSON.stringify(workflowData, null, 2);
@@ -1378,7 +1418,7 @@
                     pointer-events: auto;
                     cursor: move;
                     box-sizing: border-box;
-                    z-index: 2;
+                    z-index: 1;
                     display: flex;
                     flex-direction: row;
                 `;
@@ -1474,12 +1514,12 @@
                         line-height: 1;
                     `;
                     const transitionType = transition ? transition.type : 'Success';
-                    let icon = '&#10003;';  // ✓ checkmark for Success
-                    if (transitionType === 'Failure') icon = '&#10005;';  // ✕ X for Failure
+                    let icon = '&#10003;';  // ? checkmark for Success
+                    if (transitionType === 'Failure') icon = '&#10005;';  // ? X for Failure
                     else if (transitionType === 'Logic') {
                         icon = `<span style="font-size: 0.85rem;">&lt;&gt;</span>`;  // < > larger
                     }
-                    else if (transitionType === 'Always') icon = `<span style="display: inline-block; transform: scaleY(2);">&#9658;</span>`;  // ▶ right triangle stretched
+                    else if (transitionType === 'Always') icon = `<span style="display: inline-block; transform: scaleY(2);">&#9658;</span>`;  // ? right triangle stretched
                     conditionBox.innerHTML = icon;
                     conditionBox.addEventListener('click', (e) => {
                         e.stopPropagation();
@@ -1577,7 +1617,7 @@
                         top: 50%;
                         transform: translateY(-50%);
                         cursor: crosshair;
-                        z-index: 5;
+                        z-index: 1;
                     `;
                     wrapper.appendChild(triangle);
                     wrapper.appendChild(hitbox);
@@ -1628,7 +1668,7 @@
                     pointer-events: auto;
                     cursor: move;
                     box-sizing: border-box;
-                    z-index: 2;
+                    z-index: 1;
                     display: flex;
                     flex-direction: column;
                 `;
@@ -1719,12 +1759,12 @@
                         line-height: 1;
                     `;
                     const transitionType = transition ? transition.type : 'Success';
-                    let icon = '&#10003;';  // ✓ checkmark for Success
-                    if (transitionType === 'Failure') icon = '&#10005;';  // ✕ X for Failure
+                    let icon = '&#10003;';  // ? checkmark for Success
+                    if (transitionType === 'Failure') icon = '&#10005;';  // ? X for Failure
                     else if (transitionType === 'Logic') {
                         icon = `<span style="font-size: 0.85rem;">&lt;&gt;</span>`;  // < > larger
                     }
-                    else if (transitionType === 'Always') icon = '&#9660;';  // ▼ down triangle
+                    else if (transitionType === 'Always') icon = '&#9660;';  // ? down triangle
                     conditionBox.innerHTML = icon;
                     conditionBox.addEventListener('click', (e) => {
                         e.stopPropagation();
@@ -1822,7 +1862,7 @@
                         left: 50%;
                         transform: translateX(-50%);
                         cursor: crosshair;
-                        z-index: 5;
+                        z-index: 1;
                     `;
                     wrapper.appendChild(triangle);
                     wrapper.appendChild(hitbox);
@@ -1972,6 +2012,12 @@
                             
                             wasJustDetached = true;  // Prevent re-attachment on release
                             
+                            // Position frame below step immediately
+                            const stepPos = attachedStep.position.split(',').map(Number);
+                            frameData.position = `${stepPos[0]},${stepPos[1] + 1}`;
+                            frameElement.style.left = (stepPos[0] * 30) + 'px';
+                            frameElement.style.top = ((stepPos[1] + 1) * 30) + 'px';
+                            
                             // Detach the frame
                             frameData.attachedToStepId = null;
                             frameData.attached = false;  // Mark as detached
@@ -2028,6 +2074,7 @@
                                         z-index: 1;
                                     `;
                                     canvas.appendChild(connectionLine);
+                                } else {
                                 }
                                 
                                 // Update the blue line
@@ -2035,7 +2082,10 @@
                                 if (stepEl) {
                                     const closestSide = getClosestSideToFrame(stepEl, frameElement_render, canvas);
                                     updateBlueTransitionLine(connectionLine, frameData.id, attachedStep.id, closestSide, canvas);
+                                    connectionLine.style.display = 'block';
+                                } else {
                                 }
+                            } else {
                             }
                         }
                     }
@@ -2174,7 +2224,6 @@
             };
             
             const stopFrameDrag = () => {
-                console.log('stopFrameDrag START, wasJustDetached:', wasJustDetached, 'frameUUID:', frameUUID);
                 document.removeEventListener('mousemove', handleFrameDrag);
                 document.removeEventListener('mouseup', stopFrameDrag);
                 
@@ -2190,11 +2239,9 @@
                 isFrameDragging = false;
                 const frameData = currentTransitionFrames.find(f => f.id === frameUUID);
                 if (!frameData) return;
-                console.log('frameData found, verticalLayout:', frameData.verticalLayout);
                 
                 // Check if frame should attach to a step (Horizontal frames only)
                 // Skip if we just detached the frame
-                console.log('About to check attachment: verticalLayout=', !frameData.verticalLayout, 'wasJustDetached=', !wasJustDetached, 'condition result=', !frameData.verticalLayout && !wasJustDetached);
                 if (!frameData.verticalLayout && !wasJustDetached && (wasDragging || !frameData.attachedToStepId)) {
                     const frameElement = canvas.querySelector(`[data-transition-frame="${frameUUID}"]`);
                     const frameRect = frameElement.getBoundingClientRect();
@@ -2284,7 +2331,6 @@
                 
                 // If frame was just detached, re-render it to remove the grab indicator
                 if (wasJustDetached) {
-                    console.log('Re-rendering detached frame');
                     renderTransitionFrame(frameUUID, false);
                     wasJustDetached = false;
                 }
@@ -2413,7 +2459,7 @@
             // Show connection circle
             const connectionPoint = stepElement.querySelector('[data-connection-point]');
             if (connectionPoint) {
-                connectionPoint.style.display = '';
+                connectionPoint.style.display = 'block';
             }
             
             // Recalculate step width based on text
@@ -2467,6 +2513,11 @@
                     z-index: 1;
                 `;
                 canvas.appendChild(connectionLine);
+            }
+            
+            // Show blue connection line
+            if (connectionLine) {
+                connectionLine.style.display = 'block';
             }
             
             // Re-render frame first to remove grab indicator
@@ -3469,6 +3520,8 @@
             // Include steps, zoom, and pan in the saved data
             const currentJson = JSON.stringify({ 
                 steps: currentSteps,
+                inputs: currentInputVariables,
+                outputs: currentOutputVariables,
                 zoom: zoomLevel,
                 pan: `${(panX / 30).toFixed(2)},${(panY / 30).toFixed(2)}`
             }, null, 2);
@@ -3501,6 +3554,52 @@
             return version + '.1';
         }
 
+        function rebuildInputVariablesFromForm() {
+            currentInputVariables.forEach((inputVar, index) => {
+                inputVar.name = document.querySelector(`.input-var-name-${index}`)?.value || '';
+                inputVar.type = document.querySelector(`.input-var-type-${index}`)?.value || 'string';
+                inputVar.label = document.querySelector(`.input-var-label-${index}`)?.value || '';
+                inputVar.required = document.querySelector(`.input-var-required-${index}`)?.checked || false;
+                inputVar.description = document.querySelector(`.input-var-description-${index}`)?.value || '';
+                inputVar.multiline = document.querySelector(`.input-var-multiline-${index}`)?.checked || false;
+
+                const defaultValue = document.querySelector(`.input-var-default-${index}`)?.value;
+                if (defaultValue === '' || defaultValue === undefined) {
+                    inputVar.default = undefined;
+                } else {
+                    // Try to parse as JSON if it looks like it
+                    try {
+                        if (defaultValue.startsWith('{') || defaultValue.startsWith('[')) {
+                            inputVar.default = JSON.parse(defaultValue);
+                        } else if (defaultValue === 'true') {
+                            inputVar.default = true;
+                        } else if (defaultValue === 'false') {
+                            inputVar.default = false;
+                        } else if (!isNaN(defaultValue) && defaultValue !== '') {
+                            inputVar.default = parseFloat(defaultValue);
+                        } else {
+                            inputVar.default = defaultValue;
+                        }
+                    } catch {
+                        inputVar.default = defaultValue;
+                    }
+                }
+            });
+        }
+
+        function updateInputVariableType(index) {
+            rebuildInputVariablesFromForm();
+            renderInputVariables();
+        }
+
+        function rebuildOutputVariablesFromForm() {
+            currentOutputVariables.forEach((outputVar, index) => {
+                outputVar.name = document.querySelector(`.output-var-name-${index}`)?.value || '';
+                outputVar.value = document.querySelector(`.output-var-value-${index}`)?.value || '';
+            });
+        }
+
+
         function closeConfirmModal() {
             document.getElementById('confirmModal').classList.remove('show');
         }
@@ -3508,6 +3607,10 @@
         async function confirmSave() {
             const newVersion = document.getElementById('newVersion').value;
             const workflowName = document.getElementById('workflowName').value.trim();
+            
+            // Rebuild input and output variables from form before saving
+            rebuildInputVariablesFromForm();
+            rebuildOutputVariablesFromForm();
             
             // Close confirm modal immediately
             closeConfirmModal();
@@ -3523,6 +3626,8 @@
                         pan: `${(panX / 30).toFixed(2)},${(panY / 30).toFixed(2)}`
                     },
                     metadata: currentMetadata,
+                    inputs: currentInputVariables,
+                    outputs: currentOutputVariables,
                     steps: currentSteps
                 };
                 
@@ -3569,6 +3674,8 @@
                             pan: `${(panX / 30).toFixed(2)},${(panY / 30).toFixed(2)}`
                         },
                         metadata: currentMetadata,
+                        inputs: currentInputVariables,
+                        outputs: currentOutputVariables,
                         steps: currentSteps
                     }
                 };
@@ -3583,7 +3690,6 @@
                 });
 
                 const data = await response.json();
-                console.log('Save response:', response.status, data);
 
                 if (response.ok) {
                     currentVersion = newVersion;
@@ -3604,6 +3710,8 @@
                             pan: `${(panX / 30).toFixed(2)},${(panY / 30).toFixed(2)}`
                         },
                         metadata: currentMetadata,
+                        inputs: currentInputVariables,
+                        outputs: currentOutputVariables,
                         steps: currentSteps
                     }, null, 2);
                     
@@ -3617,6 +3725,8 @@
                             pan: `${(panX / 30).toFixed(2)},${(panY / 30).toFixed(2)}`
                         },
                         metadata: currentMetadata,
+                        inputs: currentInputVariables,
+                        outputs: currentOutputVariables,
                         steps: currentSteps
                     };
                     currentDefinition = JSON.parse(JSON.stringify(originalDefinition)); // Deep copy
@@ -3951,7 +4061,7 @@
                 display: flex;
                 align-items: center;
                 justify-content: center;
-                z-index: 2;
+                z-index: 1;
                 margin: 2px;
             `;
             
@@ -4029,7 +4139,7 @@
                 box-sizing: border-box;
                 pointer-events: auto;
                 cursor: move;
-                z-index: 2;
+                z-index: 1;
                 display: flex;
                 flex-direction: column;
             `;
@@ -4229,9 +4339,10 @@
             const container = document.getElementById('canvasContainer');
             container.addEventListener('mousedown', (e) => {
                 if (e.button === 0 && (e.target === canvas || e.target.closest('[data-transition-connection-line]'))) {
-                    // Allow panning if clicking on canvas directly or on case line background (not hitbox)
-                    if (e.target.closest('[data-case-arrow-hitbox]')) {
-                        // Don't pan if clicking on hitbox
+                    // Don't pan if clicking on steps, frames, or hitboxes
+                    if (e.target.closest('[data-step-uuid]') || 
+                        e.target.closest('[data-transition-frame]') ||
+                        e.target.closest('[data-case-arrow-hitbox]')) {
                         return;
                     }
                     isPanning = true;
@@ -4328,7 +4439,7 @@
                             width: 100%;
                             height: 100%;
                             pointer-events: none;
-                            z-index: 5;
+                            z-index: 1;
                         `;
                         canvas.appendChild(previewLine);
                     }
@@ -4377,23 +4488,18 @@
                             const stepWidth = parseInt(stepElement.style.width);
                             const stepHeight = parseInt(stepElement.style.height);
                             
-                            console.log('Checking step:', { stepX, stepY, stepWidth, stepHeight, gridX, gridY });
                             
                             if (gridX >= stepX && gridX <= stepX + stepWidth &&
                                 gridY >= stepY && gridY <= stepY + stepHeight) {
                                 droppedOnStep = stepElement.getAttribute('data-step-uuid');
-                                console.log('Dropped on step:', droppedOnStep);
                             }
                         });
                         
-                        console.log('Drop detection:', { droppedOnStep, draggedCaseTargetStepId, gridX, gridY });
                         
                         // Update the case
                         const transition = currentTransitions.find(t => t.id === draggedCaseConditionId);
-                        console.log('Found transition:', transition);
                         if (transition) {
                             if (droppedOnStep && droppedOnStep !== draggedCaseTargetStepId) {
-                                console.log('Updating to new step:', droppedOnStep);
                                 // Update target step to new step
                                 transition.targetSteps = [droppedOnStep];
                                 syncTransitionCasesToStep();
@@ -4408,7 +4514,7 @@
                                 newLine.setAttribute('data-transition-connection-line', 'true');
                                 newLine.setAttribute('data-from-transition', draggedCaseConditionId);
                                 newLine.setAttribute('data-to-step', droppedOnStep);
-                                newLine.style.cssText = `position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: auto; z-index: 5;`;
+                                newLine.style.cssText = `position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 1;`;
                                 canvas.appendChild(newLine);
                                 
                                 // Add mousedown listener to prevent frame drag when clicking case arrow
@@ -4422,7 +4528,6 @@
                                 const frame = currentTransitionFrames.find(f => f.conditions.includes(draggedCaseConditionId));
                                 renderCaseLineInitial(newLine, draggedCaseConditionId, droppedOnStep, canvas, frame);
                             } else if (!droppedOnStep && draggedCaseTargetStepId) {
-                                console.log('Deleting connection');
                                 // Dropped on empty space - delete the connection
                                 transition.targetSteps = [];
                                 syncTransitionCasesToStep();
@@ -4432,7 +4537,6 @@
                                 const caseLinesToRemove = canvas.querySelectorAll(`[data-transition-connection-line][data-from-transition="${draggedCaseConditionId}"]`);
                                 caseLinesToRemove.forEach(line => line.remove());
                             } else {
-                                console.log('No change or invalid drop');
                                 // Dropped on same step or no valid action - show the original line again
                                 const oldCaseLine = canvas.querySelector(`[data-transition-connection-line][data-from-transition="${draggedCaseConditionId}"][data-to-step="${draggedCaseTargetStepId}"]`);
                                 if (oldCaseLine) {
@@ -4492,7 +4596,7 @@
                             width: 100%;
                             height: 100%;
                             pointer-events: none;
-                            z-index: 5;
+                            z-index: 1;
                         `;
                         canvas.appendChild(line);
                     }
@@ -4545,7 +4649,7 @@
                                 width: 100%;
                                 height: 100%;
                                 pointer-events: none;
-                                z-index: 5;
+                                z-index: 1;
                             `;
                             canvas.appendChild(connectionLine);
                             
@@ -4852,7 +4956,7 @@
                             width: 100%;
                             height: 100%;
                             pointer-events: none;
-                            z-index: 5;
+                            z-index: 1;
                         `;
                         canvas.appendChild(line);
                     }
@@ -5243,7 +5347,6 @@
             // Convert to grid units (divide by 30)
             const gridX = Math.round(x / 30);
             const gridY = Math.round(y / 30);
-            console.log(`Creating ${stepType} step at grid (${gridX}, ${gridY})`);
             
             // Create step data object
             const stepData = {
@@ -5264,6 +5367,227 @@
             // Render it on canvas
             renderStep(stepData);
         }
+
+        // ===== INPUT VARIABLES UI =====
+        function renderInputVariables() {
+            const container = document.getElementById('inputVariablesList');
+            if (!container) return;
+
+            container.innerHTML = '';
+            currentInputVariables.forEach((inputVar, index) => {
+                const varDiv = document.createElement('div');
+                varDiv.className = 'input-variable-item';
+                varDiv.style.cssText = `
+                    border: 1px solid #404040;
+                    border-radius: 4px;
+                    padding: 12px;
+                    margin-bottom: 12px;
+                    background: rgba(26, 53, 64, 0.5);
+                    position: relative;
+                `;
+
+                // Determine which default field type to show based on variable type
+                const varType = inputVar.type || 'string';
+                let defaultFieldHTML = '';
+                
+                if (varType === 'boolean') {
+                    defaultFieldHTML = `
+                        <select class="form-field-input input-var-default-${index}" style="padding: 0 8px; height: 37px; width: 100%; border: 2px solid var(--form-border-color); border-radius: 4px; background: var(--form-bg-color); color: var(--form-text-color);">
+                            <option value="">No default</option>
+                            <option value="true">True</option>
+                            <option value="false">False</option>
+                        </select>
+                    `;
+                } else if (varType === 'integer' || varType === 'number') {
+                    defaultFieldHTML = `
+                        <input type="number" class="form-field-input input-var-default-${index}" 
+                               placeholder="Default value"
+                               style="padding: 0 8px; height: 37px; width: 100%; border: 2px solid var(--form-border-color); border-radius: 4px; background: var(--form-bg-color); color: var(--form-text-color); text-align: left;">
+                    `;
+                } else if (varType === 'object' || varType === 'array') {
+                    defaultFieldHTML = `
+                        <input type="text" class="form-field-input input-var-default-${index}" 
+                               placeholder="JSON"
+                               style="padding: 0 8px; height: 37px; width: 100%; border: 2px solid var(--form-border-color); border-radius: 4px; background: var(--form-bg-color); color: var(--form-text-color); text-align: left;">
+                    `;
+                } else {
+                    defaultFieldHTML = `
+                        <input type="text" class="form-field-input input-var-default-${index}" 
+                               placeholder="Default value"
+                               style="padding: 0 8px; height: 37px; width: 100%; border: 2px solid var(--form-border-color); border-radius: 4px; background: var(--form-bg-color); color: var(--form-text-color); text-align: left;">
+                    `;
+                }
+
+                varDiv.innerHTML = `
+                    <!-- Delete Button (floating top-right, independent of layout) -->
+                    <button class="btn btn-red btn-small" onclick="deleteInputVariable(${index})" 
+                            title="Delete variable"
+                            style="position: absolute; top: 5px; right: 1px; padding: 0 6px; height: 18px; font-size: 0.7rem; white-space: nowrap; border-radius: 2px;">
+                        Delete
+                    </button>
+
+                    <!-- Row 1: Name, Display Name, Type -->
+                    <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; margin-bottom: 8px;">
+                        <div class="form-group" style="margin-bottom: 0;">
+                            <label style="font-size: 0.595rem; margin-bottom: 1px; text-transform: uppercase; letter-spacing: 0.5px;">Name</label>
+                            <input type="text" class="form-field-input input-var-name-${index}" 
+                                   value="${inputVar.name || ''}" 
+                                   placeholder="Variable name"
+                                   style="padding: 0 8px; height: 37px; width: 100%; text-align: left; border: 2px solid var(--form-border-color); border-radius: 4px; background: var(--form-bg-color); color: var(--form-text-color);">
+                        </div>
+                        <div class="form-group" style="margin-bottom: 0;">
+                            <label style="font-size: 0.595rem; margin-bottom: 1px; text-transform: uppercase; letter-spacing: 0.5px;">Display Name</label>
+                            <input type="text" class="form-field-input input-var-label-${index}" 
+                                   value="${inputVar.label || ''}" 
+                                   placeholder="Display label"
+                                   style="padding: 0 8px; height: 37px; width: 100%; text-align: left; border: 2px solid var(--form-border-color); border-radius: 4px; background: var(--form-bg-color); color: var(--form-text-color);">
+                        </div>
+                        <div class="form-group" style="margin-bottom: 0;">
+                            <label style="font-size: 0.595rem; margin-bottom: 1px; text-transform: uppercase; letter-spacing: 0.5px;">Type</label>
+                            <select class="form-field-input input-var-type-${index}" 
+                                    onchange="updateInputVariableType(${index})"
+                                    style="padding: 0 8px; height: 37px; width: 100%; text-align: left; border: 2px solid var(--form-border-color); border-radius: 4px; background: var(--form-bg-color); color: var(--form-text-color);">
+                                <option value="string" ${inputVar.type === 'string' ? 'selected' : ''}>String</option>
+                                <option value="integer" ${inputVar.type === 'integer' ? 'selected' : ''}>Integer</option>
+                                <option value="number" ${inputVar.type === 'number' ? 'selected' : ''}>Number</option>
+                                <option value="boolean" ${inputVar.type === 'boolean' ? 'selected' : ''}>Boolean</option>
+                                <option value="object" ${inputVar.type === 'object' ? 'selected' : ''}>Object</option>
+                                <option value="array" ${inputVar.type === 'array' ? 'selected' : ''}>Array</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <!-- Row 2: Default Value, Description, Required + Multiline (bottom-aligned) -->
+                    <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; align-items: flex-end;">
+                        <div class="form-group" style="margin-bottom: 0;">
+                            <label style="font-size: 0.595rem; margin-bottom: 1px; text-transform: uppercase; letter-spacing: 0.5px;">Default Value</label>
+                            ${defaultFieldHTML}
+                        </div>
+                        <div class="form-group" style="margin-bottom: 0;">
+                            <label style="font-size: 0.595rem; margin-bottom: 1px; text-transform: uppercase; letter-spacing: 0.5px;">Description</label>
+                            <input type="text" class="form-field-input input-var-description-${index}" 
+                                   value="${inputVar.description || ''}" 
+                                   placeholder="Help text"
+                                   style="padding: 0 8px; height: 37px; width: 100%; text-align: left; border: 2px solid var(--form-border-color); border-radius: 4px; background: var(--form-bg-color); color: var(--form-text-color);">
+                        </div>
+                        <div style="display: flex; gap: 12px; flex-direction: row; align-items: flex-end;">
+                            <label style="display: flex; align-items: center; gap: 6px; font-size: 0.595rem; margin: 0; text-transform: uppercase; letter-spacing: 0.5px; white-space: nowrap;">
+                                <input type="checkbox" class="input-var-required-${index}" 
+                                       ${inputVar.required ? 'checked' : ''}
+                                       style="cursor: pointer; width: 14px; height: 14px;">
+                                Required
+                            </label>
+                            ${inputVar.type === 'string' ? `
+                                <label style="display: flex; align-items: center; gap: 6px; font-size: 0.595rem; margin: 0; text-transform: uppercase; letter-spacing: 0.5px; white-space: nowrap;">
+                                    <input type="checkbox" class="input-var-multiline-${index}" 
+                                           ${inputVar.multiline ? 'checked' : ''}
+                                           style="cursor: pointer; width: 14px; height: 14px;">
+                                    Multiline
+                                </label>
+                            ` : ''}
+                        </div>
+                    </div>
+                `;
+
+                container.appendChild(varDiv);
+            });
+        }
+
+        function showWorkflowSettingsModal() {
+            document.getElementById('workflowSettingsModal').classList.add('show');
+            renderInputVariables();
+            renderOutputVariables();
+        }
+
+        function closeWorkflowSettingsModal() {
+            document.getElementById('workflowSettingsModal').classList.remove('show');
+        }
+
+        function addInputVariable() {
+            currentInputVariables.push({
+                name: '',
+                type: 'string',
+                label: '',
+                required: false,
+                description: '',
+                default: undefined,
+                multiline: false
+            });
+            renderInputVariables();
+        }
+
+        function deleteInputVariable(index) {
+            if (confirm('Delete this input variable?')) {
+                currentInputVariables.splice(index, 1);
+                renderInputVariables();
+            }
+        }
+
+        function addOutputVariable() {
+            currentOutputVariables.push({
+                name: '',
+                value: ''
+            });
+            renderOutputVariables();
+        }
+
+        function deleteOutputVariable(index) {
+            if (confirm('Delete this output variable?')) {
+                currentOutputVariables.splice(index, 1);
+                renderOutputVariables();
+            }
+        }
+
+        function renderOutputVariables() {
+            const container = document.getElementById('outputVariablesList');
+            if (!container) return;
+
+            container.innerHTML = '';
+            currentOutputVariables.forEach((outputVar, index) => {
+                const rowDiv = document.createElement('div');
+                rowDiv.style.cssText = `
+                    display: grid;
+                    grid-template-columns: 1fr 1fr auto;
+                    gap: 12px;
+                    margin-bottom: 8px;
+                    align-items: flex-end;
+                `;
+
+                rowDiv.innerHTML = `
+                    <div class="form-group" style="margin-bottom: 0;">
+                        <label style="font-size: 0.595rem; margin-bottom: 1px; text-transform: uppercase; letter-spacing: 0.5px;">Name</label>
+                        <input type="text" class="form-field-input output-var-name-${index}" 
+                               value="${outputVar.name || ''}" 
+                               placeholder="Variable name"
+                               style="padding: 0 8px; height: 37px; width: 100%; text-align: left; border: 2px solid var(--form-border-color); border-radius: 4px; background: var(--form-bg-color); color: var(--form-text-color);">
+                    </div>
+                    <div class="form-group" style="margin-bottom: 0;">
+                        <label style="font-size: 0.595rem; margin-bottom: 1px; text-transform: uppercase; letter-spacing: 0.5px;">Value</label>
+                        <input type="text" class="form-field-input output-var-value-${index}" 
+                               value="${outputVar.value || ''}" 
+                               placeholder="Output value"
+                               style="padding: 0 8px; height: 37px; width: 100%; text-align: left; border: 2px solid var(--form-border-color); border-radius: 4px; background: var(--form-bg-color); color: var(--form-text-color);">
+                    </div>
+                    <button class="btn btn-red btn-small" onclick="deleteOutputVariable(${index})" 
+                            title="Delete variable"
+                            style="padding: 0 6px; height: 37px; font-size: 0.7rem; white-space: nowrap; border-radius: 2px;">
+                        Delete
+                    </button>
+                `;
+
+                container.appendChild(rowDiv);
+            });
+        }
+
+        function saveWorkflowSettings() {
+            rebuildInputVariablesFromForm();
+            rebuildOutputVariablesFromForm();
+            closeWorkflowSettingsModal();
+            // Mark as unsaved so user will be prompted to save workflow
+            unsavedChanges = true;
+            updateSaveButtonState();
+        }
+
         function setupEventListeners() {
             const previewToggle = document.getElementById('previewToggle');
             const previewBox = document.getElementById('preview');
@@ -5277,7 +5601,7 @@
         }
 
         document.addEventListener('DOMContentLoaded', setupEventListeners);
-        window.addEventListener('load', authenticate);
+        window.addEventListener('load', () => auth(loadWorkflow));
     </script>
 </body>
 </html>
