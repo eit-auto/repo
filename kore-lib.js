@@ -380,23 +380,32 @@ const ProxyLib = (() => {
      * @param {object} options - Optional config
      * @returns {Promise<{success, result, rowCount}>}
      */
-    async function executeQuery(sessionToken, user, query, options = {}) {
+    /**
+     * Execute SQL query against any configured database
+     * @param {string} sessionToken - Session token (from authenticate)
+     * @param {string} user - Username
+     * @param {string} database - Database alias (rewst, kore, cwa, etc)
+     * @param {string} query - SQL query to execute
+     * @param {object} options - Optional config
+     * @returns {Promise<{success, result, rowCount}>}
+     */
+    async function executeSqlQuery(sessionToken, user, database, query, options = {}) {
         try {
-            if (!sessionToken || !user || !query) {
-                throw new Error('sessionToken, user, and query are required');
+            if (!sessionToken || !user || !database || !query) {
+                throw new Error('sessionToken, user, database, and query are required');
             }
             
-            console.log('[ProxyLib] Executing query');
+            console.log(`[ProxyLib] Executing query on database: ${database}`);
             
-            const response = await fetch(`${PROXY_URL}/query`, {
+            const response = await fetch(`${PROXY_URL}/sqlquery`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                     'X-Session-Token': sessionToken
                 },
                 body: JSON.stringify({
-                    query: query,
-                    user: user
+                    database: database,
+                    query: query
                 })
             });
             
@@ -407,61 +416,31 @@ const ProxyLib = (() => {
             }
             
             if (!data.success) {
-                throw new Error(data.errors || 'Query execution failed');
+                throw new Error(data.error || 'Query execution failed');
             }
             
-            console.log('[ProxyLib] Query executed successfully, returned', data.rowCount, 'rows');
+            console.log(`[ProxyLib] Query executed successfully on ${database}, returned ${data.rowCount} rows`);
             return data;
         } catch (error) {
-            console.error('[ProxyLib] executeQuery error:', error);
+            console.error('[ProxyLib] executeSqlQuery error:', error);
             throw error;
         }
     }
     
     /**
-     * Execute CWA/LabTech MySQL query
-     * @param {string} sessionToken - Session token (from authenticate)
-     * @param {string} user - Username
-     * @param {string} query - SQL query to execute
-     * @param {object} options - Optional config
-     * @returns {Promise<{success, result, rowCount}>}
+     * DEPRECATED: Use executeSqlQuery instead
+     * Execute MySQL query (legacy, routes to kore_sys database)
+     */
+    async function executeQuery(sessionToken, user, query, options = {}) {
+        return executeSqlQuery(sessionToken, user, 'kore_sys', query, options);
+    }
+    
+    /**
+     * DEPRECATED: Use executeSqlQuery instead
+     * Execute CWA/LabTech MySQL query (legacy, routes to cwa database)
      */
     async function executeCwaQuery(sessionToken, user, query, options = {}) {
-        try {
-            if (!sessionToken || !user || !query) {
-                throw new Error('sessionToken, user, and query are required');
-            }
-            
-            console.log('[ProxyLib] Executing CWA query');
-            
-            const response = await fetch(`${PROXY_URL}/cwaquery`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-Session-Token': sessionToken
-                },
-                body: JSON.stringify({
-                    query: query,
-                    user: user
-                })
-            });
-            
-            const data = await response.json();
-            
-            if (!response.ok) {
-                throw new Error(data.error || `HTTP ${response.status}`);
-            }
-            
-            if (!data.success) {
-                throw new Error(data.errors || 'CWA query execution failed');
-            }
-            
-            console.log('[ProxyLib] CWA query executed successfully, returned', data.rowCount, 'rows');
-            return data;
-        } catch (error) {
-            console.error('[ProxyLib] executeCwaQuery error:', error);
-            throw error;
-        }
+        return executeSqlQuery(sessionToken, user, 'cwa', query, options);
     }
     
     /**
@@ -625,6 +604,7 @@ const ProxyLib = (() => {
         authenticateWithKeyName,
         validateSession,
         executeCommand,
+        executeSqlQuery,
         executeQuery,
         executeCwaQuery,
         executeCwmApi,
