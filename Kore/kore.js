@@ -31,8 +31,9 @@ const path = require('path');
 const url = require('url');
 const WebSocket = require('ws');
 const mysql = require('mysql2/promise');
-const Persephone = require('./persephone');
-const { handleWorkflowRequest, handleExecuteRequest, handleExecutionRequest } = require('./persephone');
+const Persephone = require('./persephone/persephone');
+const { handleWorkflowRequest, handleExecuteRequest, handleExecutionRequest } = require('./persephone/persephone');
+const snipe = require('./modules/snipe');
 
 // ========== SECURITY CONFIGURATION ==========
 // IP Whitelist (no rate limits applied)
@@ -2670,7 +2671,7 @@ function serveStaticFile(req, res, config) {
     
     // Parse URL to get just the pathname, stripping query parameters
     const parsedUrl = require('url').parse(req.url, true);
-    let filePath = parsedUrl.pathname === '/' ? '/test-persephone.html' : parsedUrl.pathname;
+    let filePath = parsedUrl.pathname === '/' ? '/index.html' : parsedUrl.pathname;
     
     // For /node_modules/ requests, strip the prefix to avoid doubling the directory
     if (basePath.includes('node_modules') && filePath.startsWith('/node_modules/')) {
@@ -2814,6 +2815,8 @@ const requestHandler = (req, res) => {
         handleNodesRequest(req, res);
     } else if (req.url === '/api-cwm' || req.url.startsWith('/api-cwm?')) {
         handleCwmApiRequest(req, res);
+    } else if (req.url === '/snipe/hardware' || req.url.startsWith('/snipe/hardware?')) {
+        snipe.handleHardware(req, res, isIPWhitelisted, checkRateLimit);
     } else if (req.url === '/favicon.ico') {
         res.writeHead(204);
         res.end();
