@@ -483,7 +483,7 @@ const ProxyLib = (() => {
             
             console.log('[ProxyLib] Executing CWM API request:', method, endpoint);
             
-            const response = await fetch(`${PROXY_URL}/api-cwm`, {
+            const response = await fetch(`${PROXY_URL}/psa-cwm`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
