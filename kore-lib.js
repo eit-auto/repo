@@ -1,6 +1,6 @@
 /**
  * ProxyLib - Reusable library for MeshCentral Proxy authentication and operations
- * Wraps /auth, /validate, /command, and /nodes endpoints
+ * Wraps /auth, /validate, /mesh/command, and /mesh/nodes endpoints
  * Requires: RewstLib (for orgVariables.get)
  */
 
@@ -216,7 +216,7 @@ const ProxyLib = (() => {
             
             console.log('[ProxyLib] Executing command on node:', nodeId);
             
-            const response = await fetch(`${PROXY_URL}/command`, {
+            const response = await fetch(`${PROXY_URL}/mesh/command`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -302,7 +302,7 @@ const ProxyLib = (() => {
                 console.log('[ProxyLib] Query filter:', options.query.substring(0, 100) + '...');
             }
             
-            const response = await fetch(`${PROXY_URL}/nodes`, {
+            const response = await fetch(`${PROXY_URL}/mesh/nodes`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
