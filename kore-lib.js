@@ -489,11 +489,10 @@ const ProxyLib = (() => {
     }
     
     /**
-     * DEPRECATED: Use executeSqlQuery instead
-     * Execute MySQL query (legacy, routes to kore_sys database)
+     * Execute MySQL query (routes to rewst database)
      */
     async function executeQuery(sessionToken, user, query, options = {}) {
-        return executeSqlQuery(sessionToken, user, 'kore_sys', query, options);
+        return executeSqlQuery(sessionToken, user, 'rewst', query, options);
     }
     
     /**
