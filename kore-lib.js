@@ -1044,13 +1044,13 @@ function createTreeNode(item, level = 0, isLastChild = true, ancestorSiblingInfo
 
     // Item name with tree structure
     const itemName = document.createElement('span');
-    itemName.style.cssText = `flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 1rem; margin: 0; display: flex; align-items: center; color: #ffffff;`;
+    itemName.style.cssText = `flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 1rem; margin: 0; display: flex; align-items: center; color: #ffffff; cursor: pointer;`;
     
     // Build ancestor boxes for levels > 1
     if (level > 1) {
         for (let i = 1; i < level; i++) {
             const ancestorBox = document.createElement('span');
-            ancestorBox.style.cssText = `width: 16px; display: inline-flex; align-items: flex-start; justify-content: center; flex-shrink: 0; font-size: 1rem; line-height: 1.2; margin: 0; padding: 0 0 0 1px; border: 0; color: #666666;`;
+            ancestorBox.style.cssText = `width: 16px; display: inline-flex; align-items: flex-start; justify-content: center; flex-shrink: 0; font-size: 1rem; line-height: 1.2; margin: 0; padding: 0 0 0 1px; border: 0; color: #666666; pointer-events: none;`;
             
             // Check if ancestor at level i has siblings below
             const ancestorHasSiblings = ancestorSiblingInfo[i - 1] || false;
@@ -1064,7 +1064,7 @@ function createTreeNode(item, level = 0, isLastChild = true, ancestorSiblingInfo
     // Final connector box (├ or └)
     if (level > 0) {
         const connectorBox = document.createElement('span');
-        connectorBox.style.cssText = `width: 16px; display: inline-flex; align-items: flex-start; justify-content: center; flex-shrink: 0; font-size: 1rem; line-height: 1.2; margin: 0; padding: 0; border: 0; color: #666666;`;
+        connectorBox.style.cssText = `width: 16px; display: inline-flex; align-items: flex-start; justify-content: center; flex-shrink: 0; font-size: 1rem; line-height: 1.2; margin: 0; padding: 0; border: 0; color: #666666; pointer-events: none;`;
         
         const treeChar = isLastChild ? String.fromCharCode(9492) : String.fromCharCode(9500); // └ or ├
         connectorBox.appendChild(document.createTextNode(treeChar));
@@ -1074,15 +1074,30 @@ function createTreeNode(item, level = 0, isLastChild = true, ancestorSiblingInfo
     // Item name text
     const nameText = document.createElement('span');
     nameText.textContent = item.name;
+    // Make "None" item italic
+    if (item.id === 'none') {
+        nameText.style.fontStyle = 'italic';
+    }
     itemName.appendChild(nameText);
     
     folderRow.appendChild(itemName);
 
-    // Click to toggle
+    // Click toggle button to expand/collapse
     if (hasChildren) {
-        folderRow.style.cursor = 'pointer';
-        folderRow.onclick = toggleChildren;
+        toggleBtn.style.cursor = 'pointer';
+        toggleBtn.onclick = (e) => {
+            e.stopPropagation();
+            toggleChildren();
+        };
     }
+
+    // Click item name to select it (fires callback)
+    itemName.onclick = (e) => {
+        e.stopPropagation();
+        if (options.onItemClick) {
+            options.onItemClick(item);
+        }
+    };
 
     nodeContainer.appendChild(folderRow);
 
