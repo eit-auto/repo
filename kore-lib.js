@@ -1,8 +1,69 @@
 /**
- * ProxyLib - Reusable library for MeshCentral Proxy authentication and operations
- * Wraps /auth, /validate, /mesh/command, and /mesh/nodes endpoints
+ * KORE Library - Shared authentication and API utilities
  * Requires: RewstLib (for orgVariables.get)
  */
+
+// ============================================================================
+// KORE Global Authentication - Direct API access
+// ============================================================================
+const API_KEY = '393d5ca334f5b1b9e7127544460def61ca6be55eab20da08f1746f11f5d0b4e9';
+let sessionToken = null;
+
+/**
+ * Authenticate with Kore backend and get session token
+ * @param {Function} onSuccess - Callback function to execute after successful authentication
+ */
+async function auth(onSuccess) {
+    try {
+        const user = getUser();
+        // Extract domain from user email for Kore backend routing
+        const domain = user.split('@')[1];
+        
+        const response = await fetch(`https://app.${domain}:1139/auth`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Kore-Token': API_KEY
+            },
+            body: JSON.stringify({
+                user: user,
+                origin: 'https://localhost'
+            })
+        });
+        const data = await response.json();
+        if (data.sessionToken) {
+            sessionToken = data.sessionToken;
+            if (onSuccess) {
+                onSuccess();
+            }
+        } else {
+            console.error('Auth response missing sessionToken:', data);
+        }
+    } catch (err) {
+        console.error('Auth error:', err.message);
+    }
+}
+
+/**
+ * Get the current session token
+ */
+function getSessionToken() {
+    return sessionToken;
+}
+
+/**
+ * Set the session token (useful for restoring from storage)
+ */
+function setSessionToken(token) {
+    sessionToken = token;
+}
+
+/**
+ * Get current user ID
+ */
+function getUser() {
+    return 'bradf@equinoxits.com';
+}
 
 const ProxyLib = (() => {
     const PROXY_URL = 'https://app.equinoxits.com:1139';
@@ -522,7 +583,7 @@ const ProxyLib = (() => {
             // Update UI if provided
             if (authBox) {
                 authBox.className = 'status-box success';
-                authBox.textContent = `✓ Authenticated (${authResult.credentialName}) - Ready to execute`;
+                authBox.textContent = `? Authenticated (${authResult.credentialName}) - Ready to execute`;
                 authBox.style.display = 'block';
             }
             
@@ -539,7 +600,7 @@ const ProxyLib = (() => {
             // Update UI on error
             if (authBox) {
                 authBox.className = 'status-box error';
-                authBox.textContent = `✗ Auth Error: ${error.message}`;
+                authBox.textContent = `? Auth Error: ${error.message}`;
                 authBox.style.display = 'block';
             }
             
@@ -618,4 +679,254 @@ const ProxyLib = (() => {
 // Make ProxyLib available globally
 if (typeof window !== 'undefined') {
     window.ProxyLib = ProxyLib;
+}
+
+// ============================================================================
+// UI Utilities - Modal Messages and State Management
+// ============================================================================
+
+/**
+ * Show a modal message (success, error, warning, info)
+ * @param {string} type - 'success', 'error', 'warning', 'info'
+ * @param {string} title - Modal title
+ * @param {string} message - Modal message content
+ * @param {Function} onClose - Optional callback when modal closes
+ */
+function showMessage(type, title, message, onClose = null) {
+    const modalId = type + 'Modal'; // e.g., 'successModal', 'errorModal'
+    const modal = document.getElementById(modalId);
+    
+    if (!modal) {
+        console.warn(`Modal with id "${modalId}" not found`);
+        return;
+    }
+    
+    // Update title and message
+    const titleElement = modal.querySelector('.modal-title');
+    const messageElement = modal.querySelector('p[id$="Message"]') || modal.querySelector('p:not(.modal-buttons *)');
+    
+    if (titleElement) {
+        titleElement.textContent = title;
+    }
+    if (messageElement) {
+        messageElement.innerHTML = message;
+    }
+    
+    // Store callback and show modal
+    modal.onCloseCallback = onClose;
+    modal.classList.add('show');
+}
+
+/**
+ * Close a message modal
+ * @param {string} type - 'success', 'error', 'warning', 'info'
+ */
+function closeMessage(type) {
+    const modalId = type + 'Modal';
+    const modal = document.getElementById(modalId);
+    
+    if (!modal) return;
+    
+    // Execute callback if present
+    if (modal.onCloseCallback) {
+        modal.onCloseCallback();
+        modal.onCloseCallback = null;
+    }
+    
+    modal.classList.remove('show');
+}
+
+/**
+ * Update save button state based on unsaved changes
+ * @param {boolean} hasUnsavedChanges - Whether there are unsaved changes
+ */
+function updateSaveButtonState(hasUnsavedChanges = false) {
+    const saveButton = document.querySelector('[onclick="saveWorkflow()"]') || 
+                      document.querySelector('button[title="Save Workflow"]');
+    
+    if (!saveButton) return;
+    
+    if (hasUnsavedChanges) {
+        saveButton.classList.add('has-unsaved');
+        saveButton.style.opacity = '1';
+    } else {
+        saveButton.classList.remove('has-unsaved');
+        saveButton.style.opacity = '0.6';
+    }
+}
+
+/**
+ * Create and show a modal dialog with consistent styling
+ * @param {Object} options - Modal configuration
+ * @param {string} options.title - Modal title
+ * @param {string} options.content - Modal content (can be HTML)
+ * @param {Array} options.buttons - Array of button objects {label, className, callback}
+ * @param {string} options.type - Modal type: 'default', 'confirm', 'input', 'success', 'error'
+ * @param {Object} options.input - For 'input' type: {placeholder, value, validate}
+ * @param {number} options.autoClose - Auto-close modal after N milliseconds (for success modals)
+ * @param {Function} options.onClose - Callback when modal closes
+ * @returns {Object} Modal control object with close() method
+ */
+function showModal(options) {
+    const {
+        title = 'Modal',
+        content = '',
+        buttons = [],
+        type = 'default',
+        input = {},
+        autoClose = null,
+        onClose = null
+    } = options;
+
+    // Create modal container
+    const modalId = 'modal-' + Math.random().toString(36).substr(2, 9);
+    const modalOverlay = document.createElement('div');
+    modalOverlay.id = modalId;
+    modalOverlay.style.cssText = `
+        display: flex;
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.5);
+        z-index: 2000;
+        align-items: center;
+        justify-content: center;
+    `;
+
+    // Create modal box
+    const modalBox = document.createElement('div');
+    modalBox.style.cssText = `
+        background: #234656;
+        border-radius: 8px;
+        padding: 15px;
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+        min-width: 400px;
+        max-width: 600px;
+        max-height: 80vh;
+        overflow-y: auto;
+    `;
+
+    // Title
+    const titleEl = document.createElement('h2');
+    titleEl.style.cssText = 'margin: 0 0 20px 0; color: #ffffff; font-size: 1.3rem;';
+    titleEl.textContent = title;
+    modalBox.appendChild(titleEl);
+
+    // Content
+    const contentEl = document.createElement('div');
+    contentEl.style.cssText = 'color: #e0e0e0; margin-bottom: 20px; line-height: 1.5;';
+    if (typeof content === 'string') {
+        contentEl.innerHTML = content;
+    } else {
+        contentEl.appendChild(content);
+    }
+    modalBox.appendChild(contentEl);
+
+    // Input field (for 'input' type)
+    let inputElement = null;
+    let errorElement = null;
+    if (type === 'input') {
+        // Add label if provided
+        if (input.label) {
+            const labelEl = document.createElement('label');
+            labelEl.style.cssText = 'display: block; color: #ffffff; font-size: 13px; margin-bottom: 3px; font-weight: 600;';
+            labelEl.textContent = input.label;
+            modalBox.appendChild(labelEl);
+        }
+
+        inputElement = document.createElement('input');
+        inputElement.type = 'text';
+        inputElement.placeholder = input.placeholder || '';
+        inputElement.value = input.value || '';
+        inputElement.style.cssText = `
+            width: 100%;
+            padding: 12px;
+            box-sizing: border-box;
+            border: 1px solid #556870;
+            border-radius: 6px;
+            background: #1a3540;
+            color: #ffffff;
+            font-size: 14px;
+            margin-bottom: 15px;
+        `;
+        inputElement.onkeypress = (e) => {
+            if (e.key === 'Enter' && buttons.length > 0) {
+                buttons[0].callback?.();
+            }
+        };
+        modalBox.appendChild(inputElement);
+
+        errorElement = document.createElement('div');
+        errorElement.style.cssText = `
+            color: #ff6b6b;
+            font-size: 12px;
+            margin-bottom: 15px;
+            min-height: 0;
+            display: none;
+        `;
+        // Show the error div when setError is called
+        errorElement._setError = (msg) => {
+            if (msg) {
+                errorElement.textContent = msg;
+                errorElement.style.display = 'block';
+            } else {
+                errorElement.style.display = 'none';
+            }
+        };
+        modalBox.appendChild(errorElement);
+    }
+
+    // Buttons
+    const buttonContainer = document.createElement('div');
+    buttonContainer.style.cssText = 'display: flex; gap: 10px; justify-content: flex-end; margin-top: 25px;';
+    
+    buttons.forEach(btn => {
+        const button = document.createElement('button');
+        button.textContent = btn.label;
+        button.className = `btn ${btn.className || 'btn-blue'} btn-small`;
+        button.onclick = () => {
+            if (btn.callback) {
+                const result = btn.callback({
+                    close: closeModal,
+                    inputValue: inputElement?.value,
+                    setError: (msg) => { if (errorElement) errorElement._setError(msg); }
+                });
+            }
+        };
+        buttonContainer.appendChild(button);
+    });
+    modalBox.appendChild(buttonContainer);
+
+    // Append to body
+    modalOverlay.appendChild(modalBox);
+    document.body.appendChild(modalOverlay);
+
+    // Close function
+    function closeModal() {
+        if (autoCloseTimeout) clearTimeout(autoCloseTimeout);
+        modalOverlay.remove();
+        if (onClose) onClose();
+    }
+
+    // Auto-close for success modals
+    let autoCloseTimeout = null;
+    if (autoClose) {
+        autoCloseTimeout = setTimeout(closeModal, autoClose);
+    }
+
+    // Click outside to close (optional)
+    modalOverlay.onclick = (e) => {
+        if (e.target === modalOverlay) {
+            closeModal();
+        }
+    };
+
+    // Focus input if present
+    if (inputElement) {
+        inputElement.focus();
+    }
+
+    return { close: closeModal, getInputValue: () => inputElement?.value };
 }
