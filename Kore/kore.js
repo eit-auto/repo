@@ -33,7 +33,10 @@ const WebSocket = require('ws');
 const mysql = require('mysql2/promise');
 const Persephone = require('./persephone/persephone');
 const { handleWorkflowRequest, handleExecuteRequest, handleExecutionRequest } = require('./persephone/persephone');
-const snipe = require('./modules/snipe');
+const CryptoUtils = require('./crypto-utils');
+
+// Load environment variables from .env
+require('dotenv').config();
 
 // ========== SECURITY CONFIGURATION ==========
 // IP Whitelist (no rate limits applied)
@@ -228,9 +231,11 @@ initializeLogging();
 const MESHCENTRAL_HOST = 'app.equinoxits.com';
 const MESHCENTRAL_PORT = 1138;
 const PROXY_PORT = 1139;
-const CREDENTIALS_FILE = 'D:\\Kore\\credentials.json';
 const SESSIONS_FILE = 'D:\\Kore\\sessions.json';
 const LOG_FILE = 'D:\\Kore\\proxy-errors.log';
+
+// API Members cache (loaded from database at startup)
+let apiMembersCache = null;
 
 // Error logging helper
 function logError(message, errorObj = null) {
@@ -277,8 +282,9 @@ async function processSessionWriteQueue() {
         setImmediate(processSessionWriteQueue);
     }
 }
-const MYSQL_CONFIG_FILE = 'D:\\Kore\\mysql-config.json';
-const API_CONFIG_FILE = 'D:\\Kore\\api-config.json';
+
+// Environment variables loaded from .env via dotenv
+// Required: KORE_DB_HOST, KORE_DB_PORT, KORE_DB_USER, KORE_DB_PASS, KORE_DB_NAME, ENCRYPTION_KEY
 const MESHCENTRAL_USER = '~t:HnFCPNFuaFf3Wr55';
 const MESHCENTRAL_PASS = 'l1teqFCwQu5oIigiVAAV';
 
@@ -461,54 +467,32 @@ async function connectToMeshCentral(cookie) {
 }
 
 /**
- * Initialize MySQL connection pool from config file
+ * Initialize MySQL connection pool from environment variables
  */
 async function initializeMySQLPool() {
     try {
-        // Load MySQL config
-        const configJson = fs.readFileSync(MYSQL_CONFIG_FILE, 'utf8');
-        const mysqlConfig = JSON.parse(configJson);
+        // Validate required environment variables
+        if (!process.env.KORE_DB_HOST || !process.env.KORE_DB_USER || !process.env.KORE_DB_PASS) {
+            throw new Error('Missing required environment variables: KORE_DB_HOST, KORE_DB_USER, KORE_DB_PASS');
+        }
+
+        if (!process.env.ENCRYPTION_KEY) {
+            throw new Error('Missing required environment variable: ENCRYPTION_KEY');
+        }
+
+        console.log(`[${new Date().toISOString()}] Loading configuration from environment variables`);
         
-        console.log(`[${new Date().toISOString()}] Loading MySQL config from: ${MYSQL_CONFIG_FILE}`);
+        // Initialize crypto utilities for database credential encryption
+        global.cryptoUtils = new CryptoUtils(process.env.ENCRYPTION_KEY);
+        console.log(`[${new Date().toISOString()}] Encryption utilities initialized`);
         
-        // Create Rewst connection pool
-        mysqlPool = mysql.createPool({
-            host: mysqlConfig.rewst.host,
-            port: mysqlConfig.rewst.port,
-            database: mysqlConfig.rewst.database,
-            user: mysqlConfig.rewst.user,
-            password: mysqlConfig.rewst.password,
-            waitForConnections: true,
-            connectionLimit: 10,
-            queueLimit: 0,
-            enableKeepAlive: true
-        });
-        
-        console.log(`[${new Date().toISOString()}] Rewst MySQL connection pool created (${mysqlConfig.rewst.host}:${mysqlConfig.rewst.port}/${mysqlConfig.rewst.database})`);
-        
-        // Create CWA connection pool
-        cwaPool = mysql.createPool({
-            host: mysqlConfig.cwa.host,
-            port: mysqlConfig.cwa.port,
-            database: mysqlConfig.cwa.database,
-            user: mysqlConfig.cwa.user,
-            password: mysqlConfig.cwa.password,
-            waitForConnections: true,
-            connectionLimit: 10,
-            queueLimit: 0,
-            enableKeepAlive: true,
-            multipleStatements: true
-        });
-        
-        console.log(`[${new Date().toISOString()}] CWA MySQL connection pool created (${mysqlConfig.cwa.host}:${mysqlConfig.cwa.port}/${mysqlConfig.cwa.database})`);
-        
-        // Create Kore connection pool
+        // Create Kore connection pool (kore_sys database) from environment variables
         korePool = mysql.createPool({
-            host: mysqlConfig.kore.host,
-            port: mysqlConfig.kore.port,
-            database: mysqlConfig.kore.database,
-            user: mysqlConfig.kore.user,
-            password: mysqlConfig.kore.password,
+            host: process.env.KORE_DB_HOST,
+            port: process.env.KORE_DB_PORT || 3306,
+            database: process.env.KORE_DB_NAME || 'kore_sys',
+            user: process.env.KORE_DB_USER,
+            password: process.env.KORE_DB_PASS,
             waitForConnections: true,
             connectionLimit: 10,
             queueLimit: 0,
@@ -516,18 +500,262 @@ async function initializeMySQLPool() {
             multipleStatements: true
         });
         
-        console.log(`[${new Date().toISOString()}] Kore MySQL connection pool created (${mysqlConfig.kore.host}:${mysqlConfig.kore.port}/${mysqlConfig.kore.database})`);
+        console.log(`[${new Date().toISOString()}] Kore MySQL connection pool created (${process.env.KORE_DB_HOST}:${process.env.KORE_DB_PORT}/${process.env.KORE_DB_NAME})`);
         
-        // Load API config
-        const apiConfigJson = fs.readFileSync(API_CONFIG_FILE, 'utf8');
-        const apiConfig = JSON.parse(apiConfigJson);
-        global.apiConfig = apiConfig;
-        console.log(`[${new Date().toISOString()}] API config loaded from: ${API_CONFIG_FILE}`);
-        console.log(`[${new Date().toISOString()}] CWM API (${apiConfig.cwm.name}) configured: ${apiConfig.cwm.baseUrl}`);
+        // Load system configuration from database
+        const [systemConfig] = await korePool.query('SELECT * FROM system_config WHERE id = 1');
+        if (systemConfig && systemConfig.length > 0) {
+            global.systemConfig = systemConfig[0];
+            console.log(`[${new Date().toISOString()}] System configuration loaded from database`);
+            console.log(`[${new Date().toISOString()}] Data database: ${global.systemConfig.data_database_name}, Environment: ${global.systemConfig.environment}`);
+        } else {
+            throw new Error('system_config table is empty - please insert default row');
+        }
     } catch (error) {
-        console.error(`[${new Date().toISOString()}] ERROR initializing MySQL pools:`, error.message);
-        console.error(`[${new Date().toISOString()}] MySQL config file: ${MYSQL_CONFIG_FILE}`);
-        // Don't exit - MySQL is optional for now, let proxy start anyway
+        console.error(`[${new Date().toISOString()}] ERROR initializing system:`, error.message);
+        console.error(`[${new Date().toISOString()}] Please verify .env file exists with required variables`);
+        process.exit(1);  // Exit on critical configuration error
+    }
+}
+
+/**
+ * Load API members from database into cache
+ */
+async function loadApiMembersCache() {
+    try {
+        if (!korePool) {
+            console.warn(`[${new Date().toISOString()}] WARNING: Kore pool not available, cannot load API members cache`);
+            return;
+        }
+        
+        const connection = await korePool.getConnection();
+        try {
+            const [rows] = await connection.query('SELECT * FROM `api-members` WHERE enabled = true');
+            apiMembersCache = rows;
+            console.log(`[${new Date().toISOString()}] API members cache loaded: ${rows.length} active members`);
+        } finally {
+            connection.release();
+        }
+    } catch (error) {
+        console.error(`[${new Date().toISOString()}] ERROR loading API members cache:`, error.message);
+        // Don't exit - auth is still functional with empty cache (will deny all requests)
+    }
+}
+
+/**
+ * Get API member from cache by key, origin, and domain
+ */
+function getApiMember(key, origin, domain) {
+    if (!apiMembersCache) {
+        return null;
+    }
+    
+    return apiMembersCache.find(member => 
+        member.enabled && 
+        member.key === key && 
+        member.origin === origin && 
+        member.domain === domain
+    );
+}
+
+// ========== MODULE SYSTEM ==========
+// In-memory cache of loaded plugins
+let loadedPlugins = {};
+
+/**
+ * Load all enabled plugins from the database
+ */
+async function loadPluginsFromDatabase() {
+    try {
+        if (!korePool) {
+            console.warn(`[${new Date().toISOString()}] WARNING: Kore pool not available, cannot load plugins`);
+            return;
+        }
+        
+        const connection = await korePool.getConnection();
+        try {
+            const [rows] = await connection.query('SELECT id, name, code, routes, rate_limit, config FROM `plugins` WHERE enabled = true');
+            
+            let loadedCount = 0;
+            for (const pluginRow of rows) {
+                try {
+                    // Create a plugin object with utilities it can use
+                    const pluginObj = { exports: {} };
+                    
+                    // Execute the plugin code in a context with access to utilities
+                    const pluginCode = pluginRow.code;
+                    const pluginFunction = new Function('module', 'exports', 'require', 'console', 'global', pluginCode);
+                    pluginFunction(
+                        pluginObj,
+                        pluginObj.exports,
+                        require,
+                        console,
+                        global
+                    );
+                    
+                    // Get the actual exports (could be set via module.exports or exports)
+                    const pluginExports = pluginObj.exports;
+                    
+                    // Parse routes from database
+                    let routes = [];
+                    if (pluginRow.routes) {
+                        try {
+                            const routeData = typeof pluginRow.routes === 'string' ? JSON.parse(pluginRow.routes) : pluginRow.routes;
+                            routes = routeData.routes || [];
+                        } catch (e) {
+                            console.warn(`[${new Date().toISOString()}] WARNING: Could not parse routes for plugin ${pluginRow.name}`);
+                        }
+                    }
+                    
+                    // Store loaded plugin
+                    loadedPlugins[pluginRow.name] = {
+                        id: pluginRow.id,
+                        name: pluginRow.name,
+                        routes: routes,
+                        handlers: pluginExports.handlers || {},
+                        config: pluginRow.config ? (typeof pluginRow.config === 'string' ? JSON.parse(pluginRow.config) : pluginRow.config) : {},
+                        rateLimit: pluginRow.rate_limit,
+                        exported: pluginExports
+                    };
+                    
+                    console.log(`[${new Date().toISOString()}] Plugin loaded: ${pluginRow.name} (routes: ${routes.join(', ')})`);
+                    loadedCount++;
+                    
+                } catch (pluginError) {
+                    console.error(`[${new Date().toISOString()}] ERROR loading plugin ${pluginRow.name}:`, pluginError.message);
+                }
+            }
+            
+            console.log(`[${new Date().toISOString()}] Plugins loaded: ${loadedCount}/${rows.length} plugins`);
+            
+        } finally {
+            connection.release();
+        }
+    } catch (error) {
+        console.error(`[${new Date().toISOString()}] ERROR loading plugins from database:`, error.message);
+    }
+}
+
+/**
+ * Get a handler for a specific route from loaded plugins
+ */
+function getPluginHandler(route) {
+    for (const pluginName in loadedPlugins) {
+        const plugin = loadedPlugins[pluginName];
+        if (plugin.routes.includes(route) && plugin.handlers[route]) {
+            return {
+                plugin: plugin,
+                handler: plugin.handlers[route]
+            };
+        }
+    }
+    return null;
+}
+
+/**
+ * Load or reload a specific plugin by name (handles new and existing plugins)
+ */
+async function loadPlugin(pluginName) {
+    try {
+        if (!korePool) {
+            throw new Error('Kore pool not available');
+        }
+        
+        const connection = await korePool.getConnection();
+        try {
+            const [rows] = await connection.query('SELECT id, name, code, routes, rate_limit, config FROM `plugins` WHERE name = ? AND enabled = true', [pluginName]);
+            
+            if (rows.length === 0) {
+                throw new Error(`Plugin ${pluginName} not found or not enabled`);
+            }
+            
+            const pluginRow = rows[0];
+            
+            // Create a plugin object with utilities it can use
+            const pluginObj = { exports: {} };
+            
+            // Execute the plugin code in a context with access to utilities
+            const pluginCode = pluginRow.code;
+            
+            try {
+                const pluginFunction = new Function('module', 'exports', 'require', 'console', 'global', pluginCode);
+                
+                pluginFunction(
+                    pluginObj,
+                    pluginObj.exports,
+                    require,
+                    console,
+                    global
+                );
+                
+                // Get the actual exports (could be set via module.exports or exports)
+                const pluginExports = pluginObj.exports;
+                
+            } catch (execError) {
+                throw new Error(`Failed to execute plugin code: ${execError.message}`);
+            }
+            
+            // Parse routes from database
+            let routes = [];
+            if (pluginRow.routes) {
+                try {
+                    const routeData = typeof pluginRow.routes === 'string' ? JSON.parse(pluginRow.routes) : pluginRow.routes;
+                    routes = routeData.routes || [];
+                } catch (e) {
+                    console.warn(`[${new Date().toISOString()}] WARNING: Could not parse routes for plugin ${pluginRow.name}`);
+                }
+            }
+            
+            // Update loaded plugin
+            loadedPlugins[pluginName] = {
+                id: pluginRow.id,
+                name: pluginRow.name,
+                routes: routes,
+                handlers: pluginExports.handlers || {},
+                config: pluginRow.config ? (typeof pluginRow.config === 'string' ? JSON.parse(pluginRow.config) : pluginRow.config) : {},
+                rateLimit: pluginRow.rate_limit,
+                exported: pluginExports
+            };
+            
+            console.log(`[${new Date().toISOString()}] Plugin loaded: ${pluginName}`);
+            return {
+                success: true,
+                plugin: {
+                    name: pluginName,
+                    routes: routes,
+                    rateLimit: pluginRow.rate_limit
+                }
+            };
+            
+        } finally {
+            connection.release();
+        }
+    } catch (error) {
+        console.error(`[${new Date().toISOString()}] ERROR loading plugin ${pluginName}:`, error.message);
+        throw error;
+    }
+}
+
+/**
+ * Reload all plugins from the database
+ */
+async function reloadAllPlugins() {
+    try {
+        console.log(`[${new Date().toISOString()}] Reloading all plugins...`);
+        loadedPlugins = {}; // Clear cache
+        await loadPluginsFromDatabase();
+        
+        const pluginCount = Object.keys(loadedPlugins).length;
+        console.log(`[${new Date().toISOString()}] All plugins reloaded: ${pluginCount} plugins`);
+        
+        return {
+            success: true,
+            pluginsLoaded: pluginCount,
+            plugins: Object.keys(loadedPlugins)
+        };
+    } catch (error) {
+        console.error(`[${new Date().toISOString()}] ERROR reloading all plugins:`, error.message);
+        throw error;
     }
 }
 
@@ -979,148 +1207,6 @@ async function executeNextCommandInQueue(pooledConn) {
     }
 }
 
-async function handleCommandRequest(req, res) {
-    const clientIP = req.socket.remoteAddress;
-    
-    // CORS headers
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Session-Token');
-
-    if (req.method === 'OPTIONS') {
-        res.writeHead(200);
-        res.end();
-        return;
-    }
-
-    // Rate limit check for /command
-    if (!isIPWhitelisted(clientIP)) {
-        const rateLimitCheck = checkRateLimit(clientIP, '/command');
-        if (!rateLimitCheck.allowed) {
-            console.log(`[${new Date().toISOString()}] Rate limit exceeded for IP ${clientIP} on /command (limit: 100/min, reset in: ${rateLimitCheck.resetIn}s)`);
-            res.writeHead(429, { 
-                'Content-Type': 'application/json',
-                'Retry-After': rateLimitCheck.resetIn
-            });
-            res.end(JSON.stringify({ 
-                error: 'Rate limit exceeded',
-                resetIn: rateLimitCheck.resetIn
-            }));
-            return;
-        }
-    }
-
-    if (req.method !== 'POST') {
-        res.writeHead(405, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'Method not allowed. Use POST.' }));
-        return;
-    }
-
-    let body = '';
-
-    req.on('data', (chunk) => {
-        body += chunk.toString();
-        if (body.length > 1e6) {
-            req.connection.destroy();
-        }
-    });
-
-    req.on('end', async () => {
-        try {
-            const commandParams = JSON.parse(body);
-
-            // Handle optional timeout parameter (in milliseconds)
-            const requestTimeout = commandParams.timeout || 30000; // Default 30 seconds
-            if (typeof requestTimeout === 'number' && requestTimeout > 0) {
-                req.socket.setTimeout(requestTimeout);
-                console.log(`[${new Date().toISOString()}] Command request timeout set to ${requestTimeout}ms`);
-            }
-
-            // Validate required parameters
-            if (!commandParams.nodeId) {
-                res.writeHead(400, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ error: 'Missing nodeId parameter' }));
-                return;
-            }
-
-            if (!commandParams.command) {
-                res.writeHead(400, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ error: 'Missing command parameter' }));
-                return;
-            }
-
-            if (!commandParams.user) {
-                res.writeHead(400, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ error: 'Missing user parameter' }));
-                return;
-            }
-
-            // Validate and normalize commandType
-            if (commandParams.commandType !== undefined && commandParams.commandType !== null) {
-                const cmdType = parseInt(commandParams.commandType, 10);
-                if (isNaN(cmdType) || cmdType < 1 || cmdType > 4) {
-                    res.writeHead(400, { 'Content-Type': 'application/json' });
-                    res.end(JSON.stringify({ 
-                        error: 'Invalid commandType. Must be a number between 1-4 (1=CMD, 2=PowerShell, 3=Linux, 4=Console)',
-                        received: commandParams.commandType,
-                        type: typeof commandParams.commandType
-                    }));
-                    return;
-                }
-                commandParams.commandType = cmdType;
-            } else {
-                // Default to CMD if not specified
-                commandParams.commandType = 1;
-            }
-
-            // Validate session token
-            const sessionToken = req.headers['x-session-token'];
-            const validation = await validateSessionAndGetCredentials(sessionToken, commandParams.user);
-            
-            if (!validation.valid) {
-                console.log(`[${new Date().toISOString()}] Command request rejected: ${validation.error}`);
-                res.writeHead(401, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ error: validation.error }));
-                return;
-            }
-
-            console.log(`[${new Date().toISOString()}] Command request from user: ${validation.user}`);
-            console.log(`[${new Date().toISOString()}] Node: ${commandParams.nodeId}, Cmd: ${commandParams.command.substring(0, 50)}`);
-            console.log(`[${new Date().toISOString()}] Command type: ${commandParams.commandType} (1=CMD, 2=PowerShell, 3=Linux, 4=Console)`);
-
-            // Get or create pooled WebSocket connection
-            const pooledConn = await getOrCreatePooledConnection(validation.user, validation.meshUser, validation.meshPass);
-
-            // Queue command on pooled connection
-            const result = await queueCommandOnConnection(pooledConn, commandParams);
-
-            console.log(`[${new Date().toISOString()}] Command response result type: ${typeof result}`);
-            if (result && typeof result === 'object' && result.result) {
-                console.log(`[${new Date().toISOString()}] Command response result length: ${JSON.stringify(result).length}`);
-            }
-
-            res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({
-                success: true,
-                result: result,
-                timestamp: new Date().toISOString()
-            }));
-
-        } catch (error) {
-            console.error(`[${new Date().toISOString()}] Request error:`, error);
-            console.error(`[${new Date().toISOString()}] Error message:`, error.message);
-            console.error(`[${new Date().toISOString()}] Error stack:`, error.stack);
-            
-            res.writeHead(500, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({
-                error: error.message,
-                details: error.stack,
-                timestamp: new Date().toISOString()
-            }));
-        }
-    });
-}
-
 /**
  * Authenticate client and validate credentials
  * POST /auth
@@ -1190,25 +1276,8 @@ function handleAuthRequest(req, res) {
                 console.log(`[${new Date().toISOString()}] Extracted user domain: ${userDomain}`);
             }
             
-            // Load credentials from file
-            let credentialsData;
-            try {
-                const credentialsJson = fs.readFileSync(CREDENTIALS_FILE, 'utf8');
-                credentialsData = JSON.parse(credentialsJson);
-            } catch (error) {
-                console.error(`[${new Date().toISOString()}] Error loading credentials file:`, error.message);
-                res.writeHead(500, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ error: 'Server configuration error' }));
-                return;
-            }
-            
-            // Find matching credential
-            const validCred = credentialsData.credentials.find(c => 
-                c.enabled && 
-                c.key === apiKeyFromHeader && 
-                c.origin === originFromBody &&
-                c.domain === userDomain
-            );
+            // Find matching credential from cache
+            const validCred = getApiMember(apiKeyFromHeader, originFromBody, userDomain);
             
             if (!validCred) {
                 console.log(`[${new Date().toISOString()}] Auth failed: invalid key/origin/domain combination`);
@@ -1389,6 +1458,192 @@ function handleValidateSession(req, res) {
             res.end(JSON.stringify({ error: 'Invalid request' }));
         }
     });
+}
+
+/**
+ * HTTP endpoint to reload API members cache
+ * POST /kore/admin/reload-api-members
+ */
+async function handleReloadApiMembers(req, res) {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Content-Type', 'application/json');
+    
+    try {
+        console.log(`[${new Date().toISOString()}] Reloading API members cache...`);
+        await loadApiMembersCache();
+        
+        res.writeHead(200);
+        res.end(JSON.stringify({ 
+            status: 'success',
+            message: 'API members cache reloaded',
+            cachedMembers: apiMembersCache ? apiMembersCache.length : 0
+        }));
+    } catch (error) {
+        console.error(`[${new Date().toISOString()}] ERROR reloading API members:`, error.message);
+        res.writeHead(500);
+        res.end(JSON.stringify({ 
+            status: 'error',
+            message: error.message
+        }));
+    }
+}
+
+/**
+ * HTTP endpoint to load/reload a specific plugin
+ * POST /kore/plugins/load?name=pluginName
+ */
+async function handleLoadPlugin(req, res) {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Content-Type', 'application/json');
+    
+    try {
+        // Get plugin name from query params
+        const url = require('url');
+        const parsedUrl = url.parse(req.url, true);
+        const pluginName = parsedUrl.query.name;
+        
+        if (!pluginName) {
+            res.writeHead(400);
+            res.end(JSON.stringify({ 
+                status: 'error',
+                message: 'Missing plugin name parameter'
+            }));
+            return;
+        }
+        
+        console.log(`[${new Date().toISOString()}] Loading plugin: ${pluginName}`);
+        const result = await loadPlugin(pluginName);
+        
+        res.writeHead(200);
+        res.end(JSON.stringify(result));
+    } catch (error) {
+        console.error(`[${new Date().toISOString()}] ERROR loading plugin:`, error.message);
+        res.writeHead(500);
+        res.end(JSON.stringify({ 
+            status: 'error',
+            message: error.message
+        }));
+    }
+}
+
+/**
+ * HTTP endpoint to reload all plugins
+ * POST /kore/plugins/reload-all
+ */
+async function handleReloadAllPlugins(req, res) {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Content-Type', 'application/json');
+    
+    try {
+        console.log(`[${new Date().toISOString()}] Reloading all plugins...`);
+        const result = await reloadAllPlugins();
+        
+        res.writeHead(200);
+        res.end(JSON.stringify(result));
+    } catch (error) {
+        console.error(`[${new Date().toISOString()}] ERROR reloading all plugins:`, error.message);
+        res.writeHead(500);
+        res.end(JSON.stringify({ 
+            status: 'error',
+            message: error.message
+        }));
+    }
+}
+
+/**
+ * HTTP endpoint to list all loaded plugins
+ * GET /kore/plugins/list
+ */
+function handleListPlugins(req, res) {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Content-Type', 'application/json');
+    
+    try {
+        const plugins = [];
+        for (const pluginName in loadedPlugins) {
+            const plugin = loadedPlugins[pluginName];
+            plugins.push({
+                name: pluginName,
+                routes: plugin.routes,
+                rateLimit: plugin.rateLimit,
+                config: plugin.config
+            });
+        }
+        
+        res.writeHead(200);
+        res.end(JSON.stringify({
+            status: 'success',
+            pluginsLoaded: plugins.length,
+            plugins: plugins
+        }));
+    } catch (error) {
+        console.error(`[${new Date().toISOString()}] ERROR listing plugins:`, error.message);
+        res.writeHead(500);
+        res.end(JSON.stringify({ 
+            status: 'error',
+            message: error.message
+        }));
+    }
+}
+
+/**
+ * HTTP handler for plugin requests
+ * Routes requests to loaded plugins based on URL
+ */
+async function handlePluginRequest(req, res) {
+    const clientIP = req.socket.remoteAddress;
+    const route = req.url.split('?')[0]; // Remove query params
+    
+    console.log(`[${new Date().toISOString()}] === PLUGIN REQUEST ===`);
+    console.log(`[${new Date().toISOString()}] Route: ${route}`);
+    
+    // Get the plugin handler for this route
+    const pluginHandler = getPluginHandler(route);
+    
+    if (!pluginHandler) {
+        console.log(`[${new Date().toISOString()}] No plugin handler found for ${route}`);
+        res.writeHead(404, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Plugin not found' }));
+        return;
+    }
+    
+    const { plugin, handler } = pluginHandler;
+    
+    // Check rate limit (plugin-specific or global)
+    if (!isIPWhitelisted(clientIP)) {
+        const rateLimitEndpoint = route;
+        const rateLimitCheck = checkRateLimit(clientIP, rateLimitEndpoint);
+        if (!rateLimitCheck.allowed) {
+            console.log(`[${new Date().toISOString()}] Rate limit exceeded for IP ${clientIP} on ${route}`);
+            res.writeHead(429, { 
+                'Content-Type': 'application/json',
+                'Retry-After': rateLimitCheck.resetIn
+            });
+            res.end(JSON.stringify({ 
+                error: 'Rate limit exceeded',
+                resetIn: rateLimitCheck.resetIn
+            }));
+            return;
+        }
+    }
+    
+    // Create helpers object for the plugin
+    const helpers = {
+        isIPWhitelisted,
+        checkRateLimit,
+        config: plugin.config
+    };
+    
+    try {
+        // Call the plugin handler
+        await handler(req, res, helpers);
+    } catch (error) {
+        console.error(`[${new Date().toISOString()}] ERROR in plugin ${plugin.name}:`, error.message);
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+            error: `Module error: ${error.message}`
+        }));
+    }
 }
 
 /**
@@ -2379,285 +2634,7 @@ function flattenObject(obj, prefix = '') {
 }
 
 // ===== CWM API Handler (ConnectWise Manage) =====
-function handleCwmApiRequest(req, res) {
-    const clientIP = req.socket.remoteAddress;
-    
-    console.log(`[${new Date().toISOString()}] === CWM API REQUEST ===`);
-    
-    // Rate limit check for /api-cwm
-    if (!isIPWhitelisted(clientIP)) {
-        const rateLimitCheck = checkRateLimit(clientIP, '/api-cwm');
-        if (!rateLimitCheck.allowed) {
-            console.log(`[${new Date().toISOString()}] Rate limit exceeded for IP ${clientIP} on /api-cwm (limit: 100/min, reset in: ${rateLimitCheck.resetIn}s)`);
-            res.writeHead(429, { 
-                'Content-Type': 'application/json',
-                'Retry-After': rateLimitCheck.resetIn
-            });
-            res.end(JSON.stringify({ 
-                error: 'Rate limit exceeded',
-                resetIn: rateLimitCheck.resetIn
-            }));
-            return;
-        }
-    }
-    
-    if (req.method !== 'POST') {
-        res.writeHead(405, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'Method not allowed' }));
-        return;
-    }
-    
-    const sessionTokenFromHeader = req.headers['x-session-token'];
-    console.log(`[${new Date().toISOString()}] Session Token header present: ${!!sessionTokenFromHeader}`);
-    
-    // Read request body
-    let body = '';
-    req.on('data', chunk => {
-        body += chunk.toString();
-    });
-    
-    req.on('end', async () => {
-        try {
-            const data = JSON.parse(body);
-            const endpoint = data.endpoint;  // e.g., "/service/tickets"
-            const method = (data.method || 'GET').toUpperCase();  // GET, POST, PUT, DELETE
-            const query = data.query || {};  // Query parameters
-            const requestBody = data.body || {};  // Request body for POST/PUT
-            const userFromBody = data.user;
-            
-            // Handle optional timeout parameter (in milliseconds)
-            const requestTimeout = data.timeout || 30000; // Default 30 seconds
-            if (typeof requestTimeout === 'number' && requestTimeout > 0) {
-                req.socket.setTimeout(requestTimeout);
-                console.log(`[${new Date().toISOString()}] CWM API request timeout set to ${requestTimeout}ms`);
-            }
-            
-            const shouldFlatten = data.flatten === true; // Flatten nested objects
-            console.log(`[${new Date().toISOString()}] Method: ${method}, Endpoint: ${endpoint}`);
-            
-            // Validate session token
-            if (!sessionTokenFromHeader) {
-                console.log(`[${new Date().toISOString()}] CWM API failed: no session token provided`);
-                res.writeHead(401, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ success: false, error: 'No session token provided' }));
-                return;
-            }
-            
-            // Load sessions from file
-            let sessionsData;
-            try {
-                const sessionsJson = await fs.promises.readFile(SESSIONS_FILE, 'utf8');
-                sessionsData = JSON.parse(sessionsJson);
-            } catch (error) {
-                console.error(`[${new Date().toISOString()}] Error loading sessions file:`, error.message);
-                res.writeHead(500, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ success: false, error: 'Server configuration error' }));
-                return;
-            }
-            
-            // Find matching session
-            const session = sessionsData.sessions.find(s => s.token === sessionTokenFromHeader);
-            
-            if (!session) {
-                console.log(`[${new Date().toISOString()}] CWM API failed: session token not found`);
-                res.writeHead(401, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ success: false, error: 'Invalid session token' }));
-                return;
-            }
-            
-            // Check if session has expired
-            const now = Date.now();
-            if (now > session.expiresAt) {
-                console.log(`[${new Date().toISOString()}] CWM API failed: session token expired`);
-                res.writeHead(401, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ success: false, error: 'Session token has expired' }));
-                return;
-            }
-            
-            // Verify user matches
-            if (session.user !== userFromBody) {
-                console.log(`[${new Date().toISOString()}] CWM API failed: user mismatch`);
-                res.writeHead(401, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ success: false, error: 'User mismatch' }));
-                return;
-            }
-            
-            // Check if API config is available
-            if (!global.apiConfig || !global.apiConfig.cwm) {
-                console.error(`[${new Date().toISOString()}] CWM API config not initialized`);
-                res.writeHead(500, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ success: false, error: 'CWM API configuration not available' }));
-                return;
-            }
-            
-            // Build ConnectWise Manage API request
-            const cwmConfig = global.apiConfig.cwm;
-            const auth = Buffer.from(`Equinox+${cwmConfig.publicKey}:${cwmConfig.privateKey}`).toString('base64');
-            
-            // Extract pagination parameters
-            const pageAll = query.pageAll === 'true' || query.pageAll === true;
-            delete query.pageAll; // Remove from query params
-            
-            // Set default pageSize to 1000 if not provided
-            if (!query.pageSize) {
-                query.pageSize = 1000;
-            }
-            
-            // Function to make a single API request
-            async function makeApiRequest(pageNum = 1) {
-                return new Promise((resolve, reject) => {
-                    const apiPath = cwmConfig.apiPath || '/v4_6_release/apis/3.0';
-                    const queryParams = { ...query, page: pageNum };
-                    const queryString = new URLSearchParams(queryParams).toString();
-                    let url = `${cwmConfig.baseUrl}${apiPath}${endpoint}`;
-                    if (queryString) {
-                        url += `?${queryString}`;
-                    }
-                    
-                    console.log(`[${new Date().toISOString()}] Calling ConnectWise API (page ${pageNum}): ${method} ${url}`);
-                    
-                    const options = {
-                        method: method,
-                        headers: {
-                            'Authorization': `Basic ${auth}`,
-                            'ClientID': cwmConfig.clientId,
-                            'Content-Type': 'application/json'
-                        }
-                    };
-                    
-                    const apiRequest = https.request(url, options, (apiRes) => {
-                        let apiBody = '';
-                        
-                        apiRes.on('data', chunk => {
-                            apiBody += chunk;
-                        });
-                        
-                        apiRes.on('end', () => {
-                            try {
-                                const apiResponse = apiBody ? JSON.parse(apiBody) : null;
-                                resolve({
-                                    statusCode: apiRes.statusCode,
-                                    data: apiResponse,
-                                    isArray: Array.isArray(apiResponse)
-                                });
-                            } catch (parseError) {
-                                reject(new Error(`Failed to parse response: ${parseError.message}`));
-                            }
-                        });
-                    });
-                    
-                    apiRequest.on('error', reject);
-                    
-                    if (method === 'POST' || method === 'PUT') {
-                        apiRequest.write(JSON.stringify(body || {}));
-                    }
-                    apiRequest.end();
-                });
-            }
-            
-            // Handle pagination if pageAll is true
-            if (pageAll) {
-                (async () => {
-                    try {
-                        let allResults = [];
-                        let page = 1;
-                        let hasMore = true;
-                        
-                        while (hasMore) {
-                            const response = await makeApiRequest(page);
-                            
-                            if (response.statusCode < 200 || response.statusCode >= 300) {
-                                res.writeHead(response.statusCode, { 'Content-Type': 'application/json' });
-                                res.end(JSON.stringify({
-                                    success: false,
-                                    statusCode: response.statusCode,
-                                    error: 'ConnectWise API error'
-                                }));
-                                return;
-                            }
-                            
-                            // Handle both array and object responses
-                            if (response.isArray) {
-                                allResults = allResults.concat(response.data);
-                                hasMore = response.data.length === parseInt(query.pageSize);
-                            } else {
-                                allResults.push(response.data);
-                                hasMore = false;
-                            }
-                            
-                            page++;
-                        }
-                        
-                        // Apply flatten if requested
-                        let resultsToReturn = allResults;
-                        if (shouldFlatten && allResults.length > 0) {
-                            resultsToReturn = allResults.map(item => flattenObject(item));
-                        }
-                        
-                        res.writeHead(200, { 'Content-Type': 'application/json' });
-                        res.end(JSON.stringify({
-                            success: true,
-                            statusCode: 200,
-                            result: resultsToReturn,
-                            pagesFetched: page - 1,
-                            totalRecords: resultsToReturn.length,
-                            timestamp: new Date().toISOString()
-                        }));
-                        
-                        console.log(`[${new Date().toISOString()}] CWM API pagination complete: ${page - 1} pages, ${resultsToReturn.length} total records`);
-                    } catch (error) {
-                        console.error(`[${new Date().toISOString()}] CWM API pagination error:`, error.message);
-                        res.writeHead(500, { 'Content-Type': 'application/json' });
-                        res.end(JSON.stringify({
-                            success: false,
-                            statusCode: 500,
-                            error: error.message
-                        }));
-                    }
-                })();
-            } else {
-                // Single page request
-                makeApiRequest(1).then(response => {
-                    // Apply flatten if requested
-                    let resultsToReturn = response.data;
-                    if (shouldFlatten && Array.isArray(resultsToReturn) && resultsToReturn.length > 0) {
-                        resultsToReturn = resultsToReturn.map(item => flattenObject(item));
-                    } else if (shouldFlatten && resultsToReturn !== null && typeof resultsToReturn === 'object' && !Array.isArray(resultsToReturn)) {
-                        resultsToReturn = flattenObject(resultsToReturn);
-                    }
-                    
-                    res.writeHead(response.statusCode || 200, { 'Content-Type': 'application/json' });
-                    res.end(JSON.stringify({
-                        success: response.statusCode >= 200 && response.statusCode < 300,
-                        statusCode: response.statusCode,
-                        result: resultsToReturn,
-                        timestamp: new Date().toISOString()
-                    }));
-                    
-                    console.log(`[${new Date().toISOString()}] CWM API response sent successfully`);
-                }).catch(error => {
-                    console.error(`[${new Date().toISOString()}] CWM API request error:`, error.message);
-                    res.writeHead(500, { 'Content-Type': 'application/json' });
-                    res.end(JSON.stringify({
-                        success: false,
-                        statusCode: 500,
-                        error: error.message
-                    }));
-                });
-            }
-        } catch (error) {
-            console.error(`[${new Date().toISOString()}] CWM API handler error:`, error.message);
-            res.writeHead(500, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({
-                success: false,
-                error: error.message,
-                timestamp: new Date().toISOString()
-            }));
-        }
-    });
-}
-
-// ===== END CWM API Handler =====
+// ===== CWM API Handler now in /psa-cwm module =====
 
 /**
  * Generalized static file server with configurable base paths and allowed extensions
@@ -2803,20 +2780,16 @@ const requestHandler = (req, res) => {
         handleAuthRequest(req, res);
     } else if (req.url === '/validate' || req.url.startsWith('/validate?')) {
         handleValidateSession(req, res);
-    } else if (req.url === '/command' || req.url.startsWith('/command?')) {
-        handleCommandRequest(req, res);
-    } else if (req.url === '/query' || req.url.startsWith('/query?')) {
-        handleQueryRequest(req, res);
-    } else if (req.url === '/cwaquery' || req.url.startsWith('/cwaquery?')) {
-        handleCwaQueryRequest(req, res);
     } else if (req.url === '/status') {
         handleStatusRequest(req, res);
-    } else if (req.url === '/nodes' || req.url.startsWith('/nodes?')) {
-        handleNodesRequest(req, res);
-    } else if (req.url === '/api-cwm' || req.url.startsWith('/api-cwm?')) {
-        handleCwmApiRequest(req, res);
-    } else if (req.url === '/snipe/hardware' || req.url.startsWith('/snipe/hardware?')) {
-        snipe.handleHardware(req, res, isIPWhitelisted, checkRateLimit);
+    } else if (req.url === '/kore/admin/reload-api-members') {
+        handleReloadApiMembers(req, res);
+    } else if (req.url === '/kore/plugins/list') {
+        handleListPlugins(req, res);
+    } else if (req.url.startsWith('/kore/plugins/load')) {
+        handleLoadPlugin(req, res);
+    } else if (req.url === '/kore/plugins/reload-all') {
+        handleReloadAllPlugins(req, res);
     } else if (req.url === '/favicon.ico') {
         res.writeHead(204);
         res.end();
@@ -2826,6 +2799,9 @@ const requestHandler = (req, res) => {
             allowedExtensions: ['.js', '.d.ts', '.json', '.map'],
             logPrefix: '[NodeModules]'
         });
+    } else if (getPluginHandler(req.url.split('?')[0])) {
+        // Route to loaded plugins (check before Persephone)
+        handlePluginRequest(req, res);
     } else if (Persephone.handleRegisteredRoute(req, res)) {
         // Route was handled by registry
     } else {
@@ -2933,6 +2909,12 @@ server.listen(PROXY_PORT, '0.0.0.0', async () => {
     
     // Initialize MySQL pool
     await initializeMySQLPool();
+    
+    // Load API members cache from database
+    await loadApiMembersCache();
+    
+    // Load plugins from database
+    await loadPluginsFromDatabase();
     
     // Initialize Persephone automation engine
     try {
