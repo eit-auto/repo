@@ -929,3 +929,174 @@ function showModal(options) {
 
     return { close: closeModal, getInputValue: () => inputElement?.value };
 }
+
+/**
+ * Render a hierarchical tree structure
+ * @param {Array} items - Array of items with id, name, parent_id
+ * @param {HTMLElement} container - Container to render tree into
+ * @param {Object} options - Configuration options
+ * @param {Function} options.onItemClick - Callback when item is clicked
+ * @param {Object} options.styles - Custom styles for tree elements
+ */
+function renderTree(items, container, options = {}) {
+    if (!items || items.length === 0) {
+        container.innerHTML = '<p style="color: var(--text-secondary); font-size: 0.9rem; margin: 0;">No items</p>';
+        return;
+    }
+
+    // Build a map of item ID to item object
+    const itemMap = {};
+    items.forEach(item => {
+        itemMap[item.id] = { ...item, children: [] };
+    });
+
+    // Build parent-child relationships
+    const rootItems = [];
+    items.forEach(item => {
+        if (item.parent_id && itemMap[item.parent_id]) {
+            itemMap[item.parent_id].children.push(itemMap[item.id]);
+        } else {
+            rootItems.push(itemMap[item.id]);
+        }
+    });
+
+    // Sort by name
+    const sortItems = (arr) => arr.sort((a, b) => a.name.localeCompare(b.name));
+    sortItems(rootItems);
+    items.forEach(item => {
+        if (itemMap[item.id].children) {
+            sortItems(itemMap[item.id].children);
+        }
+    });
+
+    // Render tree
+    container.innerHTML = '';
+    const treeContainer = document.createElement('div');
+    
+    rootItems.forEach((item, index) => {
+        const isLast = index === rootItems.length - 1;
+        treeContainer.appendChild(createTreeNode(item, 0, isLast, [], options));
+    });
+
+    container.appendChild(treeContainer);
+}
+
+/**
+ * Create a single tree node with expand/collapse capability
+ * @param {Object} item - Item to render (must have id, name, children)
+ * @param {Number} level - Current depth level
+ * @param {Boolean} isLastChild - Whether this item is the last child of its parent
+ * @param {Array} ancestorSiblingInfo - Array tracking sibling status of ancestors
+ * @param {Object} options - Options for rendering
+ */
+function createTreeNode(item, level = 0, isLastChild = true, ancestorSiblingInfo = [], options = {}) {
+    const nodeContainer = document.createElement('div');
+    nodeContainer.style.cssText = 'margin-bottom: 0px;';
+
+    const folderRow = document.createElement('div');
+    folderRow.style.cssText = `
+        display: flex;
+        align-items: center;
+        padding: 0;
+        color: #888888;
+        font-size: 0.9rem;
+        user-select: none;
+        box-sizing: border-box;
+        margin-bottom: -6px;
+    `;
+
+    // Expand/collapse toggle - always on far left
+    const hasChildren = item.children && item.children.length > 0;
+    const toggleBtn = document.createElement('span');
+    toggleBtn.style.cssText = `
+        display: inline-flex;
+        align-items: flex-start;
+        justify-content: center;
+        width: 20px;
+        height: 20px;
+        flex-shrink: 0;
+        font-size: 1.6rem;
+        color: #666666;
+        line-height: 1;
+        align-self: flex-start;
+        margin-top: -2px;
+        cursor: ${hasChildren ? 'pointer' : 'default'};
+    `;
+    toggleBtn.innerHTML = hasChildren ? '&#43;' : '';
+    folderRow.appendChild(toggleBtn);
+
+    // Item children container
+    const childrenContainer = document.createElement('div');
+    childrenContainer.style.cssText = 'display: none;';
+    const isExpanded = { state: false };
+
+    // Toggle function
+    const toggleChildren = () => {
+        isExpanded.state = !isExpanded.state;
+        if (isExpanded.state) {
+            childrenContainer.style.display = 'block';
+            toggleBtn.innerHTML = '&#45;';
+        } else {
+            childrenContainer.style.display = 'none';
+            toggleBtn.innerHTML = '&#43;';
+        }
+    };
+
+    // Item name with tree structure
+    const itemName = document.createElement('span');
+    itemName.style.cssText = `flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 1rem; margin: 0; display: flex; align-items: center; color: #ffffff;`;
+    
+    // Build ancestor boxes for levels > 1
+    if (level > 1) {
+        for (let i = 1; i < level; i++) {
+            const ancestorBox = document.createElement('span');
+            ancestorBox.style.cssText = `width: 16px; display: inline-flex; align-items: flex-start; justify-content: center; flex-shrink: 0; font-size: 1rem; line-height: 1.2; margin: 0; padding: 0 0 0 1px; border: 0; color: #666666;`;
+            
+            // Check if ancestor at level i has siblings below
+            const ancestorHasSiblings = ancestorSiblingInfo[i - 1] || false;
+            
+            const char = ancestorHasSiblings ? String.fromCharCode(9474) : ' '; // │ or space
+            ancestorBox.appendChild(document.createTextNode(char));
+            itemName.appendChild(ancestorBox);
+        }
+    }
+    
+    // Final connector box (├ or └)
+    if (level > 0) {
+        const connectorBox = document.createElement('span');
+        connectorBox.style.cssText = `width: 16px; display: inline-flex; align-items: flex-start; justify-content: center; flex-shrink: 0; font-size: 1rem; line-height: 1.2; margin: 0; padding: 0; border: 0; color: #666666;`;
+        
+        const treeChar = isLastChild ? String.fromCharCode(9492) : String.fromCharCode(9500); // └ or ├
+        connectorBox.appendChild(document.createTextNode(treeChar));
+        itemName.appendChild(connectorBox);
+    }
+    
+    // Item name text
+    const nameText = document.createElement('span');
+    nameText.textContent = item.name;
+    itemName.appendChild(nameText);
+    
+    folderRow.appendChild(itemName);
+
+    // Click to toggle
+    if (hasChildren) {
+        folderRow.style.cursor = 'pointer';
+        folderRow.onclick = toggleChildren;
+    }
+
+    nodeContainer.appendChild(folderRow);
+
+    // Render children
+    if (hasChildren) {
+        item.children.forEach((child, index) => {
+            const childIsLast = index === item.children.length - 1;
+            // Build new ancestor info array for children
+            const newAncestorInfo = [...ancestorSiblingInfo];
+            newAncestorInfo[level - 1] = !isLastChild; // Current level has siblings if not last
+            childrenContainer.appendChild(createTreeNode(child, level + 1, childIsLast, newAncestorInfo, options));
+        });
+        nodeContainer.appendChild(childrenContainer);
+    }
+
+    return nodeContainer;
+}
