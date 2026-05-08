@@ -19,15 +19,54 @@
 
         body {
             background: #191A24;
-            padding: 8px;
+            padding: 0;
             color: #e0e0e0;
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
             line-height: 1.6;
         }
 
         .container {
-            max-width: 1400px;
-            margin: 0 auto;
+            width: 100%;
+            display: flex;
+            margin: 0;
+            padding: 8px;
+            box-sizing: border-box;
+            height: 100%;
+        }
+
+        .form-container {
+            width: 100%;
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+        }
+
+        .main-panel {
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .main-panel > .inner-panel:last-of-type {
+            flex: 1;
+            overflow-y: auto;
+        }
+
+        .workflows-content-wrapper {
+            display: flex;
+            gap: 8px;
+            flex: 1;
+            overflow: hidden;
+        }
+
+        .workflows-sidebar {
+            width: 200px;
+            flex-shrink: 0;
+        }
+
+        .workflows-main {
+            flex: 1;
+            overflow: hidden;
         }
 
         header {
@@ -247,368 +286,194 @@
 
         <div style="height: 20px;"></div>
 
-        <div class="inner-panel">
-            <div style="text-align: right; margin-bottom: 15px;">
-                <button class="btn btn-blue btn-small" onclick="openCreateModal()">Create New Workflow</button>
+        <div class="workflows-content-wrapper">
+            <div class="inner-panel workflows-sidebar">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin: 0;">
+                    <h3 style="margin: 0; color: #ffffff; font-size: 1rem;">Folders</h3>
+                    <button class="btn btn-blue btn-small" style="padding: 4px 8px; font-size: 0.9rem;" onclick="openCreateFolderModal()">+</button>
+                </div>
+                <div class="content-panel" style="flex: 1; overflow-y: auto;">
+                    <div id="foldersList">
+                        <!-- Folders will be loaded here -->
+                    </div>
+                </div>
             </div>
-            <div class="loading show" id="loadingSpinner">Loading workflows...</div>
-            <div id="workflowsList"></div>
+
+            <div class="inner-panel workflows-main">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                    <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; margin: 0;">
+                        <input type="checkbox" id="hideInactive" checked style="cursor: pointer;" onchange="applyHideInactive()">
+                        <span style="color: var(--text-secondary); font-size: 0.9rem;">Hide Inactive</span>
+                    </label>
+                    <button class="btn btn-blue btn-small" onclick="openCreateModal()">Create New Workflow</button>
+                </div>
+                <div class="loading show" id="loadingSpinner">Loading workflows...</div>
+                <div id="workflowsList"></div>
+            </div>
         </div>
         </div><!-- close main-panel -->
         </div><!-- close form-container -->
     </div>
 
+    <script src="lib/kore-lib.js"></script>
+    <script src="lib/workflow.js"></script>
     <script>
-        const API_KEY = '393d5ca334f5b1b9e7127544460def61ca6be55eab20da08f1746f11f5d0b4e9';
-        let sessionToken = null;
-        let workflows = [];
-
-        // Simple UUID v4 generator
-        function generateUUID() {
-            return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
-                const r = Math.random() * 16 | 0;
-                const v = c === 'x' ? r : (r & 0x3 | 0x8);
-                return v.toString(16);
-            });
-        }
-
-        async function authenticate() {
-            try {
-                const response = await fetch('/auth', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-Kore-Token': API_KEY
-                    },
-                    body: JSON.stringify({
-                        user: 'test@localhost',
-                        origin: 'https://localhost'
-                    })
-                });
-
-                const data = await response.json();
-                if (data.sessionToken) {
-                    sessionToken = data.sessionToken;
-                    loadWorkflows();
+        // Create folder modal
+        async function openCreateFolderModal() {
+            // Get current folders for dropdown
+            const response = await fetch('https://app.equinoxits.com:1139/kore/workflow-folders', {
+                method: 'GET',
+                headers: { 
+                    'X-Session-Token': sessionToken,
+                    'Content-Type': 'application/json'
                 }
-            } catch (err) {
-                console.error('Auth error:', err.message);
-            }
-        }
-
-        async function loadWorkflows() {
-            if (!sessionToken) return;
-
-            try {
-                const response = await fetch('/kore/workflows', {
-                    headers: { 'X-Session-Token': sessionToken }
-                });
-
-                const data = await response.json();
-                workflows = data.workflows || [];
-
-                renderWorkflows();
-            } catch (err) {
-                console.error('Error loading workflows:', err.message);
-            }
-
-            document.getElementById('loadingSpinner').classList.remove('show');
-        }
-
-        function renderWorkflows() {
-            const container = document.getElementById('workflowsList');
-
-            if (workflows.length === 0) {
-                container.innerHTML = `
-                    <div class="empty-state">
-                        <div class="empty-state-icon">∅</div>
-                        <p>No workflows yet. Create one to get started.</p>
-                    </div>
-                `;
-                return;
-            }
-
-            // Sort by updated_at descending
-            const sorted = [...workflows].sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at));
-
-            let html = `
-                <table class="workflows-table">
-                    <thead>
-                        <tr>
-                            <th>Workflow</th>
-                            <th>Latest Version</th>
-                            <th>Last Modified</th>
-                            <th>Modified By</th>
-                            <th>Status</th>
-                            <th style="text-align: right;">Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-            `;
-
-            sorted.forEach(workflow => {
-                const lastModified = new Date(workflow.updated_at).toLocaleString();
-                const modifiedBy = workflow.created_by || 'Unknown';
-                
-                html += `
-                    <tr>
-                        <td><span class="workflow-name">${workflow.name}</span></td>
-                        <td><span class="version">${workflow.version}</span></td>
-                        <td>${lastModified}</td>
-                        <td>${modifiedBy}</td>
-                        <td><span class="status ${workflow.status}">${workflow.status}</span></td>
-                        <td style="text-align: right;">
-                            <div class="actions">
-                                <button class="btn btn-grey btn-small" onclick="editWorkflow('${workflow.id}')" title="Edit workflow">&#9998;</button>
-                                <button class="btn btn-red btn-small" onclick="deleteWorkflow('${workflow.id}', '${workflow.version}')" title="Delete workflow">&#8856;</button>
-                            </div>
-                        </td>
-                    </tr>
-                `;
             });
+            const data = await response.json();
+            const folders = data.folders || [];
 
-            html += `
-                    </tbody>
-                </table>
-            `;
-
-            container.innerHTML = html;
-        }
-
-        let currentCreateModal = null;
-
-        function openCreateModal() {
-            const modal = document.createElement('div');
-            modal.style.cssText = `
+            const modalOverlay = document.createElement('div');
+            modalOverlay.style.cssText = `
+                display: flex;
                 position: fixed;
                 top: 0;
                 left: 0;
                 width: 100%;
                 height: 100%;
-                background: rgba(0, 0, 0, 0.7);
-                display: flex;
+                background: rgba(0, 0, 0, 0.5);
+                z-index: 2000;
                 align-items: center;
                 justify-content: center;
-                z-index: 1000;
             `;
-            
-            modal.innerHTML = `
-                <div style="background: #1a3540; border: 1px solid #3a7a99; border-radius: 6px; padding: 20px; min-width: 400px;">
-                    <h2 style="margin: 0 0 15px 0; color: #e0e0e0;">Create New Workflow</h2>
-                    <div class="status-message" id="modalStatus" style="padding: 10px 12px; border-radius: 3px; margin-bottom: 20px; font-size: 0.9rem; display: none;"></div>
-                    
-                    <div style="margin-bottom: 15px;">
-                        <label style="display: block; margin-bottom: 5px; color: #b0b0b0; font-size: 0.8rem;">Workflow Name</label>
-                        <input type="text" id="workflowName" placeholder="e.g., sync-companies" autocomplete="off" style="width: 100%; padding: 6px; background: #0d2132; border: 1px solid #3a7a99; border-radius: 3px; color: #e0e0e0; font-size: 0.85rem;">
-                    </div>
 
-                    <div style="display: flex; gap: 10px; justify-content: flex-end;">
-                        <button class="btn btn-grey" data-cancel style="padding: 6px 16px;">Cancel</button>
-                        <button class="btn btn-blue" data-confirm style="padding: 6px 16px;">Create</button>
-                    </div>
-                </div>
+            const modalBox = document.createElement('div');
+            modalBox.style.cssText = `
+                background: #234656;
+                border-radius: 8px;
+                padding: 15px;
+                box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+                min-width: 400px;
+                max-width: 600px;
             `;
-            
-            document.body.appendChild(modal);
-            currentCreateModal = modal;
-            
-            const nameInput = modal.querySelector('#workflowName');
-            const confirmBtn = modal.querySelector('[data-confirm]');
-            const cancelBtn = modal.querySelector('[data-cancel]');
-            
-            nameInput.focus();
-            
-            confirmBtn.addEventListener('click', submitCreateWorkflow);
-            cancelBtn.addEventListener('click', closeCreateModal);
-            nameInput.addEventListener('keypress', (e) => {
-                if (e.key === 'Enter') submitCreateWorkflow();
-            });
-            
-            modal.addEventListener('click', (e) => {
-                if (e.target === modal) closeCreateModal();
-            });
-        }
 
-        function closeCreateModal() {
-            if (currentCreateModal) {
-                currentCreateModal.remove();
-                currentCreateModal = null;
-            }
-        }
+            // Title
+            const titleEl = document.createElement('h2');
+            titleEl.style.cssText = 'margin: 0 0 20px 0; color: #ffffff; font-size: 1.3rem;';
+            titleEl.textContent = 'Create New Folder';
+            modalBox.appendChild(titleEl);
 
-        async function submitCreateWorkflow() {
-            const nameInput = currentCreateModal.querySelector('#workflowName');
-            const name = nameInput.value.trim();
-            
-            if (!name) {
-                showModalStatus('Workflow name is required', 'error');
-                return;
-            }
+            // Folder name label
+            const nameLabel = document.createElement('label');
+            nameLabel.style.cssText = 'display: block; color: #ffffff; font-size: 13px; margin-bottom: 3px; font-weight: 600;';
+            nameLabel.textContent = 'Folder Name';
+            modalBox.appendChild(nameLabel);
 
-            if (!sessionToken) {
-                showModalStatus('Not authenticated', 'error');
-                return;
-            }
-
-            try {
-                const workflowId = generateUUID();
-                const beginStepId = generateUUID();
-                const now = new Date().toISOString();
-                const payload = {
-                    id: workflowId,
-                    name: name,
-                    version: '1.0.0',
-                    definition: {
-                        id: workflowId,
-                        name: name,
-                        version: '1.0.0',
-                        zoom: 1,
-                        pan: '0,0',
-                        metadata: {
-                            created_at: now,
-                            created_by: 'user',
-                            updated_at: now,
-                            updated_by: 'user'
-                        },
-                        steps: [
-                            {
-                                id: beginStepId,
-                                name: 'BEGIN',
-                                type: 'Begin',
-                                position: '1,1',
-                                width: 3,
-                                height: 1,
-                                overrideSize: false,
-                                variables: []
-                            }
-                        ]
-                    }
-                };
-
-                const response = await fetch('/kore/workflows', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-Session-Token': sessionToken
-                    },
-                    body: JSON.stringify(payload)
-                });
-
-                const data = await response.json();
-
-                if (response.ok) {
-                    // Redirect to edit page
-                    window.location.href = `workflow-edit.html?id=${workflowId}`;
-                } else {
-                    showModalStatus(data.error || 'Error creating workflow', 'error');
-                }
-            } catch (err) {
-                showModalStatus(err.message, 'error');
-            }
-        }
-
-        function editWorkflow(id) {
-            window.location.href = `workflow-edit.html?id=${id}`;
-        }
-
-        let pendingDeleteId = null;
-        let pendingDeleteVersion = null;
-
-        function deleteWorkflow(id, version) {
-            pendingDeleteId = id;
-            pendingDeleteVersion = version;
-            showDeleteConfirmationModal();
-        }
-
-        function showDeleteConfirmationModal() {
-            const modal = document.createElement('div');
-            modal.style.cssText = `
-                position: fixed;
-                top: 0;
-                left: 0;
+            // Folder name input
+            const folderNameInput = document.createElement('input');
+            folderNameInput.type = 'text';
+            folderNameInput.placeholder = 'Enter folder name';
+            folderNameInput.style.cssText = `
                 width: 100%;
-                height: 100%;
-                background: rgba(0, 0, 0, 0.7);
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                z-index: 1000;
+                padding: 12px;
+                box-sizing: border-box;
+                border: 1px solid #556870;
+                border-radius: 6px;
+                background: #1a3540;
+                color: #ffffff;
+                font-size: 14px;
+                margin-bottom: 15px;
+            `;
+            modalBox.appendChild(folderNameInput);
+
+            // Parent folder label
+            const parentLabel = document.createElement('label');
+            parentLabel.style.cssText = 'display: block; color: #ffffff; font-size: 13px; margin-bottom: 3px; font-weight: 600;';
+            parentLabel.textContent = 'Parent Folder (optional)';
+            modalBox.appendChild(parentLabel);
+
+            // Parent folder dropdown
+            const parentSelect = document.createElement('select');
+            parentSelect.style.cssText = `
+                width: 100%;
+                padding: 12px;
+                box-sizing: border-box;
+                border: 1px solid #556870;
+                border-radius: 6px;
+                background: #1a3540;
+                color: #ffffff;
+                font-size: 14px;
+                margin-bottom: 15px;
             `;
             
-            modal.innerHTML = `
-                <div style="background: #1a3540; border: 1px solid #3a7a99; border-radius: 6px; padding: 20px; min-width: 400px;">
-                    <h2 style="margin: 0 0 15px 0; color: #e0e0e0;">Delete Workflow?</h2>
-                    <p style="color: #b0b0b0; margin: 0 0 20px 0; line-height: 1.5;">This workflow will be permanently deleted. This action cannot be undone.</p>
-                    <div style="display: flex; gap: 10px; justify-content: flex-end;">
-                        <button class="btn btn-grey" data-cancel style="padding: 6px 16px;">Cancel</button>
-                        <button class="btn btn-red" data-confirm style="padding: 6px 16px;">Delete</button>
-                    </div>
-                </div>
+            const noneOption = document.createElement('option');
+            noneOption.value = '';
+            noneOption.textContent = '-- None --';
+            parentSelect.appendChild(noneOption);
+
+            folders.forEach(folder => {
+                const option = document.createElement('option');
+                option.value = folder.id;
+                option.textContent = folder.name;
+                parentSelect.appendChild(option);
+            });
+            modalBox.appendChild(parentSelect);
+
+            // Error element
+            const errorElement = document.createElement('div');
+            errorElement.style.cssText = `
+                color: #ff6b6b;
+                font-size: 12px;
+                margin-bottom: 15px;
+                display: none;
             `;
+            modalBox.appendChild(errorElement);
+
+            // Buttons
+            const buttonContainer = document.createElement('div');
+            buttonContainer.style.cssText = 'display: flex; gap: 10px; justify-content: flex-end; margin-top: 25px;';
             
-            document.body.appendChild(modal);
-            
-            const confirmBtn = modal.querySelector('[data-confirm]');
-            const cancelBtn = modal.querySelector('[data-cancel]');
-            
-            confirmBtn.addEventListener('click', async () => {
-                modal.remove();
-                if (pendingDeleteId) {
-                    try {
-                        const response = await fetch(`/kore/workflows/${pendingDeleteId}/${pendingDeleteVersion}`, {
-                            method: 'DELETE',
-                            headers: {
-                                'X-Session-Token': sessionToken
-                            }
-                        });
-                        
-                        if (response.ok) {
-                            loadWorkflows();
-                        } else {
-                            alert('Error deleting workflow');
-                        }
-                    } catch (error) {
-                        console.error('Delete error:', error);
-                        alert('Error deleting workflow');
-                    }
+            const cancelBtn = document.createElement('button');
+            cancelBtn.textContent = 'Cancel';
+            cancelBtn.className = 'btn btn-secondary btn-small';
+            cancelBtn.onclick = () => modalOverlay.remove();
+            buttonContainer.appendChild(cancelBtn);
+
+            const createBtn = document.createElement('button');
+            createBtn.textContent = 'Create';
+            createBtn.className = 'btn btn-blue btn-small';
+            createBtn.onclick = async () => {
+                const folderName = folderNameInput.value.trim();
+                if (!folderName) {
+                    errorElement.textContent = 'Folder name is required';
+                    errorElement.style.display = 'block';
+                    return;
                 }
-                pendingDeleteId = null;
-            });
-            
-            cancelBtn.addEventListener('click', () => {
-                modal.remove();
-                pendingDeleteId = null;
-            });
-            
-            modal.addEventListener('click', (e) => {
-                if (e.target === modal) {
-                    modal.remove();
-                    pendingDeleteId = null;
+                const parentId = parentSelect.value || null;
+                await createNewWorkflowFolder(folderName, parentId);
+                modalOverlay.remove();
+            };
+            buttonContainer.appendChild(createBtn);
+
+            modalBox.appendChild(buttonContainer);
+            modalOverlay.appendChild(modalBox);
+
+            // Close on overlay click
+            modalOverlay.onclick = (e) => {
+                if (e.target === modalOverlay) {
+                    modalOverlay.remove();
                 }
-            });
+            };
+
+            document.body.appendChild(modalOverlay);
+            folderNameInput.focus();
         }
 
-        function showModalStatus(message, type) {
-            if (currentCreateModal) {
-                const status = currentCreateModal.querySelector('#modalStatus');
-                if (status) {
-                    status.textContent = message;
-                    status.style.display = 'block';
-                    status.className = `status-message ${type}`;
-                    if (type === 'error') {
-                        status.style.backgroundColor = '#5a2a2a';
-                        status.style.borderLeft = '4px solid #ff6b6b';
-                        status.style.color = '#ff6b6b';
-                    } else if (type === 'success') {
-                        status.style.backgroundColor = '#2a5a2a';
-                        status.style.borderLeft = '4px solid #00aa00';
-                        status.style.color = '#00aa00';
-                    }
-                }
-            }
-        }
-
-        window.addEventListener('load', authenticate);
+        // Initialize on page load
+        window.addEventListener('load', () => {
+            auth(() => {
+                loadWorkflows();
+                loadWorkflowFolders();
+            });
+        });
     </script>
 </body>
 </html>

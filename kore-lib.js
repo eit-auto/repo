@@ -774,7 +774,9 @@ function showModal(options) {
         type = 'default',
         input = {},
         autoClose = null,
-        onClose = null
+        onClose = null,
+        customWidth = null,
+        customMinWidth = null
     } = options;
 
     // Create modal container
@@ -801,8 +803,8 @@ function showModal(options) {
         border-radius: 8px;
         padding: 15px;
         box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
-        min-width: 400px;
-        max-width: 600px;
+        min-width: ${customMinWidth || '400px'};
+        max-width: ${customWidth || '600px'};
         max-height: 80vh;
         overflow-y: auto;
     `;
@@ -815,7 +817,8 @@ function showModal(options) {
 
     // Content
     const contentEl = document.createElement('div');
-    contentEl.style.cssText = 'color: #e0e0e0; margin-bottom: 20px; line-height: 1.5;';
+    const marginBottom = options.showButtons === false ? '0' : '20px';
+    contentEl.style.cssText = `color: #e0e0e0; margin-bottom: ${marginBottom}; line-height: 1.5;`;
     if (typeof content === 'string') {
         contentEl.innerHTML = content;
     } else {
@@ -896,7 +899,11 @@ function showModal(options) {
         };
         buttonContainer.appendChild(button);
     });
-    modalBox.appendChild(buttonContainer);
+    
+    // Only append button container if showButtons is true
+    if (options.showButtons !== false) {
+        modalBox.appendChild(buttonContainer);
+    }
 
     // Append to body
     modalOverlay.appendChild(modalBox);
@@ -1002,7 +1009,7 @@ function createTreeNode(item, level = 0, isLastChild = true, ancestorSiblingInfo
         font-size: 0.9rem;
         user-select: none;
         box-sizing: border-box;
-        margin-bottom: -6px;
+        height: 20px;
     `;
 
     // Expand/collapse toggle - always on far left
@@ -1023,6 +1030,10 @@ function createTreeNode(item, level = 0, isLastChild = true, ancestorSiblingInfo
         cursor: ${hasChildren ? 'pointer' : 'default'};
     `;
     toggleBtn.innerHTML = hasChildren ? '&#43;' : '';
+    // Shift + symbol up by 2px (apply additional negative margin)
+    if (hasChildren) {
+        toggleBtn.style.marginTop = '-5px';
+    }
     folderRow.appendChild(toggleBtn);
 
     // Item children container
@@ -1082,6 +1093,20 @@ function createTreeNode(item, level = 0, isLastChild = true, ancestorSiblingInfo
     
     folderRow.appendChild(itemName);
 
+    // Add data attribute for selection tracking and styling on click
+    folderRow.setAttribute('data-item-id', item.id);
+    folderRow.style.cssText += '; border-radius: 4px; transition: background-color 0.2s;';
+    folderRow.onmouseenter = () => {
+        if (!folderRow.classList.contains('selected')) {
+            folderRow.style.backgroundColor = 'rgba(90, 159, 184, 0.15)';
+        }
+    };
+    folderRow.onmouseleave = () => {
+        if (!folderRow.classList.contains('selected')) {
+            folderRow.style.backgroundColor = '';
+        }
+    };
+
     // Click toggle button to expand/collapse
     if (hasChildren) {
         toggleBtn.style.cursor = 'pointer';
@@ -1094,6 +1119,20 @@ function createTreeNode(item, level = 0, isLastChild = true, ancestorSiblingInfo
     // Click item name to select it (fires callback)
     itemName.onclick = (e) => {
         e.stopPropagation();
+        
+        // Remove selected class from all rows in the same tree container
+        const treeContainer = folderRow.closest('[id]');
+        if (treeContainer) {
+            treeContainer.querySelectorAll('[data-item-id]').forEach(el => {
+                el.classList.remove('selected');
+                el.style.backgroundColor = '';
+            });
+        }
+        
+        // Add selected class to this row
+        folderRow.classList.add('selected');
+        folderRow.style.backgroundColor = 'rgba(90, 159, 184, 0.3)';
+        
         if (options.onItemClick) {
             options.onItemClick(item);
         }
