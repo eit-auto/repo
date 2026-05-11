@@ -28,6 +28,7 @@
     overflow: visible;
     background: #2E5F75;
     box-sizing: border-box;
+    width: 100%;
   }
   .content-wrapper {
     flex: 0;
@@ -60,6 +61,18 @@
     flex-shrink: 0;
     color: #ffffff;
   }
+
+  .content-panel {
+    width: 100%;
+    max-width: 100%;
+    margin: 0;
+    background: #1a3540;
+    padding: 5px;
+    border-radius: 8px;
+    box-sizing: border-box;
+    color: #ffffff;
+  }
+
   /* ============================================
    BUTTON STYLES
    ============================================ */
@@ -749,6 +762,7 @@
     --form-bg-color: #1a3540;
     --form-border-color: #404040;
     --form-accent-color: #5a9fb8;
+    width: 100%;
   }
   .form-group {
     margin-bottom: 10px;
