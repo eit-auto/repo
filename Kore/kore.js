@@ -574,7 +574,7 @@ async function loadPluginsFromDatabase() {
         
         const connection = await korePool.getConnection();
         try {
-            const [rows] = await connection.query('SELECT id, name, code, routes, rate_limit, config FROM `plugins` WHERE enabled = true');
+            const [rows] = await connection.query('SELECT id, name, display_name, code, routes, rate_limit, config FROM `plugins` WHERE enabled = true');
             
             let loadedCount = 0;
             for (const pluginRow of rows) {
@@ -663,7 +663,7 @@ async function loadPlugin(pluginName) {
         
         const connection = await korePool.getConnection();
         try {
-            const [rows] = await connection.query('SELECT id, name, code, routes, rate_limit, config FROM `plugins` WHERE name = ? AND enabled = true', [pluginName]);
+            const [rows] = await connection.query('SELECT id, name, display_name, code, routes, rate_limit, config FROM `plugins` WHERE name = ? AND enabled = true', [pluginName]);
             
             if (rows.length === 0) {
                 throw new Error(`Plugin ${pluginName} not found or not enabled`);
@@ -1551,6 +1551,292 @@ async function handleReloadAllPlugins(req, res) {
 }
 
 /**
+ * HTTP endpoint to get full details of a specific plugin
+ * GET /kore/plugins/details?name=pluginName
+ */
+async function handleGetPluginDetails(req, res, helpers) {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Content-Type', 'application/json');
+
+    try {
+        const url = require('url');
+        const parsedUrl = url.parse(req.url, true);
+        const pluginName = parsedUrl.query.name;
+
+        if (!pluginName) {
+            res.writeHead(400);
+            res.end(JSON.stringify({
+                error: 'Missing plugin name parameter'
+            }));
+            return;
+        }
+
+        if (!korePool) {
+            res.writeHead(500);
+            res.end(JSON.stringify({
+                error: 'Database connection not available'
+            }));
+            return;
+        }
+
+        const connection = await korePool.getConnection();
+        try {
+            const [rows] = await connection.query(
+                'SELECT id, name, display_name, description, version, code, routes, rate_limit, config, enabled, created_at, updated_at, created_by, updated_by FROM plugins WHERE name = ?',
+                [pluginName]
+            );
+
+            if (rows.length === 0) {
+                res.writeHead(404);
+                res.end(JSON.stringify({
+                    error: 'Plugin not found'
+                }));
+                return;
+            }
+
+            const plugin = rows[0];
+            res.writeHead(200);
+            res.end(JSON.stringify({
+                success: true,
+                plugin: {
+                    id: plugin.id,
+                    name: plugin.name,
+                    display_name: plugin.display_name,
+                    description: plugin.description,
+                    version: plugin.version,
+                    code: plugin.code,
+                    routes: typeof plugin.routes === 'string' ? JSON.parse(plugin.routes) : plugin.routes,
+                    rateLimit: plugin.rate_limit,
+                    config: typeof plugin.config === 'string' ? JSON.parse(plugin.config) : plugin.config,
+                    enabled: plugin.enabled,
+                    created_at: plugin.created_at,
+                    updated_at: plugin.updated_at,
+                    created_by: plugin.created_by,
+                    updated_by: plugin.updated_by
+                }
+            }));
+        } finally {
+            connection.release();
+        }
+    } catch (error) {
+        console.error(`[${new Date().toISOString()}] ERROR getting plugin details:`, error.message);
+        res.writeHead(500);
+        res.end(JSON.stringify({
+            error: error.message
+        }));
+    }
+}
+
+/**
+ * Convert ISO datetime string to MySQL format (YYYY-MM-DD HH:MM:SS)
+ */
+function convertToMySQLDatetime(isoString) {
+    if (!isoString) return new Date().toISOString().replace('T', ' ').split('.')[0];
+    
+    // Handle both ISO format and already converted format
+    const converted = isoString.replace('T', ' ').split('.')[0].replace('Z', '');
+    return converted;
+}
+
+/**
+ * HTTP endpoint to update plugin settings
+ * POST /kore/plugins/update?name=pluginName
+ */
+async function handleUpdatePlugin(req, res) {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Content-Type', 'application/json');
+    res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Session-Token');
+
+    if (req.method === 'OPTIONS') {
+        res.writeHead(200);
+        res.end();
+        return;
+    }
+
+    if (req.method !== 'POST') {
+        res.writeHead(405);
+        res.end(JSON.stringify({ error: 'Method not allowed. Use POST.' }));
+        return;
+    }
+
+    // Parse query string
+    const urlParts = req.url.split('?');
+    const queryString = urlParts[1] || '';
+    const params = new URLSearchParams(queryString);
+    const pluginName = params.get('name');
+    
+    if (!pluginName) {
+        res.writeHead(400);
+        res.end(JSON.stringify({ error: 'Missing plugin name in query string' }));
+        return;
+    }
+
+    const sessionToken = req.headers['x-session-token'];
+    if (!sessionToken) {
+        res.writeHead(401);
+        res.end(JSON.stringify({ error: 'No session token' }));
+        return;
+    }
+
+    let body = '';
+    req.on('data', (chunk) => {
+        body += chunk.toString();
+        if (body.length > 1e6) {
+            req.connection.destroy();
+        }
+    });
+
+    req.on('end', async () => {
+        const connection = await korePool.getConnection();
+        try {
+            let updates;
+            try {
+                updates = JSON.parse(body);
+            } catch (e) {
+                res.writeHead(400);
+                res.end(JSON.stringify({ error: 'Invalid JSON in request body' }));
+                return;
+            }
+
+            // Prepare update fields
+            const updateFields = [];
+            const updateValues = [];
+
+            if (updates.hasOwnProperty('display_name')) {
+                updateFields.push('display_name = ?');
+                updateValues.push(updates.display_name);
+            }
+
+            if (updates.hasOwnProperty('version')) {
+                updateFields.push('version = ?');
+                updateValues.push(updates.version);
+            }
+
+            if (updates.hasOwnProperty('description')) {
+                updateFields.push('description = ?');
+                updateValues.push(updates.description);
+            }
+
+            if (updates.hasOwnProperty('enabled')) {
+                updateFields.push('enabled = ?');
+                updateValues.push(updates.enabled ? 1 : 0);
+            }
+
+            if (updates.hasOwnProperty('config')) {
+                updateFields.push('config = ?');
+                updateValues.push(JSON.stringify(updates.config));
+            }
+
+            if (updates.hasOwnProperty('code')) {
+                updateFields.push('code = ?');
+                updateValues.push(updates.code);
+            }
+
+            if (updates.hasOwnProperty('updated_at')) {
+                updateFields.push('updated_at = ?');
+                updateValues.push(updates.updated_at);
+            }
+
+            if (updates.hasOwnProperty('updated_by')) {
+                updateFields.push('updated_by = ?');
+                updateValues.push(updates.updated_by);
+            }
+
+            if (updateFields.length === 0) {
+                res.writeHead(400);
+                res.end(JSON.stringify({ error: 'No valid fields to update' }));
+                return;
+            }
+
+            // Add plugin name to query values
+            updateValues.push(pluginName);
+
+            // Execute update
+            const query = `UPDATE plugins SET ${updateFields.join(', ')} WHERE name = ?`;
+            console.log(`[${new Date().toISOString()}] Updating plugin: ${pluginName}`);
+            
+            const [result] = await connection.query(query, updateValues);
+
+            if (result.affectedRows === 0) {
+                res.writeHead(404);
+                res.end(JSON.stringify({ error: `Plugin ${pluginName} not found` }));
+                return;
+            }
+
+            // Get plugin_id for history record
+            const [pluginRows] = await connection.query(
+                'SELECT id FROM plugins WHERE name = ?',
+                [pluginName]
+            );
+
+            if (pluginRows.length > 0) {
+                const pluginId = pluginRows[0].id;
+                
+                // If originalConfig provided, save it directly to plugin_history
+                if (updates.originalConfig) {
+                    const origConfig = updates.originalConfig;
+                    
+                    // Insert into plugin_history with ON DUPLICATE KEY UPDATE
+                    const historyQuery = `
+                        INSERT INTO plugin_history (plugin_id, version, display_name, description, enabled, config, created_at, updated_at, created_by, updated_by)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ON DUPLICATE KEY UPDATE
+                            display_name = VALUES(display_name),
+                            description = VALUES(description),
+                            enabled = VALUES(enabled),
+                            config = VALUES(config),
+                            updated_at = VALUES(updated_at),
+                            updated_by = VALUES(updated_by)
+                    `;
+
+                    const historyValues = [
+                        pluginId,
+                        origConfig.version,
+                        origConfig.display_name,
+                        origConfig.description,
+                        origConfig.enabled,
+                        origConfig.config ? JSON.stringify(origConfig.config) : null,
+                        convertToMySQLDatetime(origConfig.created_at),
+                        convertToMySQLDatetime(origConfig.updated_at),
+                        origConfig.created_by,
+                        origConfig.updated_by
+                    ];
+
+                    console.log(`[${new Date().toISOString()}] DEBUG: Saving plugin_history for ${pluginName} v${origConfig.version}`);
+
+                    try {
+                        await connection.query(historyQuery, historyValues);
+                        console.log(`[${new Date().toISOString()}] Plugin history saved for ${pluginName} v${origConfig.version}`);
+                    } catch (historyError) {
+                        console.error(`[${new Date().toISOString()}] Warning: Failed to save plugin history:`, historyError.message);
+                        // Don't fail the entire request if history save fails, just log it
+                    }
+                }
+            }
+
+            res.writeHead(200);
+            res.end(JSON.stringify({
+                success: true,
+                message: `Plugin ${pluginName} updated successfully`,
+                timestamp: new Date().toISOString()
+            }));
+
+            console.log(`[${new Date().toISOString()}] Plugin ${pluginName} updated by ${updates.updated_by}`);
+        } catch (error) {
+            console.error(`[${new Date().toISOString()}] ERROR updating plugin:`, error.message);
+            res.writeHead(500);
+            res.end(JSON.stringify({
+                error: error.message,
+                timestamp: new Date().toISOString()
+            }));
+        } finally {
+            connection.release();
+        }
+    });
+}
+
+/**
  * HTTP endpoint to list all loaded plugins
  * GET /kore/plugins/list
  */
@@ -2243,373 +2529,6 @@ function sendNodesRequest(ws) {
     });
 }
 
-/**
- * HTTP endpoint for MySQL queries
- * POST /query
- * Body: { query: "SELECT * FROM table" }
- * Headers: X-Session-Token
- */
-function handleQueryRequest(req, res) {
-    const clientIP = req.socket.remoteAddress;
-    
-    console.log(`[${new Date().toISOString()}] === QUERY REQUEST ===`);
-    
-    // Rate limit check for /query
-    if (!isIPWhitelisted(clientIP)) {
-        const rateLimitCheck = checkRateLimit(clientIP, '/query');
-        if (!rateLimitCheck.allowed) {
-            console.log(`[${new Date().toISOString()}] Rate limit exceeded for IP ${clientIP} on /query (limit: 100/min, reset in: ${rateLimitCheck.resetIn}s)`);
-            res.writeHead(429, { 
-                'Content-Type': 'application/json',
-                'Retry-After': rateLimitCheck.resetIn
-            });
-            res.end(JSON.stringify({ 
-                error: 'Rate limit exceeded',
-                resetIn: rateLimitCheck.resetIn
-            }));
-            return;
-        }
-    }
-    
-    if (req.method !== 'POST') {
-        res.writeHead(405, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'Method not allowed' }));
-        return;
-    }
-    
-    const sessionTokenFromHeader = req.headers['x-session-token'];
-    console.log(`[${new Date().toISOString()}] Session Token header present: ${!!sessionTokenFromHeader}`);
-    
-    // Read request body
-    let body = '';
-    req.on('data', chunk => {
-        body += chunk.toString();
-    });
-    
-    req.on('end', async () => {
-        try {
-            const data = JSON.parse(body);
-            const query = data.query;
-            const userFromBody = data.user;
-            
-            // Handle optional timeout parameter (in milliseconds)
-            const requestTimeout = data.timeout || 30000; // Default 30 seconds
-            if (typeof requestTimeout === 'number' && requestTimeout > 0) {
-                req.socket.setTimeout(requestTimeout);
-                console.log(`[${new Date().toISOString()}] Query request timeout set to ${requestTimeout}ms`);
-            }
-            
-            console.log(`[${new Date().toISOString()}] Query request for user: ${userFromBody}`);
-            console.log(`[${new Date().toISOString()}] Query: ${query.substring(0, 100)}...`);
-            
-            // Validate session token
-            if (!sessionTokenFromHeader) {
-                console.log(`[${new Date().toISOString()}] Query failed: no session token provided`);
-                res.writeHead(401, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ success: false, errors: 'No session token provided', result: null }));
-                return;
-            }
-            
-            // Load sessions from file
-            let sessionsData;
-            try {
-                const sessionsJson = await fs.promises.readFile(SESSIONS_FILE, 'utf8');
-                sessionsData = JSON.parse(sessionsJson);
-            } catch (error) {
-                console.error(`[${new Date().toISOString()}] Error loading sessions file:`, error.message);
-                res.writeHead(500, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ success: false, errors: 'Server configuration error', result: null }));
-                return;
-            }
-            
-            // Find matching session
-            const session = sessionsData.sessions.find(s => s.token === sessionTokenFromHeader);
-            
-            if (!session) {
-                console.log(`[${new Date().toISOString()}] Query failed: session token not found`);
-                res.writeHead(401, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ success: false, errors: 'Invalid session token', result: null }));
-                return;
-            }
-            
-            // Check if session has expired
-            const now = Date.now();
-            if (now > session.expiresAt) {
-                console.log(`[${new Date().toISOString()}] Query failed: session token expired`);
-                res.writeHead(401, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ success: false, errors: 'Session token has expired', result: null }));
-                return;
-            }
-            
-            // Verify user matches
-            if (session.user !== userFromBody) {
-                console.log(`[${new Date().toISOString()}] Query failed: user mismatch`);
-                res.writeHead(401, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ success: false, errors: 'User mismatch', result: null }));
-                return;
-            }
-            
-            // Check if MySQL pool is initialized
-            if (!mysqlPool) {
-                console.error(`[${new Date().toISOString()}] MySQL pool not initialized`);
-                res.writeHead(500, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ success: false, errors: 'MySQL connection pool not available', result: null }));
-                return;
-            }
-            
-            // Execute query with timeout
-            console.log(`[${new Date().toISOString()}] Executing query for user: ${session.user}`);
-            
-            const connection = await mysqlPool.getConnection();
-            let rows;
-            try {
-                // Set a 30-second query timeout
-                await connection.query('SET SESSION max_execution_time=30000');
-                console.log(`[${new Date().toISOString()}] Query timeout set to 30 seconds`);
-                
-                console.log(`[${new Date().toISOString()}] About to execute: ${query.substring(0, 150)}...`);
-                [rows] = await connection.query(query);
-                console.log(`[${new Date().toISOString()}] Query executed successfully, rows affected: ${rows?.affectedRows || rows?.length || 0}`);
-            } catch (queryError) {
-                console.error(`[${new Date().toISOString()}] QUERY EXECUTION FAILED`);
-                console.error(`[${new Date().toISOString()}] Error Type: ${queryError?.constructor?.name}`);
-                console.error(`[${new Date().toISOString()}] Error Message: ${queryError?.message || 'NO MESSAGE'}`);
-                console.error(`[${new Date().toISOString()}] Error Code: ${queryError?.code || 'NO CODE'}`);
-                console.error(`[${new Date().toISOString()}] Error SQL State: ${queryError?.sqlState || 'NO SQLSTATE'}`);
-                console.error(`[${new Date().toISOString()}] Full Error:`, queryError);
-                throw queryError;
-            } finally {
-                connection.release();
-            }
-            
-            // Return results
-            // When multipleStatements are used, rows is an array of results for each statement
-            // Extract the last result which is the actual SELECT query result
-            let finalResult = rows;
-            if (Array.isArray(rows) && rows.length > 0 && Array.isArray(rows[rows.length - 1])) {
-                finalResult = rows[rows.length - 1];
-                console.log(`[${new Date().toISOString()}] Extracted final result from ${rows.length} statements`);
-            }
-            
-            // Strip MySQL user variable columns (those starting with @)
-            finalResult = stripVariableColumns(finalResult);
-            
-            res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({
-                success: true,
-                result: finalResult,
-                rowCount: Array.isArray(finalResult) ? finalResult.length : 0,
-                timestamp: new Date().toISOString()
-            }));
-            
-            console.log(`[${new Date().toISOString()}] Response sent successfully`);
-            
-        } catch (error) {
-            const errorDetails = {
-                message: error.message,
-                code: error.code,
-                errno: error.errno,
-                sqlState: error.sqlState,
-                query: query,
-                user: session.user,
-                stack: error.stack
-            };
-            
-            logError('*** QUERY EXECUTION ERROR ***', errorDetails);
-            
-            res.writeHead(500, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ 
-                success: false, 
-                errors: error.message,
-                code: error.code,
-                detail: process.env.NODE_ENV === 'development' ? error.toString() : undefined,
-                result: null 
-            }));
-        }
-    });
-}
-
-function handleCwaQueryRequest(req, res) {
-    const clientIP = req.socket.remoteAddress;
-    
-    console.log(`[${new Date().toISOString()}] === CWA QUERY REQUEST ===`);
-    
-    // Rate limit check for /cwaquery
-    if (!isIPWhitelisted(clientIP)) {
-        const rateLimitCheck = checkRateLimit(clientIP, '/cwaquery');
-        if (!rateLimitCheck.allowed) {
-            console.log(`[${new Date().toISOString()}] Rate limit exceeded for IP ${clientIP} on /cwaquery (limit: 100/min, reset in: ${rateLimitCheck.resetIn}s)`);
-            res.writeHead(429, { 
-                'Content-Type': 'application/json',
-                'Retry-After': rateLimitCheck.resetIn
-            });
-            res.end(JSON.stringify({ 
-                error: 'Rate limit exceeded',
-                resetIn: rateLimitCheck.resetIn
-            }));
-            return;
-        }
-    }
-    
-    if (req.method !== 'POST') {
-        res.writeHead(405, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'Method not allowed' }));
-        return;
-    }
-    
-    const sessionTokenFromHeader = req.headers['x-session-token'];
-    console.log(`[${new Date().toISOString()}] Session Token header present: ${!!sessionTokenFromHeader}`);
-    
-    // Read request body
-    let body = '';
-    req.on('data', chunk => {
-        body += chunk.toString();
-    });
-    
-    req.on('end', async () => {
-        let query = null;  // Declare here so it's available in catch block
-        let session = null;  // Declare here so it's available in catch block
-        try {
-            const data = JSON.parse(body);
-            query = data.query;
-            const userFromBody = data.user;
-            
-            // Handle optional timeout parameter (in milliseconds)
-            const requestTimeout = data.timeout || 30000; // Default 30 seconds
-            if (typeof requestTimeout === 'number' && requestTimeout > 0) {
-                req.socket.setTimeout(requestTimeout);
-                console.log(`[${new Date().toISOString()}] CWA Query request timeout set to ${requestTimeout}ms`);
-            }
-            
-            console.log(`[${new Date().toISOString()}] CWA Query request for user: ${userFromBody}`);
-            console.log(`[${new Date().toISOString()}] Query: ${query.substring(0, 100)}...`);
-            
-            // Validate session token
-            if (!sessionTokenFromHeader) {
-                console.log(`[${new Date().toISOString()}] CWA Query failed: no session token provided`);
-                res.writeHead(401, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ success: false, errors: 'No session token provided', result: null }));
-                return;
-            }
-            
-            // Load sessions from file
-            let sessionsData;
-            try {
-                const sessionsJson = await fs.promises.readFile(SESSIONS_FILE, 'utf8');
-                sessionsData = JSON.parse(sessionsJson);
-            } catch (error) {
-                console.error(`[${new Date().toISOString()}] Error loading sessions file:`, error.message);
-                res.writeHead(500, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ success: false, errors: 'Server configuration error', result: null }));
-                return;
-            }
-            
-            // Find matching session
-            session = sessionsData.sessions.find(s => s.token === sessionTokenFromHeader);
-            
-            if (!session) {
-                console.log(`[${new Date().toISOString()}] CWA Query failed: session token not found`);
-                res.writeHead(401, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ success: false, errors: 'Invalid session token', result: null }));
-                return;
-            }
-            
-            // Check if session has expired
-            const now = Date.now();
-            if (now > session.expiresAt) {
-                console.log(`[${new Date().toISOString()}] CWA Query failed: session token expired`);
-                res.writeHead(401, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ success: false, errors: 'Session token has expired', result: null }));
-                return;
-            }
-            
-            // Verify user matches
-            if (session.user !== userFromBody) {
-                console.log(`[${new Date().toISOString()}] CWA Query failed: user mismatch`);
-                res.writeHead(401, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ success: false, errors: 'User mismatch', result: null }));
-                return;
-            }
-            
-            // Check if CWA MySQL pool is initialized
-            if (!cwaPool) {
-                console.error(`[${new Date().toISOString()}] CWA MySQL pool not initialized`);
-                res.writeHead(500, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ success: false, errors: 'CWA MySQL connection pool not available', result: null }));
-                return;
-            }
-            
-            // Execute query with timeout
-            console.log(`[${new Date().toISOString()}] Executing CWA query for user: ${session.user}`);
-            
-            const connection = await cwaPool.getConnection();
-            let rows;
-            try {
-                // Set a 30-second query timeout
-                await connection.query('SET SESSION max_execution_time=30000');
-                console.log(`[${new Date().toISOString()}] CWA Query timeout set to 30 seconds`);
-                
-                console.log(`[${new Date().toISOString()}] About to execute: ${query.substring(0, 150)}...`);
-                [rows] = await connection.query(query);
-                console.log(`[${new Date().toISOString()}] CWA Query executed successfully, rows affected: ${rows?.affectedRows || rows?.length || 0}`);
-            } catch (queryError) {
-                console.error(`[${new Date().toISOString()}] CWA QUERY EXECUTION FAILED`);
-                console.error(`[${new Date().toISOString()}] Error Type: ${queryError?.constructor?.name}`);
-                console.error(`[${new Date().toISOString()}] Error Message: ${queryError?.message || 'NO MESSAGE'}`);
-                console.error(`[${new Date().toISOString()}] Error Code: ${queryError?.code || 'NO CODE'}`);
-                console.error(`[${new Date().toISOString()}] Error SQL State: ${queryError?.sqlState || 'NO SQLSTATE'}`);
-                console.error(`[${new Date().toISOString()}] Full Error:`, queryError);
-                throw queryError;
-            } finally {
-                connection.release();
-            }
-            
-            // Return results
-            // When multipleStatements are used, rows is an array of results for each statement
-            // Extract the last result which is the actual SELECT query result
-            let finalResult = rows;
-            if (Array.isArray(rows) && rows.length > 0 && Array.isArray(rows[rows.length - 1])) {
-                finalResult = rows[rows.length - 1];
-                console.log(`[${new Date().toISOString()}] Extracted final result from ${rows.length} statements`);
-            }
-            
-            // Strip MySQL user variable columns (those starting with @)
-            finalResult = stripVariableColumns(finalResult);
-            
-            res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({
-                success: true,
-                result: finalResult,
-                rowCount: Array.isArray(finalResult) ? finalResult.length : 0,
-                timestamp: new Date().toISOString()
-            }));
-            
-            console.log(`[${new Date().toISOString()}] CWA Response sent successfully`);
-            
-        } catch (error) {
-            const errorDetails = {
-                message: error.message,
-                code: error.code,
-                errno: error.errno,
-                sqlState: error.sqlState,
-                query: query,
-                user: session?.user || 'unknown',
-                stack: error.stack
-            };
-            
-            logError('*** CWA QUERY EXECUTION ERROR ***', errorDetails);
-            
-            res.writeHead(500, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ 
-                success: false, 
-                errors: error.message,
-                code: error.code,
-                detail: process.env.NODE_ENV === 'development' ? error.toString() : undefined,
-                result: null 
-            }));
-        }
-    });
-}
 
 // Helper function to flatten nested objects (e.g., company.id -> company_id)
 function flattenObject(obj, prefix = '') {
@@ -2643,7 +2562,7 @@ function flattenObject(obj, prefix = '') {
 function serveStaticFile(req, res, config) {
     // config = { basePath, allowedExtensions, logPrefix }
     const basePath = config.basePath;
-    const allowedExtensions = config.allowedExtensions || ['.html', '.css', '.js', '.json'];
+    const allowedExtensions = config.allowedExtensions || ['.html', '.css', '.js', '.json', '.png', '.jpg', '.jpeg', '.gif', '.svg', '.ico', '.webp'];
     const logPrefix = config.logPrefix || '[StaticFile]';
     
     // Parse URL to get just the pathname, stripping query parameters
@@ -2681,28 +2600,50 @@ function serveStaticFile(req, res, config) {
         return;
     }
     
-    require('fs').readFile(fullPath, 'utf8', (err, data) => {
+    // Determine content type based on file extension
+    let contentType = 'text/plain';
+    let isBinary = false;
+    
+    if (filePath.endsWith('.html')) {
+        contentType = 'text/html';
+    } else if (filePath.endsWith('.css')) {
+        contentType = 'text/css';
+    } else if (filePath.endsWith('.js')) {
+        contentType = 'application/javascript';
+    } else if (filePath.endsWith('.json')) {
+        contentType = 'application/json';
+    } else if (filePath.endsWith('.d.ts')) {
+        contentType = 'application/typescript';
+    } else if (filePath.endsWith('.map')) {
+        contentType = 'application/json';
+    } else if (filePath.endsWith('.png')) {
+        contentType = 'image/png';
+        isBinary = true;
+    } else if (filePath.endsWith('.jpg') || filePath.endsWith('.jpeg')) {
+        contentType = 'image/jpeg';
+        isBinary = true;
+    } else if (filePath.endsWith('.gif')) {
+        contentType = 'image/gif';
+        isBinary = true;
+    } else if (filePath.endsWith('.svg')) {
+        contentType = 'image/svg+xml';
+    } else if (filePath.endsWith('.ico')) {
+        contentType = 'image/x-icon';
+        isBinary = true;
+    } else if (filePath.endsWith('.webp')) {
+        contentType = 'image/webp';
+        isBinary = true;
+    }
+    
+    // Use binary or text reading based on file type
+    const readEncoding = isBinary ? null : 'utf8';
+    
+    require('fs').readFile(fullPath, readEncoding, (err, data) => {
         if (err) {
             console.log(`${logPrefix} Error reading file: ${err.message}`);
             res.writeHead(404, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ error: 'File not found' }));
             return;
-        }
-        
-        // Determine content type based on file extension
-        let contentType = 'text/plain';
-        if (filePath.endsWith('.html')) {
-            contentType = 'text/html';
-        } else if (filePath.endsWith('.css')) {
-            contentType = 'text/css';
-        } else if (filePath.endsWith('.js')) {
-            contentType = 'application/javascript';
-        } else if (filePath.endsWith('.json')) {
-            contentType = 'application/json';
-        } else if (filePath.endsWith('.d.ts')) {
-            contentType = 'application/typescript';
-        } else if (filePath.endsWith('.map')) {
-            contentType = 'application/json';
         }
         
         console.log(`${logPrefix} Serving ${filePath} as ${contentType}`);
@@ -2786,6 +2727,10 @@ const requestHandler = (req, res) => {
         handleReloadApiMembers(req, res);
     } else if (req.url === '/kore/plugins/list') {
         handleListPlugins(req, res);
+    } else if (req.url.startsWith('/kore/plugins/details')) {
+        handleGetPluginDetails(req, res);
+    } else if (req.url.startsWith('/kore/plugins/update')) {
+        handleUpdatePlugin(req, res);
     } else if (req.url.startsWith('/kore/plugins/load')) {
         handleLoadPlugin(req, res);
     } else if (req.url === '/kore/plugins/reload-all') {
@@ -2809,10 +2754,10 @@ const requestHandler = (req, res) => {
         const parsedUrl = url.parse(req.url, true);
         const pathname = parsedUrl.pathname;
         
-        if (pathname.endsWith('.html') || pathname.endsWith('.css') || pathname.endsWith('.js') || pathname.endsWith('.json') || pathname === '/') {
+        if (pathname.endsWith('.html') || pathname.endsWith('.css') || pathname.endsWith('.js') || pathname.endsWith('.json') || pathname.endsWith('.png') || pathname.endsWith('.jpg') || pathname.endsWith('.jpeg') || pathname.endsWith('.gif') || pathname.endsWith('.svg') || pathname.endsWith('.ico') || pathname.endsWith('.webp') || pathname === '/') {
             serveStaticFile(req, res, {
                 basePath: 'D:\\Kore\\web',
-                allowedExtensions: ['.html', '.css', '.js', '.json'],
+                allowedExtensions: ['.html', '.css', '.js', '.json', '.png', '.jpg', '.jpeg', '.gif', '.svg', '.ico', '.webp'],
                 logPrefix: '[StaticWeb]'
             });
         } else {
