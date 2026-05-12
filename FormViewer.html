@@ -624,7 +624,7 @@
                             } catch (e) {}
                         }
 
-                        console.log('Poll status:', execution.status);
+                        //console.log('Poll status:', execution.status);
 
                         const terminalStates = ['COMPLETED', 'SUCCESS', 'succeeded', 'FAILED', 'failed', 'ERROR'];
                         const isComplete = terminalStates.some(s => execution.status.toUpperCase() === s.toUpperCase());
@@ -639,7 +639,7 @@
                             
                             // Check if conductor.output is ready
                             if (!execution.conductor?.output) {
-                                console.log('Execution complete but conductor.output is empty, polling 5 more times to ensure output is ready');
+                                //console.log('Execution complete but conductor.output is empty, polling 5 more times to ensure output is ready');
                                 let outputReadyAttempts = 0;
                                 const maxOutputAttempts = 5;
                                 
@@ -649,7 +649,7 @@
                                     console.log(`Output ready check ${outputReadyAttempts + 1}/${maxOutputAttempts}, output:`, refreshedExecution.conductor?.output);
                                     
                                     if (refreshedExecution.conductor?.output) {
-                                        console.log('Output is now ready, returning execution');
+                                        //console.log('Output is now ready, returning execution');
                                         return { ...refreshedExecution, success: true };
                                     }
                                     
@@ -660,7 +660,7 @@
                                 console.warn('Output still empty after 5 additional polls, returning execution anyway');
                             }
                             
-                            console.log('Execution completed successfully, output:', execution.conductor?.output);
+                            //console.log('Execution completed successfully, output:', execution.conductor?.output);
                             return { ...execution, success: true };
                         }
 
@@ -876,9 +876,9 @@
         const SKIP_CACHE = false;  // Set to true to skip workflow result caching globally
         // Rewst processes {{ CTX.user.username }} server-side before sending HTML
         const REWST_USER = "{{ CTX.user.username }}";
-        console.log('[FORM_VIEWER] REWST_USER value:', REWST_USER);
-        console.log('[FORM_VIEWER] REWST_USER type:', typeof REWST_USER);
-        console.log('[FORM_VIEWER] REWST_USER length:', REWST_USER.length);
+        //console.log('[FORM_VIEWER] REWST_USER value:', REWST_USER);
+        //console.log('[FORM_VIEWER] REWST_USER type:', typeof REWST_USER);
+        //console.log('[FORM_VIEWER] REWST_USER length:', REWST_USER.length);
         
         const rewst = new RewstApp({ 
             graphqlPath: '/graphql',
@@ -903,7 +903,7 @@
         // ============================================
         async function loadFormFromUrlParameter(formId) {
             try {
-                console.log('>>> loadFormFromUrlParameter called with formId:', formId);
+                //console.log('>>> loadFormFromUrlParameter called with formId:', formId);
                 
                 // Hide the forms dropdown and loading section
                 const dropdown = document.getElementById('open_existing_dropdown');
@@ -920,7 +920,7 @@
                     formsSection.style.display = 'none';
                 }
                 
-                console.log('>>> Fetching form from org variables with form_id:', formId);
+                //console.log('>>> Fetching form from org variables with form_id:', formId);
                 
                 // Use RewstLib to fetch the form config, with fallback if not loaded
                 let formVariable = null;
@@ -934,10 +934,10 @@
                 }
                 
                 if (useRewstLib) {
-                    console.log('>>> Using RewstLib to fetch form');
+                    //console.log('>>> Using RewstLib to fetch form');
                     try {
                         formVariable = await window.RewstLib.orgVariables.get(`form_${formId}`);
-                        console.log('>>> RewstLib returned:', formVariable);
+                        //console.log('>>> RewstLib returned:', formVariable);
                     } catch (e) {
                         console.error('>>> RewstLib fetch failed:', e);
                         formVariable = null;
@@ -946,7 +946,7 @@
                 
                 // Fallback to GraphQL if RewstLib not available or failed
                 if (!formVariable) {
-                    console.log('>>> Using fallback GraphQL fetch');
+                    //console.log('>>> Using fallback GraphQL fetch');
                     // Fallback: direct GraphQL query if RewstLib isn't loaded
                     const response = await fetch('/graphql', {
                         method: 'POST',
@@ -969,24 +969,24 @@
                     });
 
                     const data = await response.json();
-                    console.log('>>> GraphQL response:', data);
+                    //console.log('>>> GraphQL response:', data);
 
                     if (data.errors) {
                         throw new Error(`GraphQL Error: ${data.errors[0]?.message || 'Unknown error'}`);
                     }
 
                     const variables = data.data?.visibleOrgVariables || [];
-                    console.log('>>> Variables found:', variables.length);
+                    //console.log('>>> Variables found:', variables.length);
                     if (variables.length > 0) {
                         formVariable = variables[0];
                     }
                 }
                 
-                console.log('>>> Final formVariable:', formVariable);
+                //console.log('>>> Final formVariable:', formVariable);
                 
                 if (!formVariable) {
                     console.warn('No form variable found for form_id:', formId);
-                    console.log('Loading element:', loading);
+                    //console.log('Loading element:', loading);
                     
                     // Update the preview content to show the error message
                     const previewContent = document.getElementById('previewContent');
@@ -996,16 +996,16 @@
                     
                     // Show the "Form not found" message in place of loading message
                     if (loading) {
-                        console.log('Setting loading message for form_id:', formId);
+                        //console.log('Setting loading message for form_id:', formId);
                         loading.style.background = '#f8d7da';
                         loading.style.borderColor = '#f5c6cb';
                         loading.style.color = '#721c24';
                         loading.innerHTML = `<h4 style="font-size: 14px; margin: 0; color: #721c24;">Form ID ${escapeHtml(formId)} Not Found</h4>`;
                         loading.style.display = 'block';
-                        console.log('Loading display set to:', loading.style.display);
-                        console.log('Loading innerHTML:', loading.innerHTML);
+                        //console.log('Loading display set to:', loading.style.display);
+                        //console.log('Loading innerHTML:', loading.innerHTML);
                     } else {
-                        console.log('Loading element is null/undefined');
+                        //console.log('Loading element is null/undefined');
                     }
                     
                     return { notFound: true };
@@ -1029,11 +1029,11 @@
                     form_config: formConfig
                 };
 
-                console.log('>>> Successfully loaded form:', form);
-                console.log('>>> Calling renderForm with form object');
+                //console.log('>>> Successfully loaded form:', form);
+                //console.log('>>> Calling renderForm with form object');
                 try {
                     await renderForm(form);
-                    console.log('>>> renderForm completed successfully');
+                    //console.log('>>> renderForm completed successfully');
                 } catch (renderError) {
                     console.error('>>> ERROR in renderForm:', renderError);
                     console.error('>>> Stack:', renderError.stack);
@@ -1263,7 +1263,7 @@
                     return;
                 }
                 
-                console.log('Loading form at index:', selectedIndex);
+                //console.log('Loading form at index:', selectedIndex);
                 await selectForm(selectedIndex);
             });
         }
@@ -1435,9 +1435,9 @@
         // Instead, we'll inject the waiting message div after the container is rendered
 
         async function renderForm(form) {
-            console.log('>>> renderForm STARTED');
+            //console.log('>>> renderForm STARTED');
             const previewContent = document.getElementById('previewContent');
-            console.log('>>> previewContent element found:', !!previewContent);
+            //console.log('>>> previewContent element found:', !!previewContent);
             const previewParent = previewContent.parentElement;
             
             // Clear dropdown metadata for this form render
@@ -2365,9 +2365,9 @@
             window.formViewerRenderFieldHTML = renderFieldHTML;
             
             
-            console.log('>>> renderForm: fieldConfigs count:', fieldConfigs.length);
-            console.log('>>> renderForm: columnCount:', columnCount);
-            console.log('>>> renderForm: skip_thirdwall config:', fieldConfigs.find(f => f.field_name === 'skip_thirdwall'));
+            //console.log('>>> renderForm: fieldConfigs count:', fieldConfigs.length);
+            //console.log('>>> renderForm: columnCount:', columnCount);
+            //console.log('>>> renderForm: skip_thirdwall config:', fieldConfigs.find(f => f.field_name === 'skip_thirdwall'));
             fieldConfigs.forEach(f => {
                 console.log(`>>> Field: ${f.field_name}, hidden: ${f.hidden}, condition_1: ${f.condition_1}`);
             });
@@ -2514,7 +2514,7 @@
             // Wrap the form HTML in a container with proper styling
             const formContainerHtml = `<div class="form-container">${html}</div>`;
             previewContent.innerHTML = formContainerHtml;
-            console.log('>>> renderForm: HTML written to previewContent, length:', html.length);
+            //console.log('>>> renderForm: HTML written to previewContent, length:', html.length);
             
             // Inject waiting message divs into multi-select containers (that were rendered by renderMultiSelectContainer)
             fieldConfigs.forEach(config => {
@@ -2882,7 +2882,13 @@
                     const blockEnd = match.index + match[0].length;
                     
                     // Evaluate the condition against pageVariables
-                    const conditionMet = RewstLib.forms.evaluateCondition(condition, window.pageVariables || {});
+                    let conditionMet = false;
+                    try {
+                        conditionMet = RewstLib.forms.evaluateCondition(condition, window.pageVariables || {});
+                    } catch (e) {
+                        // If condition can't be evaluated (e.g., undefined variable), treat as false
+                        conditionMet = false;
+                    }
                     
                     if (!conditionMet) {
                         // Mark this block for removal
@@ -4677,6 +4683,13 @@
                         if (result.success && result.result) {
                             populatePSADropdown(result.result);
                             console.log(`[PSA] Successfully loaded ${Array.isArray(result.result) ? result.result.length : 1} options for ${config.field_name}`);
+                            
+                            // Re-enable refresh button now that options are loaded
+                            const refreshBtn = document.querySelector(`[data-field-name="${config.field_name}"] .dropdown-refresh-btn`);
+                            if (refreshBtn) {
+                                refreshBtn.disabled = false;
+                                console.log(`[PSA] Enabled refresh button for ${config.field_name}`);
+                            }
                         } else {
                             throw new Error(result.error || 'PSA API request failed');
                         }
