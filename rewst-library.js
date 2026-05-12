@@ -2524,15 +2524,43 @@ const GRAPHQL_OPERATIONS = {
    */
   function getValueByPath(obj, path) {
     if (!path) return obj;
-    const parts = path.split('.');
+    
+    // Handle array indexing and dot notation
+    // Parse path like "0.property" or "[0].property" into segments
     let current = obj;
-    for (const part of parts) {
-      if (current && typeof current === 'object') {
-        current = current[part];
-      } else {
-        return undefined;
+    
+    // Split by dots but preserve array indices
+    // E.g., "[0].property[1].name" becomes ["[0]", "property[1]", "name"]
+    const segments = path.split('.');
+    
+    for (const segment of segments) {
+      if (current === undefined || current === null) return undefined;
+      
+      // Check if this segment has array indices like "property[0]" or just "[0]"
+      const arrayIndexMatch = segment.match(/^(\w*)(\[\d+\])*$/);
+      if (!arrayIndexMatch) return undefined;
+      
+      const propertyName = arrayIndexMatch[1] || '';
+      
+      // First, get the property if there's a name
+      if (propertyName) {
+        current = current[propertyName];
       }
+      
+      // Then, apply any array indices
+      const indices = segment.match(/\[\d+\]/g) || [];
+      for (const indexStr of indices) {
+        const index = parseInt(indexStr.slice(1, -1)); // Extract number from "[0]"
+        if (Array.isArray(current)) {
+          current = current[index];
+        } else {
+          return undefined;
+        }
+      }
+      
+      if (current === undefined || current === null) return undefined;
     }
+    
     return current;
   }
 
@@ -2694,14 +2722,14 @@ const GRAPHQL_OPERATIONS = {
       return resolvedValue;
     }
     
-    // Handle bracket syntax (e.g., "[[varName.property|operator]]")
-    const result = text.replace(/\[\[\s*(\w+)(?:\.([^\]|]+))?(?:\|([a-z_]+))?\s*\]\]/g, (match, varName, propertyPath, operator) => {
-      // Trim propertyPath to remove leading/trailing spaces
-      if (propertyPath) {
-        propertyPath = propertyPath.trim();
+    // Handle bracket syntax (e.g., "[[varName.property|operator]]", "[[varName[0].property]]")
+    const result = text.replace(/\[\[\s*(\w+)([\w\.\[\]]*)?(?:\|([a-z_]+))?\s*\]\]/g, (match, varName, pathPart, operator) => {
+      // Trim pathPart to remove leading/trailing spaces
+      if (pathPart) {
+        pathPart = pathPart.trim();
       }
       
-      console.log(`[REPLACE_VARS] Found ref: match="${match}", varName="${varName}", propertyPath="${propertyPath}", operator="${operator}"`);
+      console.log(`[REPLACE_VARS] Found ref: match="${match}", varName="${varName}", pathPart="${pathPart}", operator="${operator}"`);
       
       const value = window.pageVariables[varName];
       console.log(`[REPLACE_VARS] Looked up ${varName}:`, value);
@@ -2713,9 +2741,9 @@ const GRAPHQL_OPERATIONS = {
       
       let resolvedValue = value;
       
-      if (propertyPath) {
-        console.log(`[REPLACE_VARS] Getting nested path: ${propertyPath}`);
-        resolvedValue = getValueByPath(value, propertyPath);
+      if (pathPart) {
+        console.log(`[REPLACE_VARS] Getting nested path: ${pathPart}`);
+        resolvedValue = getValueByPath(value, pathPart);
         console.log(`[REPLACE_VARS] Nested value:`, resolvedValue);
         if (resolvedValue === undefined) return match;
       }
