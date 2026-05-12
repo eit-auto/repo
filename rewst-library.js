@@ -2723,7 +2723,7 @@ const GRAPHQL_OPERATIONS = {
     }
     
     // Handle bracket syntax (e.g., "[[varName.property|operator]]", "[[varName[0].property]]")
-    const result = text.replace(/\[\[\s*(\w+)([^\]]*)?(?:\|([a-z_]+))?\s*\]\]/g, (match, varName, pathPart, operator) => {
+    const result = text.replace(/\[\[\s*(\w+)([^|]*?)(?:\|([a-z_]+))?\s*\]\]/g, (match, varName, pathPart, operator) => {
       // Trim pathPart to remove leading/trailing spaces
       if (pathPart) {
         pathPart = pathPart.trim();
@@ -2801,7 +2801,7 @@ const GRAPHQL_OPERATIONS = {
    */
   function extractPageVariableReferences(text) {
     if (!text || typeof text !== 'string') return [];
-    const regex = /\[\[\s*(\w+)([^\]]*)?(?:\|[a-z_]+)?\s*\]\]/g;
+    const regex = /\[\[\s*(\w+)([^|]*?)(?:\|[a-z_]+)?\s*\]\]/g;
     const matches = [];
     let match;
     while ((match = regex.exec(text)) !== null) {
