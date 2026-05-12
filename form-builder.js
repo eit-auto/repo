@@ -1069,6 +1069,7 @@ function saveTypeSpecificFields(fieldConfig) {
             // Query is already set via the SQL Query modal handler
             fieldConfig.label_field = document.getElementById('mysql_label_field')?.value || '';
             fieldConfig.value_field = document.getElementById('mysql_value_field')?.value || '';
+            fieldConfig.default_selector = document.getElementById('mysql_default_selector')?.value || 'default';
             fieldConfig.multi_select = document.getElementById('multi_select')?.checked || false;
             fieldConfig.searchable = document.getElementById('searchable')?.checked !== false;
             fieldConfig.result_var = document.getElementById('result_var')?.value || '';
@@ -1076,6 +1077,7 @@ function saveTypeSpecificFields(fieldConfig) {
             // Query is already set via the SQL Query modal handler
             fieldConfig.label_field = document.getElementById('cwa_mysql_label_field')?.value || '';
             fieldConfig.value_field = document.getElementById('cwa_mysql_value_field')?.value || '';
+            fieldConfig.default_selector = document.getElementById('cwa_mysql_default_selector')?.value || 'default';
             fieldConfig.multi_select = document.getElementById('multi_select')?.checked || false;
             fieldConfig.searchable = document.getElementById('searchable')?.checked !== false;
             fieldConfig.result_var = document.getElementById('result_var')?.value || '';
@@ -1109,6 +1111,7 @@ function saveTypeSpecificFields(fieldConfig) {
             // Common fields for all modes
             fieldConfig.label_field = document.getElementById('mesh_label_field')?.value || '';
             fieldConfig.value_field = document.getElementById('mesh_value_field')?.value || '';
+            fieldConfig.default_selector = document.getElementById('mesh_default_selector')?.value || 'default';
             fieldConfig.multi_select = document.getElementById('multi_select')?.checked || false;
             fieldConfig.searchable = document.getElementById('searchable')?.checked !== false;
             fieldConfig.result_var = document.getElementById('result_var')?.value || '';
@@ -1128,6 +1131,7 @@ function saveTypeSpecificFields(fieldConfig) {
             fieldConfig.flatten = document.getElementById('psa_flatten')?.checked !== false;
             fieldConfig.label_field = document.getElementById('psa_label_field')?.value || '';
             fieldConfig.value_field = document.getElementById('psa_value_field')?.value || '';
+            fieldConfig.default_selector = document.getElementById('psa_default_selector')?.value || 'default';
             fieldConfig.multi_select = document.getElementById('multi_select')?.checked || false;
             fieldConfig.searchable = document.getElementById('searchable')?.checked !== false;
             fieldConfig.result_var = document.getElementById('result_var')?.value || '';
@@ -1184,6 +1188,7 @@ function saveTypeSpecificFields(fieldConfig) {
             fieldConfig.result_path = document.getElementById('prefetch_result_path')?.value || '';
             fieldConfig.label_field = document.getElementById('prefetch_label_field')?.value || '';
             fieldConfig.value_field = document.getElementById('prefetch_value_field')?.value || '';
+            fieldConfig.default_selector = document.getElementById('prefetch_default_selector')?.value || 'default';
             fieldConfig.multi_select = document.getElementById('multi_select')?.checked || false;
             fieldConfig.searchable = document.getElementById('searchable')?.checked !== false;
             fieldConfig.result_var = document.getElementById('result_var')?.value || '';
@@ -1194,6 +1199,7 @@ function saveTypeSpecificFields(fieldConfig) {
             fieldConfig.value_field = document.getElementById('tree_value_field')?.value || '';
             fieldConfig.parent_field = document.getElementById('tree_parent_field')?.value || '';
             fieldConfig.level_field = document.getElementById('tree_level_field')?.value || '';
+            fieldConfig.default_selector = document.getElementById('tree_default_selector')?.value || 'default';
             fieldConfig.searchable = document.getElementById('searchable')?.checked !== false;
             fieldConfig.result_var = document.getElementById('result_var')?.value || '';
         } else if (elementType === 'datatable') {
@@ -3061,6 +3067,10 @@ function showElementSettings(elementUid) {
                 <label style='display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;'>Value Field (Column Name)</label>
                 <input type='text' id='mysql_value_field' value='${fieldConfig.value_field || ''}' placeholder='e.g., id' style='width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box;'>
             </div>
+            <div style='margin-bottom: 15px;'>
+                <label style='display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;'>Default Selector Name</label>
+                <input type='text' id='mysql_default_selector' value='${fieldConfig.default_selector || 'default'}' placeholder='default' style='width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box;'>
+            </div>
         `;
     } else if (fieldConfig.type === 'dropdown_cwa_mysql') {
         formHTML += `
@@ -3075,6 +3085,10 @@ function showElementSettings(elementUid) {
             <div style='margin-bottom: 15px;'>
                 <label style='display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;'>Value Field (Column Name)</label>
                 <input type='text' id='cwa_mysql_value_field' value='${fieldConfig.value_field || ''}' placeholder='e.g., id' style='width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box;'>
+            </div>
+            <div style='margin-bottom: 15px;'>
+                <label style='display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;'>Default Selector Name</label>
+                <input type='text' id='cwa_mysql_default_selector' value='${fieldConfig.default_selector || 'default'}' placeholder='default' style='width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box;'>
             </div>
         `;
     } else if (fieldConfig.type === 'dropdown_mesh') {
@@ -3147,6 +3161,10 @@ function showElementSettings(elementUid) {
             <div style='margin-bottom: 15px;'>
                 <label style='display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;'>Value Field (JSON Key)</label>
                 <input type='text' id='mesh_value_field' value='${fieldConfig.value_field || ''}' placeholder='e.g., id' style='width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box;'>
+            </div>
+            <div style='margin-bottom: 15px;'>
+                <label style='display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;'>Default Selector Name</label>
+                <input type='text' id='mesh_default_selector' value='${fieldConfig.default_selector || 'default'}' placeholder='default' style='width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box;'>
             </div>
         `;
     } else if (fieldConfig.type === 'data_retrieval') {
@@ -3317,6 +3335,10 @@ function showElementSettings(elementUid) {
                 <label style='display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;'>Value Field</label>
                 <input type='text' id='prefetch_value_field' value='${fieldConfig.value_field || ''}' placeholder='e.g., id' style='width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box;'>
             </div>
+            <div style='margin-bottom: 15px;'>
+                <label style='display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;'>Default Selector Name</label>
+                <input type='text' id='prefetch_default_selector' value='${fieldConfig.default_selector || 'default'}' placeholder='default' style='width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box;'>
+            </div>
         `;
     } else if (fieldConfig.type === 'dropdown_tree') {
         // Dropdown Tree element - uses hierarchical data from data_retrieval element
@@ -3355,6 +3377,10 @@ function showElementSettings(elementUid) {
                 <label style='display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;'>Level Field</label>
                 <input type='text' id='tree_level_field' value='${fieldConfig.level_field || ''}' placeholder='e.g., level' style='width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box;'>
                 <div style='color: #999; font-size: 12px; margin-top: 6px;'>Field that indicates the depth/level in the tree hierarchy.</div>
+            </div>
+            <div style='margin-bottom: 15px;'>
+                <label style='display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;'>Default Selector Name</label>
+                <input type='text' id='tree_default_selector' value='${fieldConfig.default_selector || 'default'}' placeholder='default' style='width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box;'>
             </div>
         `;
     } else if (fieldConfig.type === 'dropdown_psa') {
@@ -3431,6 +3457,10 @@ function showElementSettings(elementUid) {
                 <label style='display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;'>Value Field</label>
                 <input type='text' id='psa_value_field' value='${fieldConfig.value_field || ''}' placeholder='e.g., id' style='width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box;'>
                 <div style='color: #999; font-size: 12px; margin-top: 6px;'>Field to use as dropdown value</div>
+            </div>
+            <div style='margin-bottom: 15px;'>
+                <label style='display: block; margin-bottom: 8px; color: #ffffff; font-weight: 600; font-size: 14px;'>Default Selector Name</label>
+                <input type='text' id='psa_default_selector' value='${fieldConfig.default_selector || 'default'}' placeholder='default' style='width: 100%; padding: 10px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; box-sizing: border-box;'>
             </div>
         `;
     } else if (fieldConfig.type === 'datatable') {
