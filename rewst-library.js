@@ -2797,18 +2797,18 @@ const GRAPHQL_OPERATIONS = {
 
   /**
    * Extract [[ variable_name.property ]] references from a string
-   * Returns array of {fullMatch, varName, propertyPath}
+   * Returns array of {fullMatch, varName, pathPart}
    */
   function extractPageVariableReferences(text) {
     if (!text || typeof text !== 'string') return [];
-    const regex = /\[\[\s*(\w+)(?:\.([^\]]+))?\s*\]\]/g;
+    const regex = /\[\[\s*(\w+)([\w\.\[\]]*)?(?:\|[a-z_]+)?\s*\]\]/g;
     const matches = [];
     let match;
     while ((match = regex.exec(text)) !== null) {
       matches.push({
         fullMatch: match[0],
         varName: match[1],
-        propertyPath: match[2] ? match[2].trim() : ''
+        pathPart: match[2] ? match[2].trim() : ''
       });
     }
     return matches;
