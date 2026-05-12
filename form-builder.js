@@ -406,7 +406,7 @@ const ELEMENT_TYPE_DEFAULTS = {
         label_field: '',
         value_field: '',
         multi_select: false,
-        default_value: null,
+        default_selector: 'default',
         searchable: true,
         result_var: ''
     },
@@ -415,7 +415,7 @@ const ELEMENT_TYPE_DEFAULTS = {
         label_field: '',
         value_field: '',
         multi_select: false,
-        default_value: null,
+        default_selector: 'default',
         searchable: true,
         result_var: ''
     },
@@ -428,7 +428,7 @@ const ELEMENT_TYPE_DEFAULTS = {
         label_field: '',
         value_field: '',
         multi_select: false,
-        default_value: null,
+        default_selector: 'default',
         searchable: true,
         result_var: ''
     },
@@ -461,7 +461,7 @@ const ELEMENT_TYPE_DEFAULTS = {
         label_field: '',
         value_field: '',
         multi_select: false,
-        default_value: null,
+        default_selector: 'default',
         searchable: true,
         result_var: ''
     },
@@ -471,7 +471,7 @@ const ELEMENT_TYPE_DEFAULTS = {
         value_field: '',
         parent_field: '',               // Field that identifies parent for tree hierarchy
         level_field: '',                // Field that indicates depth/level
-        default_value: null,
+        default_selector: 'default',
         searchable: true,
         result_var: ''
     },
@@ -491,7 +491,7 @@ const ELEMENT_TYPE_DEFAULTS = {
         label_field: '',                // Which field to display in dropdown
         value_field: '',                // Which field is the value
         multi_select: false,
-        default_value: null,
+        default_selector: 'default',
         searchable: true,
         result_var: ''
     },
