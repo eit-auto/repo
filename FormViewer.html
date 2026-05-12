@@ -57,6 +57,12 @@
             border: none !important;
         }
 
+        /* Searchable select toggle button z-index fix */
+        .searchable-select-toggle {
+            z-index: 10 !important;
+            cursor: pointer;
+        }
+
         .modal-status {
             color: #ffffff;
             font-weight: 600;
@@ -2650,6 +2656,91 @@
                             graphqlCache: graphqlCache,
                             proxyCache: proxyCache
                           });
+                          
+                          // If the field was cleared (empty value), clear dependent dropdown contents
+                          if ((fieldValue === '' || fieldValue === null) && config.result_var && !window.pageVariables[config.result_var]) {
+                              // Find dependent fields and clear them
+                              fieldConfigs.forEach(fc => {
+                                  const isDependentOnChanged = fc.dependant_fields && (
+                                      (typeof fc.dependant_fields === 'object' && config.field_name in fc.dependant_fields) ||
+                                      (typeof fc.dependant_fields === 'string' && fc.dependant_fields.includes(config.field_name))
+                                  );
+                                  
+                                  if (isDependentOnChanged) {
+                                      console.log(`[CLEAR_DEPS] Clearing dependent field ${fc.field_name} because ${config.field_name} was cleared`);
+                                      
+                                      // Clear the dropdown contents
+                                      if (fc.multi_select) {
+                                          const multiSelect = document.querySelector(`#ms_${fc.field_name}`);
+                                          if (multiSelect) {
+                                              const tagsContainer = multiSelect.querySelector('.multi-select-tags');
+                                              if (tagsContainer) {
+                                                  tagsContainer.innerHTML = '<span class="multi-select-placeholder">-- Select options --</span>';
+                                              }
+                                              const optionsContainer = multiSelect.querySelector('.multi-select-options');
+                                              if (optionsContainer) {
+                                                  optionsContainer.innerHTML = '';
+                                              }
+                                          }
+                                      } else {
+                                          const select = document.querySelector(`select[name="${fc.field_name}"]`);
+                                          if (select) {
+                                              select.innerHTML = `<option value="">${RewstLib.utils.getGrammaticalPhrase(fc.field_displayname, 'Select')}</option>`;
+                                          }
+                                      }
+                                      
+                                      // Clear the page variable for this field
+                                      if (fc.result_var) {
+                                          window.pageVariables[fc.result_var] = null;
+                                      }
+                                      window.pageVariables[fc.field_name] = null;
+                                  }
+                              });
+                          }
+                        }
+                        
+                        // Also handle implicit dependencies when this field has a result_var
+                        if (config.result_var) {
+                            // Find all fields that have implicit dependencies on this result_var
+                            fieldConfigs.forEach(fc => {
+                                const implicitDeps = RewstLib.utils.extractImplicitDependencies(fc);
+                                const dependsOnResultVar = implicitDeps.includes(config.result_var);
+                                
+                                if (dependsOnResultVar) {
+                                    console.log(`[IMPLICIT_DEPS] Field ${fc.field_name} has implicit dependency on ${config.result_var}`);
+                                    
+                                    // If the field was cleared, also clear dependent fields
+                                    if ((fieldValue === '' || fieldValue === null) && !window.pageVariables[config.result_var]) {
+                                        console.log(`[CLEAR_IMPLICIT] Clearing field ${fc.field_name} because ${config.result_var} was cleared`);
+                                        
+                                        // Clear the dropdown contents
+                                        if (fc.multi_select) {
+                                            const multiSelect = document.querySelector(`#ms_${fc.field_name}`);
+                                            if (multiSelect) {
+                                                const tagsContainer = multiSelect.querySelector('.multi-select-tags');
+                                                if (tagsContainer) {
+                                                    tagsContainer.innerHTML = '<span class="multi-select-placeholder">-- Select options --</span>';
+                                                }
+                                                const optionsContainer = multiSelect.querySelector('.multi-select-options');
+                                                if (optionsContainer) {
+                                                    optionsContainer.innerHTML = '';
+                                                }
+                                            }
+                                        } else {
+                                            const select = document.querySelector(`select[name="${fc.field_name}"]`);
+                                            if (select) {
+                                                select.innerHTML = `<option value="">${RewstLib.utils.getGrammaticalPhrase(fc.field_displayname, 'Select')}</option>`;
+                                            }
+                                        }
+                                        
+                                        // Clear the page variable for this field
+                                        if (fc.result_var) {
+                                            window.pageVariables[fc.result_var] = null;
+                                        }
+                                        window.pageVariables[fc.field_name] = null;
+                                    }
+                                }
+                            });
                         }
                         
                         // Then update dependent fields (they'll load into visible fields, not hidden ones)
@@ -4088,9 +4179,231 @@
             const skipCache = config.skip_cache === true || (config.dependant_fields && Object.values(config.dependant_fields).some(dep => dep.blocking === true));
             const options = skipCache ? { skip_cache: true } : {};
             
+            // ========================================
+            // Helper function to reset dropdown from No Results state
+            // ========================================
+            const resetDropdownFromNoResults = (fieldName) => {
+                // Try multi-select
+                const multiSelectContainer = document.getElementById(`ms_${fieldName}`);
+                if (multiSelectContainer) {
+                    const tagsContainer = multiSelectContainer.querySelector('.multi-select-tags');
+                    const hiddenSelect = multiSelectContainer.querySelector('select');
+                    
+                    // Reset styles
+                    multiSelectContainer.classList.remove('disabled');
+                    multiSelectContainer.style.opacity = '1';
+                    multiSelectContainer.style.pointerEvents = 'auto';
+                    
+                    // Clear placeholder
+                    if (tagsContainer) {
+                        tagsContainer.innerHTML = '<span class="multi-select-placeholder">-- Select options --</span>';
+                    }
+                    
+                    // Re-enable hidden select
+                    if (hiddenSelect) {
+                        hiddenSelect.disabled = false;
+                    }
+                    
+                    console.log(`[RESET] Multi-select dropdown ${fieldName} reset from No Results`);
+                    return;
+                }
+                
+                // Try searchable single-select
+                const searchableHiddenSelect = document.querySelector(`select.searchable-select-hidden-select[name="${fieldName}"]`);
+                if (searchableHiddenSelect) {
+                    const wrapper = searchableHiddenSelect.parentElement;
+                    if (wrapper) {
+                        const searchableInput = wrapper.querySelector('input.searchable-select-input');
+                        const dropdown = wrapper.querySelector('.searchable-select-dropdown');
+                        
+                        // Re-enable input
+                        if (searchableInput) {
+                            searchableInput.disabled = false;
+                            searchableInput.placeholder = 'Search or select...';
+                            searchableInput.value = '';
+                            searchableInput.style.cursor = 'text';
+                        }
+                        
+                        // Re-enable and reset dropdown
+                        if (dropdown) {
+                            dropdown.innerHTML = '';
+                            dropdown.style.display = 'none';
+                        }
+                        
+                        // Re-enable hidden select
+                        searchableHiddenSelect.disabled = false;
+                        
+                        // Re-enable toggle button
+                        const toggle = wrapper.querySelector('.searchable-select-toggle');
+                        if (toggle) {
+                            toggle.style.pointerEvents = 'auto';
+                            toggle.style.opacity = '1';
+                            toggle.style.cursor = 'pointer';
+                        }
+                        
+                        // Re-enable clear button
+                        const clearBtn = wrapper.querySelector('.searchable-select-clear');
+                        if (clearBtn) {
+                            clearBtn.style.pointerEvents = 'auto';
+                            clearBtn.style.opacity = '1';
+                        }
+                    }
+                    
+                    console.log(`[RESET] Searchable single-select dropdown ${fieldName} reset from No Results`);
+                    return;
+                }
+                
+                // Try regular single-select
+                const select = document.querySelector(`select[name="${fieldName}"]:not(.searchable-select-hidden-select)`);
+                if (select) {
+                    select.disabled = false;
+                    select.innerHTML = '<option value="">Loading...</option>';
+                    console.log(`[RESET] Single-select dropdown ${fieldName} reset from No Results`);
+                }
+            };
+            
+            // ========================================
+            // Helper function to handle dropdown with no results
+            // ========================================
+            const handleDropdownNoResults = (fieldName) => {
+                // Try to find multi-select container first
+                const multiSelectContainer = document.getElementById(`ms_${fieldName}`);
+                if (multiSelectContainer) {
+                    // Multi-select dropdown
+                    const tagsContainer = multiSelectContainer.querySelector('.multi-select-tags');
+                    const optionsContainer = multiSelectContainer.querySelector('.multi-select-options');
+                    const hiddenSelect = multiSelectContainer.querySelector('select');
+                    
+                    // Clear and set placeholder in tags
+                    if (tagsContainer) {
+                        tagsContainer.innerHTML = '<span class="multi-select-placeholder" style="color: #999; padding: 8px;">-- No Results --</span>';
+                    }
+                    
+                    // Clear options
+                    if (optionsContainer) {
+                        optionsContainer.innerHTML = '';
+                    }
+                    
+                    // Disable the multi-select container
+                    multiSelectContainer.classList.add('disabled');
+                    multiSelectContainer.style.opacity = '0.6';
+                    multiSelectContainer.style.pointerEvents = 'none';
+                    
+                    // Disable the hidden select
+                    if (hiddenSelect) {
+                        hiddenSelect.disabled = true;
+                    }
+                    
+                    // Enable refresh button
+                    const refreshBtn = document.querySelector(`[data-field-name="${fieldName}"].dropdown-refresh-btn`);
+                    if (refreshBtn) {
+                        refreshBtn.disabled = false;
+                    }
+                    
+                    console.log(`[NO_RESULTS] Multi-select dropdown ${fieldName} has no results`);
+                    return;
+                }
+                
+                // Try searchable single-select (find via hidden select with field name)
+                const searchableHiddenSelect = document.querySelector(`select.searchable-select-hidden-select[name="${fieldName}"]`);
+                if (searchableHiddenSelect) {
+                    const wrapper = searchableHiddenSelect.parentElement;
+                    if (wrapper) {
+                        const searchableInput = wrapper.querySelector('input.searchable-select-input');
+                        const dropdown = wrapper.querySelector('.searchable-select-dropdown');
+                        
+                        // Disable input
+                        if (searchableInput) {
+                            searchableInput.disabled = true;
+                            searchableInput.placeholder = '-- No Results --';
+                            searchableInput.value = '';
+                        }
+                        
+                        // Clear and hide dropdown
+                        if (dropdown) {
+                            dropdown.innerHTML = '';
+                            dropdown.style.display = 'none';
+                        }
+                        
+                        // Disable hidden select
+                        searchableHiddenSelect.disabled = true;
+                        
+                        // Disable toggle button
+                        const toggle = wrapper.querySelector('.searchable-select-toggle');
+                        if (toggle) {
+                            toggle.style.pointerEvents = 'none';
+                            toggle.style.opacity = '0.5';
+                        }
+                        
+                        // Disable clear button if exists
+                        const clearBtn = wrapper.querySelector('.searchable-select-clear');
+                        if (clearBtn) {
+                            clearBtn.style.pointerEvents = 'none';
+                        }
+                        
+                        // Enable refresh button
+                        const refreshBtn = document.querySelector(`[data-field-name="${fieldName}"].dropdown-refresh-btn`);
+                        if (refreshBtn) {
+                            refreshBtn.disabled = false;
+                        }
+                        
+                        console.log(`[NO_RESULTS] Searchable single-select dropdown ${fieldName} has no results`);
+                        return;
+                    }
+                }
+                
+                // Try regular single-select (fallback)
+                const select = document.querySelector(`select[name="${fieldName}"]:not(.searchable-select-hidden-select)`);
+                if (select) {
+                    select.innerHTML = `<option value="">-- No Results --</option>`;
+                    select.disabled = true;
+                    
+                    // Enable refresh button
+                    const refreshBtn = document.querySelector(`[data-field-name="${fieldName}"].dropdown-refresh-btn`);
+                    if (refreshBtn) {
+                        refreshBtn.disabled = false;
+                    }
+                    
+                    console.log(`[NO_RESULTS] Single-select dropdown ${fieldName} has no results`);
+                }
+            };
+            
+            // ========================================
+            // Helper function to extract selected values based on default_selector
+            // ========================================
+            const extractDefaultSelectedValues = (data, config, isMultiSelect) => {
+                if (!Array.isArray(data) || !config.default_selector) {
+                    return [];
+                }
+                
+                const selectorField = config.default_selector;
+                const selectedItems = data.filter(item => item[selectorField] === 1);
+                
+                if (selectedItems.length === 0) {
+                    return [];
+                }
+                
+                // For multi-select: return all selected values
+                if (isMultiSelect) {
+                    return selectedItems.map(item => 
+                        RewstLib.utils.formatItemLabel(config.value_field || config.value_name || 'id', item)
+                    );
+                }
+                
+                // For single-select: only auto-select if exactly one item is marked
+                if (selectedItems.length === 1) {
+                    return [RewstLib.utils.formatItemLabel(config.value_field || config.value_name || 'id', selectedItems[0])];
+                }
+                
+                // Multiple items marked for single-select: ignore auto-select
+                console.warn(`[DEFAULT_SELECTOR] Multiple items marked for single-select ${config.field_name}, ignoring auto-select`);
+                return [];
+            };
+            
             // Handle dropdown_graphql separately with caching
             if (config.type === 'dropdown_graphql') {
                 console.log(`Loading GraphQL options for ${config.field_name} using operation: ${config.graphql_op}`);
+                resetDropdownFromNoResults(config.field_name);
                 
                 // Check if dependencies are met (includes both explicit and implicit)
                 const depsMet = RewstLib.utils.areDependenciesMet(config, allFieldConfigs);
@@ -4130,23 +4443,20 @@
                         if (config.multi_select) {
                             // Multi-select: use library function
                             const msOptions = RewstLib.utils.mapResultsToOptions(itemsArray, config.value_name, config.label_name);
-                            RewstLib.utils.initializeDropdownMultiSelect(config.field_name, msOptions);
+                            const defaultSelected = extractDefaultSelectedValues(itemsArray, config, true);
+                            RewstLib.utils.initializeDropdownMultiSelect(config.field_name, msOptions, defaultSelected);
                         } else {
                             // Single-select: use consolidated initialization (handles both searchable and normal)
                             const options = itemsArray.map(item => ({
                                 value: RewstLib.utils.formatItemLabel(config.value_name, item),
                                 label: RewstLib.utils.formatItemLabel(config.label_name, item)
                             }));
-                            RewstLib.utils.initializeSingleSelect(config.field_name, options, config, preselectedValues);
+                            const defaultSelected = extractDefaultSelectedValues(itemsArray, config, false);
+                            RewstLib.utils.initializeSingleSelect(config.field_name, options, config, defaultSelected.length > 0 ? defaultSelected : preselectedValues);
                         }
                     } else {
                         // No results
-                        if (config.multi_select) {
-                            // Multi-select: will be handled by the multi-select component
-                        } else {
-                            // Single-select: use consolidated initialization with empty options
-                            RewstLib.utils.initializeSingleSelect(config.field_name, [], config, preselectedValues);
-                        }
+                        handleDropdownNoResults(config.field_name);
                         console.log(`[DROPDOWN] No results for ${config.field_name}`);
                     }
                 };
@@ -4210,6 +4520,7 @@
             // Handle dropdown_mysql - execute SQL query and populate dropdown
             if (config.type === 'dropdown_mysql') {
                 const cacheKey = getQueryCacheKey(config.query, config.query_variables || {});
+                resetDropdownFromNoResults(config.field_name);
                 
                 // Check if dependencies are met (includes both explicit and implicit)
                 const depsMet = RewstLib.utils.areDependenciesMet(config, allFieldConfigs);
@@ -4233,6 +4544,12 @@
                         return;
                     }
                     
+                    // Check for no results
+                    if (data.length === 0) {
+                        handleDropdownNoResults(config.field_name);
+                        return;
+                    }
+                    
                     // Store metadata about this dropdown's data source
                     dropdownSourceMetadata[config.field_name] = {
                         cacheType: 'mysql',
@@ -4248,14 +4565,16 @@
                             value: RewstLib.utils.formatItemLabel(config.value_field, item),
                             label: RewstLib.utils.formatItemLabel(config.label_field, item)
                         }));
-                        RewstLib.utils.repopulateMultiSelectField(config.field_name, options, preselectedValues);
+                        const defaultSelected = extractDefaultSelectedValues(data, config, true);
+                        RewstLib.utils.repopulateMultiSelectField(config.field_name, options, defaultSelected.length > 0 ? defaultSelected : preselectedValues);
                     } else {
                         // Single-select: use consolidated initialization (handles both searchable and normal)
                         const options = data.map(item => ({
                             value: RewstLib.utils.formatItemLabel(config.value_field, item),
                             label: RewstLib.utils.formatItemLabel(config.label_field, item)
                         }));
-                        RewstLib.utils.initializeSingleSelect(config.field_name, options, config, preselectedValues);
+                        const defaultSelected = extractDefaultSelectedValues(data, config, false);
+                        RewstLib.utils.initializeSingleSelect(config.field_name, options, config, defaultSelected.length > 0 ? defaultSelected : preselectedValues);
                     }
                 };
                 
@@ -4295,6 +4614,7 @@
             // Handle dropdown_cwa_mysql - execute CWA MySQL query and populate dropdown
             if (config.type === 'dropdown_cwa_mysql') {
                 const cacheKey = getQueryCacheKey(config.query, config.query_variables || {});
+                resetDropdownFromNoResults(config.field_name);
                 
                 // Check if dependencies are met (includes both explicit and implicit)
                 const depsMet = RewstLib.utils.areDependenciesMet(config, allFieldConfigs);
@@ -4318,6 +4638,12 @@
                         return;
                     }
                     
+                    // Check for no results
+                    if (data.length === 0) {
+                        handleDropdownNoResults(config.field_name);
+                        return;
+                    }
+                    
                     // Store metadata about this dropdown's data source
                     dropdownSourceMetadata[config.field_name] = {
                         cacheType: 'cwa_mysql',
@@ -4333,14 +4659,16 @@
                             value: RewstLib.utils.formatItemLabel(config.value_field, item),
                             label: RewstLib.utils.formatItemLabel(config.label_field, item)
                         }));
-                        RewstLib.utils.repopulateMultiSelectField(config.field_name, options, preselectedValues);
+                        const defaultSelected = extractDefaultSelectedValues(data, config, true);
+                        RewstLib.utils.repopulateMultiSelectField(config.field_name, options, defaultSelected.length > 0 ? defaultSelected : preselectedValues);
                     } else {
                         // Single-select: use consolidated initialization (handles both searchable and normal)
                         const options = data.map(item => ({
                             value: RewstLib.utils.formatItemLabel(config.value_field, item),
                             label: RewstLib.utils.formatItemLabel(config.label_field, item)
                         }));
-                        RewstLib.utils.initializeSingleSelect(config.field_name, options, config, preselectedValues);
+                        const defaultSelected = extractDefaultSelectedValues(data, config, false);
+                        RewstLib.utils.initializeSingleSelect(config.field_name, options, config, defaultSelected.length > 0 ? defaultSelected : preselectedValues);
                     }
                 };
                 
@@ -4380,6 +4708,7 @@
             // Handle dropdown_mesh - execute command or retrieve nodes
             if (config.type === 'dropdown_mesh') {
                 console.log(`[MESH] loadFieldOptions: checking dependencies for ${config.field_name}, has dependant_fields:`, !!config.dependant_fields);
+                resetDropdownFromNoResults(config.field_name);
                 
                 // Check if dependencies are met (includes both explicit and implicit)
                 const depsMet = RewstLib.utils.areDependenciesMet(config, allFieldConfigs);
@@ -4414,6 +4743,12 @@
                         return;
                     }
                     
+                    // Check for no results
+                    if (data.length === 0) {
+                        handleDropdownNoResults(config.field_name);
+                        return;
+                    }
+                    
                     // Store metadata about this dropdown's data source
                     dropdownSourceMetadata[config.field_name] = {
                         cacheType: 'mesh',
@@ -4430,7 +4765,8 @@
                             value: RewstLib.utils.formatItemLabel(config.value_field, item),
                             label: RewstLib.utils.formatItemLabel(config.label_field, item)
                         }));
-                        RewstLib.utils.initializeDropdownMultiSelect(config.field_name, options);
+                        const defaultSelected = extractDefaultSelectedValues(data, config, true);
+                        RewstLib.utils.initializeDropdownMultiSelect(config.field_name, options, defaultSelected);
                     } else {
                         // Single-select: use consolidated initialization (handles both searchable and normal)
                         console.log(`[MESH] Populating single-select for ${config.field_name}`);
@@ -4438,7 +4774,8 @@
                             value: RewstLib.utils.formatItemLabel(config.value_field, item),
                             label: RewstLib.utils.formatItemLabel(config.label_field, item)
                         }));
-                        RewstLib.utils.initializeSingleSelect(config.field_name, options, config, preselectedValues);
+                        const defaultSelected = extractDefaultSelectedValues(data, config, false);
+                        RewstLib.utils.initializeSingleSelect(config.field_name, options, config, defaultSelected.length > 0 ? defaultSelected : preselectedValues);
                     }
                 };
                 
@@ -4600,6 +4937,7 @@
             // Handle dropdown_psa - execute CWM API via ProxyLib
             if (config.type === 'dropdown_psa') {
                 console.log(`[PSA] loadFieldOptions: loading options for ${config.field_name} from endpoint: ${config.endpoint}`);
+                resetDropdownFromNoResults(config.field_name);
                 
                 // Check if dependencies are met (includes both explicit and implicit)
                 const depsMet = RewstLib.utils.areDependenciesMet(config, allFieldConfigs);
@@ -4632,17 +4970,18 @@
                     if (itemsArray.length > 0) {
                         if (config.multi_select) {
                             const msOptions = RewstLib.utils.mapResultsToOptions(itemsArray, config.value_field, config.label_field);
-                            RewstLib.utils.initializeDropdownMultiSelect(config.field_name, msOptions);
+                            const defaultSelected = extractDefaultSelectedValues(itemsArray, config, true);
+                            RewstLib.utils.initializeDropdownMultiSelect(config.field_name, msOptions, defaultSelected);
                         } else {
                             const options = itemsArray.map(item => ({
                                 value: RewstLib.utils.formatItemLabel(config.value_field, item),
                                 label: RewstLib.utils.formatItemLabel(config.label_field, item)
                             }));
-                            RewstLib.utils.initializeSingleSelect(config.field_name, options, config, preselectedValues);
+                            const defaultSelected = extractDefaultSelectedValues(itemsArray, config, false);
+                            RewstLib.utils.initializeSingleSelect(config.field_name, options, config, defaultSelected.length > 0 ? defaultSelected : preselectedValues);
                         }
                     } else {
-                        const input = document.querySelector(`[name="${config.field_name}"]`);
-                        if (input) input.innerHTML = `<option value="">-- No results --</option>`;
+                        handleDropdownNoResults(config.field_name);
                     }
                 };
                 
@@ -7636,6 +7975,89 @@
 
         // Expose to window for use in HTML field content
         window.collapseNotesContent = collapseNotesContent;
+        
+        // ============================================
+        // Searchable Clear Button Handler
+        // ============================================
+        document.addEventListener('click', function(e) {
+            const clearBtn = e.target.closest('.searchable-select-clear');
+            if (!clearBtn) return;
+            
+            const wrapper = clearBtn.parentElement;
+            if (!wrapper) return;
+            
+            const hiddenSelect = wrapper.querySelector('select.searchable-select-hidden-select');
+            const input = wrapper.querySelector('input.searchable-select-input');
+            const fieldName = hiddenSelect?.name;
+            
+            if (hiddenSelect && fieldName) {
+                // Clear both input and hidden select
+                hiddenSelect.value = '';
+                if (input) {
+                    input.value = '';
+                }
+                
+                // Trigger change event on hidden select
+                const changeEvent = new Event('change', { bubbles: true });
+                hiddenSelect.dispatchEvent(changeEvent);
+                
+                console.log(`[CLEAR_BTN] Cleared searchable field ${fieldName}, triggered change event`);
+            }
+        }, true); // Use capturing phase
+        
+        // ============================================
+        // Searchable Select Toggle Click Handler
+        // ============================================
+        document.addEventListener('click', function(e) {
+            const toggle = e.target.closest('.searchable-select-toggle');
+            if (!toggle) return;
+            
+            // Find the parent wrapper
+            const wrapper = toggle.closest('div[style*="position: relative"]');
+            if (!wrapper) return;
+            
+            // Find the input and dropdown
+            const input = wrapper.querySelector('input.searchable-select-input');
+            const dropdown = wrapper.querySelector('.searchable-select-dropdown');
+            
+            if (!input || !dropdown) return;
+            
+            // Toggle dropdown visibility
+            const isHidden = dropdown.style.display === 'none';
+            dropdown.style.display = isHidden ? 'block' : 'none';
+            
+            // Focus input
+            if (isHidden) {
+                input.focus();
+            }
+            
+            console.log(`[TOGGLE] Clicked toggle for dropdown, now ${isHidden ? 'showing' : 'hiding'}`);
+        }, true); // Use capturing phase to ensure we catch the click
+        
+        // ============================================
+        // Searchable Input Clear Handler
+        // ============================================
+        document.addEventListener('input', function(e) {
+            const input = e.target;
+            if (!input.classList.contains('searchable-select-input')) return;
+            
+            // If input is now empty, clear the hidden select and trigger change
+            if (input.value === '') {
+                const wrapper = input.parentElement;
+                const hiddenSelect = wrapper?.querySelector('select.searchable-select-hidden-select');
+                const fieldName = hiddenSelect?.name;
+                
+                if (hiddenSelect && fieldName) {
+                    hiddenSelect.value = '';
+                    
+                    // Trigger change event on hidden select
+                    const changeEvent = new Event('change', { bubbles: true });
+                    hiddenSelect.dispatchEvent(changeEvent);
+                    
+                    console.log(`[CLEAR] Cleared searchable input for ${fieldName}, triggered change event`);
+                }
+            }
+        }, true);
     </script>
 </div>
 </body>
