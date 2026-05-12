@@ -2748,6 +2748,11 @@
                         
                         // Load options for any dropdowns that just became visible
                         fieldConfigs.forEach(fc => {
+                            // Skip the field that just changed - it's already been processed
+                            if (fc.field_name === config.field_name) {
+                                return;
+                            }
+                            
                             const formGroup = document.querySelector(`[data-field-name="${fc.field_name}"]`);
                             if (formGroup && formGroup.style.display !== 'none') {
                                 const isDropdownType = ['dropdown', 'dropdown_mysql', 'dropdown_cwa_mysql', 'dropdown_graphql', 'dropdown_mesh', 'dropdown_prefetch', 'dropdown_tree', 'dropdown_psa'].includes(fc.type);
