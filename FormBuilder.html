@@ -171,6 +171,7 @@
             <p id="unsavedChangesMessage" style="color: #ffffff; margin: 0 0 30px 0; font-size: 16px; text-align: center;">You have unsaved changes. Are you sure you want to continue without saving?</p>
             <div class="flex-gap-10-center">
                 <button id="unsavedChangesCancel" class="btn btn-grey" class="px-20">Cancel</button>
+                <button id="unsavedChangesSave" class="btn btn-blue" class="px-20">Save Changes</button>
                 <button id="unsavedChangesContinue" class="btn btn-red" class="px-20">Discard Changes</button>
             </div>
         </div>
@@ -222,6 +223,54 @@
                 <div id="previewContainer" class="inner-panel">
                     <div id="previewContent"></div>
                 </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Element SQL Query Modal -->
+    <div class="modal-overlay" id="elementSqlQueryModal" style="z-index: 9997 !important;">
+        <div class="modal" style="max-width: 1000px !important; width: 90vw; max-height: 1000px !important; min-height: 600px; display: flex; flex-direction: column; z-index: 9998 !important;">
+            <button class="btn-close" id="elementSqlQueryModalClose" style="align-self: flex-end;">&times;</button>
+            <h3 id="elementSqlQueryTitle" style="margin: 0 0 15px 0; color: #ffffff; text-align: center;">SQL Query</h3>
+            <div style="display: flex; flex-direction: column; flex: 1; min-height: 0;">
+                <p style="color: #ccc; font-size: 12px; margin: 0 0 10px 0;">Use <code style="background: #1a1a1a; padding: 2px 4px; border-radius: 2px;">[[field_name]]</code> to reference form fields</p>
+                <textarea id="elementSqlQueryTextarea" style="flex: 1; min-height: 250px; padding: 12px; background: #1a1a1a; border: 1px solid #555; border-radius: 4px; color: #ffffff; font-family: 'Courier New', monospace; font-size: 12px; resize: none;" placeholder="SELECT * FROM table WHERE column = [[field_name]]"></textarea>
+            </div>
+            <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 15px;">
+                <button id="elementSqlQueryCancel" class="btn btn-grey">Cancel</button>
+                <button id="elementSqlQuerySave" class="btn btn-blue">Save Query</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Array Item SQL Query Modal -->
+    <div class="modal-overlay" id="arrayItemSqlQueryModal" style="z-index: 10001 !important;">
+        <div class="modal" style="max-width: 1000px !important; width: 90vw; max-height: 1000px !important; min-height: 600px; display: flex; flex-direction: column; z-index: 10002 !important;">
+            <button class="btn-close" id="arrayItemSqlQueryModalClose" style="align-self: flex-end;">&times;</button>
+            <h3 style="margin: 0 0 15px 0; color: #ffffff; text-align: center;">MySQL Query</h3>
+            <div style="display: flex; flex-direction: column; flex: 1; min-height: 0;">
+                <p style="color: #ccc; font-size: 12px; margin: 0 0 10px 0;">Use <code style="background: #1a1a1a; padding: 2px 4px; border-radius: 2px;">[[field_name]]</code> to reference form fields</p>
+                <textarea id="arrayItemSqlQueryTextarea" style="flex: 1; min-height: 250px; padding: 12px; background: #1a1a1a; border: 1px solid #555; border-radius: 4px; color: #ffffff; font-family: 'Courier New', monospace; font-size: 12px; resize: none;" placeholder="SELECT * FROM table WHERE column = [[field_name]]"></textarea>
+            </div>
+            <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 15px;">
+                <button id="arrayItemSqlQueryCancel" class="btn btn-grey">Cancel</button>
+                <button id="arrayItemSqlQuerySave" class="btn btn-blue">Save Query</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- PSA Request Body Modal -->
+    <div class="modal-overlay" id="psaRequestBodyModal" style="z-index: 9995 !important;">
+        <div class="modal" style="max-width: 1000px !important; width: 90vw; max-height: 1000px !important; min-height: 600px; display: flex; flex-direction: column; z-index: 9996 !important;">
+            <button class="btn-close" id="psaRequestBodyModalClose" style="align-self: flex-end;">&times;</button>
+            <h3 style="margin: 0 0 15px 0; color: #ffffff; text-align: center;">Request Body (JSON)</h3>
+            <div style="display: flex; flex-direction: column; flex: 1; min-height: 0;">
+                <p style="color: #ccc; font-size: 12px; margin: 0 0 10px 0;">Use <code style="background: #1a1a1a; padding: 2px 4px; border-radius: 2px;">[[field_name]]</code> to reference form fields</p>
+                <textarea id="psaRequestBodyTextarea" style="flex: 1; min-height: 250px; padding: 12px; background: #1a1a1a; border: 1px solid #555; border-radius: 4px; color: #ffffff; font-family: 'Courier New', monospace; font-size: 12px; resize: none;" placeholder="{}"></textarea>
+            </div>
+            <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 15px;">
+                <button id="psaRequestBodyCancel" class="btn btn-grey">Cancel</button>
+                <button id="psaRequestBodySave" class="btn btn-blue">Save Request Body</button>
             </div>
         </div>
     </div>
