@@ -2587,6 +2587,17 @@ const GRAPHQL_OPERATIONS = {
         expression = expression.replace(new RegExp(`\\b${key}\\b`, 'g'), replacement);
       });
       
+      // Check if expression contains unreplaced variable names (identifiers not in quotes)
+      // This prevents ReferenceError when eval tries to access undefined variables
+      const unreplacedVars = expression.match(/\b[a-zA-Z_]\w*\b(?!['"])/g) || [];
+      const reserved = ['true', 'false', 'null', 'undefined', 'NaN', 'Infinity'];
+      const hasUndefinedVar = unreplacedVars.some(v => !reserved.includes(v) && !/^\d+$/.test(v));
+      
+      if (hasUndefinedVar) {
+        // Variable not available yet, condition can't be evaluated
+        return false;
+      }
+      
       console.log('[CONDITIONAL] Evaluating:', expression);
       return eval(expression);
     } catch (e) {
