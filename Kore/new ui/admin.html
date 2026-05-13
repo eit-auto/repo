@@ -1,0 +1,1470 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kore Admin</title>
+    <link rel="stylesheet" href="/base.css">
+    <style>
+        body {
+            padding: 0;
+            margin: 0;
+        }
+
+        .admin-container {
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            width: 100vw;
+            padding: 0;
+            overflow: hidden;
+        }
+
+        .tabs-bar {
+            display: flex;
+            gap: 0;
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--bg-tertiary);
+            padding: 0;
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
+
+        .tab-btn {
+            flex: 0 1 auto;
+            padding: 4px 20px;
+            background: transparent;
+            border: none;
+            border-bottom: 3px solid transparent;
+            color: var(--text-muted);
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            transition: all 0.2s;
+        }
+
+        .tab-btn:hover {
+            color: var(--text-secondary);
+        }
+
+        .tab-btn.active {
+            color: var(--text-primary);
+            border-bottom-color: var(--accent-blue);
+        }
+
+        .tab-panel {
+            display: none;
+            flex: 1;
+            overflow-y: auto;
+            overflow-x: hidden;
+            min-width: 0;
+        }
+
+        .tab-panel.active {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .status-message {
+            padding: 12px 15px;
+            border-radius: 6px;
+            margin-bottom: 15px;
+            font-size: 13px;
+            display: none;
+        }
+
+        .status-message.show {
+            display: block;
+        }
+
+        .status-message.success {
+            background: rgba(76, 175, 80, 0.15);
+            border: 1px solid var(--color-green);
+            color: var(--color-green);
+        }
+
+        .status-message.error {
+            background: rgba(184, 36, 47, 0.15);
+            border: 1px solid var(--color-red);
+            color: var(--color-red);
+        }
+
+        .plugin-list {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 15px;
+        }
+
+        .plugin-item {
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-primary);
+            border-radius: 8px;
+            padding: 15px;
+            transition: all 0.2s;
+        }
+
+        .plugin-item:hover {
+            border-color: var(--accent-blue);
+            box-shadow: 0 0 12px var(--accent-focus-bright);
+        }
+
+        .plugin-name {
+            font-weight: 600;
+            color: var(--text-primary);
+            margin-bottom: 8px;
+            font-size: 14px;
+        }
+
+        .plugin-info {
+            font-size: 12px;
+            color: var(--text-muted);
+            margin-bottom: 10px;
+        }
+
+        .plugin-routes {
+            background: var(--bg-secondary);
+            padding: 8px;
+            border-radius: 4px;
+            font-family: 'Monaco', monospace;
+            font-size: 10px;
+            color: var(--accent-blue);
+            margin-bottom: 12px;
+            max-height: 80px;
+            overflow-y: auto;
+        }
+
+        .plugin-route {
+            padding: 2px 0;
+        }
+
+        /* ========================================
+           PHASE 2: FORM STYLING HELPERS
+           ======================================== */
+        
+        /* Standard form label styling */
+        .form-label-std {
+            display: block;
+            color: var(--text-muted);
+            font-size: 11px;
+            margin-bottom: 3px;
+            font-weight: 600;
+        }
+
+        /* Standard form input styling */
+        .form-input-std {
+            width: 100%;
+            padding: 6px;
+            background: var(--bg-input);
+            border: 1px solid var(--border-primary);
+            border-radius: 4px;
+            color: var(--text-primary);
+            font-size: 12px;
+            margin-bottom: 8px;
+            box-sizing: border-box;
+        }
+
+        .form-input-std:focus {
+            outline: none;
+            border-color: var(--accent-blue);
+            box-shadow: 0 0 0 3px var(--accent-focus);
+        }
+
+        /* Standard textarea styling */
+        .form-textarea-std {
+            width: 100%;
+            padding: 6px;
+            background: var(--bg-input);
+            border: 1px solid var(--border-primary);
+            border-radius: 4px;
+            color: var(--text-primary);
+            font-size: 12px;
+            resize: vertical;
+            box-sizing: border-box;
+            margin-bottom: 8px;
+        }
+
+        .form-textarea-std:focus {
+            outline: none;
+            border-color: var(--accent-blue);
+            box-shadow: 0 0 0 3px var(--accent-focus);
+        }
+
+        /* Read-only input styling */
+        .form-input-readonly {
+            background: var(--bg-input);
+            border: 1px solid var(--border-primary);
+            border-radius: 4px;
+            color: #666;
+            cursor: not-allowed;
+        }
+
+        /* Helper text styling */
+        .form-help-text {
+            color: var(--text-muted);
+            font-size: 11px;
+            cursor: pointer;
+            margin: 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="admin-container">
+        <div id="kore-header"></div>
+
+        <div class="main-panel" style="flex: 1; overflow: hidden; display: flex; flex-direction: column; margin: 10px 10px 10px 10px; width: calc(100dvw - 20px); padding: 0; border-radius: 8px;">
+            <div class="tabs-bar" style="margin: 0; border-radius: 8px 8px 0 0; height: 30px; display: flex; align-items: center;">
+                <button class="tab-btn active" onclick="switchTab('general', event)">General</button>
+                <button class="tab-btn" onclick="switchTab('organizations', event)">Organizations</button>
+                <button class="tab-btn" onclick="switchTab('users', event)">Users</button>
+                <button class="tab-btn" onclick="switchTab('plugins', event)">Plugins</button>
+            </div>
+            <!-- General Tab -->
+            <div id="general" class="tab-panel scrollbar active">
+                    <div class="inner-panel" style="padding: 10px; margin: 10px; width: calc(100% - 20px); box-sizing: border-box;">
+                        <h2 style="margin: 0; font-size: 16px;">General Settings</h2>
+                        <p style="color: var(--text-muted); margin-top: 10px; font-size: 13px;">General settings coming soon...</p>
+                    </div>
+            </div>
+            <!-- Organizations Tab -->
+            <div id="organizations" class="tab-panel" style="overflow-y: auto; overflow-x: hidden;">
+                    <div class="inner-panel" style="padding: 10px; margin: 10px; width: calc(100% - 20px); box-sizing: border-box;">
+                        <h2 style="margin: 0; font-size: 16px;">Organizations</h2>
+                        <p style="color: var(--text-muted); margin-top: 10px; font-size: 13px;">Organizations coming soon...</p>
+                    </div>
+            </div>
+            <!-- Users Tab -->
+            <div id="users" class="tab-panel" style="overflow-y: auto; overflow-x: hidden;">
+                    <div class="inner-panel" style="padding: 10px; margin: 10px; width: calc(100% - 20px); box-sizing: border-box;">
+                        <h2 style="margin: 0; font-size: 16px;">Users</h2>
+                        <p style="color: var(--text-muted); margin-top: 10px; font-size: 13px;">Users coming soon...</p>
+                    </div>
+            </div>
+            <!-- Plugins Tab -->
+            <div id="plugins" class="tab-panel scrollbar" style="overflow-y: auto; overflow-x: hidden;">
+                    <div class="status-message" id="statusMessage"></div>
+
+                    <div class="inner-panel" style="padding: 10px; margin: 10px; min-width: 0; width: calc(100% - 20px); box-sizing: border-box;">
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <h2 style="margin: 0; font-size: 16px;">Plugin Management</h2>
+                            <button class="btn btn-blue btn-small" id="reloadBtn" onclick="reloadAllPlugins()">
+                                Reload All Plugins
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="inner-panel" style="padding: 10px; margin: 0 10px 10px 10px; flex: 1; overflow: hidden; min-width: 0; width: calc(100% - 20px); box-sizing: border-box; display: flex; flex-direction: column;">
+                        <h3 style="margin: 0; font-size: 14px; flex-shrink: 0;">Plugin Details</h3>
+                        
+                        <div style="display: grid; grid-template-columns: 200px 1fr; gap: 10px; min-width: 0; flex: 1; overflow-y: auto; overflow-x: hidden;">
+                            <!-- Plugin List Sidebar -->
+                            <div class="content-panel" style="padding: 12px; grid-row: 1 / -1; display: flex; flex-direction: column; min-height: 0;">
+                                <h3 style="margin: 0 0 10px 0; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Plugins</h3>
+                                <div id="pluginListSidebar" class="scrollbar" style="display: flex; flex-direction: column; gap: 5px; flex: 1; overflow-y: auto; min-height: 0;">
+                                </div>
+                            </div>
+
+                            <!-- Placeholder when no plugin selected -->
+                            <div id="pluginPlaceholder" class="content-panel" style="padding: 20px; text-align: center;">
+                                <p style="color: var(--text-muted); font-size: 13px; margin: 0;">Select a plugin to the left to view details or modify</p>
+                            </div>
+
+                            <!-- Settings Forms -->
+                            <div id="pluginSettingsContainer" style="display: none;">
+                                <!-- Header Bar spanning both columns -->
+                                <div id="pluginHeaderBar" class="content-panel" style="padding: 12px; margin-bottom: 10px;">
+                                    <div style="display: flex; gap: 10px; justify-content: space-between; align-items: center;">
+                                        <button type="button" class="btn btn-blue btn-small" onclick="openReloadPluginModal()" id="reloadPluginBtn">
+                                            Reload Plugin
+                                        </button>
+                                        <div style="color: var(--text-primary); font-size: 13px; font-weight: 600;">
+                                            <span id="headerPluginName"></span> - v<span id="headerPluginVersion"></span>
+                                        </div>
+                                        <div style="display: flex; gap: 10px;">
+                                            <button class="btn btn-grey btn-small" onclick="cancelPluginSelection()" id="cancelBtn">
+                                                Cancel
+                                            </button>
+                                            <button class="btn btn-green btn-small" onclick="savePluginSettings()" id="savePluginBtn">
+                                                Save Settings
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Top Row: Basic Info + Configuration -->
+                                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px;">
+                                    <!-- Basic Information -->
+                                    <div class="content-panel" style="padding: 12px;">
+                                        <h3 style="margin: 0 0 8px 0; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Basic Information</h3>
+                                        
+                                        <div>
+                                            <label class="form-label-std">Display Name</label>
+                                            <input type="text" id="pluginDisplayName" class="form-input-std">
+                                        </div>
+
+                                        <div>
+                                            <label class="form-label-std">Description</label>
+                                            <textarea id="pluginDescription" class="form-textarea-std" style="min-height: 50px;"></textarea>
+                                        </div>
+
+                                        <div style="display: flex; align-items: center; gap: 8px;">
+                                            <input type="checkbox" id="pluginEnabled" style="width: 16px; height: 16px; cursor: pointer;">
+                                            <label for="pluginEnabled" class="form-help-text">Enabled</label>
+                                        </div>
+                                    </div>
+
+                                    <!-- Plugin Configuration -->
+                                    <div class="content-panel" style="padding: 12px;">
+                                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                                            <h3 style="margin: 0; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Plugin Configuration</h3>
+                                            <button type="button" class="btn btn-blue btn-small" onclick="openCodeModal()" style="white-space: nowrap;">View Code</button>
+                                        </div>
+                                        
+                                        <div>
+                                            <label style="display: block; color: var(--text-muted); font-size: 11px; margin-bottom: 3px; font-weight: 600;">Type</label>
+                                            <input type="text" id="configType" readonly style="width: 100%; padding: 6px; background: var(--bg-input); border: 1px solid var(--border-primary); border-radius: 4px; color: #888; font-size: 12px; cursor: not-allowed; margin-bottom: 8px;">
+                                        </div>
+
+                                        <div>
+                                            <label style="display: block; color: var(--text-muted); font-size: 11px; margin-bottom: 3px; font-weight: 600;">Rate Limit</label>
+                                            <input type="number" id="configRateLimit" style="width: 100%; padding: 6px; background: var(--bg-input); border: 1px solid var(--border-primary); border-radius: 4px; color: var(--text-primary); font-size: 12px; margin-bottom: 8px;">
+                                        </div>
+
+                                        <div>
+                                            <label style="display: block; color: var(--text-muted); font-size: 11px; margin-bottom: 3px; font-weight: 600;">Routes (one per line)</label>
+                                            <textarea id="configRoutes" style="width: 100%; padding: 6px; background: var(--bg-input); border: 1px solid var(--border-primary); border-radius: 4px; color: var(--text-primary); font-size: 12px; min-height: 50px; resize: vertical; font-family: 'Monaco', monospace;"></textarea>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- API Specific Fields and Metadata -->
+                                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                                    <!-- API Configuration -->
+                                    <div class="content-panel" id="apiFieldsContainer" style="display: none; padding: 12px;">
+                                        <h3 style="margin: 0 0 8px 0; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">API Configuration</h3>
+                                        
+                                        <!-- Bearer Token Auth (apiKey) -->
+                                        <div id="bearerAuthFields" style="display: none;">
+                                            <div>
+                                                <label style="display: block; color: var(--text-muted); font-size: 11px; margin-bottom: 3px; font-weight: 600;">Base URL</label>
+                                                <input type="text" id="configBaseUrl" style="width: 100%; padding: 6px; background: var(--bg-input); border: 1px solid var(--border-primary); border-radius: 4px; color: var(--text-primary); font-size: 12px; margin-bottom: 8px;">
+                                            </div>
+                                            <div>
+                                                <label style="display: block; color: var(--text-muted); font-size: 11px; margin-bottom: 3px; font-weight: 600;">API Path</label>
+                                                <input type="text" id="configApiPath" style="width: 100%; padding: 6px; background: var(--bg-input); border: 1px solid var(--border-primary); border-radius: 4px; color: var(--text-primary); font-size: 12px; margin-bottom: 8px;">
+                                            </div>
+                                            <div>
+                                                <label style="display: block; color: var(--text-muted); font-size: 11px; margin-bottom: 3px; font-weight: 600;">API Key</label>
+                                                <textarea id="configApiKey" style="width: 100%; padding: 6px; background: var(--bg-input); border: 1px solid var(--border-primary); border-radius: 4px; color: var(--text-primary); font-size: 12px; min-height: 60px; resize: vertical; font-family: 'Monaco', monospace;"></textarea>
+                                            </div>
+                                        </div>
+
+                                        <!-- OAuth/Client Auth (clientId/publicKey/privateKey) -->
+                                        <div id="clientAuthFields" style="display: none;">
+                                            <div>
+                                                <label style="display: block; color: var(--text-muted); font-size: 11px; margin-bottom: 3px; font-weight: 600;">Base URL</label>
+                                                <input type="text" id="configClientBaseUrl" style="width: 100%; padding: 6px; background: var(--bg-input); border: 1px solid var(--border-primary); border-radius: 4px; color: var(--text-primary); font-size: 12px; margin-bottom: 8px;">
+                                            </div>
+                                            <div>
+                                                <label style="display: block; color: var(--text-muted); font-size: 11px; margin-bottom: 3px; font-weight: 600;">API Path</label>
+                                                <input type="text" id="configClientApiPath" style="width: 100%; padding: 6px; background: var(--bg-input); border: 1px solid var(--border-primary); border-radius: 4px; color: var(--text-primary); font-size: 12px; margin-bottom: 8px;">
+                                            </div>
+                                            <div>
+                                                <label style="display: block; color: var(--text-muted); font-size: 11px; margin-bottom: 3px; font-weight: 600;">Client ID</label>
+                                                <input type="text" id="configClientId" style="width: 100%; padding: 6px; background: var(--bg-input); border: 1px solid var(--border-primary); border-radius: 4px; color: var(--text-primary); font-size: 12px; margin-bottom: 8px;">
+                                            </div>
+                                            <div>
+                                                <label style="display: block; color: var(--text-muted); font-size: 11px; margin-bottom: 3px; font-weight: 600;">Public Key</label>
+                                                <textarea id="configPublicKey" style="width: 100%; padding: 6px; background: var(--bg-input); border: 1px solid var(--border-primary); border-radius: 4px; color: var(--text-primary); font-size: 12px; min-height: 45px; resize: vertical; margin-bottom: 8px;"></textarea>
+                                            </div>
+                                            <div>
+                                                <label style="display: block; color: var(--text-muted); font-size: 11px; margin-bottom: 3px; font-weight: 600;">Private Key</label>
+                                                <textarea id="configPrivateKey" style="width: 100%; padding: 6px; background: var(--bg-input); border: 1px solid var(--border-primary); border-radius: 4px; color: var(--text-primary); font-size: 12px; min-height: 45px; resize: vertical;"></textarea>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- SQL Configurations (for type=sql plugins) -->
+                                    <div class="content-panel" id="sqlFieldsContainer" style="display: none; padding: 12px;">
+                                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px solid var(--border-primary);">
+                                            <h3 style="margin: 0; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">SQL Configurations</h3>
+                                            <button type="button" class="btn btn-blue btn-small" onclick="addSqlDatabase()" style="white-space: nowrap;">Add New</button>
+                                        </div>
+                                        
+                                        <div style="display: flex; gap: 8px; margin-bottom: 12px;">
+                                            <select id="sqlDatabaseSelect" onchange="selectSqlDatabase()" style="flex: 1; padding: 6px; background: var(--bg-input); border: 1px solid var(--border-primary); border-radius: 4px; color: var(--text-primary); font-size: 12px;">
+                                                <option value="">-- Select Database --</option>
+                                            </select>
+                                            <button type="button" class="btn btn-blue btn-small" onclick="testSqlConnection()" style="white-space: nowrap;" disabled>Test</button>
+                                            <button type="button" class="btn btn-grey btn-small" onclick="cancelSqlDatabase()" style="white-space: nowrap;" disabled>Cancel</button>
+                                            <button type="button" class="btn btn-red btn-small" onclick="deleteSqlDatabase()" style="white-space: nowrap;" disabled>Delete</button>
+                                        </div>
+
+                                        <div id="sqlTestResult" style="margin-bottom: 12px; padding: 8px; border-radius: 4px; display: none; font-size: 12px;"></div>
+
+                                        <!-- SQL Database Form -->
+                                        <div id="sqlDatabaseForm" style="display: none;">
+                                            <div>
+                                                <label style="display: block; color: var(--text-muted); font-size: 11px; margin-bottom: 3px; font-weight: 600;">Configuration Name</label>
+                                                <input type="text" id="sqlDbName" style="width: 100%; padding: 6px; background: var(--bg-input); border: 1px solid var(--border-primary); border-radius: 4px; color: var(--text-primary); font-size: 12px; margin-bottom: 8px;">
+                                            </div>
+
+                                            <div>
+                                                <label style="display: block; color: var(--text-muted); font-size: 11px; margin-bottom: 3px; font-weight: 600;">Type</label>
+                                                <select id="sqlDbType" onchange="updateSqlDbTypeFields()" style="width: 100%; padding: 6px; background: var(--bg-input); border: 1px solid var(--border-primary); border-radius: 4px; color: var(--text-primary); font-size: 12px; margin-bottom: 8px;">
+                                                    <option value="">-- Select Type --</option>
+                                                    <option value="mysql">MySQL</option>
+                                                    <option value="mssql">MSSQL</option>
+                                                </select>
+                                            </div>
+
+                                            <div>
+                                                <label style="display: block; color: var(--text-muted); font-size: 11px; margin-bottom: 3px; font-weight: 600;">Host</label>
+                                                <input type="text" id="sqlDbHost" style="width: 100%; padding: 6px; background: var(--bg-input); border: 1px solid var(--border-primary); border-radius: 4px; color: var(--text-primary); font-size: 12px; margin-bottom: 8px;">
+                                            </div>
+
+                                            <div>
+                                                <label style="display: block; color: var(--text-muted); font-size: 11px; margin-bottom: 3px; font-weight: 600;">Port</label>
+                                                <input type="number" id="sqlDbPort" style="width: 100%; padding: 6px; background: var(--bg-input); border: 1px solid var(--border-primary); border-radius: 4px; color: var(--text-primary); font-size: 12px; margin-bottom: 8px;">
+                                            </div>
+
+                                            <div>
+                                                <label style="display: block; color: var(--text-muted); font-size: 11px; margin-bottom: 3px; font-weight: 600;">User</label>
+                                                <input type="text" id="sqlDbUser" autocomplete="username" style="width: 100%; padding: 6px; background: var(--bg-input); border: 1px solid var(--border-primary); border-radius: 4px; color: var(--text-primary); font-size: 12px; margin-bottom: 8px;">
+                                            </div>
+
+                                            <div>
+                                                <label style="display: block; color: var(--text-muted); font-size: 11px; margin-bottom: 3px; font-weight: 600;">Password</label>
+                                                <div style="display: flex; gap: 8px;">
+                                                    <form style="flex: 1;">
+                                                        <input type="text" style="display: none;" autocomplete="username">
+                                                        <input type="password" id="sqlDbPassword" autocomplete="current-password" readonly style="width: 100%; padding: 6px; background: var(--bg-input); border: 1px solid var(--border-primary); border-radius: 4px; color: var(--text-primary); font-size: 12px; cursor: not-allowed;">
+                                                    </form>
+                                                    <button type="button" class="btn btn-blue btn-small" onclick="openPasswordModal()" style="white-space: nowrap;">Change</button>
+                                                </div>
+                                            </div>
+
+                                            <div>
+                                                <label style="display: block; color: var(--text-muted); font-size: 11px; margin-bottom: 3px; font-weight: 600;">Database</label>
+                                                <input type="text" id="sqlDbDatabase" style="width: 100%; padding: 6px; background: var(--bg-input); border: 1px solid var(--border-primary); border-radius: 4px; color: var(--text-primary); font-size: 12px; margin-bottom: 8px;">
+                                            </div>
+
+                                            <!-- MSSQL-specific fields -->
+                                            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
+                                                <input type="checkbox" id="sqlDbEncrypt" style="width: 16px; height: 16px; cursor: pointer;">
+                                                <label for="sqlDbEncrypt" style="color: var(--text-muted); font-size: 11px; cursor: pointer; margin: 0;">Encrypt</label>
+                                            </div>
+
+                                            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
+                                                <input type="checkbox" id="sqlDbTrustServerCert" style="width: 16px; height: 16px; cursor: pointer;">
+                                                <label for="sqlDbTrustServerCert" style="color: var(--text-muted); font-size: 11px; cursor: pointer; margin: 0;">Trust Server Certificate</label>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- Metadata Section -->
+                                    <div class="content-panel" style="padding: 12px;">
+                                        <h3 style="margin: 0 0 8px 0; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Metadata</h3>
+                                        
+                                        <div style="display: grid; grid-template-columns: 1fr; gap: 8px;">
+                                            <div>
+                                                <label style="display: block; color: var(--text-muted); font-size: 11px; margin-bottom: 3px; font-weight: 600;">Created</label>
+                                                <input type="text" id="pluginCreatedAt" readonly style="width: 100%; padding: 6px; background: var(--bg-input); border: 1px solid var(--border-primary); border-radius: 4px; color: #888; font-size: 11px; cursor: not-allowed;">
+                                            </div>
+                                            <div>
+                                                <label style="display: block; color: var(--text-muted); font-size: 11px; margin-bottom: 3px; font-weight: 600;">Created By</label>
+                                                <input type="text" id="pluginCreatedBy" readonly style="width: 100%; padding: 6px; background: var(--bg-input); border: 1px solid var(--border-primary); border-radius: 4px; color: #888; font-size: 11px; cursor: not-allowed;">
+                                            </div>
+                                            <div>
+                                                <label style="display: block; color: var(--text-muted); font-size: 11px; margin-bottom: 3px; font-weight: 600;">Updated</label>
+                                                <input type="text" id="pluginUpdatedAt" readonly style="width: 100%; padding: 6px; background: var(--bg-input); border: 1px solid var(--border-primary); border-radius: 4px; color: #888; font-size: 11px; cursor: not-allowed;">
+                                            </div>
+                                            <div>
+                                                <label style="display: block; color: var(--text-muted); font-size: 11px; margin-bottom: 3px; font-weight: 600;">Updated By</label>
+                                                <input type="text" id="pluginUpdatedBy" readonly style="width: 100%; padding: 6px; background: var(--bg-input); border: 1px solid var(--border-primary); border-radius: 4px; color: #888; font-size: 11px; cursor: not-allowed;">
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+                <div class="plugin-list" id="pluginsList" style="margin-top: 10px;">
+
+                </div>
+            </div>
+
+            <!-- Code Viewer Modal -->
+            <div id="codeModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 1000; padding: 20px;">
+                <div style="width: 90%; max-width: 1000px; height: 90%; margin: auto; background: var(--bg-tertiary); border-radius: 8px; display: flex; flex-direction: column; padding: 20px; border: 1px solid var(--border-primary);">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                        <h2 style="margin: 0; color: var(--text-primary); font-size: 14px;">Plugin Code</h2>
+                        <button type="button" class="btn btn-red btn-small" onclick="closeCodeModal()" style="white-space: nowrap; font-size: 20px; padding: 4px 8px; line-height: 1;">&times;</button>
+                    </div>
+                    <textarea id="codeEditorTextarea" style="flex: 1; padding: 12px; background: var(--bg-input); border: 1px solid var(--border-primary); border-radius: 4px; color: var(--text-primary); font-size: 12px; font-family: 'Monaco', monospace; resize: none;"></textarea>
+                    <div style="display: flex; gap: 10px; margin-top: 15px; justify-content: flex-end;">
+                        <button type="button" class="btn btn-grey" onclick="closeCodeModal()">Cancel</button>
+                        <button type="button" class="btn btn-green" onclick="saveCodeChanges()">Save Code</button>
+                    </div>
+
+                </div>
+            </div>
+
+            <!-- Password Edit Modal -->
+            <div id="passwordModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 1000; padding: 20px;">
+                <div style="width: 90%; max-width: 500px; margin: 100px auto; background: var(--bg-tertiary); border-radius: 8px; padding: 20px; border: 1px solid var(--border-primary);">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                        <h2 style="margin: 0; color: var(--text-primary); font-size: 14px;">Edit Password</h2>
+                        <button type="button" class="btn btn-red btn-small" onclick="closePasswordModal()" style="white-space: nowrap; font-size: 20px; padding: 4px 8px; line-height: 1;">&times;</button>
+                    </div>
+                    <div style="margin-bottom: 15px;">
+                        <label style="display: block; color: var(--text-muted); font-size: 11px; margin-bottom: 6px; font-weight: 600;">New Password</label>
+                        <form>
+                            <input type="text" style="display: none;" autocomplete="username">
+                            <input type="password" id="passwordModalInput" autocomplete="new-password" style="width: 100%; padding: 8px; background: var(--bg-input); border: 1px solid var(--border-primary); border-radius: 4px; color: var(--text-primary); font-size: 12px; box-sizing: border-box;">
+                        </form>
+                    </div>
+                    <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                        <button type="button" class="btn btn-grey" onclick="closePasswordModal()">Cancel</button>
+                        <button type="button" class="btn btn-blue" onclick="saveNewPassword()">Save Password</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Confirmation Modal -->
+            <div id="confirmModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 1000; padding: 20px;">
+                <div style="width: 90%; max-width: 400px; margin: 150px auto; background: var(--bg-tertiary); border-radius: 8px; padding: 20px; border: 1px solid var(--border-primary);">
+                    <h2 style="margin: 0 0 15px 0; color: var(--text-primary); font-size: 14px;" id="confirmTitle">Confirm</h2>
+                    <p id="confirmMessage" style="color: var(--text-primary); font-size: 12px; margin: 0 0 20px 0;"></p>
+                    <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                        <button type="button" class="btn btn-grey" onclick="closeConfirmModal()">Cancel</button>
+                        <button type="button" class="btn btn-red" id="confirmBtn" onclick="proceedWithConfirm()">Delete</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Unsaved Changes Modal -->
+            <div id="unsavedChangesModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 1000; padding: 20px;">
+                <div style="width: 90%; max-width: 400px; margin: 150px auto; background: var(--bg-tertiary); border-radius: 8px; padding: 20px; border: 1px solid var(--border-primary);">
+                    <h2 style="margin: 0 0 15px 0; color: var(--text-primary); font-size: 14px;">Unsaved Changes</h2>
+                    <p id="unsavedChangesMessage" style="color: var(--text-primary); font-size: 12px; margin: 0 0 20px 0;"></p>
+                    <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                        <button type="button" class="btn btn-grey" onclick="closeUnsavedChangesModal()">Cancel</button>
+                        <button type="button" class="btn btn-red" id="discardBtn" onclick="proceedDiscard()">Discard</button>
+                        <button type="button" class="btn btn-green" id="saveBtn" onclick="proceedSave()">Save Changes</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Reload Plugin Modal -->
+
+    <script src="/lib/kore-lib.js"></script>
+    <script>
+        let currentUser = null;
+        let confirmCallback = null;
+        let hasUnsavedChanges = false;
+        let unsavedChangesDiscardCallback = null;
+        let unsavedChangesSaveCallback = null;
+
+        function markUnsavedChanges() {
+            hasUnsavedChanges = true;
+        }
+
+        function clearUnsavedChanges() {
+            hasUnsavedChanges = false;
+        }
+
+        function showUnsavedChangesModal(discardCallback, saveCallback) {
+            unsavedChangesDiscardCallback = discardCallback;
+            unsavedChangesSaveCallback = saveCallback;
+            document.getElementById('unsavedChangesMessage').textContent = 'You have unsaved changes. What would you like to do?';
+            document.getElementById('unsavedChangesModal').style.display = 'block';
+        }
+
+        function closeUnsavedChangesModal() {
+            document.getElementById('unsavedChangesModal').style.display = 'none';
+            unsavedChangesDiscardCallback = null;
+            unsavedChangesSaveCallback = null;
+        }
+
+        function proceedDiscard() {
+            const callback = unsavedChangesDiscardCallback;
+            closeUnsavedChangesModal();
+            if (callback) {
+                callback();
+            }
+        }
+
+        function proceedSave() {
+            const callback = unsavedChangesSaveCallback;
+            closeUnsavedChangesModal();
+            if (callback) {
+                callback();
+            }
+        }
+
+        function checkUnsavedChanges(callback) {
+            if (!hasUnsavedChanges) {
+                callback();
+                return;
+            }
+            
+            showUnsavedChangesModal(callback);
+        }
+
+        function showConfirmModal(title, message, callback) {
+            confirmCallback = callback;
+            document.getElementById('confirmTitle').textContent = title;
+            document.getElementById('confirmMessage').textContent = message;
+            document.getElementById('confirmModal').style.display = 'block';
+        }
+
+        function closeConfirmModal() {
+            document.getElementById('confirmModal').style.display = 'none';
+            confirmCallback = null;
+        }
+
+        function proceedWithConfirm() {
+            const callback = confirmCallback;
+            closeConfirmModal();
+            if (callback) {
+                callback();
+            }
+        }
+
+        function switchTab(tabName, event) {
+            event.preventDefault();
+            
+            document.querySelectorAll('.tab-panel').forEach(panel => {
+                panel.classList.remove('active');
+            });
+            document.querySelectorAll('.tab-btn').forEach(btn => {
+                btn.classList.remove('active');
+            });
+
+            document.getElementById(tabName).classList.add('active');
+            event.target.classList.add('active');
+        }
+
+        async function reloadAllPlugins() {
+            try {
+                if (!sessionToken) {
+                    sessionToken = await getSessionToken();
+                }
+
+                const response = await fetch(`https://app.equinoxits.com:1139/kore/plugins/reload-all`, {
+                    method: 'POST',
+                    headers: {
+                        'X-Session-Token': sessionToken,
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    showStatus('All plugins reloaded successfully.', 'success');
+                } else {
+                    showStatus('Error reloading plugins: ' + (data.message || 'Unknown error'), 'error');
+                }
+            } catch (error) {
+                console.error('Error reloading all plugins:', error);
+                showStatus('Error reloading plugins', 'error');
+            }
+        }
+
+        async function loadPluginsList() {
+            try {
+                if (!sessionToken) {
+                    sessionToken = await getSessionToken();
+                }
+
+                const response = await fetch('https://app.equinoxits.com:1139/kore/plugins/list', {
+                    method: 'GET',
+                    headers: {
+                        'X-Session-Token': sessionToken
+                    }
+                });
+
+                const data = await response.json();
+
+                if (response.ok && data.plugins) {
+                    displayPlugins(data.plugins);
+                } else {
+                    document.getElementById('pluginsList').innerHTML = '<p style="color: var(--text-muted);">No plugins loaded</p>';
+                }
+            } catch (error) {
+                document.getElementById('pluginsList').innerHTML = '<p style="color: var(--color-red);">Error loading plugins: ' + error.message + '</p>';
+            }
+        }
+
+        function displayPlugins(plugins) {
+            const sidebar = document.getElementById('pluginListSidebar');
+            
+            if (!plugins || plugins.length === 0) {
+                sidebar.innerHTML = '<p style="color: var(--text-muted); font-size: 11px; margin: 0;">No plugins found</p>';
+                return;
+            }
+
+            let html = '';
+            plugins.forEach(plugin => {
+                html += `
+                    <button onclick="selectPluginFromList('${escapeHtml(plugin.name)}', this)" 
+                            style="text-align: left; padding: 8px; background: var(--bg-secondary); border: 1px solid var(--border-primary); border-radius: 4px; color: var(--text-secondary); cursor: pointer; font-size: 11px; transition: all 0.2s; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                        ${escapeHtml(plugin.name)}
+                    </button>
+                `;
+            });
+
+            sidebar.innerHTML = html;
+        }
+
+        function selectPluginFromList(pluginName, buttonElement) {
+            if (hasUnsavedChanges && currentPluginName && currentPluginName !== pluginName) {
+                showUnsavedChangesModal(
+                    () => {
+                        doSelectPluginFromList(pluginName, buttonElement);
+                    },
+                    async () => {
+                        // Save the current SQL database form if one is being edited
+                        const dbSelect = document.getElementById('sqlDatabaseSelect');
+                        const dbName = document.getElementById('sqlDbName').value;
+                        if (dbName && dbSelect.value) {
+                            saveSqlDatabaseForm(dbName);
+                        }
+                        // Now save the plugin settings
+                        await savePluginSettings();
+                        doSelectPluginFromList(pluginName, buttonElement);
+                    }
+                );
+            } else {
+                doSelectPluginFromList(pluginName, buttonElement);
+            }
+        }
+
+        function doSelectPluginFromList(pluginName, buttonElement) {
+            loadPluginDetails(pluginName);
+            
+            // Get CSS variable values
+            const root = document.documentElement;
+            const bgSecondary = getComputedStyle(root).getPropertyValue('--bg-secondary').trim();
+            const borderPrimary = getComputedStyle(root).getPropertyValue('--border-primary').trim();
+            const textSecondary = getComputedStyle(root).getPropertyValue('--text-secondary').trim();
+            const accentBlue = getComputedStyle(root).getPropertyValue('--accent-blue').trim();
+            const textPrimary = getComputedStyle(root).getPropertyValue('--text-primary').trim();
+            
+            // Highlight selected plugin
+            const buttons = document.querySelectorAll('#pluginListSidebar button');
+            buttons.forEach(btn => {
+                btn.style.background = bgSecondary;
+                btn.style.borderColor = borderPrimary;
+                btn.style.color = textSecondary;
+            });
+            
+            // Highlight the clicked button
+            if (buttonElement) {
+                buttonElement.style.background = accentBlue;
+                buttonElement.style.borderColor = accentBlue;
+                buttonElement.style.color = textPrimary;
+            }
+            
+            clearUnsavedChanges();
+        }
+
+        function cancelPluginSelection() {
+            // Get CSS variable values
+            const root = document.documentElement;
+            const bgSecondary = getComputedStyle(root).getPropertyValue('--bg-secondary').trim();
+            const borderPrimary = getComputedStyle(root).getPropertyValue('--border-primary').trim();
+            const textSecondary = getComputedStyle(root).getPropertyValue('--text-secondary').trim();
+            
+            // Reset all sidebar button styles
+            const buttons = document.querySelectorAll('#pluginListSidebar button');
+            buttons.forEach(btn => {
+                btn.style.background = bgSecondary;
+                btn.style.borderColor = borderPrimary;
+                btn.style.color = textSecondary;
+            });
+            
+            // Hide settings container, show placeholder
+            document.getElementById('pluginSettingsContainer').style.display = 'none';
+            document.getElementById('pluginPlaceholder').style.display = 'block';
+            
+            // Hide reload button
+            document.getElementById('reloadPluginBtn').style.display = 'none';
+            currentPluginName = '';
+            clearUnsavedChanges();
+        }        async function loadPluginDetails(pluginName) {
+            if (!pluginName) {
+                return;
+            }
+
+            try {
+                if (!sessionToken) {
+                    sessionToken = await getSessionToken();
+                }
+
+                const response = await fetch(`https://app.equinoxits.com:1139/kore/plugins/details?name=${encodeURIComponent(pluginName)}`, {
+                    method: 'GET',
+                    headers: {
+                        'X-Session-Token': sessionToken
+                    }
+                });
+
+                const data = await response.json();
+
+                if (response.ok && data.plugin) {
+                    populatePluginForm(data.plugin);
+                } else {
+                    showStatus('Plugin not found: ' + (data.error || 'Unknown error'), 'error');
+                }
+            } catch (error) {
+                showStatus('Error loading plugin details: ' + error.message, 'error');
+            }
+        }
+
+        let currentPluginName = '';
+        let currentPluginVersion = 0;
+        let originalPluginConfig = null;
+
+        function populatePluginForm(plugin) {
+            // Store plugin info in memory
+            currentPluginName = plugin.name;
+            currentPluginVersion = plugin.version || 0;
+            originalPluginConfig = JSON.parse(JSON.stringify(plugin));  // Deep copy of original plugin
+
+            // Show settings container, hide placeholder
+            document.getElementById('pluginSettingsContainer').style.display = 'block';
+            document.getElementById('pluginPlaceholder').style.display = 'none';
+            
+            // Show reload button
+            document.getElementById('reloadPluginBtn').style.display = 'inline-block';
+
+            // Update header
+            document.getElementById('headerPluginName').textContent = plugin.name;
+            document.getElementById('headerPluginVersion').textContent = plugin.version || '0';
+
+            // Basic info
+            document.getElementById('pluginDisplayName').value = plugin.display_name || '';
+            document.getElementById('pluginDescription').value = plugin.description || '';
+            document.getElementById('pluginEnabled').checked = plugin.enabled === 1 || plugin.enabled === true;
+
+            // Metadata
+            document.getElementById('pluginCreatedAt').value = plugin.created_at || '';
+            document.getElementById('pluginCreatedBy').value = plugin.created_by || '';
+            document.getElementById('pluginUpdatedAt').value = plugin.updated_at || '';
+            document.getElementById('pluginUpdatedBy').value = plugin.updated_by || '';
+
+            // Config
+            const config = plugin.config || {};
+            document.getElementById('configType').value = config.type || '';
+            document.getElementById('configRateLimit').value = config.rateLimit || 100;
+            document.getElementById('configRoutes').value = Array.isArray(config.routes) ? config.routes.join('\n') : '';
+
+            // Show/hide API fields based on plugin type
+            const apiFieldsContainer = document.getElementById('apiFieldsContainer');
+            const bearerAuthFields = document.getElementById('bearerAuthFields');
+            const clientAuthFields = document.getElementById('clientAuthFields');
+            const sqlFieldsContainer = document.getElementById('sqlFieldsContainer');
+
+            // Hide all configuration panels by default
+            apiFieldsContainer.style.display = 'none';
+            sqlFieldsContainer.style.display = 'none';
+
+            if (config.type === 'api') {
+                apiFieldsContainer.style.display = 'block';
+                
+                // Determine auth type based on fields present
+                // Check for publicKey/privateKey (client auth pattern) or apiKey (bearer auth pattern)
+                if (config.publicKey || config.privateKey) {
+                    // Client/OAuth auth (includes MeshCentral, CWM, etc.)
+                    bearerAuthFields.style.display = 'none';
+                    clientAuthFields.style.display = 'block';
+                    document.getElementById('configClientBaseUrl').value = config.baseUrl || '';
+                    document.getElementById('configClientApiPath').value = config.apiPath || '';
+                    document.getElementById('configClientId').value = config.clientId || '';
+                    document.getElementById('configPublicKey').value = config.publicKey || '';
+                    document.getElementById('configPrivateKey').value = config.privateKey || '';
+                } else if (config.apiKey) {
+                    // Bearer token auth (Snipe-IT, etc.)
+                    bearerAuthFields.style.display = 'block';
+                    clientAuthFields.style.display = 'none';
+                    document.getElementById('configBaseUrl').value = config.baseUrl || '';
+                    document.getElementById('configApiPath').value = config.apiPath || '';
+                    document.getElementById('configApiKey').value = config.apiKey || '';
+                }
+            } else if (config.type === 'sql') {
+                // SQL type - show SQL Configurations panel
+                sqlFieldsContainer.style.display = 'block';
+                
+                // Initialize currentDatabases from config
+                currentDatabases = JSON.parse(JSON.stringify(config.databases || {}));
+                
+                // Populate SQL database dropdown
+                const dbSelect = document.getElementById('sqlDatabaseSelect');
+                dbSelect.innerHTML = '<option value="">-- Select Database --</option>';
+                for (const dbName in currentDatabases) {
+                    const option = document.createElement('option');
+                    option.value = dbName;
+                    option.textContent = dbName;
+                    dbSelect.appendChild(option);
+                }
+                
+                // Hide the form and disable buttons since nothing is selected
+                document.getElementById('sqlDatabaseForm').style.display = 'none';
+                const testBtn = document.querySelector('button[onclick="testSqlConnection()"]');
+                const cancelBtn = document.querySelector('button[onclick="cancelSqlDatabase()"]');
+                const deleteBtn = document.querySelector('button[onclick="deleteSqlDatabase()"]');
+                if (testBtn) testBtn.disabled = true;
+                if (cancelBtn) cancelBtn.disabled = true;
+                if (deleteBtn) deleteBtn.disabled = true;
+            }
+        }
+
+        let currentDatabases = {};
+        let selectedSqlDatabaseName = null;  // Track the original name of the selected database
+
+        function selectSqlDatabase() {
+            const dbSelect = document.getElementById('sqlDatabaseSelect');
+            const selectedDb = dbSelect.value;
+            const form = document.getElementById('sqlDatabaseForm');
+            const testBtn = document.querySelector('button[onclick="testSqlConnection()"]');
+            const cancelBtn = document.querySelector('button[onclick="cancelSqlDatabase()"]');
+            const deleteBtn = document.querySelector('button[onclick="deleteSqlDatabase()"]');
+            
+            if (!selectedDb) {
+                form.style.display = 'none';
+                if (testBtn) testBtn.disabled = true;
+                if (cancelBtn) cancelBtn.disabled = true;
+                if (deleteBtn) deleteBtn.disabled = true;
+                selectedSqlDatabaseName = null;
+                return;
+            }
+
+            // Enable buttons when something is selected
+            if (testBtn) testBtn.disabled = false;
+            if (cancelBtn) cancelBtn.disabled = false;
+            if (deleteBtn) deleteBtn.disabled = false;
+
+            // Hide test result banner
+            const resultDiv = document.getElementById('sqlTestResult');
+            resultDiv.style.display = 'none';
+
+            // Save previous database if there was one
+            const allOptions = dbSelect.querySelectorAll('option');
+            const previousDb = Array.from(allOptions).find(opt => opt.selected && opt.value)?.value;
+            
+            if (previousDb && previousDb !== selectedDb) {
+                saveSqlDatabaseForm(previousDb);
+            }
+
+            // Load selected database into form and track the original name
+            const dbConfig = currentDatabases[selectedDb];
+            if (dbConfig) {
+                selectedSqlDatabaseName = selectedDb;  // Remember the original name
+                document.getElementById('sqlDbName').value = selectedDb;
+                document.getElementById('sqlDbType').value = dbConfig.type || '';
+                document.getElementById('sqlDbHost').value = dbConfig.host || '';
+                document.getElementById('sqlDbPort').value = dbConfig.port || '';
+                document.getElementById('sqlDbUser').value = dbConfig.user || '';
+                document.getElementById('sqlDbPassword').value = dbConfig.password || '';
+                document.getElementById('sqlDbDatabase').value = dbConfig.database || '';
+                document.getElementById('sqlDbEncrypt').checked = dbConfig.encrypt !== false;
+                document.getElementById('sqlDbTrustServerCert').checked = dbConfig.trustServerCertificate !== false;
+                
+                updateSqlDbTypeFields();
+                form.style.display = 'block';
+            }
+        }
+
+        function saveSqlDatabaseForm(dbNameOrOriginal) {
+            // dbNameOrOriginal could be the original name (when called from selectSqlDatabase)
+            // or we use selectedSqlDatabaseName for current edits
+            const originalName = selectedSqlDatabaseName || dbNameOrOriginal;
+            const newName = document.getElementById('sqlDbName').value;
+            
+            if (!newName) return;
+
+            const config = {
+                type: document.getElementById('sqlDbType').value,
+                host: document.getElementById('sqlDbHost').value,
+                port: parseInt(document.getElementById('sqlDbPort').value) || 3306,
+                user: document.getElementById('sqlDbUser').value,
+                password: document.getElementById('sqlDbPassword').value,
+                database: document.getElementById('sqlDbDatabase').value,
+                encrypt: document.getElementById('sqlDbEncrypt').checked,
+                trustServerCertificate: document.getElementById('sqlDbTrustServerCert').checked
+            };
+
+            // If the name changed, delete the old entry
+            if (originalName && originalName !== newName && currentDatabases[originalName]) {
+                delete currentDatabases[originalName];
+            }
+
+            // Create/update with the new name
+            currentDatabases[newName] = config;
+        }
+
+        async function testSqlConnection() {
+            const resultDiv = document.getElementById('sqlTestResult');
+            
+            // Get the current form field values
+            const dbName = document.getElementById('sqlDbName').value;
+            const dbType = document.getElementById('sqlDbType').value;
+            const database = document.getElementById('sqlDbDatabase').value;
+            
+            if (!dbName || !dbType) {
+                resultDiv.style.display = 'block';
+                resultDiv.style.backgroundColor = 'rgba(220, 53, 69, 0.15)';
+                resultDiv.style.color = 'var(--color-red-input)';
+                resultDiv.innerHTML = 'Error: Database name and type are required.';
+                return;
+            }
+
+            // Save the form first to ensure currentDatabases is updated
+            saveSqlDatabaseForm(dbName);
+
+            resultDiv.style.display = 'block';
+            resultDiv.style.backgroundColor = 'rgba(90, 159, 184, 0.15)';
+            resultDiv.style.color = 'var(--accent-blue)';
+            resultDiv.innerHTML = 'Testing connection...';
+
+            try {
+                if (!sessionToken) {
+                    sessionToken = await getSessionToken();
+                }
+
+                // Test query based on database type
+                const testQuery = dbType === 'mssql' ? 'SELECT @@VERSION' : 'SELECT VERSION()';
+                
+                // Use the ProxyLib executeSqlQuery function with the configuration name
+                const result = await ProxyLib.executeSqlQuery(sessionToken, 'admin', dbName, testQuery);
+
+                resultDiv.style.backgroundColor = 'rgba(76, 175, 80, 0.15)';
+                resultDiv.style.color = 'var(--color-green)';
+                resultDiv.innerHTML = '&#10003; Connection successful! (' + result.rowCount + ' row' + (result.rowCount !== 1 ? 's' : '') + ' returned)';
+            } catch (err) {
+                resultDiv.style.backgroundColor = 'rgba(220, 53, 69, 0.15)';
+                resultDiv.style.color = 'var(--color-red-input)';
+                resultDiv.innerHTML = '&#10007; Connection failed: ' + err.message;
+            }
+        }
+
+        function updateSqlDbTypeFields() {
+            const dbType = document.getElementById('sqlDbType').value;
+            const mssqlFields = document.querySelectorAll('[id^="sqlDbEncrypt"], [id^="sqlDbTrustServerCert"]').forEach(el => {
+                el.parentElement.style.display = dbType === 'mssql' ? 'flex' : 'none';
+            });
+        }
+
+        function openCodeModal() {
+            if (!originalPluginConfig || !originalPluginConfig.code) {
+                showStatus('No code found for this plugin', 'info');
+                return;
+            }
+            document.getElementById('codeEditorTextarea').value = originalPluginConfig.code;
+            document.getElementById('codeModal').style.display = 'block';
+        }
+
+        function closeCodeModal() {
+            document.getElementById('codeModal').style.display = 'none';
+        }
+
+        function saveCodeChanges() {
+            const updatedCode = document.getElementById('codeEditorTextarea').value;
+            if (!originalPluginConfig) {
+                showStatus('Error: No plugin loaded', 'error');
+                return;
+            }
+            
+            originalPluginConfig.code = updatedCode;
+            showStatus('Code updated in memory. Click "Save Settings" to persist changes.', 'info');
+            closeCodeModal();
+        }
+
+        function openPasswordModal() {
+            document.getElementById('passwordModalInput').value = '';
+            document.getElementById('passwordModal').style.display = 'block';
+            document.getElementById('passwordModalInput').focus();
+        }
+
+        function closePasswordModal() {
+            document.getElementById('passwordModal').style.display = 'none';
+            document.getElementById('passwordModalInput').value = '';
+        }
+
+        function saveNewPassword() {
+            const newPassword = document.getElementById('passwordModalInput').value;
+            if (!newPassword) {
+                showStatus('Password cannot be empty', 'error');
+                return;
+            }
+            document.getElementById('sqlDbPassword').value = newPassword;
+            showStatus('Password updated', 'success');
+            closePasswordModal();
+        }
+
+        // Reload Plugin modal state
+        async function openReloadPluginModal() {
+            const pluginName = currentPluginName;
+            if (!pluginName) {
+                showStatus('No plugin selected', 'error');
+                return;
+            }
+
+            try {
+                if (!sessionToken) {
+                    sessionToken = await getSessionToken();
+                }
+
+                const response = await fetch(`https://app.equinoxits.com:1139/kore/plugins/load?name=${encodeURIComponent(pluginName)}`, {
+                    method: 'POST',
+                    headers: {
+                        'X-Session-Token': sessionToken,
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    showStatus(`Plugin "${pluginName}" reloaded successfully.`, 'success');
+                } else {
+                    showStatus('Error reloading plugin: ' + (data.message || 'Unknown error'), 'error');
+                }
+            } catch (error) {
+                console.error('Error reloading plugin:', error);
+                showStatus('Error reloading plugin', 'error');
+            }
+        }
+
+        function addSqlDatabase() {
+            const dbSelect = document.getElementById('sqlDatabaseSelect');
+            const form = document.getElementById('sqlDatabaseForm');
+            
+            // Clear dropdown selection
+            dbSelect.value = '';
+            selectedSqlDatabaseName = null;  // No original name for new database
+            
+            // Hide test result banner
+            const resultDiv = document.getElementById('sqlTestResult');
+            resultDiv.style.display = 'none';
+            
+            // Clear all form fields
+            document.getElementById('sqlDbName').value = '';
+            document.getElementById('sqlDbType').value = '';
+            document.getElementById('sqlDbHost').value = '';
+            document.getElementById('sqlDbPort').value = '';
+            document.getElementById('sqlDbUser').value = '';
+            document.getElementById('sqlDbPassword').value = '';
+            document.getElementById('sqlDbDatabase').value = '';
+            document.getElementById('sqlDbEncrypt').checked = false;
+            document.getElementById('sqlDbTrustServerCert').checked = false;
+            
+            updateSqlDbTypeFields();
+            form.style.display = 'block';
+            markUnsavedChanges();
+        }
+
+        function doCancelSqlDatabase() {
+            document.getElementById('sqlDatabaseSelect').value = '';
+            document.getElementById('sqlDatabaseForm').style.display = 'none';
+            const testBtn = document.querySelector('button[onclick="testSqlConnection()"]');
+            const cancelBtn = document.querySelector('button[onclick="cancelSqlDatabase()"]');
+            const deleteBtn = document.querySelector('button[onclick="deleteSqlDatabase()"]');
+            if (testBtn) testBtn.disabled = true;
+            if (cancelBtn) cancelBtn.disabled = true;
+            if (deleteBtn) deleteBtn.disabled = true;
+            selectedSqlDatabaseName = null;
+            clearUnsavedChanges();
+        }
+
+        function cancelSqlDatabase() {
+            if (hasUnsavedChanges) {
+                showUnsavedChangesModal(
+                    doCancelSqlDatabase,
+                    () => {
+                        // Save the current SQL database form
+                        const dbSelect = document.getElementById('sqlDatabaseSelect');
+                        const dbName = document.getElementById('sqlDbName').value;
+                        if (dbName) {
+                            saveSqlDatabaseForm(dbName);
+                        }
+                        clearUnsavedChanges();
+                    }
+                );
+            } else {
+                doCancelSqlDatabase();
+            }
+        }
+
+        function deleteSqlDatabase() {
+            const dbSelect = document.getElementById('sqlDatabaseSelect');
+            const dbName = dbSelect.value;
+            
+            if (!dbName) {
+                showStatus('No database selected', 'error');
+                return;
+            }
+            
+            showConfirmModal('Delete SQL Configuration', `Delete SQL configuration "${dbName}"? This cannot be undone.`, () => {
+                // Remove from currentDatabases
+                delete currentDatabases[dbName];
+                
+                // Remove from dropdown
+                const option = Array.from(dbSelect.options).find(opt => opt.value === dbName);
+                if (option) {
+                    option.remove();
+                }
+                
+                // Reset form and buttons
+                document.getElementById('sqlDatabaseForm').style.display = 'none';
+                dbSelect.value = '';
+                const testBtn = document.querySelector('button[onclick="testSqlConnection()"]');
+                const cancelBtn = document.querySelector('button[onclick="cancelSqlDatabase()"]');
+                const deleteBtn = document.querySelector('button[onclick="deleteSqlDatabase()"]');
+                if (testBtn) testBtn.disabled = true;
+                if (cancelBtn) cancelBtn.disabled = true;
+                if (deleteBtn) deleteBtn.disabled = true;
+                
+                showStatus(`SQL configuration "${dbName}" deleted.`, 'success');
+                markUnsavedChanges();
+            });
+        }
+
+        async function savePluginSettings() {
+            const pluginName = currentPluginName;
+            const btn = document.getElementById('savePluginBtn');
+            const originalText = btn.textContent;
+
+            btn.disabled = true;
+            btn.textContent = 'Saving...';
+
+            try {
+                if (!sessionToken) {
+                    sessionToken = await getSessionToken();
+                }
+
+                // Build the update object from form values
+                // Increment version: "1.0" -> "1.1", "1.9" -> "1.10", etc.
+                let newVersion = '1.0';
+                if (currentPluginVersion) {
+                    const parts = currentPluginVersion.toString().split('.');
+                    if (parts.length === 2) {
+                        const major = parseInt(parts[0]) || 1;
+                        const minor = (parseInt(parts[1]) || 0) + 1;
+                        newVersion = `${major}.${minor}`;
+                    }
+                }
+
+                const updates = {
+                    display_name: document.getElementById('pluginDisplayName').value,
+                    version: newVersion,
+                    description: document.getElementById('pluginDescription').value,
+                    enabled: document.getElementById('pluginEnabled').checked ? 1 : 0,
+                    updated_by: currentUser,
+                    updated_at: new Date().toISOString().replace('T', ' ').split('.')[0],
+                    config: {
+                        type: document.getElementById('configType').value,
+                        rateLimit: parseInt(document.getElementById('configRateLimit').value) || 100,
+                        routes: document.getElementById('configRoutes').value.split('\n').filter(r => r.trim())
+                    },
+                    originalConfig: originalPluginConfig  // Send original config for history
+                };
+
+                // Include code if it was modified
+                if (originalPluginConfig && originalPluginConfig.code) {
+                    updates.code = originalPluginConfig.code;
+                }
+
+                // Add API fields based on type
+                const configType = document.getElementById('configType').value;
+                if (configType === 'api') {
+                    const bearerFields = document.getElementById('bearerAuthFields');
+                    const clientFields = document.getElementById('clientAuthFields');
+
+                    if (bearerFields.style.display !== 'none') {
+                        // Bearer token auth
+                        updates.config.baseUrl = document.getElementById('configBaseUrl').value;
+                        updates.config.apiPath = document.getElementById('configApiPath').value;
+                        updates.config.apiKey = document.getElementById('configApiKey').value;
+                    } else if (clientFields.style.display !== 'none') {
+                        // Client/OAuth auth
+                        updates.config.baseUrl = document.getElementById('configClientBaseUrl').value;
+                        updates.config.apiPath = document.getElementById('configClientApiPath').value;
+                        updates.config.clientId = document.getElementById('configClientId').value;
+                        updates.config.publicKey = document.getElementById('configPublicKey').value;
+                        updates.config.privateKey = document.getElementById('configPrivateKey').value;
+                    }
+                } else if (configType === 'sql') {
+                    // Save current SQL database form before submitting
+                    const currentDb = document.getElementById('sqlDatabaseSelect').value;
+                    if (currentDb) {
+                        saveSqlDatabaseForm(currentDb);
+                    }
+                    // Include all databases in config
+                    updates.config.databases = currentDatabases;
+                }
+
+                // Send update to server (will create this endpoint next)
+                const response = await fetch(`https://app.equinoxits.com:1139/kore/plugins/update?name=${encodeURIComponent(pluginName)}`, {
+                    method: 'POST',
+                    headers: {
+                        'X-Session-Token': sessionToken,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(updates)
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    showStatus('Plugin settings saved successfully.', 'success');
+                    // Auto-reload the plugin to pick up new config
+                    try {
+                        const reloadResponse = await fetch(`https://app.equinoxits.com:1139/kore/plugins/load?name=${encodeURIComponent(pluginName)}`, {
+                            method: 'POST',
+                            headers: {
+                                'X-Session-Token': sessionToken,
+                                'Content-Type': 'application/json'
+                            }
+                        });
+                        if (reloadResponse.ok) {
+                            showStatus('Plugin reloaded with new config.', 'success');
+                        }
+                    } catch (reloadError) {
+                        console.error('Error reloading plugin after save:', reloadError);
+                    }
+                    cancelPluginSelection();
+                } else {
+                    showStatus('Error: ' + (data.error || 'Unknown error'), 'error');
+                }
+            } catch (error) {
+                showStatus('Error saving settings: ' + error.message, 'error');
+            } finally {
+                btn.disabled = false;
+                btn.textContent = originalText;
+            }
+        }
+
+        async function reloadSelectedPlugin() {
+            const pluginName = document.getElementById('pluginName').value;
+            
+            if (!pluginName) {
+                showStatus('Please select a plugin first', 'error');
+                return;
+            }
+
+            const btn = document.getElementById('reloadPluginBtn');
+            const originalText = btn.textContent;
+
+            btn.disabled = true;
+            btn.textContent = 'Reloading...';
+
+            try {
+                if (!sessionToken) {
+                    sessionToken = await getSessionToken();
+                }
+
+                const response = await fetch(`https://app.equinoxits.com:1139/kore/plugins/load?name=${encodeURIComponent(pluginName)}`, {
+                    method: 'POST',
+                    headers: {
+                        'X-Session-Token': sessionToken,
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    showStatus('Plugin "' + pluginName + '" reloaded successfully.', 'success');
+                    loadPluginDetails();
+                } else {
+                    showStatus('Error: ' + (data.error || 'Unknown error'), 'error');
+                }
+            } catch (error) {
+                showStatus('Error: ' + error.message, 'error');
+            } finally {
+                btn.disabled = false;
+                btn.textContent = originalText;
+            }
+        }
+
+        function showStatus(message, type) {
+            const statusEl = document.getElementById('statusMessage');
+            statusEl.textContent = message;
+            statusEl.className = `status-message active ${type}`;
+            
+            setTimeout(() => {
+                statusEl.classList.remove('active');
+            }, 5000);
+        }
+
+        async function getSessionToken() {
+            const authBody = {
+                origin: "https://localhost",
+                user: "admin@equinoxits.com"
+            };
+
+            const response = await fetch('https://app.equinoxits.com:1139/auth', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Kore-Token': '393d5ca334f5b1b9e7127544460def61ca6be55eab20da08f1746f11f5d0b4e9'
+                },
+                body: JSON.stringify(authBody)
+            });
+
+            const data = await response.json();
+            return data.sessionToken;
+        }
+
+        function escapeHtml(text) {
+            const map = {
+                '&': '&amp;',
+                '<': '&lt;',
+                '>': '&gt;',
+                '"': '&quot;',
+                "'": '&#039;'
+            };
+            return text.replace(/[&<>"']/g, m => map[m]);
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            buildKoreHeader('Administration');
+            currentUser = getUser();
+            loadPluginsList();
+            
+            // Add change listeners to all plugin configuration form fields
+            const allFormFields = [
+                // Basic plugin info
+                'pluginDisplayName', 'pluginDescription', 'pluginEnabled',
+                // Config fields
+                'configType', 'configRateLimit', 'configRoutes',
+                // API Bearer auth fields
+                'configBaseUrl', 'configApiPath', 'configApiKey',
+                // API Client auth fields
+                'configClientBaseUrl', 'configClientApiPath', 'configClientId',
+                'configPublicKey', 'configPrivateKey',
+                // SQL database form fields
+                'sqlDbName', 'sqlDbType', 'sqlDbHost', 'sqlDbPort',
+                'sqlDbUser', 'sqlDbPassword', 'sqlDbDatabase',
+                'sqlDbEncrypt', 'sqlDbTrustServerCert'
+            ];
+            
+            allFormFields.forEach(fieldId => {
+                const field = document.getElementById(fieldId);
+                if (field) {
+                    field.addEventListener('change', markUnsavedChanges);
+                    field.addEventListener('input', markUnsavedChanges);
+                }
+            });
+        });
+    </script>
+</body>
+</html>

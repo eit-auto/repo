@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Equinox Kore - Analytics Demo</title>
+    <script src="/lib/base.css"></script>
+    <style>
+        /* Page-specific layout for two-column dashboard */
+        .main-container { grid-template-columns: 280px 1fr; }
+
+
+        @media (max-width: 1100px) { .analytics-grid { grid-template-columns: 1fr; } }
+        @media (max-width: 900px) { .main-container { grid-template-columns: 1fr; } }
+    </style>
+</head>
+<body>
+
+    <main class="main-container">
+        <aside class="content-panel">
+            <h2>Environment</h2>
+            <div style="font-size: 0.8rem; color: var(--text-muted);">
+                <p style="margin-bottom: 8px;">Cluster: <span style="color: var(--text-accent);">North_Dev</span></p>
+                <p style="margin-bottom: 8px;">Active Threads: 128</p>
+                <p>Memory Usage: 42%</p>
+            </div>
+            <button class="btn btn-default" onclick="setTheme('green')" style="margin-top: 12px;">Test Green Theme</button>
+            <button class="btn btn-default" onclick="setTheme('default')" style="margin-top: 8px;">Back to Default</button>
+        </aside>
+
+        <section class="content-panel">
+            <div class="analytics-grid">
+                <div class="sub-panel">
+                    <h2>Weekly Throughput</h2>
+                    <div class="chart-container">
+                        <div class="bar-wrapper"><div class="bar" style="height: 45%;"></div><div class="day-label">M</div></div>
+                        <div class="bar-wrapper"><div class="bar" style="height: 72%;"></div><div class="day-label">T</div></div>
+                        <div class="bar-wrapper"><div class="bar" style="height: 58%;"></div><div class="day-label">W</div></div>
+                        <div class="bar-wrapper"><div class="bar" style="height: 94%;"></div><div class="day-label">T</div></div>
+                        <div class="bar-wrapper"><div class="bar" style="height: 66%;"></div><div class="day-label">F</div></div>
+                    </div>
+                </div>
+
+                <div class="sub-panel">
+                    <h2>Top Execution Leads</h2>
+                    <table>
+                        <thead>
+                            <tr><th>Name</th><th>Past 30 Days</th></tr>
+                        </thead>
+                        <tbody>
+                            <tr><td>Julian Thorne</td><td><span class="exec-badge">4,120</span></td></tr>
+                            <tr><td>Elise Vance</td><td><span class="exec-badge">3,892</span></td></tr>
+                            <tr><td>Riley Cooper</td><td><span class="exec-badge">2,455</span></td></tr>
+                            <tr><td>Blake Sterling</td><td><span class="exec-badge">1,902</span></td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <script src="lib/base.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            buildKoreHeader('Kore Hub Dashboard With More Text');
+        });
+    </script>
+</body>
+</html>
