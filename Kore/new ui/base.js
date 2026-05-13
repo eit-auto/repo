@@ -380,3 +380,299 @@ function buildKoreHeader(pageTitle = "Kore System") {
 // Auto-execute: inject component styles and initialize theme
 injectComponentStyles();
 setTheme(activeTheme);
+
+/**
+ * Modal Management System
+ */
+
+let currentModal = null;
+
+/**
+ * Show a modal dialog
+ * @param {Object} options - Modal configuration
+ * @param {string} options.title - Modal title
+ * @param {string|HTMLElement} options.content - Modal body content (HTML string or element)
+ * @param {Array} options.buttons - Array of button objects: {label, onClick, type: 'primary'|'secondary'|'danger'}
+ * @param {Function} options.onClose - Callback when modal closes
+ * @param {boolean} options.closeOnBackdrop - Close when clicking backdrop (default: true)
+ */
+function showModal(options = {}) {
+    const {
+        title = 'Modal',
+        content = '',
+        buttons = [],
+        onClose = null,
+        closeOnBackdrop = true
+    } = options;
+
+    // Create backdrop if it doesn't exist
+    let backdrop = document.getElementById('modal-backdrop');
+    if (!backdrop) {
+        backdrop = document.createElement('div');
+        backdrop.id = 'modal-backdrop';
+        backdrop.className = 'modal-backdrop';
+        document.body.appendChild(backdrop);
+    }
+
+    // Create modal container
+    const modal = document.createElement('div');
+    modal.className = 'modal-container';
+    modal.innerHTML = `
+        <div class="modal-header">
+            <h2>${title}</h2>
+        </div>
+        <div class="modal-body" id="modal-body-content">
+            ${typeof content === 'string' ? content : ''}
+        </div>
+        <div class="modal-footer" id="modal-footer">
+        </div>
+    `;
+
+    // Add content if it's an HTMLElement
+    if (content instanceof HTMLElement) {
+        modal.querySelector('#modal-body-content').innerHTML = '';
+        modal.querySelector('#modal-body-content').appendChild(content);
+    }
+
+    // Add buttons
+    const footer = modal.querySelector('#modal-footer');
+    if (buttons.length > 0) {
+        buttons.forEach(btn => {
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = 'btn';
+            
+            // Map button types to data-color
+            if (btn.type === 'secondary') {
+                button.setAttribute('data-color', 'grey');
+            } else if (btn.type === 'danger') {
+                button.setAttribute('data-color', 'red');
+            } else if (btn.type === 'success') {
+                button.setAttribute('data-color', 'green');
+            }
+            // 'primary' uses default .btn color
+            
+            button.textContent = btn.label;
+            button.addEventListener('click', () => {
+                if (btn.onClick) btn.onClick();
+                closeModal();
+            });
+            footer.appendChild(button);
+        });
+    } else {
+        // Default close button if no buttons provided
+        const closeBtn = document.createElement('button');
+        closeBtn.type = 'button';
+        closeBtn.className = 'btn';
+        closeBtn.setAttribute('data-color', 'grey');
+        closeBtn.textContent = 'Close';
+        closeBtn.addEventListener('click', closeModal);
+        footer.appendChild(closeBtn);
+    }
+
+    // Clear previous modal
+    const oldModal = backdrop.querySelector('.modal-container');
+    if (oldModal) oldModal.remove();
+
+    backdrop.appendChild(modal);
+    backdrop.classList.add('active');
+
+    currentModal = {
+        element: modal,
+        backdrop: backdrop,
+        onClose: onClose
+    };
+
+    // Backdrop click to close
+    if (closeOnBackdrop) {
+        backdrop.addEventListener('click', (e) => {
+            if (e.target === backdrop) closeModal();
+        });
+    }
+
+    // ESC key to close
+    const escapeHandler = (e) => {
+        if (e.key === 'Escape') closeModal();
+    };
+    document.addEventListener('keydown', escapeHandler);
+    currentModal.escapeHandler = escapeHandler;
+
+    // Focus first button or input
+    const firstButton = modal.querySelector('button');
+    const firstInput = modal.querySelector('input, textarea, select');
+    if (firstInput) firstInput.focus();
+    else if (firstButton) firstButton.focus();
+}
+
+/**
+ * Close the current modal
+ */
+function closeModal() {
+    if (currentModal) {
+        const { backdrop, onClose, escapeHandler } = currentModal;
+        
+        backdrop.classList.remove('active');
+        
+        // Remove escape listener
+        if (escapeHandler) {
+            document.removeEventListener('keydown', escapeHandler);
+        }
+        
+        // Call onClose callback
+        if (onClose) onClose();
+        
+        currentModal = null;
+    }
+}
+
+/**
+ * Show a simple alert dialog
+ * @param {string} title - Alert title
+ * @param {string} message - Alert message
+ */
+function showAlert(title, message) {
+    showModal({
+        title: title,
+        content: `<p style="color: var(--text-primary); margin: 0;">${message}</p>`,
+        buttons: [
+            {
+                label: 'OK',
+                type: 'primary',
+                onClick: () => {}
+            }
+        ]
+    });
+}
+
+/**
+ * Show a confirmation dialog
+ * @param {string} title - Dialog title
+ * @param {string} message - Dialog message
+ * @param {Function} onConfirm - Callback if user confirms
+ * @param {string} confirmLabel - Label for confirm button (default: 'Confirm')
+ */
+function showConfirm(title, message, onConfirm, confirmLabel = 'Confirm') {
+    showModal({
+        title: title,
+        content: `<p style="color: var(--text-primary); margin: 0;">${message}</p>`,
+        buttons: [
+            {
+                label: 'Cancel',
+                type: 'secondary',
+                onClick: () => {}
+            },
+            {
+                label: confirmLabel,
+                type: 'primary',
+                onClick: onConfirm
+            }
+        ]
+    });
+}
+
+/**
+ * Show a delete confirmation dialog
+ * @param {string} message - Confirmation message
+ * @param {Function} onConfirm - Callback if user confirms deletion
+ */
+function showDeleteConfirm(message, onConfirm) {
+    showModal({
+        title: 'Delete',
+        content: `<p style="color: var(--text-primary); margin: 0;">${message}</p>`,
+        buttons: [
+            {
+                label: 'Cancel',
+                type: 'secondary',
+                onClick: () => {}
+            },
+            {
+                label: 'Delete',
+                type: 'danger',
+                onClick: onConfirm
+            }
+        ]
+    });
+}
+
+/**
+ * Show unsaved changes dialog
+ * @param {Function} onSave - Callback to save changes
+ * @param {Function} onDiscard - Callback to discard changes
+ */
+function showUnsaved(onSave, onDiscard) {
+    showModal({
+        title: 'Unsaved Changes',
+        content: `<p style="color: var(--text-primary); margin: 0;">You have unsaved changes. What would you like to do?</p>`,
+        buttons: [
+            {
+                label: 'Cancel',
+                type: 'secondary',
+                onClick: () => {}
+            },
+            {
+                label: 'Discard',
+                type: 'danger',
+                onClick: onDiscard
+            },
+            {
+                label: 'Save Changes',
+                type: 'success',
+                onClick: onSave
+            }
+        ]
+    });
+}
+/**
+ * Get session token
+ */
+function getSessionToken() {
+    return sessionToken;
+}
+
+/**
+ * Get current user ID
+ */
+function getUser() {
+    return 'bradf@equinoxits.com';
+}
+
+/**
+ * Execute SQL query
+ */
+async function executeSqlQuery(sessionToken, user, database, query, options = {}) {
+    try {
+        if (!sessionToken || !user || !database || !query) {
+            throw new Error('sessionToken, user, database, and query are required');
+        }
+        
+        console.log(`[SQLQuery] Executing query on database: ${database}`);
+        
+        const response = await fetch(`https://app.equinoxits.com:1139/sqlquery`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Session-Token': sessionToken
+            },
+            body: JSON.stringify({
+                database: database,
+                query: query
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (!response.ok) {
+            throw new Error(data.error || `HTTP ${response.status}`);
+        }
+        
+        if (!data.success) {
+            throw new Error(data.error || 'Query execution failed');
+        }
+        
+        console.log(`[SQLQuery] Query executed successfully on ${database}, returned ${data.rowCount} rows`);
+        return data;
+    } catch (error) {
+        console.error('[SQLQuery] executeSqlQuery error:', error);
+        throw error;
+    }
+}
