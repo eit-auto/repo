@@ -499,6 +499,17 @@ const GRAPHQL_OPERATIONS = {
    */
   function evaluateCondition(conditionString, formData) {
     if (!conditionString) return true;
+    
+    // Extract variable names from condition to check if they're available
+    const varNames = conditionString.match(/\b[a-zA-Z_]\w*\b/g) || [];
+    const operators = ['and', 'or', 'true', 'false', 'null'];
+    const actualVars = varNames.filter(v => !operators.includes(v) && !['==', '!=', '<', '>', '<=', '>=', '===', '!=='].includes(v));
+    
+    // If any required variable is missing from formData, return false
+    if (actualVars.length > 0 && actualVars.some(v => !(v in formData))) {
+      return false;
+    }
+    
     try {
       // Replace field references with their values from formData
       let expression = conditionString;
