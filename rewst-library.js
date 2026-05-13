@@ -501,6 +501,16 @@ const GRAPHQL_OPERATIONS = {
     if (!conditionString) return true;
     
     try {
+      // Extract actual variable names from original condition to check availability
+      const originalVars = conditionString.match(/\b[a-zA-Z_]\w*\b/g) || [];
+      const operators = ['and', 'or', 'true', 'false', 'null'];
+      const requiredVars = originalVars.filter(v => !operators.includes(v));
+      
+      // Check if any required variable is missing from formData
+      if (requiredVars.some(v => !(v in formData))) {
+        return false;
+      }
+      
       // Replace field references with their values from formData
       let expression = conditionString;
       
@@ -518,16 +528,6 @@ const GRAPHQL_OPERATIONS = {
         // Use word boundary to avoid partial replacements
         expression = expression.replace(new RegExp(`\\b${key}\\b`, 'g'), replacement);
       });
-      
-      // Check if expression contains unreplaced variable names
-      const unreplacedVars = expression.match(/\b[a-zA-Z_]\w*\b(?!['"])/g) || [];
-      const reserved = ['true', 'false', 'null', 'undefined', 'NaN', 'Infinity'];
-      const hasUndefinedVar = unreplacedVars.some(v => !reserved.includes(v) && !/^\d+$/.test(v));
-      
-      if (hasUndefinedVar) {
-        // Variable not available, condition can't be evaluated
-        return false;
-      }
       
       console.log('[FORMS] Evaluating expression:', expression);
       // Evaluate the expression
@@ -2584,6 +2584,16 @@ const GRAPHQL_OPERATIONS = {
     if (!conditionString) return true;
     
     try {
+      // Extract actual variable names from original condition to check availability
+      const originalVars = conditionString.match(/\b[a-zA-Z_]\w*\b/g) || [];
+      const operators = ['and', 'or', 'true', 'false', 'null'];
+      const requiredVars = originalVars.filter(v => !operators.includes(v));
+      
+      // Check if any required variable is missing from pageVars
+      if (requiredVars.some(v => !(v in pageVars))) {
+        return false;
+      }
+      
       let expression = conditionString;
       
       // Convert user-friendly operators
@@ -2597,17 +2607,6 @@ const GRAPHQL_OPERATIONS = {
         const replacement = typeof value === 'string' ? `'${value}'` : value;
         expression = expression.replace(new RegExp(`\\b${key}\\b`, 'g'), replacement);
       });
-      
-      // Check if expression contains unreplaced variable names (identifiers not in quotes)
-      // This prevents ReferenceError when eval tries to access undefined variables
-      const unreplacedVars = expression.match(/\b[a-zA-Z_]\w*\b(?!['"])/g) || [];
-      const reserved = ['true', 'false', 'null', 'undefined', 'NaN', 'Infinity'];
-      const hasUndefinedVar = unreplacedVars.some(v => !reserved.includes(v) && !/^\d+$/.test(v));
-      
-      if (hasUndefinedVar) {
-        // Variable not available yet, condition can't be evaluated
-        return false;
-      }
       
       console.log('[CONDITIONAL] Evaluating:', expression);
       return eval(expression);
