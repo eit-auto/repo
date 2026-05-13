@@ -501,8 +501,10 @@ const GRAPHQL_OPERATIONS = {
     if (!conditionString) return true;
     
     try {
-      // Extract actual variable names from original condition to check availability
-      const originalVars = conditionString.match(/\b[a-zA-Z_]\w*\b/g) || [];
+      // Extract variable names from original condition, excluding quoted strings
+      // Remove all quoted strings first, then extract remaining identifiers
+      const withoutQuotes = conditionString.replace(/'[^']*'/g, '""');
+      const originalVars = withoutQuotes.match(/\b[a-zA-Z_]\w*\b/g) || [];
       const operators = ['and', 'or', 'true', 'false', 'null'];
       const requiredVars = originalVars.filter(v => !operators.includes(v));
       
@@ -2584,8 +2586,10 @@ const GRAPHQL_OPERATIONS = {
     if (!conditionString) return true;
     
     try {
-      // Extract actual variable names from original condition to check availability
-      const originalVars = conditionString.match(/\b[a-zA-Z_]\w*\b/g) || [];
+      // Extract variable names from original condition, excluding quoted strings
+      // Remove all quoted strings first, then extract remaining identifiers
+      const withoutQuotes = conditionString.replace(/'[^']*'/g, '""');
+      const originalVars = withoutQuotes.match(/\b[a-zA-Z_]\w*\b/g) || [];
       const operators = ['and', 'or', 'true', 'false', 'null'];
       const requiredVars = originalVars.filter(v => !operators.includes(v));
       
