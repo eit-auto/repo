@@ -518,6 +518,17 @@ const GRAPHQL_OPERATIONS = {
         // Use word boundary to avoid partial replacements
         expression = expression.replace(new RegExp(`\\b${key}\\b`, 'g'), replacement);
       });
+      
+      // Check if expression contains unreplaced variable names
+      const unreplacedVars = expression.match(/\b[a-zA-Z_]\w*\b(?!['"])/g) || [];
+      const reserved = ['true', 'false', 'null', 'undefined', 'NaN', 'Infinity'];
+      const hasUndefinedVar = unreplacedVars.some(v => !reserved.includes(v) && !/^\d+$/.test(v));
+      
+      if (hasUndefinedVar) {
+        // Variable not available, condition can't be evaluated
+        return false;
+      }
+      
       console.log('[FORMS] Evaluating expression:', expression);
       // Evaluate the expression
       return eval(expression);
