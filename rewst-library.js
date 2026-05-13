@@ -2568,8 +2568,18 @@ const GRAPHQL_OPERATIONS = {
    * Evaluate a condition string using window.pageVariables
    * Supports: ==, !=, ===, !==, >, <, >=, <=, &&, ||, and, or, parentheses
    */
-  function evaluateConditionalExpression(conditionString) {
+  function evaluateConditionalExpression(conditionString, pageVars = {}) {
     if (!conditionString) return true;
+    
+    // Extract variable names from condition to check if they're available
+    const varNames = conditionString.match(/\b[a-zA-Z_]\w*\b/g) || [];
+    const operators = ['and', 'or', 'true', 'false', 'null'];
+    const actualVars = varNames.filter(v => !operators.includes(v) && !['==', '!=', '<', '>', '<=', '>=', '===', '!=='].includes(v));
+    
+    // If any required variable is missing, return false (condition not met)
+    if (actualVars.length > 0 && actualVars.some(v => !(v in pageVars))) {
+      return false;
+    }
     
     try {
       let expression = conditionString;
@@ -2579,9 +2589,9 @@ const GRAPHQL_OPERATIONS = {
       expression = expression.replace(/\bor\b/g, '||');
       
       // Replace field/variable references with their values
-      const sortedKeys = Object.keys(window.pageVariables || {}).sort((a, b) => b.length - a.length);
+      const sortedKeys = Object.keys(pageVars || {}).sort((a, b) => b.length - a.length);
       sortedKeys.forEach(key => {
-        const value = window.pageVariables[key];
+        const value = pageVars[key];
         const replacement = typeof value === 'string' ? `'${value}'` : value;
         expression = expression.replace(new RegExp(`\\b${key}\\b`, 'g'), replacement);
       });
@@ -2598,7 +2608,7 @@ const GRAPHQL_OPERATIONS = {
    * Process [[ if ... ]][[ elif ... ]][[ else ]][[ endif ]] conditional blocks
    * Supports flexible spacing: [[ if ... ]] or [[if...]]
    */
-  function processConditionalBlocks(text) {
+  function processConditionalBlocks(text, pageVars = {}) {
     if (!text || typeof text !== 'string' || !text.includes('[[')) {
       return text;
     }
@@ -2657,7 +2667,7 @@ const GRAPHQL_OPERATIONS = {
 
         // Evaluate branches in order
         for (const branch of branches) {
-          const conditionResult = evaluateConditionalExpression(branch.condition);
+          const conditionResult = evaluateConditionalExpression(branch.condition, pageVars);
           console.log(`[CONDITIONAL] ${branch.type} (${branch.condition}) -> ${conditionResult}`);
           
           if (conditionResult) {
@@ -2689,7 +2699,7 @@ const GRAPHQL_OPERATIONS = {
     console.log(`[REPLACE_VARS] window.pageVariables:`, window.pageVariables);
     
     // First, process conditional blocks
-    text = processConditionalBlocks(text);
+    text = processConditionalBlocks(text, window.pageVariables || {});
     console.log(`[REPLACE_VARS] After conditional processing: "${text}"`);
     
     // Handle sources without brackets but with operators (e.g., "script_info.Parameters|split")
