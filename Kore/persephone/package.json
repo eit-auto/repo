@@ -1,0 +1,12 @@
+{
+  "name": "persephone",
+  "version": "1.0.0",
+  "description": "Automation engine for Kore",
+  "main": "persephone.js",
+  "dependencies": {
+    "luxon": "^3.7.2",
+    "mysql2": "^3.6.5",
+    "nunjucks": "^3.2.4",
+    "uuid": "^9.0.0"
+  }
+}
