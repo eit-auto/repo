@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Kore Central Automation Platform
  * 
  * Unified integration platform for MeshCentral, ConnectWise Manage API, and database operations.
@@ -29,14 +29,37 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const url = require('url');
+const { spawn } = require('child_process');
 const WebSocket = require('ws');
 const mysql = require('mysql2/promise');
 const Persephone = require('./persephone/persephone');
 const { handleWorkflowRequest, handleExecuteRequest, handleExecutionRequest } = require('./persephone/persephone');
 const CryptoUtils = require('./crypto-utils');
+const Auth = require('./auth/auth');
+const { validateUserSessionToken, isProtectedStaticFile, getSessionTokenFromCookies, getRefreshTokenFromCookies } = require('./auth/auth');
 
 // Load environment variables from .env
 require('dotenv').config();
+
+/**
+ * Get current timestamp formatted in configured timezone
+ */
+function getTimestamp() {
+    const tz = global.timezone || 'UTC';
+    return new Date().toLocaleString('en-US', { 
+        timeZone: tz,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false
+    }).replace(/(\d+)\/(\d+)\/(\d+),\s(\d+):(\d+):(\d+)/, '$3-$1-$2T$4:$5:$6');
+}
+
+// Export to global so auth.js can use it
+global.getTimestamp = getTimestamp;
 
 // ========== SECURITY CONFIGURATION ==========
 // IP Whitelist (no rate limits applied)
@@ -119,6 +142,37 @@ function stripVariableColumns(result) {
     });
 }
 
+/**
+ * Log an action to audit_log
+ */
+async function logAudit(action, targetType, targetId, targetName, performedBy, details, ipAddress) {
+    try {
+        const query = `
+            INSERT INTO audit_log 
+            (action, targetType, targetId, targetName, performedBy, details, ipAddress, performedAt)
+            VALUES (?, ?, ?, ?, ?, ?, ?, NOW())
+        `;
+        
+        const detailsJSON = typeof details === 'string' ? details : JSON.stringify(details || {});
+        
+        await korePool.execute(query, [
+            action,
+            targetType,
+            targetId,
+            targetName,
+            performedBy,
+            detailsJSON,
+            ipAddress
+        ]);
+        
+        console.log(`[${getTimestamp()}] AUDIT: ${action} on ${targetType}:${targetId} by ${performedBy}`);
+        return true;
+    } catch (err) {
+        console.error(`[${getTimestamp()}] ERROR logging audit:`, err.message);
+        return false;
+    }
+}
+
 // Daily logging setup
 const LOGS_DIR = 'D:\\Kore\\logs';
 let logStream = null;
@@ -157,13 +211,13 @@ function ensureLogStream() {
             // Handle stream errors
             logStream.on('error', (err) => {
                 // Don't use console.error here - causes infinite recursion
-                process.stderr.write(`[${new Date().toISOString()}] Log stream error: ${err.message}\n`);
+                process.stderr.write(`[${getTimestamp()}] Log stream error: ${err.message}\n`);
                 logStream = null;
             });
             
             currentLogDate = today;
         } catch (err) {
-            process.stderr.write(`[${new Date().toISOString()}] ERROR opening log stream: ${err.message}\n`);
+            process.stderr.write(`[${getTimestamp()}] ERROR opening log stream: ${err.message}\n`);
             logStream = null;
         }
     }
@@ -186,7 +240,7 @@ function initializeLogging() {
             const message = args.map(arg => 
                 typeof arg === 'object' ? JSON.stringify(arg, null, 2) : String(arg)
             ).join(' ');
-            const timestamp = `[${new Date().toISOString()}]`;
+            const timestamp = `[${getTimestamp()}]`;
             const output = `${timestamp} ${message}\n`;
             
             const stream = ensureLogStream();
@@ -209,7 +263,7 @@ function initializeLogging() {
             const message = args.map(arg => 
                 typeof arg === 'object' ? JSON.stringify(arg, null, 2) : String(arg)
             ).join(' ');
-            const timestamp = `[${new Date().toISOString()}]`;
+            const timestamp = `[${getTimestamp()}]`;
             const output = `${timestamp} ERROR: ${message}\n`;
             
             const stream = ensureLogStream();
@@ -221,7 +275,7 @@ function initializeLogging() {
         }
     };
     
-    console.log(`[${new Date().toISOString()}] Kore logging initialized - ${getLogFilePath()}`);
+    console.log(`[${getTimestamp()}] Kore logging initialized - ${getLogFilePath()}`);
 }
 
 // Initialize logging before anything else
@@ -239,7 +293,7 @@ let apiMembersCache = null;
 
 // Error logging helper
 function logError(message, errorObj = null) {
-    const timestamp = new Date().toISOString();
+    const timestamp = getTimestamp();
     const logEntry = `[${timestamp}] ${message}${errorObj ? '\n' + JSON.stringify(errorObj, null, 2) : ''}\n`;
     
     // Log to console
@@ -273,7 +327,7 @@ async function processSessionWriteQueue() {
         await fs.promises.writeFile(SESSIONS_FILE, JSON.stringify(data, null, 2));
         resolve(true);
     } catch (error) {
-        console.error(`[${new Date().toISOString()}] Error writing sessions:`, error.message);
+        console.error(`[${getTimestamp()}] Error writing sessions:`, error.message);
         resolve(false);
     }
     
@@ -303,21 +357,21 @@ let mysqlPool = null;    // Rewst database pool
 let cwaPool = null;      // CWA/LabTech database pool
 let korePool = null;     // Kore database pool (Persephone)
 
-console.log(`[${new Date().toISOString()}] Starting MeshCentral WebSocket Proxy`);
-console.log(`[${new Date().toISOString()}] MeshCentral: ${MESHCENTRAL_HOST}:${MESHCENTRAL_PORT}`);
-console.log(`[${new Date().toISOString()}] Proxy listening: 0.0.0.0:${PROXY_PORT}`);
+console.log(`[${getTimestamp()}] Starting MeshCentral WebSocket Proxy`);
+console.log(`[${getTimestamp()}] MeshCentral: ${MESHCENTRAL_HOST}:${MESHCENTRAL_PORT}`);
+console.log(`[${getTimestamp()}] Proxy listening: 0.0.0.0:${PROXY_PORT}`);
 
 // Watchdog timer - logs health every 30 seconds to detect hangs
 setInterval(() => {
     const poolCount = Object.keys(wsConnectionPool).length;
     const pendingCount = Object.keys(pendingResponses).length;
-    const logMsg = `[${new Date().toISOString()}] [WATCHDOG] Proxy responsive. Pool users: ${poolCount}, Pending responses: ${pendingCount}`;
+    const logMsg = `[${getTimestamp()}] [WATCHDOG] Proxy responsive. Pool users: ${poolCount}, Pending responses: ${pendingCount}`;
     console.log(logMsg);
 }, 30000);
 
 // Global error handlers for service stability
 process.on('uncaughtException', (err) => {
-    const logMsg = `[${new Date().toISOString()}] FATAL UNCAUGHT EXCEPTION: ${err.message}\n${err.stack}\n`;
+    const logMsg = `[${getTimestamp()}] FATAL UNCAUGHT EXCEPTION: ${err.message}\n${err.stack}\n`;
     console.error(logMsg);
     try {
         fs.appendFileSync('D:\\Kore\\error.log', logMsg);
@@ -349,13 +403,13 @@ async function getSessionCookie(username = null, password = null) {
             }
         };
 
-        console.log(`[${new Date().toISOString()}] Authenticating via HTTP to get session cookie...`);
+        console.log(`[${getTimestamp()}] Authenticating via HTTP to get session cookie...`);
 
         const req = https.request(options, (res) => {
             let data = '';
             
-            console.log(`[${new Date().toISOString()}] HTTP Login Response Status: ${res.statusCode}`);
-            console.log(`[${new Date().toISOString()}] Set-Cookie headers:`, res.headers['set-cookie']);
+            console.log(`[${getTimestamp()}] HTTP Login Response Status: ${res.statusCode}`);
+            console.log(`[${getTimestamp()}] Set-Cookie headers:`, res.headers['set-cookie']);
 
             if (res.statusCode !== 200) {
                 reject(new Error(`HTTP login failed: ${res.statusCode}`));
@@ -374,22 +428,22 @@ async function getSessionCookie(username = null, password = null) {
             });
 
             res.on('end', () => {
-                console.log(`[${new Date().toISOString()}] Login response: ${data.substring(0, 100)}`);
+                console.log(`[${getTimestamp()}] Login response: ${data.substring(0, 100)}`);
                 // Extract just the cookie name=value parts (before the semicolon) for all cookies
                 const cookieValues = cookies.map(c => c.split(';')[0]).join('; ');
-                console.log(`[${new Date().toISOString()}] Cookie values: ${cookieValues}`);
+                console.log(`[${getTimestamp()}] Cookie values: ${cookieValues}`);
                 resolve(cookieValues); // Return all cookies as Cookie header format
             });
         });
 
         req.on('error', (err) => {
-            console.error(`[${new Date().toISOString()}] HTTP login error:`, err.message);
+            console.error(`[${getTimestamp()}] HTTP login error:`, err.message);
             reject(err);
         });
 
         // Set timeout for HTTP request (60 seconds for slow internal requests)
         req.setTimeout(60000, () => {
-            console.error(`[${new Date().toISOString()}] HTTP login request timeout after 60 seconds`);
+            console.error(`[${getTimestamp()}] HTTP login request timeout after 60 seconds`);
             req.destroy();
         });
 
@@ -406,7 +460,7 @@ async function connectToMeshCentral(cookie) {
         const meshUrl = `wss://${MESHCENTRAL_HOST}:${MESHCENTRAL_PORT}/control.ashx`;
         const agent = new https.Agent({ rejectUnauthorized: false });
 
-        console.log(`[${new Date().toISOString()}] Connecting to MeshCentral WebSocket with session cookie...`);
+        console.log(`[${getTimestamp()}] Connecting to MeshCentral WebSocket with session cookie...`);
 
         const ws = new WebSocket(meshUrl, {
             agent,
@@ -418,7 +472,7 @@ async function connectToMeshCentral(cookie) {
         let loginReceived = false;
 
         ws.on('open', () => {
-            console.log(`[${new Date().toISOString()}] WebSocket connected, sending login with token credentials...`);
+            console.log(`[${getTimestamp()}] WebSocket connected, sending login with token credentials...`);
             
             // Send login message with token credentials
             const loginMsg = {
@@ -428,37 +482,37 @@ async function connectToMeshCentral(cookie) {
             };
             
             ws.send(JSON.stringify(loginMsg));
-            console.log(`[${new Date().toISOString()}] Login message sent with credentials`);
+            console.log(`[${getTimestamp()}] Login message sent with credentials`);
         });
 
         ws.on('message', (data) => {
             if (!loginReceived) {
                 try {
                     const msg = JSON.parse(data);
-                    console.log(`[${new Date().toISOString()}] Initial message from MeshCentral:`, JSON.stringify(msg).substring(0, 100));
+                    console.log(`[${getTimestamp()}] Initial message from MeshCentral:`, JSON.stringify(msg).substring(0, 100));
                     
                     // Check if this is a successful login - MeshCentral sends userinfo after successful login
                     if (msg.action === 'userinfo' || msg.action === 'login') {
-                        console.log(`[${new Date().toISOString()}] Login successful`);
+                        console.log(`[${getTimestamp()}] Login successful`);
                         loginReceived = true;
                         resolve(ws);
                     } else if (msg.action === 'close' || msg.cause) {
-                        console.error(`[${new Date().toISOString()}] Login failed:`, msg.cause || msg.msg);
+                        console.error(`[${getTimestamp()}] Login failed:`, msg.cause || msg.msg);
                         reject(new Error(`Login failed: ${msg.cause || msg.msg}`));
                     }
                 } catch (e) {
-                    console.log(`[${new Date().toISOString()}] Non-JSON message received`);
+                    console.log(`[${getTimestamp()}] Non-JSON message received`);
                 }
             }
         });
 
         ws.on('error', (err) => {
-            console.error(`[${new Date().toISOString()}] WebSocket connection error:`, err.message);
+            console.error(`[${getTimestamp()}] WebSocket connection error:`, err.message);
             reject(err);
         });
 
         ws.on('close', () => {
-            console.log(`[${new Date().toISOString()}] WebSocket disconnected from MeshCentral`);
+            console.log(`[${getTimestamp()}] WebSocket disconnected from MeshCentral`);
             if (!loginReceived) {
                 reject(new Error('WebSocket closed before login'));
             }
@@ -480,11 +534,15 @@ async function initializeMySQLPool() {
             throw new Error('Missing required environment variable: ENCRYPTION_KEY');
         }
 
-        console.log(`[${new Date().toISOString()}] Loading configuration from environment variables`);
+        if (!process.env.JWT_SIGNING_KEY) {
+            throw new Error('Missing required environment variable: JWT_SIGNING_KEY');
+        }
+
+        console.log(`[${getTimestamp()}] Loading configuration from environment variables`);
         
         // Initialize crypto utilities for database credential encryption
         global.cryptoUtils = new CryptoUtils(process.env.ENCRYPTION_KEY);
-        console.log(`[${new Date().toISOString()}] Encryption utilities initialized`);
+        console.log(`[${getTimestamp()}] Encryption utilities initialized`);
         
         // Create Kore connection pool (kore_sys database) from environment variables
         korePool = mysql.createPool({
@@ -500,20 +558,24 @@ async function initializeMySQLPool() {
             multipleStatements: true
         });
         
-        console.log(`[${new Date().toISOString()}] Kore MySQL connection pool created (${process.env.KORE_DB_HOST}:${process.env.KORE_DB_PORT}/${process.env.KORE_DB_NAME})`);
+        console.log(`[${getTimestamp()}] Kore MySQL connection pool created (${process.env.KORE_DB_HOST}:${process.env.KORE_DB_PORT}/${process.env.KORE_DB_NAME})`);
         
         // Load system configuration from database
         const [systemConfig] = await korePool.query('SELECT * FROM system_config WHERE id = 1');
         if (systemConfig && systemConfig.length > 0) {
             global.systemConfig = systemConfig[0];
-            console.log(`[${new Date().toISOString()}] System configuration loaded from database`);
-            console.log(`[${new Date().toISOString()}] Data database: ${global.systemConfig.data_database_name}, Environment: ${global.systemConfig.environment}`);
+            console.log(`[${getTimestamp()}] System configuration loaded from database`);
+            console.log(`[${getTimestamp()}] Data database: ${global.systemConfig.data_database_name}, Environment: ${global.systemConfig.environment}`);
+            
+            // Load timezone for logging
+            global.timezone = global.systemConfig.timezone || 'UTC';
+            console.log(`[${getTimestamp()}] Timezone set to: ${global.timezone}`);
         } else {
             throw new Error('system_config table is empty - please insert default row');
         }
     } catch (error) {
-        console.error(`[${new Date().toISOString()}] ERROR initializing system:`, error.message);
-        console.error(`[${new Date().toISOString()}] Please verify .env file exists with required variables`);
+        console.error(`[${getTimestamp()}] ERROR initializing system:`, error.message);
+        console.error(`[${getTimestamp()}] Please verify .env file exists with required variables`);
         process.exit(1);  // Exit on critical configuration error
     }
 }
@@ -524,7 +586,7 @@ async function initializeMySQLPool() {
 async function loadApiMembersCache() {
     try {
         if (!korePool) {
-            console.warn(`[${new Date().toISOString()}] WARNING: Kore pool not available, cannot load API members cache`);
+            console.warn(`[${getTimestamp()}] WARNING: Kore pool not available, cannot load API members cache`);
             return;
         }
         
@@ -532,12 +594,12 @@ async function loadApiMembersCache() {
         try {
             const [rows] = await connection.query('SELECT * FROM `api-members` WHERE enabled = true');
             apiMembersCache = rows;
-            console.log(`[${new Date().toISOString()}] API members cache loaded: ${rows.length} active members`);
+            console.log(`[${getTimestamp()}] API members cache loaded: ${rows.length} active members`);
         } finally {
             connection.release();
         }
     } catch (error) {
-        console.error(`[${new Date().toISOString()}] ERROR loading API members cache:`, error.message);
+        console.error(`[${getTimestamp()}] ERROR loading API members cache:`, error.message);
         // Don't exit - auth is still functional with empty cache (will deny all requests)
     }
 }
@@ -568,7 +630,7 @@ let loadedPlugins = {};
 async function loadPluginsFromDatabase() {
     try {
         if (!korePool) {
-            console.warn(`[${new Date().toISOString()}] WARNING: Kore pool not available, cannot load plugins`);
+            console.warn(`[${getTimestamp()}] WARNING: Kore pool not available, cannot load plugins`);
             return;
         }
         
@@ -584,57 +646,171 @@ async function loadPluginsFromDatabase() {
                     
                     // Execute the plugin code in a context with access to utilities
                     const pluginCode = pluginRow.code;
-                    const pluginFunction = new Function('module', 'exports', 'require', 'console', 'global', pluginCode);
-                    pluginFunction(
-                        pluginObj,
-                        pluginObj.exports,
-                        require,
-                        console,
-                        global
-                    );
+                    
+                    try {
+                        const pluginFunction = new Function('module', 'exports', 'require', 'console', 'global', pluginCode);
+                        pluginFunction(
+                            pluginObj,
+                            pluginObj.exports,
+                            require,
+                            console,
+                            global
+                        );
+                    } catch (execError) {
+                        throw new Error(`Failed to execute plugin code: ${execError.message}`);
+                    }
                     
                     // Get the actual exports (could be set via module.exports or exports)
                     const pluginExports = pluginObj.exports;
                     
-                    // Parse routes from database
-                    let routes = [];
-                    if (pluginRow.routes) {
+                    // Parse config
+                    let pluginConfig = {};
+                    if (pluginRow.config) {
                         try {
-                            const routeData = typeof pluginRow.routes === 'string' ? JSON.parse(pluginRow.routes) : pluginRow.routes;
-                            routes = routeData.routes || [];
+                            pluginConfig = typeof pluginRow.config === 'string' ? JSON.parse(pluginRow.config) : pluginRow.config;
                         } catch (e) {
-                            console.warn(`[${new Date().toISOString()}] WARNING: Could not parse routes for plugin ${pluginRow.name}`);
+                            console.warn(`[${getTimestamp()}] WARNING: Could not parse config for plugin ${pluginRow.name}`);
                         }
+                    }
+                    
+                    // Get routes from config (migrated from separate column)
+                    let routes = [];
+                    if (pluginConfig.routes) {
+                        routes = Array.isArray(pluginConfig.routes) ? pluginConfig.routes : [];
+                    } else if (pluginConfig.configRoutes) {
+                        // Support legacy configRoutes format
+                        routes = Array.isArray(pluginConfig.configRoutes) ? pluginConfig.configRoutes : [];
                     }
                     
                     // Store loaded plugin
                     loadedPlugins[pluginRow.name] = {
                         id: pluginRow.id,
                         name: pluginRow.name,
+                        display_name: pluginRow.display_name,
                         routes: routes,
                         handlers: pluginExports.handlers || {},
-                        config: pluginRow.config ? (typeof pluginRow.config === 'string' ? JSON.parse(pluginRow.config) : pluginRow.config) : {},
-                        rateLimit: pluginRow.rate_limit,
+                        config: pluginConfig,
+                        rateLimit: pluginConfig.rateLimit || pluginConfig.configRateLimit || 100,
                         exported: pluginExports
                     };
                     
-                    console.log(`[${new Date().toISOString()}] Plugin loaded: ${pluginRow.name} (routes: ${routes.join(', ')})`);
+                    console.log(`[${getTimestamp()}] Plugin loaded: ${pluginRow.name} (routes: ${routes.join(', ')})`);
                     loadedCount++;
                     
                 } catch (pluginError) {
-                    console.error(`[${new Date().toISOString()}] ERROR loading plugin ${pluginRow.name}:`, pluginError.message);
+                    console.error(`[${getTimestamp()}] ERROR loading plugin ${pluginRow.name}:`, pluginError.message);
                 }
             }
             
-            console.log(`[${new Date().toISOString()}] Plugins loaded: ${loadedCount}/${rows.length} plugins`);
+            console.log(`[${getTimestamp()}] Plugins loaded: ${loadedCount}/${rows.length} plugins`);
             
         } finally {
             connection.release();
         }
     } catch (error) {
-        console.error(`[${new Date().toISOString()}] ERROR loading plugins from database:`, error.message);
+        console.error(`[${getTimestamp()}] ERROR loading plugins from database:`, error.message);
     }
 }
+
+// ========== PLUGIN OPERATION MANAGER ==========
+// Manages parallel operations with safe reload queueing
+
+class PluginOperationManager {
+  constructor(pluginName) {
+    this.pluginName = pluginName;
+    this.activeOperations = new Set();
+    this.reloadQueued = null;
+    this.isReloading = false;
+  }
+
+  // Start a normal operation (parallel, no blocking)
+  startOperation(opId) {
+    this.activeOperations.add(opId);
+    console.log(`[${getTimestamp()}] [${this.pluginName}] Operation ${opId} started. Active: ${this.activeOperations.size}`);
+  }
+
+  // End a normal operation
+  async endOperation(opId) {
+    this.activeOperations.delete(opId);
+    console.log(`[${getTimestamp()}] [${this.pluginName}] Operation ${opId} ended. Active: ${this.activeOperations.size}`);
+    
+    // If there's a reload queued AND no more operations, do the reload
+    if (this.reloadQueued && this.activeOperations.size === 0) {
+      await this.processQueuedReload();
+    }
+  }
+
+  // Queue a reload (or force immediate)
+  async enqueueReload(force = false) {
+    const reloadId = `reload-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    
+    if (force && this.activeOperations.size > 0) {
+      console.log(`[${getTimestamp()}] [${this.pluginName}] Force reload queued. Waiting for ${this.activeOperations.size} operations to finish...`);
+    }
+
+    this.reloadQueued = {
+      id: reloadId,
+      force: force,
+      queuedAt: Date.now()
+    };
+
+    // If no operations active, start reload immediately
+    if (this.activeOperations.size === 0) {
+      await this.processQueuedReload();
+    }
+
+    return reloadId;
+  }
+
+  // Process the queued reload
+  async processQueuedReload() {
+    if (!this.reloadQueued || this.isReloading) return;
+
+    const reload = this.reloadQueued;
+    this.isReloading = true;
+
+    try {
+      console.log(`[${getTimestamp()}] [${this.pluginName}] Starting reload (${reload.force ? 'force' : 'normal'})...`);
+      await reloadPluginFromDatabase(this.pluginName);
+      console.log(`[${getTimestamp()}] [${this.pluginName}] Reload complete`);
+    } catch (error) {
+      console.error(`[${getTimestamp()}] [${this.pluginName}] Reload failed:`, error);
+    } finally {
+      this.isReloading = false;
+      this.reloadQueued = null;
+    }
+  }
+
+  getStatus() {
+    return {
+      activeOperations: this.activeOperations.size,
+      operationIds: Array.from(this.activeOperations),
+      reloadQueued: this.reloadQueued ? {
+        id: this.reloadQueued.id,
+        force: this.reloadQueued.force,
+        waitingFor: this.activeOperations.size,
+        queuedAt: this.reloadQueued.queuedAt
+      } : null,
+      isReloading: this.isReloading
+    };
+  }
+}
+
+// Operation managers for each plugin
+let operationManagers = {};
+
+/**
+ * Initialize operation managers for all loaded plugins
+ */
+function initializeOperationManagers() {
+  for (const pluginName in loadedPlugins) {
+    if (!operationManagers[pluginName]) {
+      operationManagers[pluginName] = new PluginOperationManager(pluginName);
+    }
+  }
+}
+
+// ========== END PLUGIN OPERATION MANAGER ==========
 
 /**
  * Get a handler for a specific route from loaded plugins
@@ -676,6 +852,7 @@ async function loadPlugin(pluginName) {
             
             // Execute the plugin code in a context with access to utilities
             const pluginCode = pluginRow.code;
+            let pluginExports = {};
             
             try {
                 const pluginFunction = new Function('module', 'exports', 'require', 'console', 'global', pluginCode);
@@ -689,35 +866,44 @@ async function loadPlugin(pluginName) {
                 );
                 
                 // Get the actual exports (could be set via module.exports or exports)
-                const pluginExports = pluginObj.exports;
+                pluginExports = pluginObj.exports;
                 
             } catch (execError) {
                 throw new Error(`Failed to execute plugin code: ${execError.message}`);
             }
             
-            // Parse routes from database
-            let routes = [];
-            if (pluginRow.routes) {
+            // Parse config
+            let pluginConfig = {};
+            if (pluginRow.config) {
                 try {
-                    const routeData = typeof pluginRow.routes === 'string' ? JSON.parse(pluginRow.routes) : pluginRow.routes;
-                    routes = routeData.routes || [];
+                    pluginConfig = typeof pluginRow.config === 'string' ? JSON.parse(pluginRow.config) : pluginRow.config;
                 } catch (e) {
-                    console.warn(`[${new Date().toISOString()}] WARNING: Could not parse routes for plugin ${pluginRow.name}`);
+                    console.warn(`[${getTimestamp()}] WARNING: Could not parse config for plugin ${pluginRow.name}`);
                 }
+            }
+            
+            // Get routes from config (migrated from separate column)
+            let routes = [];
+            if (pluginConfig.routes) {
+                routes = Array.isArray(pluginConfig.routes) ? pluginConfig.routes : [];
+            } else if (pluginConfig.configRoutes) {
+                // Support legacy configRoutes format
+                routes = Array.isArray(pluginConfig.configRoutes) ? pluginConfig.configRoutes : [];
             }
             
             // Update loaded plugin
             loadedPlugins[pluginName] = {
                 id: pluginRow.id,
                 name: pluginRow.name,
+                display_name: pluginRow.display_name,
                 routes: routes,
                 handlers: pluginExports.handlers || {},
-                config: pluginRow.config ? (typeof pluginRow.config === 'string' ? JSON.parse(pluginRow.config) : pluginRow.config) : {},
-                rateLimit: pluginRow.rate_limit,
+                config: pluginConfig,
+                rateLimit: pluginConfig.rateLimit || pluginConfig.configRateLimit || 100,
                 exported: pluginExports
             };
             
-            console.log(`[${new Date().toISOString()}] Plugin loaded: ${pluginName}`);
+            console.log(`[${getTimestamp()}] Plugin loaded: ${pluginName}`);
             return {
                 success: true,
                 plugin: {
@@ -731,7 +917,29 @@ async function loadPlugin(pluginName) {
             connection.release();
         }
     } catch (error) {
-        console.error(`[${new Date().toISOString()}] ERROR loading plugin ${pluginName}:`, error.message);
+        console.error(`[${getTimestamp()}] ERROR loading plugin ${pluginName}:`, error.message);
+        throw error;
+    }
+}
+
+/**
+ * Reload a specific plugin from the database
+ */
+async function reloadPluginFromDatabase(pluginName) {
+    try {
+        // Reload the plugin using the existing loadPlugin function
+        await loadPlugin(pluginName);
+        
+        // Reinitialize the operation manager for this plugin
+        operationManagers[pluginName] = new PluginOperationManager(pluginName);
+        
+        console.log(`[${getTimestamp()}] Plugin reloaded: ${pluginName}`);
+        return {
+            success: true,
+            message: `Plugin ${pluginName} reloaded successfully`
+        };
+    } catch (error) {
+        console.error(`[${getTimestamp()}] ERROR reloading plugin ${pluginName}:`, error.message);
         throw error;
     }
 }
@@ -741,12 +949,14 @@ async function loadPlugin(pluginName) {
  */
 async function reloadAllPlugins() {
     try {
-        console.log(`[${new Date().toISOString()}] Reloading all plugins...`);
+        console.log(`[${getTimestamp()}] Reloading all plugins...`);
         loadedPlugins = {}; // Clear cache
+        operationManagers = {}; // Clear operation managers
         await loadPluginsFromDatabase();
+        initializeOperationManagers();
         
         const pluginCount = Object.keys(loadedPlugins).length;
-        console.log(`[${new Date().toISOString()}] All plugins reloaded: ${pluginCount} plugins`);
+        console.log(`[${getTimestamp()}] All plugins reloaded: ${pluginCount} plugins`);
         
         return {
             success: true,
@@ -754,7 +964,7 @@ async function reloadAllPlugins() {
             plugins: Object.keys(loadedPlugins)
         };
     } catch (error) {
-        console.error(`[${new Date().toISOString()}] ERROR reloading all plugins:`, error.message);
+        console.error(`[${getTimestamp()}] ERROR reloading all plugins:`, error.message);
         throw error;
     }
 }
@@ -822,7 +1032,7 @@ function sendRunCommands(ws, commandParams) {
             responseid: responseId           // Track response
         };
 
-        console.log(`[${new Date().toISOString()}] Sending runcommands:`, {
+        console.log(`[${getTimestamp()}] Sending runcommands:`, {
             nodeid: nodeid,
             type: cmdType,
             cmds: commandParams.command.substring(0, 50) + '...',
@@ -850,12 +1060,12 @@ function sendRunCommands(ws, commandParams) {
         };
 
         try {
-            console.log(`[${new Date().toISOString()}] WebSocket state before send: ${ws.readyState} (0=CONNECTING, 1=OPEN, 2=CLOSING, 3=CLOSED)`);
-            console.log(`[${new Date().toISOString()}] Attempting to send command to MeshCentral...`);
+            console.log(`[${getTimestamp()}] WebSocket state before send: ${ws.readyState} (0=CONNECTING, 1=OPEN, 2=CLOSING, 3=CLOSED)`);
+            console.log(`[${getTimestamp()}] Attempting to send command to MeshCentral...`);
             ws.send(JSON.stringify(command));
-            console.log(`[${new Date().toISOString()}] Command sent successfully to WebSocket`);
+            console.log(`[${getTimestamp()}] Command sent successfully to WebSocket`);
         } catch (err) {
-            console.error(`[${new Date().toISOString()}] *** WEBSOCKET SEND ERROR: ${err.message}`);
+            console.error(`[${getTimestamp()}] *** WEBSOCKET SEND ERROR: ${err.message}`);
             clearTimeout(timeout);
             delete pendingResponses[responseId];
             reject(err);
@@ -868,22 +1078,22 @@ function sendRunCommands(ws, commandParams) {
  */
 function setupMessageHandler(ws) {
     ws.on('message', (data) => {
-        console.log(`[${new Date().toISOString()}] *** RAW DATA RECEIVED: ${data.length} bytes`);
-        console.log(`[${new Date().toISOString()}] First 200 chars: ${data.toString().substring(0, 200)}`);
+        console.log(`[${getTimestamp()}] *** RAW DATA RECEIVED: ${data.length} bytes`);
+        console.log(`[${getTimestamp()}] First 200 chars: ${data.toString().substring(0, 200)}`);
         
         try {
             const msg = JSON.parse(data);
 
             // Log all messages with more detail
-            console.log(`[${new Date().toISOString()}] *** RECEIVED MESSAGE ***`);
-            console.log(`[${new Date().toISOString()}] Message action: ${msg.action}`);
-            console.log(`[${new Date().toISOString()}] Message type: ${msg.type}`);
-            console.log(`[${new Date().toISOString()}] Message responseid: ${msg.responseid}`);
-            console.log(`[${new Date().toISOString()}] Full message:`, JSON.stringify(msg).substring(0, 500));
+            console.log(`[${getTimestamp()}] *** RECEIVED MESSAGE ***`);
+            console.log(`[${getTimestamp()}] Message action: ${msg.action}`);
+            console.log(`[${getTimestamp()}] Message type: ${msg.type}`);
+            console.log(`[${getTimestamp()}] Message responseid: ${msg.responseid}`);
+            console.log(`[${getTimestamp()}] Full message:`, JSON.stringify(msg).substring(0, 500));
 
             // Check for auth errors
             if (msg.action === 'close' && msg.cause === 'noauth') {
-                console.error(`[${new Date().toISOString()}] Authentication failed: noauth`);
+                console.error(`[${getTimestamp()}] Authentication failed: noauth`);
                 // Reject all pending responses
                 for (const responseId in pendingResponses) {
                     pendingResponses[responseId].reject(
@@ -895,7 +1105,7 @@ function setupMessageHandler(ws) {
 
             // Handle meshes action without responseid (MeshCentral doesn't echo responseid for meshes)
             if (msg.action === 'meshes' && msg.meshes) {
-                console.log(`[${new Date().toISOString()}] Received meshes response (no responseid), resolving ${pendingMeshesResolvers.length} pending promises`);
+                console.log(`[${getTimestamp()}] Received meshes response (no responseid), resolving ${pendingMeshesResolvers.length} pending promises`);
                 while (pendingMeshesResolvers.length > 0) {
                     const resolver = pendingMeshesResolvers.shift();
                     resolver(msg);
@@ -904,7 +1114,7 @@ function setupMessageHandler(ws) {
             
             // Route response to pending request
             if (msg.responseid && pendingResponses[msg.responseid]) {
-                console.log(`[${new Date().toISOString()}] Routing response to request: ${msg.responseid}`);
+                console.log(`[${getTimestamp()}] Routing response to request: ${msg.responseid}`);
                 
                 const resolver = pendingResponses[msg.responseid];
                 // Delete immediately to prevent duplicate processing
@@ -957,24 +1167,24 @@ function setupMessageHandler(ws) {
                     resolver.resolve(msg);
                 }
             } else if (msg.responseid) {
-                console.log(`[${new Date().toISOString()}] *** UNMATCHED RESPONSEID: ${msg.responseid}, Pending responses: ${Object.keys(pendingResponses).join(', ')}`);
+                console.log(`[${getTimestamp()}] *** UNMATCHED RESPONSEID: ${msg.responseid}, Pending responses: ${Object.keys(pendingResponses).join(', ')}`);
             } else {
-                console.log(`[${new Date().toISOString()}] *** NO RESPONSEID IN MESSAGE, action: ${msg.action}, type: ${msg.type}`);
+                console.log(`[${getTimestamp()}] *** NO RESPONSEID IN MESSAGE, action: ${msg.action}, type: ${msg.type}`);
             }
         } catch (err) {
-            console.error(`[${new Date().toISOString()}] *** PARSE ERROR: ${err.message}`);
-            console.error(`[${new Date().toISOString()}] Failed to parse data:`, data.toString().substring(0, 200));
+            console.error(`[${getTimestamp()}] *** PARSE ERROR: ${err.message}`);
+            console.error(`[${getTimestamp()}] Failed to parse data:`, data.toString().substring(0, 200));
         }
     });
 
     ws.on('error', (err) => {
-        console.error(`[${new Date().toISOString()}] WebSocket error:`, err.message);
+        console.error(`[${getTimestamp()}] WebSocket error:`, err.message);
     });
 
     ws.on('close', () => {
-        console.log(`[${new Date().toISOString()}] *** WEBSOCKET CLOSED ***`);
-        console.log(`[${new Date().toISOString()}] Pending responses at close: ${Object.keys(pendingResponses).length}`);
-        console.log(`[${new Date().toISOString()}] Pending response IDs: ${Object.keys(pendingResponses).join(', ')}`);
+        console.log(`[${getTimestamp()}] *** WEBSOCKET CLOSED ***`);
+        console.log(`[${getTimestamp()}] Pending responses at close: ${Object.keys(pendingResponses).length}`);
+        console.log(`[${getTimestamp()}] Pending response IDs: ${Object.keys(pendingResponses).join(', ')}`);
         
         // Reject all pending responses
         for (const responseId in pendingResponses) {
@@ -1005,7 +1215,7 @@ async function validateSessionAndGetCredentials(sessionToken, user) {
             const sessionsJson = await fs.promises.readFile(SESSIONS_FILE, 'utf8');
             sessionsData = JSON.parse(sessionsJson);
         } catch (error) {
-            console.error(`[${new Date().toISOString()}] Error loading sessions file:`, error.message);
+            console.error(`[${getTimestamp()}] Error loading sessions file:`, error.message);
             return { valid: false, error: 'Server configuration error' };
         }
         
@@ -1013,25 +1223,25 @@ async function validateSessionAndGetCredentials(sessionToken, user) {
         const session = sessionsData.sessions.find(s => s.token === sessionToken);
         
         if (!session) {
-            console.log(`[${new Date().toISOString()}] Session validation failed: token not found`);
+            console.log(`[${getTimestamp()}] Session validation failed: token not found`);
             return { valid: false, error: 'Invalid session token' };
         }
         
         // Check if session has expired
         const now = Date.now();
         if (now > session.expiresAt) {
-            console.log(`[${new Date().toISOString()}] Session validation failed: token expired`);
+            console.log(`[${getTimestamp()}] Session validation failed: token expired`);
             return { valid: false, error: 'Session token has expired' };
         }
         
         // Verify user matches
         if (session.user !== user) {
-            console.log(`[${new Date().toISOString()}] Session validation failed: user mismatch`);
+            console.log(`[${getTimestamp()}] Session validation failed: user mismatch`);
             return { valid: false, error: 'User mismatch' };
         }
         
         // Session is valid - return hardcoded MeshCentral credentials
-        console.log(`[${new Date().toISOString()}] Session validated for user: ${session.user}`);
+        console.log(`[${getTimestamp()}] Session validated for user: ${session.user}`);
         return {
             valid: true,
             meshUser: MESHCENTRAL_USER,
@@ -1040,7 +1250,7 @@ async function validateSessionAndGetCredentials(sessionToken, user) {
         };
         
     } catch (error) {
-        console.error(`[${new Date().toISOString()}] Session validation error:`, error.message);
+        console.error(`[${getTimestamp()}] Session validation error:`, error.message);
         return { valid: false, error: 'Internal server error' };
     }
 }
@@ -1061,12 +1271,12 @@ async function getOrCreatePooledConnection(user, meshUser, meshPass) {
     }
 
     const userPool = wsConnectionPool[user];
-    console.log(`[${new Date().toISOString()}] [POOL] Getting connection for user: ${user}, current pool size: ${userPool.length}`);
+    console.log(`[${getTimestamp()}] [POOL] Getting connection for user: ${user}, current pool size: ${userPool.length}`);
 
     // Check for existing available connection
     for (const pooledConn of userPool) {
         if (pooledConn.ws && pooledConn.ws.readyState === WebSocket.OPEN && !pooledConn.isBusy) {
-            console.log(`[${new Date().toISOString()}] [POOL] Reusing pooled connection for user: ${user}`);
+            console.log(`[${getTimestamp()}] [POOL] Reusing pooled connection for user: ${user}`);
             pooledConn.lastActivity = Date.now();
             return pooledConn;
         }
@@ -1074,7 +1284,7 @@ async function getOrCreatePooledConnection(user, meshUser, meshPass) {
 
     // Create new connection if under limit
     if (userPool.length < POOL_MAX_CONNECTIONS_PER_USER) {
-        console.log(`[${new Date().toISOString()}] [POOL] Creating new pooled connection for user: ${user} (${userPool.length + 1}/${POOL_MAX_CONNECTIONS_PER_USER})`);
+        console.log(`[${getTimestamp()}] [POOL] Creating new pooled connection for user: ${user} (${userPool.length + 1}/${POOL_MAX_CONNECTIONS_PER_USER})`);
         
         const cookie = await getSessionCookie(meshUser, meshPass);
         const ws = await connectToMeshCentral(cookie);
@@ -1090,7 +1300,7 @@ async function getOrCreatePooledConnection(user, meshUser, meshPass) {
         };
 
         userPool.push(pooledConn);
-        console.log(`[${new Date().toISOString()}] [POOL] New connection created: ${pooledConn.id}`);
+        console.log(`[${getTimestamp()}] [POOL] New connection created: ${pooledConn.id}`);
         
         // Set up idle timeout cleanup
         pooledConn.idleTimeout = setTimeout(() => {
@@ -1101,7 +1311,7 @@ async function getOrCreatePooledConnection(user, meshUser, meshPass) {
     }
 
     // If at limit, return first connection (will queue)
-    console.log(`[${new Date().toISOString()}] [POOL] Connection pool at limit for user: ${user}, queuing on existing connection`);
+    console.log(`[${getTimestamp()}] [POOL] Connection pool at limit for user: ${user}, queuing on existing connection`);
     return userPool[0];
 }
 
@@ -1115,7 +1325,7 @@ function closePooledConnection(connectionId) {
         
         if (index !== -1) {
             const pooledConn = userPool[index];
-            console.log(`[${new Date().toISOString()}] Closing pooled connection: ${connectionId}`);
+            console.log(`[${getTimestamp()}] Closing pooled connection: ${connectionId}`);
             
             if (pooledConn.idleTimeout) {
                 clearTimeout(pooledConn.idleTimeout);
@@ -1125,7 +1335,7 @@ function closePooledConnection(connectionId) {
                 try {
                     pooledConn.ws.close();
                 } catch (err) {
-                    console.error(`[${new Date().toISOString()}] Error closing pooled connection:`, err.message);
+                    console.error(`[${getTimestamp()}] Error closing pooled connection:`, err.message);
                 }
             }
             
@@ -1155,14 +1365,14 @@ async function queueCommandOnConnection(pooledConn, commandParams) {
         };
 
         pooledConn.commandQueue.push(queuedCmd);
-        console.log(`[${new Date().toISOString()}] [QUEUE] Command queued for user ${pooledConn.user}. Queue length: ${pooledConn.commandQueue.length}, isBusy: ${pooledConn.isBusy}`);
+        console.log(`[${getTimestamp()}] [QUEUE] Command queued for user ${pooledConn.user}. Queue length: ${pooledConn.commandQueue.length}, isBusy: ${pooledConn.isBusy}`);
 
         // If not busy, execute immediately
         if (!pooledConn.isBusy) {
-            console.log(`[${new Date().toISOString()}] [QUEUE] Connection idle, executing queued command immediately`);
+            console.log(`[${getTimestamp()}] [QUEUE] Connection idle, executing queued command immediately`);
             executeNextCommandInQueue(pooledConn);
         } else {
-            console.log(`[${new Date().toISOString()}] [QUEUE] Connection busy, command will wait. Queue length: ${pooledConn.commandQueue.length}`);
+            console.log(`[${getTimestamp()}] [QUEUE] Connection busy, command will wait. Queue length: ${pooledConn.commandQueue.length}`);
         }
     });
 }
@@ -1172,7 +1382,7 @@ async function queueCommandOnConnection(pooledConn, commandParams) {
  */
 async function executeNextCommandInQueue(pooledConn) {
     if (pooledConn.commandQueue.length === 0) {
-        console.log(`[${new Date().toISOString()}] [EXEC] Queue empty, marking connection idle for user: ${pooledConn.user}`);
+        console.log(`[${getTimestamp()}] [EXEC] Queue empty, marking connection idle for user: ${pooledConn.user}`);
         pooledConn.isBusy = false;
         
         // Reset idle timeout
@@ -1190,16 +1400,16 @@ async function executeNextCommandInQueue(pooledConn) {
     const queuedCmd = pooledConn.commandQueue.shift();
 
     try {
-        console.log(`[${new Date().toISOString()}] [EXEC] Executing command from queue. Remaining: ${pooledConn.commandQueue.length}, User: ${pooledConn.user}`);
+        console.log(`[${getTimestamp()}] [EXEC] Executing command from queue. Remaining: ${pooledConn.commandQueue.length}, User: ${pooledConn.user}`);
         
         const result = await sendRunCommands(pooledConn.ws, queuedCmd.commandParams);
-        console.log(`[${new Date().toISOString()}] [EXEC] Command completed successfully for user: ${pooledConn.user}`);
+        console.log(`[${getTimestamp()}] [EXEC] Command completed successfully for user: ${pooledConn.user}`);
         queuedCmd.resolve(result);
         
         // Execute next command in queue
         executeNextCommandInQueue(pooledConn);
     } catch (error) {
-        console.error(`[${new Date().toISOString()}] [EXEC] Command execution error: ${error.message}`);
+        console.error(`[${getTimestamp()}] [EXEC] Command execution error: ${error.message}`);
         queuedCmd.reject(error);
         
         // Try next command despite error
@@ -1230,7 +1440,7 @@ function handleAuthRequest(req, res) {
     if (!isIPWhitelisted(clientIP)) {
         const rateLimitCheck = checkRateLimit(clientIP, '/auth');
         if (!rateLimitCheck.allowed) {
-            console.log(`[${new Date().toISOString()}] Rate limit exceeded for IP ${clientIP} on /auth (limit: 10/min, reset in: ${rateLimitCheck.resetIn}s)`);
+            console.log(`[${getTimestamp()}] Rate limit exceeded for IP ${clientIP} on /auth (limit: 10/min, reset in: ${rateLimitCheck.resetIn}s)`);
             res.writeHead(429, { 
                 'Content-Type': 'application/json',
                 'Retry-After': rateLimitCheck.resetIn
@@ -1248,11 +1458,11 @@ function handleAuthRequest(req, res) {
     
     // Log deprecation warning if using legacy header
     if (req.headers['x-proxy-token'] && !req.headers['x-kore-token']) {
-        console.log(`[${new Date().toISOString()}] WARNING: x-proxy-token header is deprecated, please use x-kore-token instead`);
+        console.log(`[${getTimestamp()}] WARNING: x-proxy-token header is deprecated, please use x-kore-token instead`);
     }
     
-    console.log(`[${new Date().toISOString()}] === AUTH REQUEST ===`);
-    console.log(`[${new Date().toISOString()}] API Key header present: ${!!apiKeyFromHeader}`);
+    console.log(`[${getTimestamp()}] === AUTH REQUEST ===`);
+    console.log(`[${getTimestamp()}] API Key header present: ${!!apiKeyFromHeader}`);
     
     // Read request body
     let body = '';
@@ -1266,22 +1476,22 @@ function handleAuthRequest(req, res) {
             const originFromBody = data.origin;
             const userFromBody = data.user;
             
-            console.log(`[${new Date().toISOString()}] Origin from body: ${originFromBody}`);
-            console.log(`[${new Date().toISOString()}] User from body: ${userFromBody}`);
+            console.log(`[${getTimestamp()}] Origin from body: ${originFromBody}`);
+            console.log(`[${getTimestamp()}] User from body: ${userFromBody}`);
             
             // Extract domain from user (e.g., bradf@equinoxits.com -> equinoxits.com)
             let userDomain = null;
             if (userFromBody && userFromBody.includes('@')) {
                 userDomain = userFromBody.split('@')[1];
-                console.log(`[${new Date().toISOString()}] Extracted user domain: ${userDomain}`);
+                console.log(`[${getTimestamp()}] Extracted user domain: ${userDomain}`);
             }
             
             // Find matching credential from cache
             const validCred = getApiMember(apiKeyFromHeader, originFromBody, userDomain);
             
             if (!validCred) {
-                console.log(`[${new Date().toISOString()}] Auth failed: invalid key/origin/domain combination`);
-                console.log(`[${new Date().toISOString()}] Provided key: ${apiKeyFromHeader}, origin: ${originFromBody}, domain: ${userDomain}`);
+                console.log(`[${getTimestamp()}] Auth failed: invalid key/origin/domain combination`);
+                console.log(`[${getTimestamp()}] Provided key: ${apiKeyFromHeader}, origin: ${originFromBody}, domain: ${userDomain}`);
                 res.writeHead(401, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify({ error: 'Invalid credentials' }));
                 return;
@@ -1311,7 +1521,7 @@ function handleAuthRequest(req, res) {
                     sessionsData = JSON.parse(sessionsJson);
                 }
             } catch (error) {
-                console.log(`[${new Date().toISOString()}] Note: Creating new sessions file`);
+                console.log(`[${getTimestamp()}] Note: Creating new sessions file`);
             }
             
             // Add new session
@@ -1320,16 +1530,16 @@ function handleAuthRequest(req, res) {
             // Save sessions to file
             try {
                 await queueSessionWrite(sessionsData);
-                console.log(`[${new Date().toISOString()}] Session saved for user: ${userFromBody}`);
+                console.log(`[${getTimestamp()}] Session saved for user: ${userFromBody}`);
             } catch (error) {
-                console.error(`[${new Date().toISOString()}] Error saving session:`, error.message);
+                console.error(`[${getTimestamp()}] Error saving session:`, error.message);
                 res.writeHead(500, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify({ error: 'Failed to create session' }));
                 return;
             }
             
             // Auth successful
-            console.log(`[${new Date().toISOString()}] Auth successful for: ${validCred.name} (user: ${userFromBody})`);
+            console.log(`[${getTimestamp()}] Auth successful for: ${validCred.name} (user: ${userFromBody})`);
             
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ 
@@ -1340,7 +1550,7 @@ function handleAuthRequest(req, res) {
             }));
             
         } catch (error) {
-            console.error(`[${new Date().toISOString()}] Auth error:`, error.message);
+            console.error(`[${getTimestamp()}] Auth error:`, error.message);
             res.writeHead(400, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ error: 'Invalid request' }));
         }
@@ -1366,8 +1576,8 @@ function handleValidateSession(req, res) {
     
     const sessionTokenFromHeader = req.headers['x-session-token'];
     
-    console.log(`[${new Date().toISOString()}] === VALIDATE SESSION REQUEST ===`);
-    console.log(`[${new Date().toISOString()}] Session Token header present: ${!!sessionTokenFromHeader}`);
+    console.log(`[${getTimestamp()}] === VALIDATE SESSION REQUEST ===`);
+    console.log(`[${getTimestamp()}] Session Token header present: ${!!sessionTokenFromHeader}`);
     
     // Read request body
     let body = '';
@@ -1380,13 +1590,13 @@ function handleValidateSession(req, res) {
             const data = JSON.parse(body);
             const userFromBody = data.user;
             
-            console.log(`[${new Date().toISOString()}] User from body: ${userFromBody}`);
+            console.log(`[${getTimestamp()}] User from body: ${userFromBody}`);
             
             if (!sessionTokenFromHeader) {
-                console.log(`[${new Date().toISOString()}] Validation failed: no session token provided`);
+                console.log(`[${getTimestamp()}] Validation failed: no session token provided`);
                 res.writeHead(401, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify({ error: 'No session token provided' }));
-                console.log(`[${new Date().toISOString()}] Error response sent (no token)`);
+                console.log(`[${getTimestamp()}] Error response sent (no token)`);
                 return;
             }
             
@@ -1396,10 +1606,10 @@ function handleValidateSession(req, res) {
                 const sessionsJson = await fs.promises.readFile(SESSIONS_FILE, 'utf8');
                 sessionsData = JSON.parse(sessionsJson);
             } catch (error) {
-                console.error(`[${new Date().toISOString()}] Error loading sessions file:`, error.message);
+                console.error(`[${getTimestamp()}] Error loading sessions file:`, error.message);
                 res.writeHead(500, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify({ error: 'Server configuration error' }));
-                console.log(`[${new Date().toISOString()}] Error response sent (file error)`);
+                console.log(`[${getTimestamp()}] Error response sent (file error)`);
                 return;
             }
             
@@ -1407,36 +1617,36 @@ function handleValidateSession(req, res) {
             const session = sessionsData.sessions.find(s => s.token === sessionTokenFromHeader);
             
             if (!session) {
-                console.log(`[${new Date().toISOString()}] Validation failed: session token not found`);
+                console.log(`[${getTimestamp()}] Validation failed: session token not found`);
                 res.writeHead(401, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify({ error: 'Invalid session token' }));
-                console.log(`[${new Date().toISOString()}] Error response sent (token not found)`);
+                console.log(`[${getTimestamp()}] Error response sent (token not found)`);
                 return;
             }
             
             // Check if session has expired
             const now = Date.now();
             if (now > session.expiresAt) {
-                console.log(`[${new Date().toISOString()}] Validation failed: session token expired`);
+                console.log(`[${getTimestamp()}] Validation failed: session token expired`);
                 res.writeHead(401, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify({ error: 'Session token has expired' }));
-                console.log(`[${new Date().toISOString()}] Error response sent (expired)`);
+                console.log(`[${getTimestamp()}] Error response sent (expired)`);
                 return;
             }
             
             // Verify user matches
             if (session.user !== userFromBody) {
-                console.log(`[${new Date().toISOString()}] Validation failed: user mismatch`);
-                console.log(`[${new Date().toISOString()}] Expected: ${session.user}, Got: ${userFromBody}`);
+                console.log(`[${getTimestamp()}] Validation failed: user mismatch`);
+                console.log(`[${getTimestamp()}] Expected: ${session.user}, Got: ${userFromBody}`);
                 res.writeHead(401, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify({ error: 'User mismatch' }));
-                console.log(`[${new Date().toISOString()}] Error response sent (user mismatch)`);
+                console.log(`[${getTimestamp()}] Error response sent (user mismatch)`);
                 return;
             }
             
             // Session is valid
             const remainingTime = Math.floor((session.expiresAt - now) / 1000);
-            console.log(`[${new Date().toISOString()}] Session validation successful for user: ${session.user} (${remainingTime}s remaining)`);
+            console.log(`[${getTimestamp()}] Session validation successful for user: ${session.user} (${remainingTime}s remaining)`);
             
             const responseData = { 
                 status: 'Valid',
@@ -1445,15 +1655,15 @@ function handleValidateSession(req, res) {
                 expiresIn: remainingTime
             };
             
-            console.log(`[${new Date().toISOString()}] Sending response:`, JSON.stringify(responseData));
+            console.log(`[${getTimestamp()}] Sending response:`, JSON.stringify(responseData));
             
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify(responseData));
             
-            console.log(`[${new Date().toISOString()}] Response sent to client`);
+            console.log(`[${getTimestamp()}] Response sent to client`);
             
         } catch (error) {
-            console.error(`[${new Date().toISOString()}] Validation error:`, error.message);
+            console.error(`[${getTimestamp()}] Validation error:`, error.message);
             res.writeHead(400, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ error: 'Invalid request' }));
         }
@@ -1464,12 +1674,48 @@ function handleValidateSession(req, res) {
  * HTTP endpoint to reload API members cache
  * POST /kore/admin/reload-api-members
  */
-async function handleReloadApiMembers(req, res) {
+/**
+ * POST /kore/admin/reload-auth
+ * Reload Auth module with fresh security config
+ */
+async function handleReloadAuth(req, res) {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Content-Type', 'application/json');
     
     try {
-        console.log(`[${new Date().toISOString()}] Reloading API members cache...`);
+        console.log(`[${getTimestamp()}] Reloading Auth module...`);
+        
+        // Load fresh security config
+        const [configRows] = await korePool.query('SELECT security_config FROM system_config WHERE id = 1');
+        const securityConfig = configRows[0]?.security_config || {};
+        
+        // Reinitialize Auth
+        delete require.cache[require.resolve('./auth/auth')];
+        const Auth = require('./auth/auth');
+        global.auth = new Auth(korePool, global.cryptoUtils, securityConfig, logAudit, process.env.JWT_SIGNING_KEY);
+        
+        res.writeHead(200);
+        res.end(JSON.stringify({ 
+            status: 'success',
+            message: 'Auth module reloaded'
+        }));
+    } catch (error) {
+        console.error(`[${getTimestamp()}] ERROR reloading Auth:`, error.message);
+        res.writeHead(500);
+        res.end(JSON.stringify({ 
+            status: 'error',
+            message: error.message
+        }));
+    }
+}
+
+/**
+ * POST /kore/admin/reload-api-members
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Content-Type', 'application/json');
+    
+    try {
+        console.log(`[${getTimestamp()}] Reloading API members cache...`);
         await loadApiMembersCache();
         
         res.writeHead(200);
@@ -1479,7 +1725,7 @@ async function handleReloadApiMembers(req, res) {
             cachedMembers: apiMembersCache ? apiMembersCache.length : 0
         }));
     } catch (error) {
-        console.error(`[${new Date().toISOString()}] ERROR reloading API members:`, error.message);
+        console.error(`[${getTimestamp()}] ERROR reloading API members:`, error.message);
         res.writeHead(500);
         res.end(JSON.stringify({ 
             status: 'error',
@@ -1511,13 +1757,13 @@ async function handleLoadPlugin(req, res) {
             return;
         }
         
-        console.log(`[${new Date().toISOString()}] Loading plugin: ${pluginName}`);
+        console.log(`[${getTimestamp()}] Loading plugin: ${pluginName}`);
         const result = await loadPlugin(pluginName);
         
         res.writeHead(200);
         res.end(JSON.stringify(result));
     } catch (error) {
-        console.error(`[${new Date().toISOString()}] ERROR loading plugin:`, error.message);
+        console.error(`[${getTimestamp()}] ERROR loading plugin:`, error.message);
         res.writeHead(500);
         res.end(JSON.stringify({ 
             status: 'error',
@@ -1535,13 +1781,13 @@ async function handleReloadAllPlugins(req, res) {
     res.setHeader('Content-Type', 'application/json');
     
     try {
-        console.log(`[${new Date().toISOString()}] Reloading all plugins...`);
+        console.log(`[${getTimestamp()}] Reloading all plugins...`);
         const result = await reloadAllPlugins();
         
         res.writeHead(200);
         res.end(JSON.stringify(result));
     } catch (error) {
-        console.error(`[${new Date().toISOString()}] ERROR reloading all plugins:`, error.message);
+        console.error(`[${getTimestamp()}] ERROR reloading all plugins:`, error.message);
         res.writeHead(500);
         res.end(JSON.stringify({ 
             status: 'error',
@@ -1619,7 +1865,7 @@ async function handleGetPluginDetails(req, res, helpers) {
             connection.release();
         }
     } catch (error) {
-        console.error(`[${new Date().toISOString()}] ERROR getting plugin details:`, error.message);
+        console.error(`[${getTimestamp()}] ERROR getting plugin details:`, error.message);
         res.writeHead(500);
         res.end(JSON.stringify({
             error: error.message
@@ -1631,7 +1877,7 @@ async function handleGetPluginDetails(req, res, helpers) {
  * Convert ISO datetime string to MySQL format (YYYY-MM-DD HH:MM:SS)
  */
 function convertToMySQLDatetime(isoString) {
-    if (!isoString) return new Date().toISOString().replace('T', ' ').split('.')[0];
+    if (!isoString) return getTimestamp().replace('T', ' ').split('.')[0];
     
     // Handle both ISO format and already converted format
     const converted = isoString.replace('T', ' ').split('.')[0].replace('Z', '');
@@ -1642,6 +1888,147 @@ function convertToMySQLDatetime(isoString) {
  * HTTP endpoint to update plugin settings
  * POST /kore/plugins/update?name=pluginName
  */
+/**
+ * POST /kore/plugins/add
+ * Create a new plugin
+ * Body: { name, display_name, description, enabled, version, code, config, username }
+ */
+async function handleAddPlugin(req, res) {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Content-Type', 'application/json');
+    res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
+    if (req.method === 'OPTIONS') {
+        res.writeHead(200);
+        res.end();
+        return;
+    }
+
+    if (req.method !== 'POST') {
+        res.writeHead(405);
+        res.end(JSON.stringify({ error: 'Method not allowed. Use POST.' }));
+        return;
+    }
+
+    let body = '';
+    req.on('data', (chunk) => {
+        body += chunk.toString();
+        if (body.length > 1e6) {
+            req.connection.destroy();
+        }
+    });
+
+    req.on('end', async () => {
+        const connection = await korePool.getConnection();
+        try {
+            let pluginData;
+            try {
+                pluginData = JSON.parse(body);
+            } catch (e) {
+                res.writeHead(400);
+                res.end(JSON.stringify({ error: 'Invalid JSON in request body' }));
+                return;
+            }
+
+            const { name, display_name, description, enabled, version, code, config, username } = pluginData;
+
+            // Validate required fields
+            if (!name || !display_name || !username) {
+                res.writeHead(400);
+                res.end(JSON.stringify({ 
+                    error: 'Missing required fields: name, display_name, username' 
+                }));
+                return;
+            }
+
+            // Check if plugin already exists
+            const [existingPlugin] = await connection.query(
+                'SELECT id FROM plugins WHERE name = ?',
+                [name]
+            );
+
+            if (existingPlugin.length > 0) {
+                res.writeHead(409);
+                res.end(JSON.stringify({ error: 'Plugin with this name already exists' }));
+                return;
+            }
+
+            // Set timestamps
+            const createdAt = getTimestamp();
+            const updatedAt = createdAt;
+
+            // Convert enabled to boolean (handle string/number values from forms)
+            let enabledValue = 0;
+            if (enabled === true || enabled === 1 || enabled === '1' || enabled === 'true' || enabled === 'on') {
+                enabledValue = 1;
+            }
+
+            // Insert new plugin
+            const [insertResult] = await connection.query(
+                `INSERT INTO plugins 
+                (name, display_name, description, enabled, version, code, config, created_at, updated_at, created_by, updated_by) 
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                [
+                    name,
+                    display_name,
+                    description || null,
+                    enabledValue,
+                    version || '1.0',
+                    code || '',
+                    typeof config === 'string' ? config : JSON.stringify(config || {}),
+                    createdAt,
+                    updatedAt,
+                    username,
+                    username
+                ]
+            );
+
+            const pluginId = insertResult.insertId;
+
+            // Load the plugin into memory
+            try {
+                await loadPlugin(name);
+                console.log(`[${getTimestamp()}] New plugin created and loaded: ${name} (ID: ${pluginId})`);
+            } catch (loadError) {
+                console.warn(`[${getTimestamp()}] Plugin created but failed to load: ${name} - ${loadError.message}`);
+                // Plugin is created in DB even if it fails to load
+            }
+
+            // Fetch and return the created plugin
+            const [createdPluginRows] = await connection.query(
+                'SELECT id, name, display_name, description, version, code, config, enabled, created_at, updated_at, created_by, updated_by FROM plugins WHERE id = ?',
+                [pluginId]
+            );
+
+            const createdPlugin = createdPluginRows[0];
+            
+            // Parse config if it's a string
+            if (typeof createdPlugin.config === 'string') {
+                try {
+                    createdPlugin.config = JSON.parse(createdPlugin.config);
+                } catch (e) {
+                    createdPlugin.config = {};
+                }
+            }
+
+            res.writeHead(201);
+            res.end(JSON.stringify({
+                success: true,
+                message: 'Plugin created successfully',
+                plugin: createdPlugin
+            }));
+
+        } catch (error) {
+            console.error(`[${getTimestamp()}] Error creating plugin:`, error.message);
+            res.writeHead(500);
+            res.end(JSON.stringify({ error: error.message }));
+        } finally {
+            connection.release();
+        }
+    });
+}
+
 async function handleUpdatePlugin(req, res) {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Content-Type', 'application/json');
@@ -1754,7 +2141,7 @@ async function handleUpdatePlugin(req, res) {
 
             // Execute update
             const query = `UPDATE plugins SET ${updateFields.join(', ')} WHERE name = ?`;
-            console.log(`[${new Date().toISOString()}] Updating plugin: ${pluginName}`);
+            console.log(`[${getTimestamp()}] Updating plugin: ${pluginName}`);
             
             const [result] = await connection.query(query, updateValues);
 
@@ -1803,13 +2190,13 @@ async function handleUpdatePlugin(req, res) {
                         origConfig.updated_by
                     ];
 
-                    console.log(`[${new Date().toISOString()}] DEBUG: Saving plugin_history for ${pluginName} v${origConfig.version}`);
+                    console.log(`[${getTimestamp()}] DEBUG: Saving plugin_history for ${pluginName} v${origConfig.version}`);
 
                     try {
                         await connection.query(historyQuery, historyValues);
-                        console.log(`[${new Date().toISOString()}] Plugin history saved for ${pluginName} v${origConfig.version}`);
+                        console.log(`[${getTimestamp()}] Plugin history saved for ${pluginName} v${origConfig.version}`);
                     } catch (historyError) {
-                        console.error(`[${new Date().toISOString()}] Warning: Failed to save plugin history:`, historyError.message);
+                        console.error(`[${getTimestamp()}] Warning: Failed to save plugin history:`, historyError.message);
                         // Don't fail the entire request if history save fails, just log it
                     }
                 }
@@ -1819,16 +2206,16 @@ async function handleUpdatePlugin(req, res) {
             res.end(JSON.stringify({
                 success: true,
                 message: `Plugin ${pluginName} updated successfully`,
-                timestamp: new Date().toISOString()
+                timestamp: getTimestamp()
             }));
 
-            console.log(`[${new Date().toISOString()}] Plugin ${pluginName} updated by ${updates.updated_by}`);
+            console.log(`[${getTimestamp()}] Plugin ${pluginName} updated by ${updates.updated_by}`);
         } catch (error) {
-            console.error(`[${new Date().toISOString()}] ERROR updating plugin:`, error.message);
+            console.error(`[${getTimestamp()}] ERROR updating plugin:`, error.message);
             res.writeHead(500);
             res.end(JSON.stringify({
                 error: error.message,
-                timestamp: new Date().toISOString()
+                timestamp: getTimestamp()
             }));
         } finally {
             connection.release();
@@ -1850,8 +2237,7 @@ function handleListPlugins(req, res) {
             const plugin = loadedPlugins[pluginName];
             plugins.push({
                 name: pluginName,
-                routes: plugin.routes,
-                rateLimit: plugin.rateLimit,
+                display_name: plugin.display_name || pluginName,
                 config: plugin.config
             });
         }
@@ -1863,7 +2249,7 @@ function handleListPlugins(req, res) {
             plugins: plugins
         }));
     } catch (error) {
-        console.error(`[${new Date().toISOString()}] ERROR listing plugins:`, error.message);
+        console.error(`[${getTimestamp()}] ERROR listing plugins:`, error.message);
         res.writeHead(500);
         res.end(JSON.stringify({ 
             status: 'error',
@@ -1876,18 +2262,302 @@ function handleListPlugins(req, res) {
  * HTTP handler for plugin requests
  * Routes requests to loaded plugins based on URL
  */
+/**
+ * POST /kore/email/smtp
+ * Send email via configured SMTP profile
+ * 
+ * Request body:
+ * {
+ *   "profile": "default",  // SMTP profile name (optional, defaults to "default")
+ *   "to": "recipient@example.com",
+ *   "subject": "Email Subject",
+ *   "plainText": "Plain text body (optional)",
+ *   "html": "<h1>HTML body</h1> (optional)",
+ *   "from": "sender@example.com (optional)",
+ *   "cc": "cc@example.com (optional)",
+ *   "bcc": "bcc@example.com (optional)"
+ * }
+ */
+async function handleSendEmail(req, res) {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Content-Type', 'application/json');
+    res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
+    if (req.method === 'OPTIONS') {
+        res.writeHead(200);
+        res.end();
+        return;
+    }
+
+    if (req.method !== 'POST') {
+        res.writeHead(405);
+        res.end(JSON.stringify({ error: 'Method not allowed. Use POST.' }));
+        return;
+    }
+
+    let body = '';
+    req.on('data', (chunk) => {
+        body += chunk.toString();
+        if (body.length > 1e6) {
+            req.connection.destroy();
+        }
+    });
+
+    req.on('end', async () => {
+        const connection = await korePool.getConnection();
+        try {
+            let emailData;
+            try {
+                emailData = JSON.parse(body);
+            } catch (e) {
+                res.writeHead(400);
+                res.end(JSON.stringify({ error: 'Invalid JSON in request body' }));
+                return;
+            }
+
+            const { profile, to, subject, plainText, html, from, cc, bcc } = emailData;
+            const profileName = profile || 'default';
+
+            // Validate required fields
+            if (!to || !subject) {
+                res.writeHead(400);
+                res.end(JSON.stringify({ 
+                    error: 'Missing required fields: to, subject' 
+                }));
+                return;
+            }
+
+            // Require at least plainText or html
+            if (!plainText && !html) {
+                res.writeHead(400);
+                res.end(JSON.stringify({
+                    error: 'Email must include either plainText or html content'
+                }));
+                return;
+            }
+
+            // Get email configuration from system_config
+            const [configRows] = await connection.query(
+                'SELECT email_config FROM kore_sys.system_config LIMIT 1'
+            );
+
+            if (!configRows || configRows.length === 0) {
+                console.error(`[${getTimestamp()}] Email config not found in system_config`);
+                res.writeHead(500);
+                res.end(JSON.stringify({
+                    error: 'Email service configuration not available'
+                }));
+                return;
+            }
+
+            let emailConfig;
+            try {
+                const configData = configRows[0].email_config;
+                emailConfig = typeof configData === 'string' ? JSON.parse(configData) : configData;
+            } catch (parseError) {
+                console.error(`[${getTimestamp()}] Failed to parse email config:`, parseError.message);
+                res.writeHead(500);
+                res.end(JSON.stringify({
+                    error: 'Invalid email configuration'
+                }));
+                return;
+            }
+
+            // Find the requested SMTP profile
+            if (!emailConfig.smtp_profiles || !Array.isArray(emailConfig.smtp_profiles)) {
+                console.error(`[${getTimestamp()}] No SMTP profiles found in email config`);
+                res.writeHead(500);
+                res.end(JSON.stringify({
+                    error: 'No SMTP profiles configured'
+                }));
+                return;
+            }
+
+            const smtpProfile = emailConfig.smtp_profiles.find(p => p.profile_name === profileName);
+            if (!smtpProfile) {
+                res.writeHead(404);
+                res.end(JSON.stringify({
+                    error: `SMTP profile "${profileName}" not found`
+                }));
+                return;
+            }
+
+            // Build PowerShell SMTP send command
+            // Use authenticated user as From, set Reply-To for public contact
+            const senderEmail = `${smtpProfile.smtp_username}@equinoxits.com`;
+            const replyToEmail = smtpProfile.smtp_from || 'noreply@equinoxits.com';
+            const emailBody = html || plainText;
+            const isHtml = !!html;
+
+            // Escape special characters for PowerShell
+            const escapePS = (str) => {
+                if (!str) return '""';
+                return `@"
+${str}
+"@`;
+            };
+
+            // Escape password for PowerShell string
+            const escapePSString = (str) => {
+                if (!str) return '""';
+                return `"${str.replace(/\$/g, '`$').replace(/"/g, '`"').replace(/`/g, '``')}"`;
+            };
+
+            const psCommand = `
+[Net.ServicePointManager]::ServerCertificateValidationCallback = {$true}
+try {
+    $smtp = New-Object Net.Mail.SmtpClient("${smtpProfile.smtp_host}", ${parseInt(smtpProfile.smtp_port, 10)})
+    $smtp.EnableSSL = $true
+    $smtp.DeliveryMethod = [Net.Mail.SmtpDeliveryMethod]::Network
+    $smtp.Credentials = New-Object System.Net.NetworkCredential("${smtpProfile.smtp_username}", ${escapePSString(smtpProfile.smtp_password)})
+    $message = New-Object Net.Mail.MailMessage
+    $message.From = "${senderEmail}"
+    $message.ReplyToList.Add("${replyToEmail}")
+    $message.To.Add("${to}")
+    $message.Subject = "${subject.replace(/"/g, '`"')}"
+    $message.Body = ${escapePS(emailBody)}
+    $message.IsBodyHtml = $${isHtml}
+    ${cc ? `$message.CC.Add("${cc}")` : ''}
+    ${bcc ? `$message.Bcc.Add("${bcc}")` : ''}
+    $smtp.Send($message)
+    Write-Host "Email sent successfully"
+} catch {
+    Write-Error "SMTP Error: $_"
+    exit 1
+}
+`;
+
+            console.log(`[${getTimestamp()}] Sending email to ${to} with subject: ${subject}`);
+
+            try {
+                // Spawn PowerShell process
+                const ps = spawn('powershell.exe', [
+                    '-NoProfile',
+                    '-NoLogo',
+                    '-Command',
+                    psCommand
+                ], {
+                    stdio: ['pipe', 'pipe', 'pipe']
+                });
+
+                let stdout = '';
+                let stderr = '';
+                let timedOut = false;
+
+                // Set timeout for PowerShell execution (30 seconds)
+                const timeout = setTimeout(() => {
+                    timedOut = true;
+                    console.error(`[${getTimestamp()}] PowerShell email send timeout after 30s`);
+                    ps.kill();
+                }, 30000);
+
+                ps.stdout.on('data', (data) => {
+                    stdout += data.toString();
+                });
+
+                ps.stderr.on('data', (data) => {
+                    stderr += data.toString();
+                });
+
+                ps.on('close', (code) => {
+                    clearTimeout(timeout);
+                    
+                    if (timedOut) {
+                        res.writeHead(500);
+                        res.end(JSON.stringify({
+                            success: false,
+                            error: 'Email send timed out after 30 seconds',
+                            timestamp: getTimestamp()
+                        }));
+                        return;
+                    }
+                    if (code === 0 && !stderr) {
+                        console.log(`[${getTimestamp()}] Email sent successfully to ${to}`);
+
+                        res.writeHead(200);
+                        res.end(JSON.stringify({
+                            success: true,
+                            message: 'Email sent successfully',
+                            timestamp: getTimestamp()
+                        }));
+                    } else {
+                        let errorMsg = stderr || stdout || `Exit code ${code}`;
+                        
+                        const smtpErrorMatch = errorMsg.match(/SMTP Error: ([\s\S]*?)(?:\n\s+\+|$)/);
+                        if (smtpErrorMatch) {
+                            errorMsg = smtpErrorMatch[1].trim();
+                            errorMsg = errorMsg.replace(/\n\s+/g, ' ');
+                        } else {
+                            const lines = errorMsg.split('\n').filter(l => l.trim() && !l.includes('+'));
+                            if (lines.length > 0) {
+                                errorMsg = lines[lines.length - 1].trim();
+                            }
+                        }
+                        
+                        console.error(`[${getTimestamp()}] PowerShell SMTP failed: ${errorMsg}`);
+                        
+                        res.writeHead(500);
+                        res.end(JSON.stringify({
+                            success: false,
+                            error: errorMsg,
+                            timestamp: getTimestamp()
+                        }));
+                    }
+                });
+
+                ps.on('error', (err) => {
+                    console.error(`[${getTimestamp()}] PowerShell spawn error:`, err.message);
+                    
+                    res.writeHead(500);
+                    res.end(JSON.stringify({
+                        success: false,
+                        error: `PowerShell execution failed: ${err.message}`,
+                        timestamp: getTimestamp()
+                    }));
+                });
+
+            } catch (psError) {
+                console.error(`[${getTimestamp()}] Email handler error:`, psError.message);
+                res.writeHead(500);
+                res.end(JSON.stringify({
+                    success: false,
+                    error: psError.message,
+                    timestamp: getTimestamp()
+                }));
+            }
+
+                
+        } catch (error) {
+            console.error(`[${getTimestamp()}] Email handler error:`, error.message);
+
+            const statusCode = error.code === 'ECONNREFUSED' || error.code === 'ETIMEDOUT' ? 503 : 500;
+
+            res.writeHead(statusCode);
+            res.end(JSON.stringify({
+                success: false,
+                error: error.message,
+                code: error.code,
+                timestamp: getTimestamp()
+            }));
+        } finally {
+            connection.release();
+        }
+    });
+}
+
 async function handlePluginRequest(req, res) {
     const clientIP = req.socket.remoteAddress;
     const route = req.url.split('?')[0]; // Remove query params
     
-    console.log(`[${new Date().toISOString()}] === PLUGIN REQUEST ===`);
-    console.log(`[${new Date().toISOString()}] Route: ${route}`);
+    console.log(`[${getTimestamp()}] === PLUGIN REQUEST ===`);
+    console.log(`[${getTimestamp()}] Route: ${route}`);
     
     // Get the plugin handler for this route
     const pluginHandler = getPluginHandler(route);
     
     if (!pluginHandler) {
-        console.log(`[${new Date().toISOString()}] No plugin handler found for ${route}`);
+        console.log(`[${getTimestamp()}] No plugin handler found for ${route}`);
         res.writeHead(404, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: 'Plugin not found' }));
         return;
@@ -1900,7 +2570,7 @@ async function handlePluginRequest(req, res) {
         const rateLimitEndpoint = route;
         const rateLimitCheck = checkRateLimit(clientIP, rateLimitEndpoint);
         if (!rateLimitCheck.allowed) {
-            console.log(`[${new Date().toISOString()}] Rate limit exceeded for IP ${clientIP} on ${route}`);
+            console.log(`[${getTimestamp()}] Rate limit exceeded for IP ${clientIP} on ${route}`);
             res.writeHead(429, { 
                 'Content-Type': 'application/json',
                 'Retry-After': rateLimitCheck.resetIn
@@ -1913,6 +2583,30 @@ async function handlePluginRequest(req, res) {
         }
     }
     
+    // Get operation manager for this plugin
+    const manager = operationManagers[plugin.name];
+    if (!manager) {
+        console.error(`[${getTimestamp()}] No operation manager for plugin ${plugin.name}`);
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Plugin manager not initialized' }));
+        return;
+    }
+
+    // If reload is queued or reloading, reject the operation
+    if (manager.reloadQueued || manager.isReloading) {
+        console.log(`[${getTimestamp()}] Operation rejected for ${plugin.name} due to pending reload`);
+        res.writeHead(503, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ 
+            error: 'Plugin is reloading',
+            reloadId: manager.reloadQueued?.id
+        }));
+        return;
+    }
+
+    // Create operation ID
+    const opId = `op-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    manager.startOperation(opId);
+    
     // Create helpers object for the plugin
     const helpers = {
         isIPWhitelisted,
@@ -1924,11 +2618,16 @@ async function handlePluginRequest(req, res) {
         // Call the plugin handler
         await handler(req, res, helpers);
     } catch (error) {
-        console.error(`[${new Date().toISOString()}] ERROR in plugin ${plugin.name}:`, error.message);
-        res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({
-            error: `Module error: ${error.message}`
-        }));
+        console.error(`[${getTimestamp()}] ERROR in plugin ${plugin.name}:`, error.message);
+        if (!res.headersSent) {
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({
+                error: `Module error: ${error.message}`
+            }));
+        }
+    } finally {
+        // End the operation and check if reload should start
+        await manager.endOperation(opId);
     }
 }
 
@@ -1949,11 +2648,116 @@ function handleStatusRequest(req, res) {
         proxy: {
             port: PROXY_PORT
         },
-        timestamp: new Date().toISOString()
+        timestamp: getTimestamp()
     };
 
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(status));
+}
+
+/**
+ * HTTP endpoint for plugin operation status
+ * GET /api/plugins/status
+ */
+function handlePluginsStatusRequest(req, res) {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    
+    const status = {};
+    for (const [name, manager] of Object.entries(operationManagers)) {
+        status[name] = manager.getStatus();
+    }
+    
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(status));
+}
+
+/**
+ * HTTP endpoint for reloading a plugin
+ * POST /api/plugins/:name/reload?force=true
+ */
+async function handleReloadPluginRequest(req, res, pluginName) {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    
+    if (!operationManagers[pluginName]) {
+        res.writeHead(404, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Plugin not found' }));
+        return;
+    }
+
+    const manager = operationManagers[pluginName];
+    const urlParams = new URL(req.url, 'http://localhost').searchParams;
+    const force = urlParams.get('force') === 'true';
+
+    const reloadId = await manager.enqueueReload(force);
+
+    res.writeHead(202, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({
+        reloadId: reloadId,
+        message: force ? 'Force reload queued' : 'Reload queued',
+        waitingFor: manager.activeOperations.size,
+        status: manager.getStatus()
+    }));
+}
+
+/**
+ * HTTP endpoint for reload status
+ * GET /api/plugins/:name/reload/:id/status
+ */
+function handleReloadStatusRequest(req, res, pluginName, reloadId) {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    
+    const manager = operationManagers[pluginName];
+
+    if (!manager) {
+        res.writeHead(404, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Plugin not found' }));
+        return;
+    }
+
+    const reload = manager.reloadQueued;
+
+    if (!reload) {
+        // Reload already completed
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ status: 'complete' }));
+        return;
+    }
+
+    if (reload.id !== reloadId) {
+        res.writeHead(404, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Reload not found' }));
+        return;
+    }
+
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({
+        status: manager.isReloading ? 'reloading' : 'pending',
+        waitingFor: manager.activeOperations.size,
+        operationIds: Array.from(manager.activeOperations),
+        queuedSince: Date.now() - reload.queuedAt
+    }));
+}
+
+/**
+ * HTTP endpoint for reloading all plugins
+ * POST /api/plugins/reload-all?force=true
+ */
+async function handleReloadAllPluginsRequest(req, res) {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    
+    const urlParams = new URL(req.url, 'http://localhost').searchParams;
+    const force = urlParams.get('force') === 'true';
+
+    const results = {};
+    for (const [name, manager] of Object.entries(operationManagers)) {
+        results[name] = await manager.enqueueReload(force);
+    }
+
+    res.writeHead(202, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({
+        message: 'Reload queued for all plugins',
+        reloads: results
+    }));
 }
 
 /**
@@ -2214,33 +3018,33 @@ function enrichNodesWithMeshData(nodesData, meshesData) {
         for (const mesh of meshesData.meshes) {
             if (mesh && mesh._id) {
                 meshLookup[mesh._id] = mesh;
-                console.log(`[${new Date().toISOString()}] Added mesh to lookup:`, mesh._id.substring(0, 40), `name=${mesh.name}`);
+                console.log(`[${getTimestamp()}] Added mesh to lookup:`, mesh._id.substring(0, 40), `name=${mesh.name}`);
             }
         }
     }
 
-    console.log(`[${new Date().toISOString()}] Built mesh lookup with ${Object.keys(meshLookup).length} meshes`);
+    console.log(`[${getTimestamp()}] Built mesh lookup with ${Object.keys(meshLookup).length} meshes`);
     
     // Log all fields from first mesh for debugging
     if (Object.keys(meshLookup).length > 0) {
         const firstMeshId = Object.keys(meshLookup)[0];
         const firstMesh = meshLookup[firstMeshId];
-        console.log(`[${new Date().toISOString()}] Sample mesh fields:`, Object.keys(firstMesh));
-        console.log(`[${new Date().toISOString()}] Sample mesh data:`, JSON.stringify(firstMesh).substring(0, 800));
+        console.log(`[${getTimestamp()}] Sample mesh fields:`, Object.keys(firstMesh));
+        console.log(`[${getTimestamp()}] Sample mesh data:`, JSON.stringify(firstMesh).substring(0, 800));
     }
 
     // Attach mesh data to each node
     const enriched = {};
     for (const [meshName, nodes] of Object.entries(nodesData)) {
-        console.log(`[${new Date().toISOString()}] Processing mesh: ${meshName.substring(0, 50)}`);
+        console.log(`[${getTimestamp()}] Processing mesh: ${meshName.substring(0, 50)}`);
         
         enriched[meshName] = nodes.map(node => {
             // meshName IS the mesh ID - it's the key from the nodes response
             if (meshLookup[meshName]) {
-                console.log(`[${new Date().toISOString()}]   Node ${node.name}: found mesh in lookup (${meshLookup[meshName].name})`);
+                console.log(`[${getTimestamp()}]   Node ${node.name}: found mesh in lookup (${meshLookup[meshName].name})`);
                 node.mesh = meshLookup[meshName];
             } else {
-                console.log(`[${new Date().toISOString()}]   Node ${node.name}: mesh not in lookup, using meshName fallback`);
+                console.log(`[${getTimestamp()}]   Node ${node.name}: mesh not in lookup, using meshName fallback`);
                 node.mesh = { name: meshName };
             }
 
@@ -2269,7 +3073,7 @@ function filterNodesByQuery(nodesData, queryString) {
             // Log first node structure for debugging
             if (!firstNode && nodes.length > 0) {
                 firstNode = nodes[0];
-                console.log(`[${new Date().toISOString()}] Sample node fields:`, Object.keys(firstNode));
+                console.log(`[${getTimestamp()}] Sample node fields:`, Object.keys(firstNode));
             }
             
             const matchingNodes = nodes.filter(node => {
@@ -2286,7 +3090,7 @@ function filterNodesByQuery(nodesData, queryString) {
 
         return filtered;
     } catch (error) {
-        console.error(`[${new Date().toISOString()}] Query parsing error:`, error.message);
+        console.error(`[${getTimestamp()}] Query parsing error:`, error.message);
         throw new Error(`Invalid query: ${error.message}`);
     }
 }
@@ -2296,24 +3100,24 @@ function filterNodesByQuery(nodesData, queryString) {
  * POST /nodes
  */
 async function handleNodesRequest(req, res) {
-    console.log(`[${new Date().toISOString()}] === ENTERING handleNodesRequest ===`);
-    console.log(`[${new Date().toISOString()}] Method: ${req.method}, URL: ${req.url}`);
+    console.log(`[${getTimestamp()}] === ENTERING handleNodesRequest ===`);
+    console.log(`[${getTimestamp()}] Method: ${req.method}, URL: ${req.url}`);
     
     // CORS headers
-    console.log(`[${new Date().toISOString()}] Setting CORS headers`);
+    console.log(`[${getTimestamp()}] Setting CORS headers`);
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Session-Token');
 
     if (req.method === 'OPTIONS') {
-        console.log(`[${new Date().toISOString()}] Handling OPTIONS request`);
+        console.log(`[${getTimestamp()}] Handling OPTIONS request`);
         res.writeHead(200);
         res.end();
         return;
     }
 
     if (req.method !== 'POST') {
-        console.log(`[${new Date().toISOString()}] Error: Non-POST method: ${req.method}`);
+        console.log(`[${getTimestamp()}] Error: Non-POST method: ${req.method}`);
         res.writeHead(405, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: 'Method not allowed. Use POST.' }));
         return;
@@ -2342,39 +3146,39 @@ async function handleNodesRequest(req, res) {
             const validation = await validateSessionAndGetCredentials(sessionToken, params.user);
             
             if (!validation.valid) {
-                console.log(`[${new Date().toISOString()}] Nodes request rejected: ${validation.error}`);
+                console.log(`[${getTimestamp()}] Nodes request rejected: ${validation.error}`);
                 res.writeHead(401, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify({ error: validation.error }));
                 return;
             }
 
-            console.log(`[${new Date().toISOString()}] Nodes request from user: ${validation.user}`);
+            console.log(`[${getTimestamp()}] Nodes request from user: ${validation.user}`);
 
             // Get or create WebSocket connection
             if (!global.meshWS || global.meshWS.readyState !== WebSocket.OPEN) {
-                console.log(`[${new Date().toISOString()}] Creating new WebSocket connection for nodes request...`);
+                console.log(`[${getTimestamp()}] Creating new WebSocket connection for nodes request...`);
                 const cookie = await getSessionCookie(validation.meshUser, validation.meshPass);
-                console.log(`[${new Date().toISOString()}] Got session cookie, connecting WebSocket...`);
+                console.log(`[${getTimestamp()}] Got session cookie, connecting WebSocket...`);
                 global.meshWS = await connectToMeshCentral(cookie);
-                console.log(`[${new Date().toISOString()}] WebSocket connected, setting up message handler...`);
+                console.log(`[${getTimestamp()}] WebSocket connected, setting up message handler...`);
                 try {
                     setupMessageHandler(global.meshWS);
-                    console.log(`[${new Date().toISOString()}] [IMMEDIATE] setupMessageHandler returned, now proceeding`);
+                    console.log(`[${getTimestamp()}] [IMMEDIATE] setupMessageHandler returned, now proceeding`);
                 } catch (e) {
-                    console.error(`[${new Date().toISOString()}] [ERROR] Exception in setupMessageHandler:`, e.message, e.stack);
+                    console.error(`[${getTimestamp()}] [ERROR] Exception in setupMessageHandler:`, e.message, e.stack);
                     throw e;
                 }
             } else {
-                console.log(`[${new Date().toISOString()}] Reusing existing WebSocket connection`);
+                console.log(`[${getTimestamp()}] Reusing existing WebSocket connection`);
             }
 
-            console.log(`[${new Date().toISOString()}] [CHECKPOINT 1] Past setupMessageHandler, about to send nodes request`);
+            console.log(`[${getTimestamp()}] [CHECKPOINT 1] Past setupMessageHandler, about to send nodes request`);
             
             // Request nodes list (required)
             try {
-                console.log(`[${new Date().toISOString()}] [CHECKPOINT 2] Calling sendNodesRequest`);
+                console.log(`[${getTimestamp()}] [CHECKPOINT 2] Calling sendNodesRequest`);
                 const nodesResult = await sendNodesRequest(global.meshWS);
-                console.log(`[${new Date().toISOString()}] [CHECKPOINT 3] Got nodes response`);
+                console.log(`[${getTimestamp()}] [CHECKPOINT 3] Got nodes response`);
                 
                 // Extract the nodes from the response
                 let nodesData = nodesResult.nodes || nodesResult;
@@ -2382,55 +3186,55 @@ async function handleNodesRequest(req, res) {
                 // Try to get mesh metadata (non-blocking, optional)
                 let meshesResult = null;
                 try {
-                    console.log(`[${new Date().toISOString()}] Requesting mesh metadata...`);
+                    console.log(`[${getTimestamp()}] Requesting mesh metadata...`);
                     meshesResult = await Promise.race([
                         sendMeshesRequest(global.meshWS),
                         new Promise((_, reject) => setTimeout(() => reject(new Error('Meshes timeout')), 5000))
                     ]);
-                    console.log(`[${new Date().toISOString()}] Got meshes response`);
+                    console.log(`[${getTimestamp()}] Got meshes response`);
                 } catch (meshError) {
-                    console.warn(`[${new Date().toISOString()}] Mesh enrichment failed (non-fatal):`, meshError.message);
+                    console.warn(`[${getTimestamp()}] Mesh enrichment failed (non-fatal):`, meshError.message);
                     meshesResult = null;
                 }
                 
                 // Enrich nodes with mesh metadata if available
                 if (meshesResult) {
-                    console.log(`[${new Date().toISOString()}] Enriching nodes with mesh metadata`);
+                    console.log(`[${getTimestamp()}] Enriching nodes with mesh metadata`);
                     nodesData = enrichNodesWithMeshData(nodesData, meshesResult);
-                    console.log(`[${new Date().toISOString()}] Nodes enriched successfully`);
+                    console.log(`[${getTimestamp()}] Nodes enriched successfully`);
                 } else {
-                    console.log(`[${new Date().toISOString()}] Skipping mesh enrichment (no mesh data available)`);
+                    console.log(`[${getTimestamp()}] Skipping mesh enrichment (no mesh data available)`);
                 }
                 
                 // Apply query filter if provided
                 if (params.query) {
-                    console.log(`[${new Date().toISOString()}] Applying query filter: ${params.query.substring(0, 100)}...`);
+                    console.log(`[${getTimestamp()}] Applying query filter: ${params.query.substring(0, 100)}...`);
                     nodesData = filterNodesByQuery(nodesData, params.query);
-                    console.log(`[${new Date().toISOString()}] Query filter applied successfully`);
+                    console.log(`[${getTimestamp()}] Query filter applied successfully`);
                 }
                 
-                console.log(`[${new Date().toISOString()}] Writing response header (200)`);
+                console.log(`[${getTimestamp()}] Writing response header (200)`);
                 res.writeHead(200, { 'Content-Type': 'application/json' });
-                console.log(`[${new Date().toISOString()}] Sending response body`);
+                console.log(`[${getTimestamp()}] Sending response body`);
                 res.end(JSON.stringify({
                     success: true,
                     result: nodesData,
-                    timestamp: new Date().toISOString()
+                    timestamp: getTimestamp()
                 }));
-                console.log(`[${new Date().toISOString()}] Response sent successfully`);
+                console.log(`[${getTimestamp()}] Response sent successfully`);
             } catch (nodeError) {
-                console.error(`[${new Date().toISOString()}] [ERROR] Exception during nodes request:`, nodeError.message, nodeError.stack);
+                console.error(`[${getTimestamp()}] [ERROR] Exception during nodes request:`, nodeError.message, nodeError.stack);
                 throw nodeError;
             }
         } catch (error) {
-            console.error(`[${new Date().toISOString()}] Nodes request error:`, error.message);
-            console.error(`[${new Date().toISOString()}] Error stack:`, error.stack);
+            console.error(`[${getTimestamp()}] Nodes request error:`, error.message);
+            console.error(`[${getTimestamp()}] Error stack:`, error.stack);
             
-            console.log(`[${new Date().toISOString()}] Writing error response (500)`);
+            console.log(`[${getTimestamp()}] Writing error response (500)`);
             res.writeHead(500, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({
                 error: error.message,
-                timestamp: new Date().toISOString()
+                timestamp: getTimestamp()
             }));
         }
     });
@@ -2443,7 +3247,7 @@ async function handleNodesRequest(req, res) {
  * @returns {Promise<Object>} Meshes data
  */
 function sendMeshesRequest(ws) {
-    console.log(`[${new Date().toISOString()}] [DEBUG] sendMeshesRequest called`);
+    console.log(`[${getTimestamp()}] [DEBUG] sendMeshesRequest called`);
     return new Promise((resolve, reject) => {
         const responseId = `meshes_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
@@ -2452,7 +3256,7 @@ function sendMeshesRequest(ws) {
             responseid: responseId  // We send it but MC won't echo it back
         };
 
-        console.log(`[${new Date().toISOString()}] Sending meshes request:`, { responseid: responseId });
+        console.log(`[${getTimestamp()}] Sending meshes request:`, { responseid: responseId });
 
         // Register resolver for when meshes response arrives
         pendingMeshesResolvers.push(resolve);
@@ -2486,9 +3290,9 @@ function sendMeshesRequest(ws) {
  * @returns {Promise<Object>} Nodes data organized by mesh
  */
 function sendNodesRequest(ws) {
-    console.log(`[${new Date().toISOString()}] [DEBUG] sendNodesRequest called`);
+    console.log(`[${getTimestamp()}] [DEBUG] sendNodesRequest called`);
     return new Promise((resolve, reject) => {
-        console.log(`[${new Date().toISOString()}] [DEBUG] Creating promise for nodes request`);
+        console.log(`[${getTimestamp()}] [DEBUG] Creating promise for nodes request`);
         const responseId = `nodes_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
         // Build nodes message
@@ -2497,7 +3301,7 @@ function sendNodesRequest(ws) {
             responseid: responseId
         };
 
-        console.log(`[${new Date().toISOString()}] Sending nodes request:`, { responseid: responseId });
+        console.log(`[${getTimestamp()}] Sending nodes request:`, { responseid: responseId });
 
         // Set timeout for response
         const timeout = setTimeout(() => {
@@ -2665,9 +3469,9 @@ try {
     let ca = null;
     try {
         ca = fs.readFileSync(caPath, 'utf8');
-        console.log(`[${new Date().toISOString()}] CA bundle loaded from ${caPath}`);
+        console.log(`[${getTimestamp()}] CA bundle loaded from ${caPath}`);
     } catch (caErr) {
-        console.warn(`[${new Date().toISOString()}] WARNING: CA bundle not found at ${caPath} - cert chain may be incomplete`);
+        console.warn(`[${getTimestamp()}] WARNING: CA bundle not found at ${caPath} - cert chain may be incomplete`);
     }
     
     serverOptions = {
@@ -2680,25 +3484,19 @@ try {
         serverOptions.ca = ca;
     }
     
-    console.log(`[${new Date().toISOString()}] SSL certificate loaded from ZeroSSL (app.equinoxits.com)`);
+    console.log(`[${getTimestamp()}] SSL certificate loaded from ZeroSSL (app.equinoxits.com)`);
 } catch (err) {
-    console.error(`[${new Date().toISOString()}] ERROR: Could not load certificate: ${err.message}`);
-    console.error(`[${new Date().toISOString()}] Cert path: ${certPath}`);
-    console.error(`[${new Date().toISOString()}] Key path: ${keyPath}`);
+    console.error(`[${getTimestamp()}] ERROR: Could not load certificate: ${err.message}`);
+    console.error(`[${getTimestamp()}] Cert path: ${certPath}`);
+    console.error(`[${getTimestamp()}] Key path: ${keyPath}`);
     process.exit(1);
 }
 
-const requestHandler = (req, res) => {
-    const timestamp = `[${new Date().toISOString()}]`;
+const requestHandler = async (req, res) => {
+    const timestamp = `[${getTimestamp()}]`;
     
-    // Log raw request before anything else
-    process.stdout.write(`${timestamp} *** RAW REQUEST RECEIVED ***\n`);
-    process.stdout.write(`${timestamp} Method: ${req.method}\n`);
-    process.stdout.write(`${timestamp} URL: ${req.url}\n`);
-    process.stdout.write(`${timestamp} Headers: ${JSON.stringify(req.headers, null, 2)}\n`);
-    process.stdout.write(`${timestamp} *** REQUEST HANDLER CALLED: ${req.method} ${req.url} ***\n`);
-    
-    console.log(`${timestamp} ${req.method} ${req.url}`);
+    // Minimal logging for important requests only (auth, errors, etc)
+    // Static files and routine requests are not logged
 
     // Add CORS headers
     res.setHeader('Access-Control-Allow-Origin', '*');
@@ -2715,6 +3513,99 @@ const requestHandler = (req, res) => {
         res.end();
         return;
     }
+    
+    // ===== STATIC FILE AUTH MIDDLEWARE =====
+    // Protect HTML pages with session token validation
+    const urlPath = req.url.split('?')[0]; // Remove query params
+    if (isProtectedStaticFile(urlPath)) {
+        const sessionToken = getSessionTokenFromCookies(req.headers.cookie);
+        const validation = await global.auth.validateSessionToken(sessionToken);
+        
+        if (!validation.valid) {
+            // Token invalid or expired - try to refresh
+            if (sessionToken) {
+                try {
+                    const refreshed = await global.auth.refreshSessionToken(sessionToken);
+                    
+                    // Update cookie with new token
+                    const cookieOptions = [
+                        `sessionToken=${refreshed.sessionToken}`,
+                        'Path=/',
+                        'HttpOnly',
+                        'Secure',
+                        'SameSite=Strict',
+                        `Max-Age=${global.auth.config.session.sessionTokenExpiryMinutes * 60}`
+                    ];
+                    res.setHeader('Set-Cookie', cookieOptions.join('; '));
+                    
+                    // Validate new token
+                    const newValidation = await global.auth.validateSessionToken(refreshed.sessionToken);
+                    
+                    if (newValidation.valid) {
+                        req.userId = newValidation.userId;
+                        // Continue to the requested page
+                    } else {
+                        // New token also invalid, redirect to login
+                        const redirectUrl = `/login?redirect=${encodeURIComponent(req.url)}`;
+                        res.writeHead(302, { 'Location': redirectUrl });
+                        res.end();
+                        return;
+                    }
+                } catch (err) {
+                    // Refresh failed (outside 7-day window, etc), redirect to login
+                    console.log(`[${getTimestamp()}] Auth token refresh failed for ${urlPath}: ${err.message}`);
+                    const redirectUrl = `/login?redirect=${encodeURIComponent(req.url)}`;
+                    res.writeHead(302, { 'Location': redirectUrl });
+                    res.end();
+                    return;
+                }
+            } else {
+                // No sessionToken, but check if we have refreshToken
+                const refreshToken = getRefreshTokenFromCookies(req.headers.cookie);
+                
+                if (refreshToken) {
+                    try {
+                        const refreshed = await global.auth.refreshSessionTokenWithRefreshToken(refreshToken);
+                        
+                        // Update cookie with new sessionToken
+                        const cookieOptions = [
+                            `sessionToken=${refreshed.sessionToken}`,
+                            'Path=/',
+                            'HttpOnly',
+                            'Secure',
+                            'SameSite=Strict',
+                            `Max-Age=${global.auth.config.session.sessionTokenExpiryMinutes * 60}`
+                        ];
+                        res.setHeader('Set-Cookie', cookieOptions.join('; '));
+                        
+                        req.userId = refreshed.userId;
+                        // Continue to the requested page
+                    } catch (err) {
+                        console.log(`[${getTimestamp()}] Auth refresh token refresh failed for ${urlPath}: ${err.message}`);
+                        const redirectUrl = `/login?redirect=${encodeURIComponent(req.url)}`;
+                        res.writeHead(302, { 'Location': redirectUrl });
+                        res.end();
+                        return;
+                    }
+                } else {
+                    // No token at all, redirect to login
+                    const redirectUrl = `/login?redirect=${encodeURIComponent(req.url)}`;
+                    res.writeHead(302, { 'Location': redirectUrl });
+                    res.end();
+                    return;
+                }
+            }
+        } else {
+            // Token is valid, store userId in request for later use
+            req.userId = validation.userId;
+        }
+    }
+    
+    // Route auth requests (auth.js handles internally)
+    const { routeAuthRequest } = require('./auth/auth');
+    if (routeAuthRequest(req, res)) {
+        return;
+    }
 
     // Route requests
     if (req.url === '/auth' || req.url.startsWith('/auth?')) {
@@ -2723,10 +3614,38 @@ const requestHandler = (req, res) => {
         handleValidateSession(req, res);
     } else if (req.url === '/status') {
         handleStatusRequest(req, res);
+    } else if (req.url === '/api/plugins/status') {
+        handlePluginsStatusRequest(req, res);
+    } else if (req.url.startsWith('/api/plugins/') && req.url.includes('/reload')) {
+        // Parse reload endpoints: /api/plugins/:name/reload or /api/plugins/:name/reload/:id/status
+        const urlParts = req.url.split('?')[0].split('/').filter(p => p);
+        // urlParts: ['api', 'plugins', ':name', 'reload', ':id', 'status']
+        
+        if (req.method === 'POST' && req.url.startsWith('/api/plugins/reload-all')) {
+            handleReloadAllPluginsRequest(req, res);
+        } else if (req.method === 'POST' && urlParts.length === 4 && urlParts[3] === 'reload') {
+            // POST /api/plugins/:name/reload
+            const pluginName = urlParts[2];
+            handleReloadPluginRequest(req, res, pluginName);
+        } else if (req.method === 'GET' && urlParts.length === 6 && urlParts[3] === 'reload' && urlParts[5] === 'status') {
+            // GET /api/plugins/:name/reload/:id/status
+            const pluginName = urlParts[2];
+            const reloadId = urlParts[4];
+            handleReloadStatusRequest(req, res, pluginName, reloadId);
+        } else {
+            res.writeHead(404, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Endpoint not found' }));
+        }
+    } else if (req.url === '/kore/admin/reload-auth') {
+        handleReloadAuth(req, res);
     } else if (req.url === '/kore/admin/reload-api-members') {
         handleReloadApiMembers(req, res);
+    } else if (req.url.startsWith('/kore/email/smtp')) {
+        handleSendEmail(req, res);
     } else if (req.url === '/kore/plugins/list') {
         handleListPlugins(req, res);
+    } else if (req.url.startsWith('/kore/plugins/add')) {
+        handleAddPlugin(req, res);
     } else if (req.url.startsWith('/kore/plugins/details')) {
         handleGetPluginDetails(req, res);
     } else if (req.url.startsWith('/kore/plugins/update')) {
@@ -2753,8 +3672,17 @@ const requestHandler = (req, res) => {
         // Parse URL to get pathname without query string
         const parsedUrl = url.parse(req.url, true);
         const pathname = parsedUrl.pathname;
+        const clientIP = req.socket.remoteAddress;
         
         if (pathname.endsWith('.html') || pathname.endsWith('.css') || pathname.endsWith('.js') || pathname.endsWith('.json') || pathname.endsWith('.png') || pathname.endsWith('.jpg') || pathname.endsWith('.jpeg') || pathname.endsWith('.gif') || pathname.endsWith('.svg') || pathname.endsWith('.ico') || pathname.endsWith('.webp') || pathname === '/') {
+            // Restrict static web files to internal IPs only
+            if (!isIPWhitelisted(clientIP)) {
+                console.log(`[${getTimestamp()}] Static file access denied for external IP ${clientIP}: ${pathname}`);
+                res.writeHead(403, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: 'Access denied' }));
+                return;
+            }
+            
             serveStaticFile(req, res, {
                 basePath: 'D:\\Kore\\web',
                 allowedExtensions: ['.html', '.css', '.js', '.json', '.png', '.jpg', '.jpeg', '.gif', '.svg', '.ico', '.webp'],
@@ -2771,86 +3699,91 @@ const server = https.createServer(serverOptions, requestHandler);
 const server443 = https.createServer(serverOptions, requestHandler);
 
 server.on('connection', (socket) => {
-    console.log(`[${new Date().toISOString()}] *** NEW CONNECTION ATTEMPT (1139) ***`);
-    console.log(`[${new Date().toISOString()}] Remote: ${socket.remoteAddress}:${socket.remotePort}`);
+    console.log(`[${getTimestamp()}] *** NEW CONNECTION ATTEMPT (1139) ***`);
+    console.log(`[${getTimestamp()}] Remote: ${socket.remoteAddress}:${socket.remotePort}`);
 });
 
 server443.on('connection', (socket) => {
-    console.log(`[${new Date().toISOString()}] *** NEW CONNECTION ATTEMPT (443) ***`);
-    console.log(`[${new Date().toISOString()}] Remote: ${socket.remoteAddress}:${socket.remotePort}`);
+    console.log(`[${getTimestamp()}] *** NEW CONNECTION ATTEMPT (443) ***`);
+    console.log(`[${getTimestamp()}] Remote: ${socket.remoteAddress}:${socket.remotePort}`);
+});
+
+server443.on('tlsClientHello', (hello) => {
+    const serverName = hello.servername || 'unknown';
+    const cipherSuites = hello.cipherSuites ? hello.cipherSuites.length : 0;
+    const tlsVersion = hello.tlsVersion ? `TLS ${hello.tlsVersion}` : 'unknown';
+    console.log(`[${getTimestamp()}] TLS ClientHello (443) - Server: ${serverName}, Ciphers: ${cipherSuites}, Version: ${tlsVersion}`);
 });
 
 server.on('clientError', (err, socket) => {
-    console.error(`[${new Date().toISOString()}] *** CLIENT ERROR (1139) ***`);
-    console.error(`[${new Date().toISOString()}] Error Code: ${err.code}`);
-    console.error(`[${new Date().toISOString()}] Error Message: ${err.message}`);
-    console.error(`[${new Date().toISOString()}] Remote Address: ${socket.remoteAddress}:${socket.remotePort}`);
-    console.error(`[${new Date().toISOString()}] Full Error:`, err);
+    console.error(`[${getTimestamp()}] *** CLIENT ERROR (1139) ***`);
+    console.error(`[${getTimestamp()}] Error Code: ${err.code}`);
+    console.error(`[${getTimestamp()}] Error Message: ${err.message}`);
+    console.error(`[${getTimestamp()}] Remote Address: ${socket.remoteAddress}:${socket.remotePort}`);
+    console.error(`[${getTimestamp()}] Full Error:`, err);
     if (socket.writable) {
         socket.end('HTTP/1.1 400 Bad Request\r\n\r\n');
     }
 });
 
 server443.on('clientError', (err, socket) => {
-    console.error(`[${new Date().toISOString()}] *** CLIENT ERROR (443) ***`);
-    console.error(`[${new Date().toISOString()}] Error Code: ${err.code}`);
-    console.error(`[${new Date().toISOString()}] Error Message: ${err.message}`);
-    console.error(`[${new Date().toISOString()}] Remote Address: ${socket.remoteAddress}:${socket.remotePort}`);
-    console.error(`[${new Date().toISOString()}] Full Error:`, err);
+    console.error(`[${getTimestamp()}] *** CLIENT ERROR (443) ***`);
+    console.error(`[${getTimestamp()}] Error Code: ${err.code}`);
+    console.error(`[${getTimestamp()}] Error Message: ${err.message}`);
+    console.error(`[${getTimestamp()}] Remote Address: ${socket.remoteAddress}:${socket.remotePort}`);
+    console.error(`[${getTimestamp()}] Full Error:`, err);
     if (socket.writable) {
         socket.end('HTTP/1.1 400 Bad Request\r\n\r\n');
     }
 });
 
 server.on('secureConnection', (tlsSocket) => {
-    console.log(`[${new Date().toISOString()}] TLS connection established (1139) from ${tlsSocket.remoteAddress}:${tlsSocket.remotePort}`);
+    console.log(`[${getTimestamp()}] TLS connection established (1139) from ${tlsSocket.remoteAddress}:${tlsSocket.remotePort}`);
     
     // Set socket timeout to 90 seconds to allow slow internal HTTP requests to MeshCentral
     tlsSocket.setTimeout(90000, () => {
-        console.error(`[${new Date().toISOString()}] Socket timeout from ${tlsSocket.remoteAddress} - destroying`);
+        console.error(`[${getTimestamp()}] Socket timeout from ${tlsSocket.remoteAddress} - destroying`);
         tlsSocket.destroy();
     });
     
     tlsSocket.on('data', (data) => {
-        console.log(`[${new Date().toISOString()}] Data received (1139): ${data.length} bytes`);
-        console.log(`[${new Date().toISOString()}] Data: ${data.toString('utf8').substring(0, 100)}`);
+        // Socket data received - no verbose logging for routine requests
     });
     
     tlsSocket.on('error', (err) => {
-        console.error(`[${new Date().toISOString()}] TLS socket error (1139):`, err.message);
+        console.error(`[${getTimestamp()}] TLS socket error (1139):`, err.message);
     });
     
     tlsSocket.on('close', () => {
-        console.log(`[${new Date().toISOString()}] TLS socket closed (1139)`);
+        console.log(`[${getTimestamp()}] TLS socket closed (1139)`);
     });
 });
 
 server443.on('secureConnection', (tlsSocket) => {
-    console.log(`[${new Date().toISOString()}] TLS connection established (443) from ${tlsSocket.remoteAddress}:${tlsSocket.remotePort}`);
+    console.log(`[${getTimestamp()}] TLS connection established (443) from ${tlsSocket.remoteAddress}:${tlsSocket.remotePort}`);
     
     // Set socket timeout to 90 seconds to allow slow internal HTTP requests to MeshCentral
     tlsSocket.setTimeout(90000, () => {
-        console.error(`[${new Date().toISOString()}] Socket timeout from ${tlsSocket.remoteAddress} - destroying`);
+        console.error(`[${getTimestamp()}] Socket timeout from ${tlsSocket.remoteAddress} - destroying`);
         tlsSocket.destroy();
     });
     
     tlsSocket.on('data', (data) => {
-        console.log(`[${new Date().toISOString()}] Data received (443): ${data.length} bytes`);
-        console.log(`[${new Date().toISOString()}] Data: ${data.toString('utf8').substring(0, 100)}`);
+        // Socket data received - no verbose logging for routine requests
     });
     
     tlsSocket.on('error', (err) => {
-        console.error(`[${new Date().toISOString()}] TLS socket error (443):`, err.message);
+        console.error(`[${getTimestamp()}] TLS socket error (443):`, err.message);
     });
     
     tlsSocket.on('close', () => {
-        console.log(`[${new Date().toISOString()}] TLS socket closed (443)`);
+        console.log(`[${getTimestamp()}] TLS socket closed (443)`);
     });
 });
 
 // Start servers on both ports
 server.listen(PROXY_PORT, '0.0.0.0', async () => {
-    console.log(`[${new Date().toISOString()}] Proxy server listening on HTTPS://0.0.0.0:${PROXY_PORT} (1139)`);
+    console.log(`[${getTimestamp()}] Proxy server listening on HTTPS://0.0.0.0:${PROXY_PORT} (1139)`);
     
     // Initialize MySQL pool
     await initializeMySQLPool();
@@ -2860,18 +3793,32 @@ server.listen(PROXY_PORT, '0.0.0.0', async () => {
     
     // Load plugins from database
     await loadPluginsFromDatabase();
+    initializeOperationManagers();
     
     // Initialize Persephone automation engine
     try {
         await Persephone.initialize(korePool, mysqlPool, cwaPool);
-        console.log(`[${new Date().toISOString()}] Persephone automation engine initialized`);
+        console.log(`[${getTimestamp()}] Persephone automation engine initialized`);
     } catch (err) {
-        console.error(`[${new Date().toISOString()}] ERROR initializing Persephone:`, err.message);
+        console.error(`[${getTimestamp()}] ERROR initializing Persephone:`, err.message);
+    }
+    
+    // Initialize Auth system
+    try {
+        // Load security config from system_config
+        const [configRows] = await korePool.query('SELECT security_config FROM system_config WHERE id = 1');
+        const securityConfig = configRows[0]?.security_config || {};
+        
+        // Initialize Auth with dependencies
+        global.auth = new Auth(korePool, global.cryptoUtils, securityConfig, logAudit, process.env.JWT_SIGNING_KEY);
+        console.log(`[${getTimestamp()}] Auth system initialized`);
+    } catch (err) {
+        console.error(`[${getTimestamp()}] ERROR initializing Auth:`, err.message);
     }
 });
 
 server443.listen(443, '0.0.0.0', () => {
-    console.log(`[${new Date().toISOString()}] Proxy server listening on HTTPS://0.0.0.0:443`);
+    console.log(`[${getTimestamp()}] Proxy server listening on HTTPS://0.0.0.0:443`);
 });
 
 // ===== DIAGNOSTIC SERVER ON PORT 1140 (Testing with Rewst support - can be removed) =====
@@ -2880,20 +3827,20 @@ const server1140 = https.createServer(serverOptions, (req, res) => {
     res.end(JSON.stringify({
         status: 'open',
         port: 1140,
-        timestamp: new Date().toISOString(),
+        timestamp: getTimestamp(),
         message: 'Port 1140 is open and responding'
     }));
 });
 
 server1140.listen(1140, '0.0.0.0', () => {
-    console.log(`[${new Date().toISOString()}] Diagnostic server listening on HTTPS://0.0.0.0:1140`);
+    console.log(`[${getTimestamp()}] Diagnostic server listening on HTTPS://0.0.0.0:1140`);
 });
 
 server1140.timeout = 120000;
 server1140.keepAliveTimeout = 120000;
 
 server1140.on('error', (err) => {
-    console.error(`[${new Date().toISOString()}] Server (1140) error:`, err);
+    console.error(`[${getTimestamp()}] Server (1140) error:`, err);
 });
 // ===== END DIAGNOSTIC SERVER =====
 
@@ -2904,30 +3851,30 @@ server443.timeout = 120000;
 server443.keepAliveTimeout = 120000;
 
 server.on('error', (err) => {
-    console.error(`[${new Date().toISOString()}] Server (1139) error:`, err);
+    console.error(`[${getTimestamp()}] Server (1139) error:`, err);
     process.exit(1);
 });
 
 server443.on('error', (err) => {
-    console.error(`[${new Date().toISOString()}] Server (443) error:`, err);
+    console.error(`[${getTimestamp()}] Server (443) error:`, err);
     process.exit(1);
 });
 
 // Global error handlers
 process.on('uncaughtException', (err) => {
-    console.error(`[${new Date().toISOString()}] UNCAUGHT EXCEPTION:`, err);
+    console.error(`[${getTimestamp()}] UNCAUGHT EXCEPTION:`, err);
     process.exit(1);
 });
 
 process.on('unhandledRejection', (reason, promise) => {
-    console.error(`[${new Date().toISOString()}] UNHANDLED REJECTION:`, reason);
+    console.error(`[${getTimestamp()}] UNHANDLED REJECTION:`, reason);
 });
 process.on('SIGTERM', () => {
-    console.log(`[${new Date().toISOString()}] SIGTERM received, shutting down...`);
+    console.log(`[${getTimestamp()}] SIGTERM received, shutting down...`);
     
     // Force exit after 5 seconds if graceful shutdown takes too long
     const forceExitTimeout = setTimeout(() => {
-        console.error(`[${new Date().toISOString()}] Forced exit after shutdown timeout`);
+        console.error(`[${getTimestamp()}] Forced exit after shutdown timeout`);
         process.exit(1);
     }, 5000);
     
@@ -2946,28 +3893,28 @@ process.on('SIGTERM', () => {
             if (mysqlPool) mysqlPool.end();
             if (cwaPool) cwaPool.end();
             if (korePool) korePool.end();
-            console.log(`[${new Date().toISOString()}] Shutdown complete`);
+            console.log(`[${getTimestamp()}] Shutdown complete`);
             process.exit(0);
         }
     };
     
     server.close(() => {
-        console.log(`[${new Date().toISOString()}] Server (1139) closed`);
+        console.log(`[${getTimestamp()}] Server (1139) closed`);
         checkAllClosed();
     });
     
     server443.close(() => {
-        console.log(`[${new Date().toISOString()}] Server (443) closed`);
+        console.log(`[${getTimestamp()}] Server (443) closed`);
         checkAllClosed();
     });
 });
 
 process.on('SIGINT', () => {
-    console.log(`[${new Date().toISOString()}] SIGINT received, shutting down...`);
+    console.log(`[${getTimestamp()}] SIGINT received, shutting down...`);
     
     // Force exit after 5 seconds if graceful shutdown takes too long
     const forceExitTimeout = setTimeout(() => {
-        console.error(`[${new Date().toISOString()}] Forced exit after shutdown timeout`);
+        console.error(`[${getTimestamp()}] Forced exit after shutdown timeout`);
         process.exit(1);
     }, 5000);
     
@@ -2986,18 +3933,18 @@ process.on('SIGINT', () => {
             if (mysqlPool) mysqlPool.end();
             if (cwaPool) cwaPool.end();
             if (korePool) korePool.end();
-            console.log(`[${new Date().toISOString()}] Shutdown complete`);
+            console.log(`[${getTimestamp()}] Shutdown complete`);
             process.exit(0);
         }
     };
     
     server.close(() => {
-        console.log(`[${new Date().toISOString()}] Server (1139) closed`);
+        console.log(`[${getTimestamp()}] Server (1139) closed`);
         checkAllClosed();
     });
     
     server443.close(() => {
-        console.log(`[${new Date().toISOString()}] Server (443) closed`);
+        console.log(`[${getTimestamp()}] Server (443) closed`);
         checkAllClosed();
     });
 });
