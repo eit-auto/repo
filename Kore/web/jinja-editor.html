@@ -1,0 +1,188 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Jinja Template Editor</title>
+    <link rel="stylesheet" href="/base.css">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background: #1a1a1a;
+            color: #e0e0e0;
+            overflow: hidden;
+            height: 100vh;
+            padding: 0;
+            margin: 0;
+        }
+
+        #app {
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            width: 100vw;
+            padding: 8px;
+        }
+
+        header {
+            background: #0f1419;
+            border-bottom: 1px solid #303030;
+            padding: 10px 20px;
+            flex-shrink: 0;
+        }
+
+        header h1 {
+            font-size: 18px;
+            font-weight: 600;
+            margin: 0;
+        }
+
+        #editor-wrapper {
+            width: 100%;
+            height: 100%;
+        }
+
+        #json-editor-wrapper {
+            width: 100%;
+            height: 100%;
+        }
+
+        #editor-container {
+            width: 100%;
+            height: 100%;
+        }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <header>
+            <h1>Jinja Template Editor</h1>
+        </header>
+        <div style="display: flex; gap: 8px; flex: 1; overflow: hidden; min-height: 0;">
+            <div class="inner-panel" style="padding: 5px; flex: 0 0 30%; display: flex; flex-direction: column; gap: 0; min-height: 0; overflow: hidden; flex-shrink: 1;">
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 5px; cursor: pointer;" id="jsonHeader">
+                    <h2 style="margin: 0; font-size: 0.9rem; text-transform: uppercase; letter-spacing: 0.5px; color: #b0b0b0; font-weight: 700; flex: 1;">Context (JSON)</h2>
+                    <span class="json-toggle" style="color: #b0b0b0; font-size: 14px;">&#9664;</span>
+                </div>
+                <div id="json-editor-wrapper" style="flex: 1; display: flex; flex-direction: column; min-height: 0; overflow: hidden;">
+                    <div id="json-editor-container" style="flex: 1; display: flex; width: 100%; min-height: 0;"></div>
+                </div>
+            </div>
+            <div class="inner-panel" style="padding: 5px; flex: 1; display: flex; flex-direction: column; gap: 0; min-height: 0; overflow: hidden; flex-shrink: 1;">
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 5px;">
+                    <h2 style="margin: 0; font-size: 0.9rem; text-transform: uppercase; letter-spacing: 0.5px; color: #b0b0b0; font-weight: 700; flex: 1;">Template (Jinja)</h2>
+                </div>
+                <div id="editor-wrapper" style="flex: 1; display: flex; flex-direction: column; min-height: 0; overflow: hidden;">
+                    <div id="editor-container" style="flex: 1; display: flex; width: 100%; min-height: 0;"></div>
+                </div>
+            </div>
+            <div class="inner-panel" style="padding: 5px; flex: 0 0 30%; display: flex; flex-direction: column; gap: 0; min-height: 0; overflow: hidden; flex-shrink: 1;">
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 5px; cursor: pointer;" id="outputHeader">
+                    <span class="output-toggle" style="color: #b0b0b0; font-size: 14px;">&#9654;</span>
+                    <h2 style="margin: 0; font-size: 0.9rem; text-transform: uppercase; letter-spacing: 0.5px; color: #b0b0b0; font-weight: 700; flex: 1; text-align: center;">Output</h2>
+                </div>
+                <div id="output-editor-wrapper" style="flex: 1; display: flex; flex-direction: column; min-height: 0; overflow: hidden;">
+                    <div id="output-editor-container" style="flex: 1; display: flex; width: 100%; min-height: 0;"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/lib/jinja-json.js"></script>
+    <script>
+        (async () => {
+            // Initialize all editors
+            const { jinjaEditor, contextData } = await initializeEditors(
+            'json-editor-container',
+            'editor-container',
+            'output-editor-container'
+        );
+
+        // Setup collapse/expand toggles
+        const jsonHeader = document.getElementById('jsonHeader');
+        const outputHeader = document.getElementById('outputHeader');
+        
+        const jsonPanel = jsonHeader.closest('.inner-panel');
+        const outputPanel = outputHeader.closest('.inner-panel');
+        
+        const jsonWrapper = document.getElementById('json-editor-wrapper');
+        const outputWrapper = document.getElementById('output-editor-wrapper');
+        
+        const jsonToggle = jsonHeader.querySelector('.json-toggle');
+        const outputToggle = outputHeader.querySelector('.output-toggle');
+        const jsonH2 = jsonHeader.querySelector('h2');
+        const outputH2 = outputHeader.querySelector('h2');
+
+        jsonHeader.addEventListener('click', () => {
+            const isCollapsed = jsonPanel.style.flex === '0 0 30px';
+            jsonPanel.style.flex = isCollapsed ? '0 0 30%' : '0 0 30px';
+            jsonPanel.style.padding = isCollapsed ? '10px' : '10px';
+            jsonWrapper.style.display = isCollapsed ? 'flex' : 'none';
+            jsonToggle.innerHTML = isCollapsed ? '&#9664;' : '&#9654;';
+            if (!isCollapsed) {
+                // Collapsing
+                jsonHeader.style.flexDirection = 'column-reverse';
+                jsonHeader.style.justifyContent = 'flex-start';
+                jsonHeader.style.gap = '8px';
+                jsonH2.style.writingMode = 'vertical-rl';
+                jsonH2.style.transform = 'rotate(0deg)';
+                jsonH2.style.textOrientation = 'mixed';
+                jsonH2.style.fontSize = '0.75rem';
+            } else {
+                // Expanding
+                jsonHeader.style.flexDirection = 'row';
+                jsonHeader.style.justifyContent = 'space-between';
+                jsonHeader.style.gap = '0';
+                jsonHeader.style.marginBottom = '10px';
+                jsonH2.style.writingMode = 'horizontal-tb';
+                jsonH2.style.transform = 'none';
+                jsonH2.style.textOrientation = 'mixed';
+                jsonH2.style.fontSize = '0.9rem';
+                jsonH2.style.flex = '1';
+            }
+            jsonH2.style.margin = '0';
+            jsonH2.style.whiteSpace = 'nowrap';
+            jsonH2.style.display = 'block';
+        });
+
+        outputHeader.addEventListener('click', () => {
+            const isCollapsed = outputPanel.style.flex === '0 0 30px';
+            outputPanel.style.flex = isCollapsed ? '0 0 30%' : '0 0 30px';
+            outputPanel.style.padding = isCollapsed ? '10px' : '10px';
+            outputWrapper.style.display = isCollapsed ? 'flex' : 'none';
+            outputToggle.innerHTML = isCollapsed ? '&#9654;' : '&#9664;';
+            if (!isCollapsed) {
+                // Collapsing
+                outputHeader.style.flexDirection = 'column';
+                outputHeader.style.justifyContent = 'flex-start';
+                outputHeader.style.gap = '8px';
+                outputH2.style.writingMode = 'vertical-rl';
+                outputH2.style.transform = 'rotate(0deg)';
+                outputH2.style.textOrientation = 'mixed';
+                outputH2.style.fontSize = '0.75rem';
+            } else {
+                // Expanding
+                outputHeader.style.flexDirection = 'row';
+                outputHeader.style.justifyContent = 'space-between';
+                outputHeader.style.gap = '0';
+                outputHeader.style.marginBottom = '10px';
+                outputH2.style.writingMode = 'horizontal-tb';
+                outputH2.style.transform = 'none';
+                outputH2.style.textOrientation = 'mixed';
+                outputH2.style.fontSize = '0.9rem';
+                outputH2.style.flex = '1';
+            }
+            outputH2.style.margin = '0';
+            outputH2.style.whiteSpace = 'nowrap';
+            outputH2.style.display = 'block';
+        });
+        })();
+    </script>
+</body>
+</html>
