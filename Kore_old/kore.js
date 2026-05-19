@@ -34,7 +34,6 @@ const WebSocket = require('ws');
 const mysql = require('mysql2/promise');
 const Persephone = require('./persephone/persephone');
 const { handleWorkflowRequest, handleExecuteRequest, handleExecutionRequest } = require('./persephone/persephone');
-const Web = require('./web/web');
 const CryptoUtils = require('./crypto-utils');
 const Auth = require('./auth/auth');
 const { validateUserSessionToken, isProtectedStaticFile, getSessionTokenFromCookies, getRefreshTokenFromCookies } = require('./auth/auth');
@@ -3364,11 +3363,98 @@ function flattenObject(obj, prefix = '') {
  * Generalized static file server with configurable base paths and allowed extensions
  * Handles security, content-type detection, and error handling for multiple file repositories
  */
-/**
- * Generalized static file server with configurable base paths and allowed extensions
- * DEPRECATED: This functionality has been moved to web.js
- */
-// Removed - see web.js for serveStaticFile implementation
+function serveStaticFile(req, res, config) {
+    // config = { basePath, allowedExtensions, logPrefix }
+    const basePath = config.basePath;
+    const allowedExtensions = config.allowedExtensions || ['.html', '.css', '.js', '.json', '.png', '.jpg', '.jpeg', '.gif', '.svg', '.ico', '.webp'];
+    const logPrefix = config.logPrefix || '[StaticFile]';
+    
+    // Parse URL to get just the pathname, stripping query parameters
+    const parsedUrl = require('url').parse(req.url, true);
+    let filePath = parsedUrl.pathname === '/' ? '/index.html' : parsedUrl.pathname;
+    
+    // For /node_modules/ requests, strip the prefix to avoid doubling the directory
+    if (basePath.includes('node_modules') && filePath.startsWith('/node_modules/')) {
+        filePath = filePath.substring('/node_modules'.length);
+    }
+    
+    console.log(`${logPrefix} Requested: ${parsedUrl.pathname}`);
+    
+    // Security: only allow safe file types
+    const isSafeFile = allowedExtensions.some(ext => filePath.endsWith(ext));
+    
+    if (!isSafeFile) {
+        console.log(`${logPrefix} Access denied - unsafe file type: ${filePath}`);
+        res.writeHead(403, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Forbidden' }));
+        return;
+    }
+    
+    // Normalize path separators (convert forward slashes to backslashes on Windows)
+    let normalizedPath = filePath.replace(/\//g, '\\');
+    const fullPath = require('path').join(basePath, normalizedPath);
+    
+    console.log(`${logPrefix} Full path: ${fullPath}`);
+    
+    // Security: prevent directory traversal
+    if (!fullPath.startsWith(basePath)) {
+        console.log(`${logPrefix} Access denied - path traversal attempt`);
+        res.writeHead(403, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Forbidden' }));
+        return;
+    }
+    
+    // Determine content type based on file extension
+    let contentType = 'text/plain';
+    let isBinary = false;
+    
+    if (filePath.endsWith('.html')) {
+        contentType = 'text/html';
+    } else if (filePath.endsWith('.css')) {
+        contentType = 'text/css';
+    } else if (filePath.endsWith('.js')) {
+        contentType = 'application/javascript';
+    } else if (filePath.endsWith('.json')) {
+        contentType = 'application/json';
+    } else if (filePath.endsWith('.d.ts')) {
+        contentType = 'application/typescript';
+    } else if (filePath.endsWith('.map')) {
+        contentType = 'application/json';
+    } else if (filePath.endsWith('.png')) {
+        contentType = 'image/png';
+        isBinary = true;
+    } else if (filePath.endsWith('.jpg') || filePath.endsWith('.jpeg')) {
+        contentType = 'image/jpeg';
+        isBinary = true;
+    } else if (filePath.endsWith('.gif')) {
+        contentType = 'image/gif';
+        isBinary = true;
+    } else if (filePath.endsWith('.svg')) {
+        contentType = 'image/svg+xml';
+    } else if (filePath.endsWith('.ico')) {
+        contentType = 'image/x-icon';
+        isBinary = true;
+    } else if (filePath.endsWith('.webp')) {
+        contentType = 'image/webp';
+        isBinary = true;
+    }
+    
+    // Use binary or text reading based on file type
+    const readEncoding = isBinary ? null : 'utf8';
+    
+    require('fs').readFile(fullPath, readEncoding, (err, data) => {
+        if (err) {
+            console.log(`${logPrefix} Error reading file: ${err.message}`);
+            res.writeHead(404, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'File not found' }));
+            return;
+        }
+        
+        console.log(`${logPrefix} Serving ${filePath} as ${contentType}`);
+        res.writeHead(200, { 'Content-Type': contentType });
+        res.end(data);
+    });
+}
 
 const certPath = 'D:\\Kore\\Certs\\webserver-cert-public.crt';
 const keyPath = 'D:\\Kore\\Certs\\webserver-cert-private.key';
@@ -3572,19 +3658,40 @@ const requestHandler = async (req, res) => {
         res.writeHead(204);
         res.end();
     } else if (req.url.startsWith('/node_modules/')) {
-        // Node modules handled by web.js
-        await Web.handleRoute(req, res);
+        serveStaticFile(req, res, {
+            basePath: 'D:\\Kore\\node_modules',
+            allowedExtensions: ['.js', '.d.ts', '.json', '.map'],
+            logPrefix: '[NodeModules]'
+        });
     } else if (getPluginHandler(req.url.split('?')[0])) {
         // Route to loaded plugins (check before Persephone)
         handlePluginRequest(req, res);
     } else if (Persephone.handleRegisteredRoute(req, res)) {
-        // Route was handled by Persephone registry
-    } else if (await Web.handleRoute(req, res)) {
-        // Route handled by web module (dynamic pages, static files, libraries)
+        // Route was handled by registry
     } else {
-        // No route found
-        res.writeHead(404, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'Not found' }));
+        // Parse URL to get pathname without query string
+        const parsedUrl = url.parse(req.url, true);
+        const pathname = parsedUrl.pathname;
+        const clientIP = req.socket.remoteAddress;
+        
+        if (pathname.endsWith('.html') || pathname.endsWith('.css') || pathname.endsWith('.js') || pathname.endsWith('.json') || pathname.endsWith('.png') || pathname.endsWith('.jpg') || pathname.endsWith('.jpeg') || pathname.endsWith('.gif') || pathname.endsWith('.svg') || pathname.endsWith('.ico') || pathname.endsWith('.webp') || pathname === '/') {
+            // Restrict static web files to internal IPs only
+            if (!isIPWhitelisted(clientIP)) {
+                console.log(`[${getTimestamp()}] Static file access denied for external IP ${clientIP}: ${pathname}`);
+                res.writeHead(403, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: 'Access denied' }));
+                return;
+            }
+            
+            serveStaticFile(req, res, {
+                basePath: 'D:\\Kore\\web',
+                allowedExtensions: ['.html', '.css', '.js', '.json', '.png', '.jpg', '.jpeg', '.gif', '.svg', '.ico', '.webp'],
+                logPrefix: '[StaticWeb]'
+            });
+        } else {
+            res.writeHead(404, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Not found' }));
+        }
     }
 };
 
@@ -3694,14 +3801,6 @@ server.listen(PROXY_PORT, '0.0.0.0', async () => {
         console.log(`[${getTimestamp()}] Persephone automation engine initialized`);
     } catch (err) {
         console.error(`[${getTimestamp()}] ERROR initializing Persephone:`, err.message);
-    }
-    
-    // Initialize Web module (dynamic page generation)
-    try {
-        await Web.initialize(korePool);
-        console.log(`[${getTimestamp()}] Web module initialized`);
-    } catch (err) {
-        console.error(`[${getTimestamp()}] ERROR initializing Web module:`, err.message);
     }
     
     // Initialize Auth system

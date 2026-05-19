@@ -1,0 +1,38 @@
+{
+  "name": "kore",
+  "version": "1.0.0",
+  "description": "Kore Central Automation Platform with Persephone Automation Engine",
+  "main": "kore.js",
+  "scripts": {
+    "start": "node kore.js"
+  },
+  "dependencies": {
+    "@codemirror/autocomplete": "^6.20.1",
+    "@codemirror/commands": "^6.10.3",
+    "@codemirror/fold": "^0.19.4",
+    "@codemirror/lang-jinja": "^6.0.1",
+    "@codemirror/lang-json": "^6.0.2",
+    "@codemirror/language": "^6.12.3",
+    "@codemirror/search": "^6.7.0",
+    "@codemirror/state": "^6.6.0",
+    "@codemirror/view": "^6.41.1",
+    "codemirror": "^6.0.2",
+    "dotenv": "^17.4.2",
+    "luxon": "^3.7.2",
+    "mssql": "^12.5.2",
+    "mysql2": "^3.22.3",
+    "node-powershell": "^5.0.1",
+    "node-windows": "^1.0.0-beta.8",
+    "nodemailer": "^8.0.7",
+    "nodemailer-ntlm-auth": "^1.0.4",
+    "nunjucks": "^3.2.4",
+    "uuid": "^9.0.0",
+    "ws": "^8.15.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "devDependencies": {
+    "@rollup/plugin-terser": "^1.0.0"
+  }
+}
