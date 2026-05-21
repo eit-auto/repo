@@ -54,6 +54,9 @@ function setupCodeMirror() {
             }
         }, null, 2);
         document.head.insertBefore(importMap, document.head.firstChild);
+        console.log('[jinja-json] Import map injected');
+    } else {
+        console.log('[jinja-json] Import map already exists');
     }
 }
 
@@ -2065,6 +2068,64 @@ async function initializeEditors(jsonContainerId, jinjaContainerId, outputContai
     createOutputEditor(outputContainerId, '', performRender);
 
     return { jinjaEditor, contextData };
+}
+
+// ============================================================================
+// Modal Helpers for Editor Integration
+// ============================================================================
+
+/**
+ * Open a Jinja editor modal for editing template content
+ * @param {string} fieldLabel - Label for the field being edited
+ * @param {string} initialValue - Initial template content
+ * @param {function} onSaveCallback - Callback(value) called with edited content
+ * @param {boolean} readOnly - If true, makes the editor read-only with no Save button (default: false)
+ */
+function openJinjaEditorModal(fieldLabel, initialValue, onSaveCallback, readOnly = false) {
+    const modalTitle = readOnly ? fieldLabel : `Edit: ${fieldLabel}`;
+    const fields = [
+        {
+            type: 'custom:jinja-editor',
+            name: 'content',
+            label: fieldLabel,
+            value: initialValue || '',
+            containerStyle: 'width: 100%; flex: 1; padding: 0; background-color: var(--bg-panel3); border-radius: 4px; overflow: auto; border: none;',
+            readOnly: readOnly
+        }
+    ];
+    
+    showFormModal(modalTitle, fields, (formData) => {
+        if (onSaveCallback && !readOnly) {
+            onSaveCallback(formData.content);
+        }
+    }, readOnly, true, true);
+}
+
+/**
+ * Open a JSON editor modal for editing JSON content
+ * @param {string} fieldLabel - Label for the field being edited
+ * @param {string|object} initialValue - Initial JSON content (string or object)
+ * @param {function} onSaveCallback - Callback(value) called with edited JSON string
+ * @param {boolean} readOnly - If true, makes the editor read-only with no Save button (default: false)
+ */
+function openJsonEditorModal(fieldLabel, initialValue, onSaveCallback, readOnly = false) {
+    const modalTitle = readOnly ? fieldLabel : `Edit: ${fieldLabel}`;
+    const fields = [
+        {
+            type: 'custom:json-editor',
+            name: 'content',
+            label: fieldLabel,
+            value: initialValue || '',
+            containerStyle: 'width: 100%; flex: 1; padding: 0; background-color: var(--bg-panel3); border-radius: 4px; overflow: auto; border: none;',
+            readOnly: readOnly
+        }
+    ];
+    
+    showFormModal(modalTitle, fields, (formData) => {
+        if (onSaveCallback && !readOnly) {
+            onSaveCallback(formData.content);
+        }
+    }, readOnly, true, true);
 }
 
 // Export for use in other modules

@@ -1,0 +1,593 @@
+<section class="panel-level-1 tab-container">
+            
+            <div class="tab-navigation">
+                <button class="tab-btn active" onclick="switchTab('generalTab', event)">General</button>
+                <button class="tab-btn" onclick="switchToOrganizationsTab(event)">Organizations</button>
+                <button class="tab-btn" onclick="switchToUsersTab(event)">Users</button>
+                <button class="tab-btn" onclick="switchToSecurityTab(event)">Security</button>
+                <button class="tab-btn" onclick="switchToPluginsTab(event)">Plugins</button>
+            </div>
+            <div id="generalTab" class="tab-panel active">
+                <div class="status-message" id="generalStatusMessage"></div>
+                
+                <div class="panel-level-2" style="margin-top: 0">
+                    <h2 style="margin: 0 0 20px 0; font-size: 16px; color: var(--text-primary);">General Settings</h2>
+                    <div class="panel-grid-responsive">
+                        <!-- System Settings Panel -->
+                        <div class="panel-level-3">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                                <h3 style="margin: 0; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">System Settings</h3>
+                            </div>
+                            
+                            <div style="display: flex; flex-direction: column; gap: 10px;">
+                                <!-- Timezone -->
+                                <div>
+                                    <label style="display: block; color: var(--text-muted); font-size: 11px; margin-bottom: 4px; font-weight: 600;">Timezone</label>
+                                    <select id="systemTimezone" style="width: 100%;" oninput="checkSystemUnsavedChanges()">
+                                        <option value="">Select timezone...</option>
+                                    </select>
+                                </div>
+                                
+                                <!-- Save Button -->
+                                <div style="display: flex; gap: 8px; margin-top: 15px;">
+                                    <button type="button" class="btn" data-color="green" data-size="sm" id="systemSaveBtn" onclick="saveSystemConfig()" disabled>Save</button>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Logging Panel -->
+                        <div class="panel-level-3">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                                <h3 style="margin: 0; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Logging</h3>
+                            </div>
+                            
+                            <div style="display: flex; flex-direction: column; gap: 10px;">
+                                <!-- Log Level -->
+                                <div>
+                                    <label style="display: block; color: var(--text-muted); font-size: 11px; margin-bottom: 4px; font-weight: 600;">Log Level</label>
+                                    <select id="loggingLogLevel" style="width: 100%;" oninput="checkLoggingUnsavedChanges()">
+                                        <option value="DEBUG">DEBUG</option>
+                                        <option value="INFO">INFO</option>
+                                        <option value="WARNING">WARNING</option>
+                                        <option value="ERROR">ERROR</option>
+                                        <option value="CRITICAL">CRITICAL</option>
+                                    </select>
+                                </div>
+                                
+                                <!-- Retention Days -->
+                                <div>
+                                    <label style="display: block; color: var(--text-muted); font-size: 11px; margin-bottom: 4px; font-weight: 600;">Retention Days</label>
+                                    <input type="number" id="loggingRetentionDays" placeholder="30" min="1" style="width: 100%;" oninput="checkLoggingUnsavedChanges()">
+                                </div>
+                                
+                                <!-- Log Destinations -->
+                                <div>
+                                    <label style="display: block; color: var(--text-muted); font-size: 11px; margin-bottom: 8px; font-weight: 600;">Log Destinations</label>
+                                    <div style="display: flex; gap: 15px;">
+                                        <div style="display: flex; align-items: center; gap: 8px;">
+                                            <input type="checkbox" id="loggingDestFile" style="width: 16px; height: 16px; cursor: pointer;" onchange="checkLoggingUnsavedChanges()">
+                                            <label for="loggingDestFile" style="color: var(--text-muted); font-size: 11px; cursor: pointer; margin: 0;">File</label>
+                                        </div>
+                                        <div style="display: flex; align-items: center; gap: 8px;">
+                                            <input type="checkbox" id="loggingDestDatabase" style="width: 16px; height: 16px; cursor: pointer;" onchange="checkLoggingUnsavedChanges()">
+                                            <label for="loggingDestDatabase" style="color: var(--text-muted); font-size: 11px; cursor: pointer; margin: 0;">Database</label>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <!-- Max File Size -->
+                                <div>
+                                    <label style="display: block; color: var(--text-muted); font-size: 11px; margin-bottom: 4px; font-weight: 600;">Max File Size (MB)</label>
+                                    <input type="number" id="loggingMaxFileSize" placeholder="100" min="1" style="width: 100%;" oninput="checkLoggingUnsavedChanges()">
+                                </div>
+                                
+                                <!-- File Path -->
+                                <div>
+                                    <label style="display: block; color: var(--text-muted); font-size: 11px; margin-bottom: 4px; font-weight: 600;">File Path</label>
+                                    <input type="text" id="loggingFilePath" placeholder="/var/log/kore/system.log" style="width: 100%;" oninput="checkLoggingUnsavedChanges()">
+                                </div>
+                                
+                                <!-- Save Button -->
+                                <div style="display: flex; gap: 8px; margin-top: 15px;">
+                                    <button type="button" class="btn" data-color="green" data-size="sm" id="loggingSaveBtn" onclick="saveLoggingConfig()" disabled>Save</button>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- E-mail Panel -->
+                        <div class="panel-level-3">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                                <h3 style="margin: 0; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">E-mail</h3>
+                                <button type="button" class="btn" data-color="green" data-size="sm" onclick="addNewEmailProfile()">Add Profile</button>
+                            </div>
+                            
+                            <div style="display: flex; flex-direction: column; gap: 10px;">
+                                <!-- Profile Dropdown -->
+                                <div>
+                                    <label style="display: block; color: var(--text-muted); font-size: 11px; margin-bottom: 4px; font-weight: 600;">Email Profile</label>
+                                    <select id="emailProfileSelect" style="width: 100%;" onchange="switchEmailProfile()">
+                                        <option value="">Select a profile...</option>
+                                    </select>
+                                </div>
+                                
+                                <!-- Profile Form Fields (hidden until profile selected) -->
+                                <div id="emailProfileForm" style="display: none; border-top: 1px solid var(--border-primary); padding-top: 10px;">
+                                    <div style="margin-bottom: 10px;">
+                                        <label style="display: block; color: var(--text-muted); font-size: 11px; margin-bottom: 4px; font-weight: 600;">SMTP Host</label>
+                                        <input type="text" id="emailSmtpHost" placeholder="smtp.gmail.com" style="width: 100%;" oninput="checkEmailUnsavedChanges()">
+                                    </div>
+                                    
+                                    <div style="margin-bottom: 10px;">
+                                        <label style="display: block; color: var(--text-muted); font-size: 11px; margin-bottom: 4px; font-weight: 600;">SMTP Port</label>
+                                        <input type="number" id="emailSmtpPort" placeholder="587" style="width: 100%;" oninput="checkEmailUnsavedChanges()">
+                                    </div>
+                                    
+                                    <div style="margin-bottom: 10px;">
+                                        <div style="display: flex; align-items: center; gap: 8px;">
+                                            <input type="checkbox" id="emailSmtpUseTls" style="width: 16px; height: 16px; cursor: pointer;" onchange="checkEmailUnsavedChanges()">
+                                            <label for="emailSmtpUseTls" style="color: var(--text-muted); font-size: 11px; cursor: pointer; margin: 0;">Use TLS</label>
+                                        </div>
+                                    </div>
+                                    
+                                    <div style="margin-bottom: 10px;">
+                                        <label style="display: block; color: var(--text-muted); font-size: 11px; margin-bottom: 4px; font-weight: 600;">SMTP Username</label>
+                                        <input type="text" id="emailSmtpUsername" placeholder="your-email@gmail.com" style="width: 100%;" oninput="checkEmailUnsavedChanges()">
+                                    </div>
+                                    
+                                    <div style="margin-bottom: 10px;">
+                                        <label style="display: block; color: var(--text-muted); font-size: 11px; margin-bottom: 4px; font-weight: 600;">SMTP Password</label>
+                                        <input type="password" id="emailSmtpPassword" placeholder="your-app-password" style="width: 100%;" oninput="checkEmailUnsavedChanges()">
+                                    </div>
+                                    
+                                    <div style="margin-bottom: 10px;">
+                                        <label style="display: block; color: var(--text-muted); font-size: 11px; margin-bottom: 4px; font-weight: 600;">SMTP From</label>
+                                        <input type="email" id="emailSmtpFrom" placeholder="noreply@yourdomain.com" style="width: 100%;" oninput="checkEmailUnsavedChanges()">
+                                    </div>
+                                    
+                                    <div style="display: flex; gap: 8px; margin-top: 15px;">
+                                        <button type="button" class="btn" data-color="green" data-size="sm" id="emailSaveBtn" onclick="saveEmailProfile()" disabled>Save</button>
+                                        <button type="button" class="btn" data-color="blue" data-size="sm" onclick="testEmailSmtp()">Test</button>
+                                        <button type="button" class="btn" data-color="red" data-size="sm" onclick="deleteEmailProfile()">Delete</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div id="organizationsTab" class="tab-panel">
+                <div class="status-message" id="orgsStatusMessage"></div>
+                
+                <div class="panel-level-2" style="flex: 1; min-height: 0;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                        <h2 style="margin: 0; font-size: 16px; color: var(--text-primary);">Organization Management</h2>
+                        <button type="button" class="btn" data-color="green" onclick="showAddOrganizationModal()">Add Organization</button>
+                    </div>
+                    
+                    <div style="display: grid; grid-template-columns: 250px 1fr; gap: 15px; flex: 1; min-height: 0;">
+                        <div class="panel-level-3">
+                            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
+                                <h3 style="margin: 0; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Organizations</h3>
+                                <div style="display: flex; align-items: center; gap: 6px;">
+                                    <input type="checkbox" id="showInactiveOrgs" style="width: 14px; height: 14px; cursor: pointer;">
+                                    <label for="showInactiveOrgs" style="color: var(--text-muted); font-size: 10px; cursor: pointer; margin: 0;">Show Inactive</label>
+                                </div>
+                            </div>
+                            <div id="organizationListSidebar" style="display: flex; flex-direction: column; gap: 5px; flex: 1; overflow-y: auto; min-height: 0;">
+                            </div>
+                        </div>
+                        
+                        <div style="display: flex; flex-direction: column; flex: 1; min-height: 0;">
+                            <div id="organizationPlaceholder" class="panel-level-3" style="text-align: center; display: flex; align-items: center; justify-content: center; flex: 1; min-height: 0;">
+                                <p style="color: var(--text-muted); font-size: 13px; margin: 0;">Select an organization to the left to view details or modify</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div id="usersTab" class="tab-panel">
+                <div class="status-message" id="usersStatusMessage"></div>
+                
+                <div class="panel-level-2" style="flex: 1; min-height: 0;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                        <h2 style="margin: 0; font-size: 16px; color: var(--text-primary);">User Management</h2>
+                        <button type="button" class="btn" data-color="green" onclick="showAddUserModal()">Add User</button>
+                    </div>
+                    
+                    <div style="display: grid; grid-template-columns: 250px 1fr; gap: 15px; flex: 1; min-height: 0;">
+                        <div class="panel-level-3">
+                            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
+                                <h3 style="margin: 0; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Users</h3>
+                                <div style="display: flex; align-items: center; gap: 6px;">
+                                    <input type="checkbox" id="showInactiveUsers" style="width: 14px; height: 14px; cursor: pointer;">
+                                    <label for="showInactiveUsers" style="color: var(--text-muted); font-size: 10px; cursor: pointer; margin: 0;">Show Inactive</label>
+                                </div>
+                            </div>
+                            <div id="usersListSidebar" style="display: flex; flex-direction: column; gap: 5px; flex: 1; overflow-y: auto; min-height: 0;">
+                            </div>
+                        </div>
+                        
+                        <div style="display: flex; flex-direction: column; flex: 1; min-height: 0;">
+                            <div id="usersPlaceholder" class="panel-level-3" style="text-align: center; display: flex; align-items: center; justify-content: center; flex: 1; min-height: 0;">
+                                <p style="color: var(--text-muted); font-size: 13px; margin: 0;">Select a user to the left to view details or modify</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            
+            <div id="securityTab" class="tab-panel">
+                <div class="status-message" id="securityStatusMessage"></div>
+                
+                <div class="panel-level-2" style="margin-top: 0;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                        <h2 style="margin: 0; font-size: 16px; color: var(--text-primary);">Security Settings</h2>
+                        <div style="display: flex; gap: 10px;">
+                            <button type="button" class="btn" data-color="gray" onclick="resetSecurityForm()">Cancel</button>
+                            <button type="button" class="btn" data-color="green" onclick="saveSecuritySettings()">Save</button>
+                        </div>
+                    </div>
+
+                    <div class="panel-grid-responsive">
+                        <!-- Password Policy -->
+                        <div class="panel-level-3">
+                        <h3 style="margin: 0 0 15px 0; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-primary);">Password Policy</h3>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+                            <div style="display: flex; flex-direction: column;">
+                                <label style="font-size: 12px; color: var(--text-muted); margin-bottom: 5px;">Failed Attempts Limit</label>
+                                <input type="number" name="passwordFailureLimit" id="passwordFailureLimit" min="1" max="20" style="padding: 8px; border: 1px solid var(--border-primary); border-radius: 4px; background: var(--bg-input); color: var(--text-primary);">
+                            </div>
+                            <div style="display: flex; flex-direction: column;">
+                                <label style="font-size: 12px; color: var(--text-muted); margin-bottom: 5px;">Minimum Length</label>
+                                <input type="number" name="passwordMinLength" id="passwordMinLength" min="1" max="50" style="padding: 8px; border: 1px solid var(--border-primary); border-radius: 4px; background: var(--bg-input); color: var(--text-primary);">
+                            </div>
+                            <div style="display: flex; flex-direction: column;">
+                                <label style="font-size: 12px; color: var(--text-muted); margin-bottom: 5px;">Reset Period (minutes)</label>
+                                <input type="number" name="passwordFailureResetMinutes" id="passwordFailureResetMinutes" min="1" max="1440" style="padding: 8px; border: 1px solid var(--border-primary); border-radius: 4px; background: var(--bg-input); color: var(--text-primary);">
+                            </div>
+                            <div style="display: flex; flex-direction: column;">
+                                <label style="font-size: 12px; color: var(--text-muted); margin-bottom: 5px;">
+                                    <input type="checkbox" name="passwordRequireNumbersOrSpecial" id="passwordRequireNumbersOrSpecial" style="width: 14px; height: 14px; margin-right: 6px; cursor: pointer;">
+                                    Require Numbers or Special Characters
+                                </label>
+                            </div>
+                            <div style="display: flex; flex-direction: column;">
+                                <label style="font-size: 12px; color: var(--text-muted); margin-bottom: 5px;">Password History Count</label>
+                                <input type="number" name="passwordHistoryCount" id="passwordHistoryCount" min="0" max="50" style="padding: 8px; border: 1px solid var(--border-primary); border-radius: 4px; background: var(--bg-input); color: var(--text-primary);">
+                            </div>
+                            <div style="display: flex; flex-direction: column;">
+                                <label style="font-size: 12px; color: var(--text-muted); margin-bottom: 5px;">
+                                    <input type="checkbox" name="passwordRequireUppercase" id="passwordRequireUppercase" style="width: 14px; height: 14px; margin-right: 6px; cursor: pointer;">
+                                    Require Uppercase Letters
+                                </label>
+                            </div>
+                            <div style="display: flex; flex-direction: column;">
+                                <label style="font-size: 12px; color: var(--text-muted); margin-bottom: 5px;">Old Password Age (days)</label>
+                                <input type="number" name="passwordOldPwdAge" id="passwordOldPwdAge" min="1" max="365" style="padding: 8px; border: 1px solid var(--border-primary); border-radius: 4px; background: var(--bg-input); color: var(--text-primary);">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- MFA Settings -->
+                    <div class="panel-level-3">
+                        <h3 style="margin: 0 0 15px 0; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-primary);">MFA Settings</h3>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+                            <div style="display: flex; flex-direction: column;">
+                                <label style="font-size: 12px; color: var(--text-muted); margin-bottom: 5px;">Failed Attempts Limit</label>
+                                <input type="number" name="mfaFailureLimit" id="mfaFailureLimit" min="1" max="20" style="padding: 8px; border: 1px solid var(--border-primary); border-radius: 4px; background: var(--bg-input); color: var(--text-primary);">
+                            </div>
+                            <div style="display: flex; flex-direction: column;">
+                                <label style="font-size: 12px; color: var(--text-muted); margin-bottom: 5px;">Reset Period (minutes)</label>
+                                <input type="number" name="mfaFailureResetMinutes" id="mfaFailureResetMinutes" min="1" max="1440" style="padding: 8px; border: 1px solid var(--border-primary); border-radius: 4px; background: var(--bg-input); color: var(--text-primary);">
+                            </div>
+                            <div style="display: flex; flex-direction: column;">
+                                <label style="font-size: 12px; color: var(--text-muted); margin-bottom: 5px;">Backup Code Count</label>
+                                <input type="number" name="mfaBackupCodeCount" id="mfaBackupCodeCount" min="4" max="20" style="padding: 8px; border: 1px solid var(--border-primary); border-radius: 4px; background: var(--bg-input); color: var(--text-primary);">
+                            </div>
+                            <div style="display: flex; flex-direction: column;">
+                                <label style="font-size: 12px; color: var(--text-muted); margin-bottom: 5px;">Code Validity (seconds)</label>
+                                <input type="number" name="mfaCodeValiditySeconds" id="mfaCodeValiditySeconds" min="10" max="120" style="padding: 8px; border: 1px solid var(--border-primary); border-radius: 4px; background: var(--bg-input); color: var(--text-primary);">
+                            </div>
+                            <div style="display: flex; flex-direction: column;">
+                                <label style="font-size: 12px; color: var(--text-muted); margin-bottom: 5px;">Allowed Clock Skew</label>
+                                <input type="number" name="mfaAllowedClockSkew" id="mfaAllowedClockSkew" min="0" max="5" style="padding: 8px; border: 1px solid var(--border-primary); border-radius: 4px; background: var(--bg-input); color: var(--text-primary);">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Lockout Settings -->
+                    <div class="panel-level-3">
+                        <h3 style="margin: 0 0 15px 0; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-primary);">Account Lockout</h3>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+                            <div style="display: flex; flex-direction: column;">
+                                <label style="font-size: 12px; color: var(--text-muted); margin-bottom: 5px;">Lockout Duration (minutes)</label>
+                                <input type="number" name="lockoutDurationMinutes" id="lockoutDurationMinutes" min="5" max="1440" style="padding: 8px; border: 1px solid var(--border-primary); border-radius: 4px; background: var(--bg-input); color: var(--text-primary);">
+                            </div>
+                            <div style="display: flex; flex-direction: column; justify-content: flex-end;">
+                                <label style="font-size: 12px; color: var(--text-muted); margin-bottom: 5px;">
+                                    <input type="checkbox" name="lockoutAutoUnlock" id="lockoutAutoUnlock" style="width: 14px; height: 14px; margin-right: 6px; cursor: pointer;">
+                                    Auto-unlock After Duration
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Invite Settings -->
+                    <div class="panel-level-3">
+                        <h3 style="margin: 0 0 15px 0; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-primary);">User Invitations</h3>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+                            <div style="display: flex; flex-direction: column;">
+                                <label style="font-size: 12px; color: var(--text-muted); margin-bottom: 5px;">Invite Expiration (hours)</label>
+                                <input type="number" name="inviteExpirationHours" id="inviteExpirationHours" min="1" max="720" style="padding: 8px; border: 1px solid var(--border-primary); border-radius: 4px; background: var(--bg-input); color: var(--text-primary);">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Session Settings -->
+                    <div class="panel-level-3">
+                        <h3 style="margin: 0 0 15px 0; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-primary);">Session Management</h3>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+                            <div style="display: flex; flex-direction: column;">
+                                <label style="font-size: 12px; color: var(--text-muted); margin-bottom: 5px;">Session Token Expiry (minutes)</label>
+                                <input type="number" name="sessionTokenExpiryMinutes" id="sessionTokenExpiryMinutes" min="5" max="1440" style="padding: 8px; border: 1px solid var(--border-primary); border-radius: 4px; background: var(--bg-input); color: var(--text-primary);">
+                            </div>
+                            <div style="display: flex; flex-direction: column;">
+                                <label style="font-size: 12px; color: var(--text-muted); margin-bottom: 5px;">Relogin Token Expiry (days)</label>
+                                <input type="number" name="reloginTokenExpiryDays" id="reloginTokenExpiryDays" min="1" max="365" style="padding: 8px; border: 1px solid var(--border-primary); border-radius: 4px; background: var(--bg-input); color: var(--text-primary);">
+                            </div>
+                        </div>
+                    </div>
+                    </div>
+                </div>
+            </div>
+
+            
+            <div id="pluginsTab" class="tab-panel">
+                <div class="status-message" id="pluginsStatusMessage"></div>
+                
+                <div class="panel-level-2" style="flex: 1; min-height: 0;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                        <h2 style="margin: 0; font-size: 16px; color: var(--text-primary);">Plugin Management</h2>
+                        <div style="display: flex; gap: 10px;">
+                            <button type="button" class="btn" data-color="green" onclick="openAddPluginModal()">Add Plugin</button>
+                            <button type="button" class="btn" data-color="blue" onclick="reloadAllPlugins()">
+                                Reload All Plugins
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div style="display: grid; grid-template-columns: 200px 1fr; gap: 15px; flex: 1; min-height: 0;">
+                        <div class="panel-level-3">
+                            <h3 style="margin: 0 0 10px 0; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Plugins</h3>
+                            <div id="pluginListSidebar" style="display: flex; flex-direction: column; gap: 5px; flex: 1; overflow-y: auto; min-height: 0;">
+                            </div>
+                        </div>
+                        
+                        <div style="display: flex; flex-direction: column; flex: 1; min-height: 0;">
+                            <div id="pluginPlaceholder" class="panel-level-3" style="text-align: center; display: flex; align-items: center; justify-content: center; flex: 1; min-height: 0;">
+                                <p style="color: var(--text-muted); font-size: 13px; margin: 0;">Select a plugin to the left to view details or modify</p>
+                            </div>
+                            <!-- Settings Forms -->
+                            <div id="pluginSettingsContainer" style="display: none; flex: 1; min-height: 0; flex-direction: column;">
+                                <!-- Header Bar -->
+                                <div id="pluginHeaderBar" class="panel-level-3" style="margin-bottom: 10px;">
+                                    <div style="display: flex; gap: 10px; justify-content: space-between; align-items: center;">
+                                        <button type="button" class="btn" data-color="blue" onclick="openReloadPluginModal()" id="reloadPluginBtn">
+                                            Reload Plugin
+                                        </button>
+                                        <div style="color: var(--text-primary); font-size: 13px; font-weight: 600;">
+                                            <span id="headerPluginName"></span> - v<span id="headerPluginVersion"></span>
+                                        </div>
+                                        <div style="display: flex; gap: 10px;">
+                                            <button class="btn" data-color="grey" onclick="cancelPluginSelection()" id="cancelBtn">
+                                                Cancel
+                                            </button>
+                                            <button class="btn" data-color="green" onclick="savePluginSettings()" id="savePluginBtn">
+                                                Save Settings
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Top Row: Basic Info + Configuration -->
+                                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px;">
+                                    <!-- Basic Information -->
+                                    <div class="panel-level-3" style="min-width: 0;">
+                                        <h3 style="margin: 0 0 8px 0; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Basic Information</h3>
+                                        
+                                        <div>
+                                            <label style="display: block; color: var(--text-muted); font-size: 11px; margin-bottom: 3px; font-weight: 600;">Display Name</label>
+                                            <input type="text" id="pluginDisplayName" style="width: 100%; margin-bottom: 8px;">
+                                        </div>
+
+                                        <div>
+                                            <label style="display: block; color: var(--text-muted); font-size: 11px; margin-bottom: 3px; font-weight: 600;">Description</label>
+                                            <textarea id="pluginDescription" style="width: 100%; min-height: 50px; resize: vertical; margin-bottom: 8px;"></textarea>
+                                        </div>
+
+                                        <div style="display: flex; align-items: center; justify-content: space-between;">
+                                            <div style="display: flex; align-items: center; gap: 8px;">
+                                                <input type="checkbox" id="pluginEnabled" style="width: 16px; height: 16px; cursor: pointer;">
+                                                <label for="pluginEnabled" style="color: var(--text-muted); font-size: 11px; cursor: pointer;">Enabled</label>
+                                            </div>
+                                            <div style="color: var(--text-primary); font-size: 13px;">Type: <span id="configTypeValue">api</span></div>
+                                        </div>
+                                    </div>
+
+                                    <!-- Plugin Configuration -->
+                                    <div class="panel-level-3" style="min-width: 0;">
+                                        <h3 style="margin: 0 0 8px 0; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Plugin Configuration</h3>
+                                        <button type="button" class="btn" data-color="blue" onclick="openCodeModal(originalPluginConfig?.code || '', null)" style="width: 100%; margin-bottom: 8px;">View Code</button>
+                                        
+                                        <div>
+                                            <label style="display: block; color: var(--text-muted); font-size: 11px; margin-bottom: 3px; font-weight: 600;">Rate Limit</label>
+                                            <input type="number" id="configRateLimit" style="width: 100%; margin-bottom: 8px;">
+                                        </div>
+
+                                        <div>
+                                            <label style="display: block; color: var(--text-muted); font-size: 11px; margin-bottom: 3px; font-weight: 600;">Routes (one per line)</label>
+                                            <textarea id="configRoutes" style="width: 100%; min-height: 40px; resize: vertical;"></textarea>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- API Specific Fields and Metadata -->
+                                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                                    <!-- API Configuration -->
+                                    <div class="panel-level-3" id="apiFieldsContainer" style="display: none; min-width: 0;">
+                                        <h3 style="margin: 0 0 8px 0; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">API Configuration</h3>
+                                        
+                                        <!-- Bearer Token Auth -->
+                                        <div id="bearerAuthFields" style="display: none;">
+                                            <div>
+                                                <label style="display: block; color: var(--text-muted); font-size: 11px; margin-bottom: 3px; font-weight: 600;">Base URL</label>
+                                                <input type="text" id="configBaseUrl" style="width: 100%; margin-bottom: 8px;">
+                                            </div>
+                                            <div>
+                                                <label style="display: block; color: var(--text-muted); font-size: 11px; margin-bottom: 3px; font-weight: 600;">API Path</label>
+                                                <input type="text" id="configApiPath" style="width: 100%; margin-bottom: 8px;">
+                                            </div>
+                                            <div>
+                                                <label style="display: block; color: var(--text-muted); font-size: 11px; margin-bottom: 3px; font-weight: 600;">API Key</label>
+                                                <input type="text" id="configApiKey" style="width: 100%; margin-bottom: 8px;">
+                                            </div>
+                                        </div>
+
+                                        <!-- Client Auth -->
+                                        <div id="clientAuthFields" style="display: none;">
+                                            <div>
+                                                <label style="display: block; color: var(--text-muted); font-size: 11px; margin-bottom: 3px; font-weight: 600;">Base URL</label>
+                                                <input type="text" id="configClientBaseUrl" style="width: 100%; margin-bottom: 8px;">
+                                            </div>
+                                            <div>
+                                                <label style="display: block; color: var(--text-muted); font-size: 11px; margin-bottom: 3px; font-weight: 600;">API Path</label>
+                                                <input type="text" id="configClientApiPath" style="width: 100%; margin-bottom: 8px;">
+                                            </div>
+                                            <div>
+                                                <label style="display: block; color: var(--text-muted); font-size: 11px; margin-bottom: 3px; font-weight: 600;">Client ID</label>
+                                                <input type="text" id="configClientId" style="width: 100%; margin-bottom: 8px;">
+                                            </div>
+                                            <div>
+                                                <label style="display: block; color: var(--text-muted); font-size: 11px; margin-bottom: 3px; font-weight: 600;">Public Key</label>
+                                                <input type="text" id="configPublicKey" style="width: 100%; margin-bottom: 8px;">
+                                            </div>
+                                            <div>
+                                                <label style="display: block; color: var(--text-muted); font-size: 11px; margin-bottom: 3px; font-weight: 600;">Private Key</label>
+                                                <input type="password" id="configPrivateKey" style="width: 100%; margin-bottom: 8px;">
+                                            </div>
+                                        </div>
+
+                                        <!-- Additional Headers -->
+                                        <div style="margin-top: 12px;">
+                                            <button type="button" class="btn" data-color="blue" data-size="sm" onclick="openEditHeadersModal()" style="width: 100%;">Additional Headers</button>
+                                        </div>
+                                    </div>
+
+                                    <!-- SQL Configurations -->
+                                    <div class="panel-level-3" id="sqlFieldsContainer" style="display: none; min-width: 0;">
+                                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px solid var(--border-primary);">
+                                            <h3 style="margin: 0; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">SQL Configurations</h3>
+                                            <button type="button" class="btn" data-color="blue" data-size="sm" onclick="addSqlDatabase()" style="white-space: nowrap;">Add New</button>
+                                        </div>
+                                        
+                                        <div style="display: flex; gap: 8px; margin-bottom: 12px;">
+                                            <select id="sqlDatabaseSelect" onchange="selectSqlDatabase()" style="flex: 1;">
+                                                <option value="">-- Select Database --</option>
+                                            </select>
+                                            <button type="button" class="btn" data-color="blue" data-size="sm" onclick="testSqlConnection()" style="white-space: nowrap;" disabled>Test</button>
+                                            <button type="button" class="btn" data-color="grey" data-size="sm" onclick="cancelSqlDatabase()" style="white-space: nowrap;" disabled>Cancel</button>
+                                            <button type="button" class="btn" data-color="red" data-size="sm" onclick="deleteSqlDatabase()" style="white-space: nowrap;" disabled>Delete</button>
+                                        </div>
+
+                                        <div id="sqlTestResult" style="margin-bottom: 12px; padding: 8px; border-radius: 4px; display: none; font-size: 12px;"></div>
+
+                                        <!-- SQL Database Form -->
+                                        <div id="sqlDatabaseForm" style="display: none;">
+                                            <div>
+                                                <label style="display: block; color: var(--text-muted); font-size: 11px; margin-bottom: 3px; font-weight: 600;">Type</label>
+                                                <select id="sqlDbType" onchange="updateSqlDbTypeFields()" style="width: 100%; margin-bottom: 8px;">
+                                                    <option value="">-- Select Type --</option>
+                                                    <option value="mysql">MySQL</option>
+                                                    <option value="mssql">MSSQL</option>
+                                                </select>
+                                            </div>
+
+                                            <div>
+                                                <label style="display: block; color: var(--text-muted); font-size: 11px; margin-bottom: 3px; font-weight: 600;">Host</label>
+                                                <input type="text" id="sqlDbHost" style="width: 100%; margin-bottom: 8px;">
+                                            </div>
+
+                                            <div>
+                                                <label style="display: block; color: var(--text-muted); font-size: 11px; margin-bottom: 3px; font-weight: 600;">Port</label>
+                                                <input type="number" id="sqlDbPort" style="width: 100%; margin-bottom: 8px;">
+                                            </div>
+
+                                            <div>
+                                                <label style="display: block; color: var(--text-muted); font-size: 11px; margin-bottom: 3px; font-weight: 600;">User</label>
+                                                <input type="text" id="sqlDbUser" autocomplete="username" style="width: 100%; margin-bottom: 8px;">
+                                            </div>
+
+                                            <div>
+                                                <label style="display: block; color: var(--text-muted); font-size: 11px; margin-bottom: 3px; font-weight: 600;">Password</label>
+                                                <div style="display: flex; gap: 8px;">
+                                                    <form style="flex: 1;">
+                                                        <input type="text" style="display: none;" autocomplete="username">
+                                                        <input type="password" id="sqlDbPassword" autocomplete="current-password" readonly style="width: 100%; cursor: not-allowed;">
+                                                    </form>
+                                                    <button type="button" class="btn" data-color="blue" data-size="sm" onclick="showFormModal('Change Password', [{name: 'password', type: 'password', placeholder: 'Enter new password', value: ''}], (formData) => { document.getElementById('sqlDbPassword').value = formData.password; })" style="white-space: nowrap;">Change</button>
+                                                </div>
+                                            </div>
+
+                                            <div>
+                                                <label style="display: block; color: var(--text-muted); font-size: 11px; margin-bottom: 3px; font-weight: 600;">Database</label>
+                                                <input type="text" id="sqlDbDatabase" style="width: 100%; margin-bottom: 8px;">
+                                            </div>
+
+                                            <!-- MSSQL-specific fields -->
+                                            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
+                                                <input type="checkbox" id="sqlDbEncrypt" style="width: 16px; height: 16px; cursor: pointer;">
+                                                <label for="sqlDbEncrypt" style="color: var(--text-muted); font-size: 11px; cursor: pointer; margin: 0;">Encrypt</label>
+                                            </div>
+
+                                            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
+                                                <input type="checkbox" id="sqlDbTrustServerCert" style="width: 16px; height: 16px; cursor: pointer;">
+                                                <label for="sqlDbTrustServerCert" style="color: var(--text-muted); font-size: 11px; cursor: pointer; margin: 0;">Trust Server Certificate</label>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- Metadata Section -->
+                                    <div class="panel-level-3" style="min-width: 0;">
+                                        <h3 style="margin: 0 0 8px 0; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Metadata</h3>
+                                        
+                                        <div style="display: grid; grid-template-columns: 1fr; gap: 8px;">
+                                            <div>
+                                                <label style="display: block; color: var(--text-muted); font-size: 11px; margin-bottom: 3px; font-weight: 600;">Created</label>
+                                                <input type="text" id="pluginCreatedAt" readonly style="width: 100%;">
+                                            </div>
+                                            <div>
+                                                <label style="display: block; color: var(--text-muted); font-size: 11px; margin-bottom: 3px; font-weight: 600;">Created By</label>
+                                                <input type="text" id="pluginCreatedBy" readonly style="width: 100%;">
+                                            </div>
+                                            <div>
+                                                <label style="display: block; color: var(--text-muted); font-size: 11px; margin-bottom: 3px; font-weight: 600;">Updated</label>
+                                                <input type="text" id="pluginUpdatedAt" readonly style="width: 100%;">
+                                            </div>
+                                            <div>
+                                                <label style="display: block; color: var(--text-muted); font-size: 11px; margin-bottom: 3px; font-weight: 600;">Updated By</label>
+                                                <input type="text" id="pluginUpdatedBy" readonly style="width: 100%;">
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            </section>
+
+<script src="/lib/settings.js"></script>

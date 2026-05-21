@@ -183,8 +183,8 @@ function buildKoreHeader(pageTitle = "Kore System") {
         .nav-drawer { 
             position: fixed; 
             top: var(--header-height); 
-            right: -150px; 
-            width: 150px; 
+            right: -200px; 
+            width: 200px; 
             height: calc(100% - var(--header-height)); 
             background-color: var(--bg-drawer); 
             border-left: 1px solid var(--border-primary); 
@@ -380,14 +380,28 @@ function buildKoreHeader(pageTitle = "Kore System") {
         <div class="menu-circle" id="hamburger"><div class="hamburger-lines"></div></div>
     </div>
     <nav class="nav-drawer" id="drawer">
-        <a href="index.html" style="color: var(--brand-light); font-size: 0.9rem; text-decoration: none; display: flex; align-items: center; padding: 6px 0; transition: opacity 0.2s; gap: 6px;" onmouseover="this.style.opacity='0.7'" onmouseout="this.style.opacity='1'"><span style="font-size: 1.3em; flex-shrink: 0; width: 24px; text-align: center;">&#9684;</span><span>Dashboard</span></a>
+        <a href="/" style="color: #7ec8ff; font-size: 0.9rem; text-decoration: none; display: flex; align-items: center; padding: 6px 0; transition: opacity 0.2s; gap: 6px;" onmouseover="this.style.opacity='0.7'" onmouseout="this.style.opacity='1'"><svg width="20" height="20" style="flex-shrink: 0;"><use href="#i-dashboard"/></svg><span>Dashboard</span></a>
+        <a href="/workflows" style="color: #7ec8ff; font-size: 0.9rem; text-decoration: none; display: flex; align-items: center; padding: 6px 0; transition: opacity 0.2s; gap: 6px;" onmouseover="this.style.opacity='0.7'" onmouseout="this.style.opacity='1'"><svg width="20" height="20" style="flex-shrink: 0;"><use href="#i-workflows"/></svg><span>Workflows</span></a>
         <div style="margin-top: auto;">
-            <a href="settings.html" style="color: var(--brand-light); font-size: 0.9rem; text-decoration: none; display: flex; align-items: center; padding: 6px 0; transition: opacity 0.2s; gap: 6px;" onmouseover="this.style.opacity='0.7'" onmouseout="this.style.opacity='1'"><span style="font-size: 1.5em; flex-shrink: 0; width: 24px; text-align: center;">&#9881;</span><span>Settings</span></a>
-            <div style="color: var(--brand-light); font-size: 0.9rem; padding: 6px 0; cursor: pointer; transition: opacity 0.2s; display: flex; align-items: center; gap: 6px;" onclick="logout()" onmouseover="this.style.opacity='0.7'" onmouseout="this.style.opacity='1'"><span style="font-size: 1.3em; flex-shrink: 0; width: 24px; text-align: center;">&#10006;</span><span>Logout</span></div>
+            <a href="/settings" style="color: #7ec8ff; font-size: 0.9rem; text-decoration: none; display: flex; align-items: center; padding: 6px 0; transition: opacity 0.2s; gap: 6px;" onmouseover="this.style.opacity='0.7'" onmouseout="this.style.opacity='1'"><svg width="20" height="20" style="flex-shrink: 0;"><use href="#i-settings"/></svg><span>Settings</span></a>
+            <a href="/userprefs" style="color: #7ec8ff; font-size: 0.9rem; text-decoration: none; display: flex; align-items: center; padding: 6px 0; transition: opacity 0.2s; gap: 6px;" onmouseover="this.style.opacity='0.7'" onmouseout="this.style.opacity='1'"><svg width="20" height="20" style="flex-shrink: 0;"><use href="#i-user"/></svg><span>User Preferences</span></a>
+            <div style="color: #7ec8ff; font-size: 0.9rem; padding: 6px 0; cursor: pointer; transition: opacity 0.2s; display: flex; align-items: center; gap: 6px;" onclick="logout()" onmouseover="this.style.opacity='0.7'" onmouseout="this.style.opacity='1'"><svg width="20" height="20" style="flex-shrink: 0;"><use href="#i-logout"/></svg><span>Logout</span></div>
         </div>
     </nav>`;
 
     document.body.insertAdjacentHTML('afterbegin', headerHTML);
+    
+    // Load icon definitions from external file if not already present
+    if (!document.getElementById('kore-icons')) {
+        fetch('/img/icons.svg')
+            .then(response => response.text())
+            .then(svg => {
+                // Remove XML declaration if present
+                svg = svg.replace(/<\?xml[^?]*\?>/, '').trim();
+                document.body.insertAdjacentHTML('afterbegin', svg);
+            })
+            .catch(err => console.warn('Could not load icons.svg:', err));
+    }
 
     const streamContainer = document.getElementById('h-streams');
     const rows = [5, 11, 17, 23]; 
@@ -485,7 +499,9 @@ function showModal(options = {}) {
         content = '',
         buttons = [],
         onClose = null,
-        closeOnBackdrop = true
+        closeOnBackdrop = true,
+        resizable = false,
+        suppressBodyScroll = false
     } = options;
 
     // Create backdrop if it doesn't exist
@@ -499,16 +515,17 @@ function showModal(options = {}) {
 
     // Create modal container
     const modal = document.createElement('div');
-    modal.className = 'modal-container';
+    modal.className = 'modal-container' + (resizable ? ' modal-resizable' : '') + (suppressBodyScroll ? ' modal-no-scroll' : '');
     modal.innerHTML = `
         <div class="modal-header">
             <h2>${title}</h2>
         </div>
-        <div class="modal-body" id="modal-body-content">
+        <div class="modal-body${suppressBodyScroll ? ' modal-body-no-scroll' : ''}" id="modal-body-content">
             ${typeof content === 'string' ? content : ''}
         </div>
         <div class="modal-footer" id="modal-footer">
         </div>
+        ${resizable ? '<div class="modal-resize-handle"></div>' : ''}
     `;
 
     // Add content if it's an HTMLElement
@@ -534,6 +551,11 @@ function showModal(options = {}) {
                 button.setAttribute('data-color', 'green');
             }
             // 'primary' uses default .btn color
+            
+            // Apply custom styles if provided
+            if (btn.style) {
+                Object.assign(button.style, btn.style);
+            }
             
             button.textContent = btn.label;
             button.addEventListener('click', async () => {
@@ -592,6 +614,41 @@ function showModal(options = {}) {
     // Append to DOM
     backdrop.appendChild(modal);
     backdrop.classList.add('active');
+
+    // Add resize functionality if resizable
+    if (resizable) {
+        const resizeHandle = modal.querySelector('.modal-resize-handle');
+        if (resizeHandle) {
+            let isResizing = false;
+            let startX = 0;
+            let startY = 0;
+            let startWidth = 0;
+            let startHeight = 0;
+
+            resizeHandle.addEventListener('mousedown', (e) => {
+                isResizing = true;
+                startX = e.clientX;
+                startY = e.clientY;
+                startWidth = modal.offsetWidth;
+                startHeight = modal.offsetHeight;
+                e.preventDefault();
+            });
+
+            document.addEventListener('mousemove', (e) => {
+                if (!isResizing) return;
+                
+                const deltaX = e.clientX - startX;
+                const deltaY = e.clientY - startY;
+                
+                modal.style.width = Math.max(300, startWidth + deltaX) + 'px';
+                modal.style.height = Math.max(200, startHeight + deltaY) + 'px';
+            });
+
+            document.addEventListener('mouseup', () => {
+                isResizing = false;
+            });
+        }
+    }
 
     // Backdrop click to close (only add listener once per backdrop)
     if (closeOnBackdrop && !backdrop.hasBackdropListener) {
@@ -1071,7 +1128,7 @@ function hideStatusBanner(containerId = 'statusMessage') {
  * @param {array} fields - Form fields: {name, type, value, placeholder, rows, monospace, required}
  * @param {Function} onSave - Callback with (formData) object
  */
-function showFormModal(title, fields, onSave) {
+function showFormModal(title, fields, onSave, readOnly = false, resizable = false, suppressBodyScroll = false) {
     let formHtml = '';
     let buttonHandlers = {};
     
@@ -1095,7 +1152,7 @@ function showFormModal(title, fields, onSave) {
             }
             
             // Build wrapper for button with optional conditional visibility
-            let buttonWrapperAttrs = `id="field_wrapper_${field.name}" style="margin-bottom: 12px;`;
+            let buttonWrapperAttrs = `id="field_wrapper_${field.name}" style="`;
             if (field.authTypes || field.pluginTypes) {
                 buttonWrapperAttrs += ` display: none;`;
             }
@@ -1114,7 +1171,13 @@ function showFormModal(title, fields, onSave) {
         }
         
         // Build wrapper div with optional data attributes for conditional visibility
-        let wrapperAttrs = `id="field_wrapper_${field.name}" style="margin-bottom: 12px;`;
+        let wrapperAttrs = `id="field_wrapper_${field.name}" style="`;
+        
+        // For custom editors, make them fill available space
+        if (field.type === 'custom:jinja-editor' || field.type === 'custom:json-editor') {
+            wrapperAttrs += `flex: 1; display: flex; flex-direction: column; min-height: 0;`;
+        }
+        
         if (field.authTypes || field.pluginTypes) {
             wrapperAttrs += ` display: none;`;
         }
@@ -1133,6 +1196,22 @@ function showFormModal(title, fields, onSave) {
             formHtml += `<label style="display: block; color: var(--text-muted); font-size: 11px; margin-bottom: 8px; font-weight: 600;">${field.label}</label>`;
             formHtml += `<div id="field_${field.name}" style="display: flex; flex-direction: column; gap: 8px;"></div>`;
             formHtml += `<button type="button" class="btn" data-color="blue" data-size="sm" onclick="addHeaderRow('field_${field.name}')" style="margin-top: 8px;">Add Header</button>`;
+            formHtml += `</div>`;
+            return;
+        }
+        
+        // Handle Jinja editor
+        if (field.type === 'custom:jinja-editor') {
+            const containerStyle = field.containerStyle || 'width: 100%; height: 300px; border: 1px solid var(--border-color); border-radius: 4px; overflow: hidden;';
+            formHtml += `<div id="field_${field.name}" style="${containerStyle}"></div>`;
+            formHtml += `</div>`;
+            return;
+        }
+        
+        // Handle JSON editor
+        if (field.type === 'custom:json-editor') {
+            const containerStyle = field.containerStyle || 'width: 100%; height: 300px; border: 1px solid var(--border-color); border-radius: 4px; overflow: hidden;';
+            formHtml += `<div id="field_${field.name}" style="${containerStyle}"></div>`;
             formHtml += `</div>`;
             return;
         }
@@ -1166,9 +1245,13 @@ function showFormModal(title, fields, onSave) {
     
     showModal({
         title: title,
-        content: formHtml,
+        content: `<div style="display: flex; flex-direction: column; height: 100%; gap: 0;">${formHtml}</div>`,
         closeOnBackdrop: false,  // Forms shouldn't close on backdrop click
-        buttons: [
+        resizable: resizable,
+        suppressBodyScroll: suppressBodyScroll,
+        buttons: readOnly ? [
+            { label: 'Close', type: 'secondary', onClick: () => {} }
+        ] : [
             { label: 'Cancel', type: 'secondary', onClick: () => {} },
             { 
                 label: 'Save', 
@@ -1185,6 +1268,20 @@ function showFormModal(title, fields, onSave) {
                             formData[field.name] = element.checked;
                         } else if (field.type === 'custom:headers') {
                             formData[field.name] = [];
+                        } else if (field.type === 'custom:jinja-editor') {
+                            // Get value from CodeMirror editor
+                            if (window._jinjaEditors && window._jinjaEditors[`field_${field.name}`]) {
+                                formData[field.name] = window._jinjaEditors[`field_${field.name}`].state.doc.toString();
+                            } else {
+                                formData[field.name] = field.value || '';
+                            }
+                        } else if (field.type === 'custom:json-editor') {
+                            // Get value from CodeMirror editor
+                            if (window._jsonEditors && window._jsonEditors[`field_${field.name}`]) {
+                                formData[field.name] = window._jsonEditors[`field_${field.name}`].state.doc.toString();
+                            } else {
+                                formData[field.name] = field.value || '';
+                            }
                         } else {
                             formData[field.name] = element.value;
                         }
@@ -1208,6 +1305,34 @@ function showFormModal(title, fields, onSave) {
             btn.addEventListener('click', buttonHandlers[buttonName]);
         }
     });
+    
+    // Initialize Jinja editors
+    if (!window._jinjaEditors) {
+        window._jinjaEditors = {};
+    }
+    if (!window._jsonEditors) {
+        window._jsonEditors = {};
+    }
+    
+    setTimeout(() => {
+        fields.forEach(field => {
+            if (field.type === 'custom:jinja-editor') {
+                const containerId = `field_${field.name}`;
+                if (document.getElementById(containerId) && typeof createJinjaEditor === 'function') {
+                    createJinjaEditor(containerId, field.value || '').then(editor => {
+                        window._jinjaEditors[containerId] = editor;
+                    });
+                }
+            } else if (field.type === 'custom:json-editor') {
+                const containerId = `field_${field.name}`;
+                if (document.getElementById(containerId) && typeof createJsonEditor === 'function') {
+                    createJsonEditor(containerId, field.value || '').then(editor => {
+                        window._jsonEditors[containerId] = editor;
+                    });
+                }
+            }
+        });
+    }, 100);
     
     // Add event listener for conditional field visibility
     const authTypeSelect = document.getElementById('field_authType');

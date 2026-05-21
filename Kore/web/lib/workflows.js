@@ -41,10 +41,6 @@ async function saveWorkflow(id, workflowData, options = {}) {
     } = options;
 
     try {
-        if (!sessionToken) {
-            throw new Error('Not authenticated');
-        }
-
         const { name, version, definition, folder_id = null } = workflowData;
 
         if (!name || !version || !definition) {
@@ -73,8 +69,7 @@ async function saveWorkflow(id, workflowData, options = {}) {
         const response = await fetch(`https://app.equinoxits.com:1139/kore/workflows/${id}`, {
             method: 'PUT',
             headers: {
-                'Content-Type': 'application/json',
-                'X-Session-Token': sessionToken
+                'Content-Type': 'application/json'
             },
             body: JSON.stringify(payload)
         });
@@ -106,11 +101,6 @@ async function saveWorkflow(id, workflowData, options = {}) {
  * Load all workflows from backend
  */
 async function loadWorkflows() {
-    if (!sessionToken) {
-        console.error('No session token available');
-        return;
-    }
-
     try {
         const loadingSpinner = document.getElementById('loadingSpinner');
         if (loadingSpinner) {
@@ -121,7 +111,6 @@ async function loadWorkflows() {
         const response = await fetch('https://app.equinoxits.com:1139/kore/workflows', {
             method: 'GET',
             headers: { 
-                'X-Session-Token': sessionToken,
                 'Content-Type': 'application/json'
             }
         });
@@ -345,86 +334,6 @@ async function deleteSelectedFolder() {
 /**
  * Render a filtered list of workflows
  */
-function renderFilteredWorkflows(filteredWorkflows) {
-    const container = document.getElementById('workflowsList');
-    
-    if (!container) return;
-    
-    // Clear previous content
-    container.innerHTML = '';
-    
-    if (filteredWorkflows.length === 0) {
-        container.innerHTML = `
-            <div class="empty-state">
-                <h3>No workflows in this folder</h3>
-                <p>Select another folder or create a new workflow</p>
-            </div>
-        `;
-        return;
-    }
-    
-    // Build table
-    let html = `
-        <table class="workflows-table" style="table-layout: fixed; padding: 0 4px;">
-            <thead style="background: transparent;">
-                <tr style="pointer-events: none; background: transparent !important; background-color: transparent !important;">
-                    <th style="padding: 0; background: transparent;"><input type="text" id="filterName" placeholder="Filter..." style="padding: 4px; width: 100%; height: 100%; box-sizing: border-box; background: #1a3540; color: #c0c0c0; pointer-events: auto; border: 1px solid #556870; border-radius: 0; border-radius: 0;" onkeyup="filterWorkflows()"></th>
-                    <th style="padding: 0; background: transparent;"><input type="text" id="filterFolder" placeholder="Filter..." style="padding: 4px; width: 100%; height: 100%; box-sizing: border-box; background: #1a3540; color: #c0c0c0; pointer-events: auto; border: 1px solid #556870; border-radius: 0;" onkeyup="filterWorkflows()"></th>
-                    <th style="padding: 0; background: transparent;"><input type="text" id="filterLastModified" placeholder="Filter..." style="padding: 4px; width: 100%; height: 100%; box-sizing: border-box; background: #1a3540; color: #c0c0c0; pointer-events: auto; border: 1px solid #556870; border-radius: 0;" onkeyup="filterWorkflows()"></th>
-                    <th style="padding: 0; background: transparent;"><input type="text" id="filterModifiedBy" placeholder="Filter..." style="padding: 4px; width: 100%; height: 100%; box-sizing: border-box; background: #1a3540; color: #c0c0c0; pointer-events: auto; border: 1px solid #556870; border-radius: 0;" onkeyup="filterWorkflows()"></th>
-                    <th style="padding: 0; background: transparent;"><input type="text" id="filterCreatedDate" placeholder="Filter..." style="padding: 4px; width: 100%; height: 100%; box-sizing: border-box; background: #1a3540; color: #c0c0c0; pointer-events: auto; border: 1px solid #556870; border-radius: 0;" onkeyup="filterWorkflows()"></th>
-                    <th style="width: 70px; min-width: 70px; max-width: 70px; padding: 0; background: transparent;"><select id="filterActive" style="padding: 4px; width: 100%; height: 100%; box-sizing: border-box; background: #1a3540; cursor: pointer; color: #c0c0c0; border: 1px solid #556870; border-radius: 0; pointer-events: auto;" onchange="filterWorkflows()"><option style="background: #1a3540; color: #ffffff;" value="">All</option><option style="background: #1a3540; color: #ffffff;" value="True">True</option><option style="background: #1a3540; color: #ffffff;" value="False">False</option></select></th>
-                    <th style="width: 80px; min-width: 80px; max-width: 80px; background: transparent;"></th>
-                    <th style="position: relative; width: 100px; min-width: 100px; max-width: 100px; background: transparent;"><div style="display: flex; justify-content: flex-end; align-items: center; height: 100%; padding-right: 0; width: 100%;"><button class="btn btn-blue btn-small" onclick="loadWorkflows()" style="pointer-events: auto; cursor: pointer;">Refresh</button></div></th>
-                </tr>
-                <tr style="background: #32373e;">
-                    <th>Name</th>
-                    <th>Folder</th>
-                    <th>Last Modified</th>
-                    <th>Modified By</th>
-                    <th>Created Date</th>
-                    <th style="width: 70px; min-width: 70px; max-width: 70px;">Active</th>
-                    <th style="width: 80px; min-width: 80px; max-width: 80px; background: transparent;">Version</th>
-                    <th style="text-align: right; width: 100px; min-width: 100px; max-width: 100px;">Actions</th>
-                </tr>
-            </thead>
-            <tbody id="workflowsTableBody" style="background: transparent !important;">
-    `;
-    
-    filteredWorkflows.forEach(workflow => {
-        const activeValue = workflow.definition?.active;
-        const activeDisplay = activeValue === undefined ? 'Undefined' : (activeValue ? 'True' : 'False');
-        const lastModified = workflow.definition?.metadata?.updated_at ? new Date(workflow.definition.metadata.updated_at).toLocaleString() : 'N/A';
-        const createdDate = workflow.definition?.metadata?.created_at ? new Date(workflow.definition.metadata.created_at).toLocaleString() : 'N/A';
-        const modifiedBy = workflow.definition?.metadata?.updated_by || 'N/A';
-        const toggleButtonText = activeValue === false ? 'Enable' : 'Disable';
-        const toggleButtonClass = activeValue === false ? 'btn-green' : 'btn-gold';
-        
-        html += `
-            <tr data-workflow-id="${workflow.id}">
-                <td class="workflow-name"><a href="workflow-edit.html?id=${workflow.id}" style="color: inherit; text-decoration: none;">${workflow.name}</a></td>
-                <td>${workflow.folder_name || ''}</td>
-                <td style="white-space: nowrap; font-size: 0.9rem;">${lastModified}</td>
-                <td>${modifiedBy}</td>
-                <td style="white-space: nowrap; font-size: 0.9rem;">${createdDate}</td>
-                <td style="width: 70px; min-width: 70px; max-width: 70px; text-align: center;">${activeDisplay}</td>
-                <td class="version" style="width: 80px; min-width: 80px; max-width: 80px;">v${workflow.version}</td>
-                <td class="actions" style="width: 100px; min-width: 100px; max-width: 100px; text-align: right;">
-                    <button class="btn btn-blue btn-small" onclick="editWorkflow('${workflow.id}')" style="width: auto; padding: 4px 6px;" title="Edit">&#9998;</button>
-                    <button class="btn btn-small" onclick="showWorkflowMenu(event, '${workflow.id}')" style="width: auto; padding: 4px 6px; background: #778899; border: 1px solid #778899; cursor: pointer;" title="More options">&#8230;</button>
-                </td>
-            </tr>
-        `;
-    });
-    
-    html += `
-            </tbody>
-        </table>
-    `;
-    
-    container.innerHTML = html;
-}
-
 /**
  * Filter workflows based on search inputs
  */
@@ -490,92 +399,6 @@ function applyHideInactive() {
 /**
  * Render workflows list to the DOM
  */
-function renderWorkflowsList() {
-    const container = document.getElementById('workflowsList');
-    const loadingSpinner = document.getElementById('loadingSpinner');
-    
-    if (!container) return;
-    
-    // Hide loading spinner
-    if (loadingSpinner) {
-        loadingSpinner.classList.remove('show');
-    }
-    
-    // Clear previous content
-    container.innerHTML = '';
-    
-    if (workflows.length === 0) {
-        container.innerHTML = `
-            <div class="empty-state">
-                <h3>No workflows yet</h3>
-                <p>Create your first workflow to get started</p>
-            </div>
-        `;
-        return;
-    }
-    
-    // Build table
-    let html = `
-        <table class="workflows-table" style="table-layout: fixed; padding: 0 4px;">
-            <thead style="background: transparent;">
-                <tr style="pointer-events: none; background: transparent !important; background-color: transparent !important;">
-                    <th style="padding: 0; background: transparent;"><input type="text" id="filterName" placeholder="Filter..." style="padding: 4px; width: 100%; height: 100%; box-sizing: border-box; background: #1a3540; color: #c0c0c0; pointer-events: auto; border: 1px solid #556870; border-radius: 0; border-radius: 0;" onkeyup="filterWorkflows()"></th>
-                    <th style="padding: 0; background: transparent;"><input type="text" id="filterLastModified" placeholder="Filter..." style="padding: 4px; width: 100%; height: 100%; box-sizing: border-box; background: #1a3540; color: #c0c0c0; pointer-events: auto; border: 1px solid #556870; border-radius: 0;" onkeyup="filterWorkflows()"></th>
-                    <th style="padding: 0; background: transparent;"><input type="text" id="filterModifiedBy" placeholder="Filter..." style="padding: 4px; width: 100%; height: 100%; box-sizing: border-box; background: #1a3540; color: #c0c0c0; pointer-events: auto; border: 1px solid #556870; border-radius: 0;" onkeyup="filterWorkflows()"></th>
-                    <th style="padding: 0; background: transparent;"><input type="text" id="filterCreatedDate" placeholder="Filter..." style="padding: 4px; width: 100%; height: 100%; box-sizing: border-box; background: #1a3540; color: #c0c0c0; pointer-events: auto; border: 1px solid #556870; border-radius: 0;" onkeyup="filterWorkflows()"></th>
-                    <th style="width: 70px; min-width: 70px; max-width: 70px; padding: 0; background: transparent;"><select id="filterActive" style="padding: 4px; width: 100%; height: 100%; box-sizing: border-box; background: #1a3540; cursor: pointer; color: #c0c0c0; border: 1px solid #556870; border-radius: 0; pointer-events: auto;" onchange="filterWorkflows()"><option style="background: #1a3540; color: #ffffff;" value="">All</option><option style="background: #1a3540; color: #ffffff;" value="True">True</option><option style="background: #1a3540; color: #ffffff;" value="False">False</option></select></th>
-                    <th style="width: 80px; min-width: 80px; max-width: 80px; background: transparent;"></th>
-                    <th style="position: relative; width: 100px; min-width: 100px; max-width: 100px; background: transparent;"><div style="display: flex; justify-content: flex-end; align-items: center; height: 100%; padding-right: 0; width: 100%;"><button class="btn btn-blue btn-small" onclick="loadWorkflows()" style="pointer-events: auto; cursor: pointer;">Refresh</button></div></th>
-                </tr>
-                <tr style="background: #32373e;">
-                    <th>Name</th>
-                    <th>Last Modified</th>
-                    <th>Modified By</th>
-                    <th>Created Date</th>
-                    <th style="width: 70px; min-width: 70px; max-width: 70px;">Active</th>
-                    <th style="width: 80px; min-width: 80px; max-width: 80px; background: transparent;">Version</th>
-                    <th style="text-align: right; width: 100px; min-width: 100px; max-width: 100px;">Actions</th>
-                </tr>
-            </thead>
-            <tbody id="workflowsTableBody" style="background: transparent !important;">
-    `;
-    
-    workflows.forEach(workflow => {
-        const activeValue = workflow.definition?.active;
-        const activeDisplay = activeValue === undefined ? 'Undefined' : (activeValue ? 'True' : 'False');
-        const lastModified = workflow.definition?.metadata?.updated_at ? new Date(workflow.definition.metadata.updated_at).toLocaleString() : 'N/A';
-        const createdDate = workflow.definition?.metadata?.created_at ? new Date(workflow.definition.metadata.created_at).toLocaleString() : 'N/A';
-        const modifiedBy = workflow.definition?.metadata?.updated_by || 'N/A';
-        const toggleButtonText = activeValue === false ? 'Enable' : 'Disable';
-        const toggleButtonClass = activeValue === false ? 'btn-green' : 'btn-gold';
-        
-        html += `
-            <tr data-workflow-id="${workflow.id}">
-                <td class="workflow-name"><a href="workflow-edit.html?id=${workflow.id}" style="color: inherit; text-decoration: none;">${workflow.name}</a></td>
-                <td style="white-space: nowrap; font-size: 0.9rem;">${lastModified}</td>
-                <td>${modifiedBy}</td>
-                <td style="white-space: nowrap; font-size: 0.9rem;">${createdDate}</td>
-                <td style="width: 70px; min-width: 70px; max-width: 70px; text-align: center;">${activeDisplay}</td>
-                <td class="version" style="width: 80px; min-width: 80px; max-width: 80px;">v${workflow.version}</td>
-                <td class="actions" style="width: 100px; min-width: 100px; max-width: 100px; text-align: right;">
-                    <button class="btn btn-blue btn-small" onclick="editWorkflow('${workflow.id}')" style="width: auto; padding: 4px 6px;" title="Edit">&#9998;</button>
-                    <button class="btn btn-small" onclick="showWorkflowMenu(event, '${workflow.id}')" style="width: auto; padding: 4px 6px; background: #778899; border: 1px solid #778899; cursor: pointer;" title="More options">&#8230;</button>
-                </td>
-            </tr>
-        `;
-    });
-    
-    html += `
-            </tbody>
-        </table>
-    `;
-    
-    container.innerHTML = html;
-    
-    // Apply Hide Inactive filter
-    applyHideInactive();
-}
-
 /**
  * Show error message in modal (internal helper)
  */
@@ -608,12 +431,10 @@ async function loadWorkflow() {
 
     currentWorkflowId = id;
 
-    if (!sessionToken) return;
-
     try {
         // Fetch the workflow by UUID (current version only)
         const response = await fetch(`/kore/workflows/${id}`, {
-            headers: { 'X-Session-Token': sessionToken }
+            headers: { }
         });
 
         if (!response.ok) {
@@ -1306,7 +1127,7 @@ function setupCanvasDragDrop() {
             document.querySelectorAll('[data-transition-frame]').forEach(el => {
                 el.style.borderColor = '#d4af37';
             });
-            document.getElementById('propertiesContent').innerHTML = '<div style="color: #b0b0b0; font-size: 0.85rem;">Select a step or transition to edit properties</div>';
+            document.getElementById('propertiesContent').innerHTML = '<div style="color: #b0b0b0; font-size: 0.8rem;">Select a step or transition to edit properties</div>';
         }
     });
 }
@@ -2275,87 +2096,7 @@ function editWorkflow(workflowId) {
 /**
  * Delete a workflow
  */
-function deleteWorkflow(workflowId) {
-    // Get the workflow from the data array
-    const workflow = workflows.find(w => w.id === workflowId);
-    if (!workflow) {
-        alert('Workflow not found');
-        return;
-    }
-    
-    const workflowName = workflow.name;
-    const workflowVersion = workflow.version;
-    
-    showModal({
-        title: 'Delete Workflow',
-        content: `Are you sure you want to delete <strong>${workflowName}</strong>? This action cannot be undone.`,
-        buttons: [
-            {
-                label: 'Cancel',
-                className: 'btn-grey',
-                callback: ({ close }) => close()
-            },
-            {
-                label: 'Delete',
-                className: 'btn-red',
-                callback: async ({ close }) => {
-                    close();
-                    
-                    try {
-                        if (!sessionToken) {
-                            throw new Error('Not authenticated');
-                        }
 
-                        const response = await fetch(`https://app.equinoxits.com:1139/kore/workflows/${workflowId}/${workflowVersion}`, {
-                            method: 'DELETE',
-                            headers: {
-                                'Content-Type': 'application/json',
-                                'X-Session-Token': sessionToken
-                            }
-                        });
-
-                        if (!response.ok) {
-                            const data = await response.json().catch(() => ({}));
-                            throw new Error(data.error || `HTTP ${response.status}: ${response.statusText}`);
-                        }
-
-                        // Show success modal
-                        showModal({
-                            title: 'Workflow Deleted',
-                            content: `<strong>${workflowName}</strong> has been successfully deleted.`,
-                            autoClose: 2000,
-                            onClose: () => {
-                                loadWorkflows();
-                            },
-                            buttons: [
-                                {
-                                    label: 'OK',
-                                    className: 'btn-blue',
-                                    callback: ({ close }) => {
-                                        close();
-                                    }
-                                }
-                            ]
-                        });
-                    } catch (error) {
-                        console.error('Error deleting workflow:', error);
-                        showModal({
-                            title: 'Error Deleting Workflow',
-                            content: error.message,
-                            buttons: [
-                                {
-                                    label: 'OK',
-                                    className: 'btn-blue',
-                                    callback: ({ close }) => close()
-                                }
-                            ]
-                        });
-                    }
-                }
-            }
-        ]
-    });
-}
 
 /**
  * Open modal to create a new workflow
@@ -2435,7 +2176,6 @@ function openCreateModal() {
                             method: 'POST',
                             headers: {
                                 'Content-Type': 'application/json',
-                                'X-Session-Token': sessionToken,
                                 'X-User': getUser()
                             },
                             body: JSON.stringify(payload)

@@ -297,6 +297,15 @@ class Auth {
       // Hash password
       const { hash: passwordHash, salt: passwordSalt } = this.hashPassword(password);
       
+      // Initialize passwordHistory with the initial password
+      const tz = global.timezone || 'UTC';
+      const initialSetAt = new Date().toLocaleString('en-US', { timeZone: tz });
+      const initialPasswordHistory = JSON.stringify([{
+        hash: passwordHash,
+        salt: passwordSalt,
+        setAt: initialSetAt
+      }]);
+      
       // Generate backup codes
       const { plainCodes, hashedCodes } = this.generateBackupCodes(this.config.mfa.backupCodeCount);
       
@@ -314,6 +323,7 @@ class Auth {
             totpSecret = ?,
             totpBackupCodes = ?,
             passwordSetAt = NOW(),
+            passwordHistory = ?,
             inviteTokenHash = 'USED',
             inviteExpiresAt = NULL,
             updatedAt = NOW()
@@ -325,6 +335,7 @@ class Auth {
         passwordSalt,
         encryptedSecret,
         encryptedBackupCodes,
+        initialPasswordHistory,
         user.userId
       ]);
       
@@ -896,10 +907,168 @@ class Auth {
   }
 
   /**
-   * Rotate service account key
+   * Change user password (authenticated user only)
+   * Validates old password, checks new password against history
    */
-  async rotateServiceAccountKey(serviceAccountId, rotatedBy) {
-    // Implement
+  async changePassword(userId, oldPassword, newPassword) {
+    try {
+      // Fetch user
+      const [userRows] = await this.korePool.execute(
+        'SELECT userId, email, passwordHash, passwordSalt, passwordSetAt, passwordHistory FROM users WHERE userId = ?',
+        [userId]
+      );
+      
+      if (!userRows[0]) {
+        throw new Error('User not found');
+      }
+      
+      const user = userRows[0];
+      
+      // Verify old password
+      if (!this.verifyPassword(oldPassword, user.passwordHash, user.passwordSalt)) {
+        throw new Error('Current password is incorrect');
+      }
+      
+      // Validate new password format
+      const passwordValidation = this.validatePassword(newPassword);
+      if (!passwordValidation.valid) {
+        throw new Error(`Password invalid: ${passwordValidation.errors.join(', ')}`);
+      }
+      
+      // Parse existing password history
+      let passwordHistory = [];
+      if (user.passwordHistory) {
+        try {
+          // MySQL driver may return it as already-parsed object
+          if (typeof user.passwordHistory === 'string') {
+            passwordHistory = JSON.parse(user.passwordHistory);
+          } else {
+            passwordHistory = user.passwordHistory;
+          }
+          console.log(`[${global.getTimestamp()}] Parsed passwordHistory:`, passwordHistory);
+        } catch (e) {
+          console.log(`[${global.getTimestamp()}] ERROR parsing passwordHistory:`, e.message);
+          passwordHistory = [];
+        }
+      } else {
+        console.log(`[${global.getTimestamp()}] No passwordHistory in user record`);
+      }
+      
+      // Ensure passwordHistory is a valid array
+      if (!Array.isArray(passwordHistory)) {
+        console.log(`[${global.getTimestamp()}] passwordHistory is not an array, resetting to []`);
+        passwordHistory = [];
+      }
+      
+      // Validate against password history
+      const historyCheck = this.validatePasswordHistory(newPassword, passwordHistory);
+      if (!historyCheck.valid) {
+        throw new Error(historyCheck.reason);
+      }
+      
+      // Hash with salt
+      const { hash: finalPasswordHash, salt: passwordSalt } = this.hashPassword(newPassword);
+      
+      // Add old password to history and cleanup
+      const tz = global.timezone || 'UTC';
+      
+      // Convert passwordSetAt to the same format as new entries
+      let setAtValue = user.passwordSetAt;
+      if (user.passwordSetAt && typeof user.passwordSetAt === 'object') {
+        // It's a Date object from MySQL
+        setAtValue = new Date(user.passwordSetAt).toLocaleString('en-US', { timeZone: tz });
+      } else if (user.passwordSetAt && typeof user.passwordSetAt === 'string') {
+        // It's a string from MySQL, convert to Date then format
+        setAtValue = new Date(user.passwordSetAt).toLocaleString('en-US', { timeZone: tz });
+      } else {
+        // Fallback to current time
+        setAtValue = new Date().toLocaleString('en-US', { timeZone: tz });
+      }
+      
+      passwordHistory.unshift({
+        hash: user.passwordHash,
+        salt: user.passwordSalt,
+        setAt: setAtValue
+      });
+      console.log(`[${global.getTimestamp()}] passwordHistory after unshift:`, passwordHistory);
+      
+      // Cleanup: Keep passwords that satisfy EITHER constraint
+      const historyCount = this.config.password?.historyCount || 10;
+      const oldPwdAge = this.config.password?.oldPwdAge || 90;
+      
+      passwordHistory = passwordHistory.filter((entry, index) => {
+        // Keep if in last historyCount entries
+        if (index < historyCount) {
+          return true;
+        }
+        
+        // Keep if beyond last historyCount but less than oldPwdAge days old
+        try {
+          const ageMs = Date.now() - new Date(entry.setAt).getTime();
+          const ageDays = ageMs / (1000 * 60 * 60 * 24);
+          if (ageDays < oldPwdAge) {
+            return true;
+          }
+        } catch (e) {
+          // If we can't parse the date, keep it to be safe
+          return true;
+        }
+        
+        // Drop if beyond historyCount AND oldPwdAge+ days old
+        return false;
+      });
+      
+      // Update user
+      const query = `
+        UPDATE users 
+        SET passwordHash = ?,
+            passwordSalt = ?,
+            passwordSetAt = NOW(),
+            passwordHistory = ?,
+            passwordFailedAttempts = 0,
+            updatedAt = NOW()
+        WHERE userId = ?
+      `;
+      
+      await this.korePool.execute(query, [
+        finalPasswordHash,
+        passwordSalt,
+        JSON.stringify(passwordHistory),
+        userId
+      ]);
+      
+      await this.logAudit('password_changed', 'user', userId, null, userId,
+        { action: 'User changed their password' }, null);
+      
+      console.log(`[${global.getTimestamp()}] Password changed for user: ${user.email}`);
+      
+      return { success: true };
+    } catch (err) {
+      console.error(`[${global.getTimestamp()}] ERROR changing password:`, err.message);
+      throw err;
+    }
+  }
+
+  /**
+   * Validate new password against history
+   * Verifies the password against each entry using stored salt
+   */
+  validatePasswordHistory(newPassword, passwordHistory) {
+    if (!passwordHistory || passwordHistory.length === 0) {
+      return { valid: true };
+    }
+    
+    for (const entry of passwordHistory) {
+      // Verify new password against this history entry
+      if (this.verifyPassword(newPassword, entry.hash, entry.salt)) {
+        return { 
+          valid: false, 
+          reason: 'Cannot reuse a recent password' 
+        };
+      }
+    }
+    
+    return { valid: true };
   }
 
 }
@@ -1001,6 +1170,71 @@ async function handleRefreshToken(req, res) {
         console.log(`[${ts}] Token Refresh: FAILED - ${err.message}`);
         res.writeHead(401);
         res.end(JSON.stringify({ error: err.message }));
+    }
+}
+
+/**
+ * POST /auth/change-password
+ * Change user password (authenticated user only)
+ */
+async function handleChangePassword(req, res) {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Content-Type', 'application/json');
+    
+    try {
+        // Get sessionToken from cookie
+        const sessionToken = getSessionTokenFromCookies(req.headers.cookie);
+        if (!sessionToken) {
+            res.writeHead(401);
+            res.end(JSON.stringify({ error: 'Not authenticated' }));
+            return;
+        }
+        
+        // Validate session token
+        const validation = await global.auth.validateSessionToken(sessionToken);
+        if (!validation.valid) {
+            res.writeHead(401);
+            res.end(JSON.stringify({ error: 'Invalid session' }));
+            return;
+        }
+        
+        // Parse request body
+        let body = '';
+        req.on('data', chunk => {
+            body += chunk;
+            if (body.length > 1e6) {
+                req.connection.destroy();
+            }
+        });
+        
+        req.on('end', async () => {
+            try {
+                const { oldPassword, newPassword } = JSON.parse(body);
+                
+                if (!oldPassword || !newPassword) {
+                    res.writeHead(400);
+                    res.end(JSON.stringify({ error: 'Missing oldPassword or newPassword' }));
+                    return;
+                }
+                
+                // Change password
+                await global.auth.changePassword(validation.userId, oldPassword, newPassword);
+                
+                res.writeHead(200);
+                res.end(JSON.stringify({ 
+                    success: true,
+                    message: 'Password changed successfully'
+                }));
+            } catch (err) {
+                console.error(`[${global.getTimestamp()}] ERROR in handleChangePassword:`, err.message);
+                res.writeHead(400);
+                res.end(JSON.stringify({ error: err.message }));
+            }
+        });
+    } catch (err) {
+        console.error(`[${global.getTimestamp()}] ERROR in handleChangePassword:`, err.message);
+        res.writeHead(500);
+        res.end(JSON.stringify({ error: 'Internal server error' }));
     }
 }
 
@@ -1245,6 +1479,34 @@ function handleLoginForm(req, res) {
                 </div>
             </div>
             
+            <div id="passwordChangeStep" class="mfa-section">
+                <div style="margin-bottom: 15px; color: #dc3545; font-size: 12px;">
+                    ⚠ Your password has expired. Please set a new password to continue.
+                </div>
+                
+                <div class="form-group">
+                    <label>Current Password</label>
+                    <input type="password" id="currentPassword" placeholder="Enter current password" onkeypress="if(event.key==='Enter') handlePasswordChange()">
+                </div>
+                
+                <div class="form-group">
+                    <label>New Password</label>
+                    <input type="password" id="newPassword" placeholder="Enter new password" onkeypress="if(event.key==='Enter') handlePasswordChange()">
+                </div>
+                
+                <div class="form-group">
+                    <label>Confirm New Password</label>
+                    <input type="password" id="confirmPassword" placeholder="Confirm new password" onkeypress="if(event.key==='Enter') handlePasswordChange()">
+                </div>
+                
+                <div id="passwordChangeError" class="error"></div>
+                
+                <div class="button-group">
+                    <button class="btn" onclick="handlePasswordChange()">Change Password</button>
+                    <button class="btn btn-secondary" onclick="resetLogin()">Cancel</button>
+                </div>
+            </div>
+            
             <div id="resultStep" class="result-section">
                 <div style="margin-bottom: 10px; color: #4caf50;">? Login successful!</div>
                 <div style="margin-bottom: 10px;">
@@ -1316,12 +1578,45 @@ function handleLoginForm(req, res) {
                     return;
                 }
                 
+                // Check if password change is required
+                if (data.requiresPasswordChange) {
+                    currentEmail = email;
+                    currentPassword = password;
+                    document.getElementById('loginStep').style.display = 'none';
+                    document.getElementById('passwordChangeStep').classList.add('active');
+                    document.getElementById('currentPassword').focus();
+                    return;
+                }
+                
                 currentEmail = email;
                 currentPassword = password;
                 
-                document.getElementById('loginStep').style.display = 'none';
-                document.getElementById('mfaStep').classList.add('active');
-                document.getElementById('mfaCode').focus();
+                // Check if MFA is required (successful response without requiresPasswordChange)
+                // If no MFA, the login is complete
+                if (data.error === 'MFA code required') {
+                    document.getElementById('loginStep').style.display = 'none';
+                    document.getElementById('mfaStep').classList.add('active');
+                    document.getElementById('mfaCode').focus();
+                } else if (data.success) {
+                    // No MFA required, login is complete
+                    if (data.userId) {
+                        localStorage.setItem('kore_userId', data.userId);
+                    }
+                    
+                    const urlParams = new URLSearchParams(window.location.search);
+                    const redirectUrl = urlParams.get('redirect');
+                    
+                    if (redirectUrl) {
+                        window.location.href = redirectUrl;
+                    } else {
+                        window.location.href = '/';
+                    }
+                } else {
+                    // MFA required
+                    document.getElementById('loginStep').style.display = 'none';
+                    document.getElementById('mfaStep').classList.add('active');
+                    document.getElementById('mfaCode').focus();
+                }
                 
             } catch (err) {
                 errorDiv.textContent = 'Network error: ' + err.message;
@@ -1357,6 +1652,14 @@ function handleLoginForm(req, res) {
                     return;
                 }
                 
+                // Check if password change is required
+                if (data.requiresPasswordChange) {
+                    document.getElementById('mfaStep').classList.remove('active');
+                    document.getElementById('passwordChangeStep').classList.add('active');
+                    document.getElementById('currentPassword').focus();
+                    return;
+                }
+                
                 // Store userId in localStorage
                 if (data.userId) {
                     localStorage.setItem('kore_userId', data.userId);
@@ -1378,15 +1681,90 @@ function handleLoginForm(req, res) {
             }
         }
         
+        async function handlePasswordChange() {
+            const currentPwd = document.getElementById('currentPassword').value;
+            const newPwd = document.getElementById('newPassword').value;
+            const confirmPwd = document.getElementById('confirmPassword').value;
+            const errorDiv = document.getElementById('passwordChangeError');
+            
+            errorDiv.textContent = '';
+            
+            // Validation
+            if (!currentPwd) {
+                errorDiv.textContent = 'Current password is required';
+                return;
+            }
+            
+            if (!newPwd) {
+                errorDiv.textContent = 'New password is required';
+                return;
+            }
+            
+            if (!confirmPwd) {
+                errorDiv.textContent = 'Confirm password is required';
+                return;
+            }
+            
+            if (newPwd !== confirmPwd) {
+                errorDiv.textContent = 'New passwords do not match';
+                return;
+            }
+            
+            if (currentPwd === newPwd) {
+                errorDiv.textContent = 'New password must be different from current password';
+                return;
+            }
+            
+            try {
+                const response = await fetch('/auth/change-password', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        oldPassword: currentPwd,
+                        newPassword: newPwd
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (!response.ok || !data.success) {
+                    errorDiv.textContent = data.error || 'Failed to change password';
+                    return;
+                }
+                
+                // Password changed successfully, complete login
+                if (currentEmail && currentPassword) {
+                    localStorage.setItem('kore_userId', currentEmail);
+                }
+                
+                const urlParams = new URLSearchParams(window.location.search);
+                const redirectUrl = urlParams.get('redirect');
+                
+                if (redirectUrl) {
+                    window.location.href = redirectUrl;
+                } else {
+                    window.location.href = '/';
+                }
+                
+            } catch (err) {
+                errorDiv.textContent = 'Network error: ' + err.message;
+            }
+        }
+        
         function resetLogin() {
             document.getElementById('email').value = '';
             document.getElementById('password').value = '';
             document.getElementById('mfaCode').value = '';
+            document.getElementById('currentPassword').value = '';
+            document.getElementById('newPassword').value = '';
+            document.getElementById('confirmPassword').value = '';
             document.getElementById('loginError').textContent = '';
             document.getElementById('mfaError').textContent = '';
+            document.getElementById('passwordChangeError').textContent = '';
             
             document.getElementById('loginStep').style.display = 'block';
             document.getElementById('mfaStep').classList.remove('active');
+            document.getElementById('passwordChangeStep').classList.remove('active');
             document.getElementById('resultStep').classList.remove('active');
             
             document.getElementById('email').focus();
@@ -1532,6 +1910,61 @@ async function handleLogin(req, res) {
                 }
                 
                 const result = await global.auth.login(email, password, mfaCode);
+                
+                // Check if password has expired
+                const [userRows] = await global.auth.korePool.execute(
+                  'SELECT passwordSetAt FROM users WHERE userId = ?',
+                  [result.userId]
+                );
+                
+                if (userRows[0]) {
+                  const passwordExpiration = global.auth.config.password?.passwordExpiration || 0;
+                  if (passwordExpiration > 0) {
+                    const passwordSetAt = new Date(userRows[0].passwordSetAt);
+                    const now = new Date();
+                    const ageMs = now - passwordSetAt;
+                    const ageDays = ageMs / (1000 * 60 * 60 * 24);
+                    
+                    if (ageDays > passwordExpiration) {
+                      // Password expired - require password change
+                      console.log(`[${global.getTimestamp()}] Password expired for user: ${email} (age: ${Math.floor(ageDays)} days, limit: ${passwordExpiration} days)`);
+                      
+                      // Set sessionToken and refreshToken cookies but indicate password change required
+                      const sessionCookieOptions = [
+                          `sessionToken=${result.sessionToken}`,
+                          'Path=/',
+                          'HttpOnly',
+                          'Secure',
+                          'SameSite=Strict',
+                          `Max-Age=${global.auth.config.session.sessionTokenExpiryMinutes * 60}`
+                      ];
+                      
+                      const refreshCookieOptions = [
+                          `refreshToken=${result.refreshToken}`,
+                          'Path=/',
+                          'HttpOnly',
+                          'Secure',
+                          'SameSite=Strict',
+                          `Max-Age=${global.auth.config.session.reloginTokenExpiryDays * 24 * 60 * 60}`
+                      ];
+                      
+                      res.setHeader('Set-Cookie', [
+                          sessionCookieOptions.join('; '),
+                          refreshCookieOptions.join('; ')
+                      ]);
+                      
+                      res.writeHead(200);
+                      res.end(JSON.stringify({
+                          requiresPasswordChange: true,
+                          userId: result.userId,
+                          sessionToken: result.sessionToken,
+                          refreshToken: result.refreshToken,
+                          message: 'Password has expired and must be changed'
+                      }));
+                      return;
+                    }
+                  }
+                }
                 
                 // Set sessionToken as HTTP-only secure cookie (short-lived)
                 const sessionCookieOptions = [
@@ -2248,6 +2681,9 @@ function routeAuthRequest(req, res) {
         return true;
     } else if (req.method === 'POST' && req.url === '/auth/refresh') {
         handleRefreshToken(req, res);
+        return true;
+    } else if (req.method === 'POST' && req.url === '/auth/change-password') {
+        handleChangePassword(req, res);
         return true;
     } else if (req.method === 'POST' && req.url === '/auth/validate-token') {
         handleValidateSessionToken(req, res);

@@ -48,6 +48,16 @@ class KoreWeb {
             return true;
         }
 
+        // Node modules - CHECK BEFORE static files since modules have extensions
+        if (urlPath.startsWith('/node_modules/')) {
+            this.serveStaticFile(req, res, {
+                basePath: 'D:\\Kore\\node_modules',
+                allowedExtensions: ['.js', '.mjs', '.d.ts', '.json', '.map', '.ts'],
+                logPrefix: '[NodeModules]'
+            });
+            return true;
+        }
+
         // Static files (HTML, images, etc) - no auth required for these
         const hasExtension = /\.\w+$/.test(urlPath);
         if (urlPath === '/' || hasExtension) {
@@ -55,16 +65,6 @@ class KoreWeb {
                 basePath: 'D:\\Kore\\web',
                 allowedExtensions: ['.html', '.css', '.js', '.json', '.png', '.jpg', '.jpeg', '.gif', '.svg', '.ico', '.webp'],
                 logPrefix: '[StaticWeb]'
-            });
-            return true;
-        }
-
-        // Node modules
-        if (urlPath.startsWith('/node_modules/')) {
-            this.serveStaticFile(req, res, {
-                basePath: 'D:\\Kore\\node_modules',
-                allowedExtensions: ['.js', '.d.ts', '.json', '.map'],
-                logPrefix: '[NodeModules]'
             });
             return true;
         }
@@ -343,95 +343,6 @@ class KoreWeb {
         return Math.abs(hash).toString(16);
     }
 
-
-    /**
-     * Load page from database, check permissions, and assemble with BASE template
-     */
-    async loadPageFromDatabase(req, res, requestPath) {
-        try {
-            const connection = await this.pool.getConnection();
-            try {
-                // Try to find the requested page
-                const pageQuery = `SELECT id, path, title, code FROM web_pages WHERE path = ? AND active = TRUE`;
-                const [pageRows] = await connection.execute(pageQuery, [requestPath]);
-
-                let pageData = null;
-                if (pageRows.length > 0) {
-                    pageData = pageRows[0];
-                }
-
-                // If page not found, try to load /notfound
-                if (!pageData) {
-                    const notFoundQuery = `SELECT id, path, title, code FROM web_pages WHERE path = '/notfound' AND active = TRUE`;
-                    const [notFoundRows] = await connection.execute(notFoundQuery);
-                    
-                    if (notFoundRows.length > 0) {
-                        pageData = notFoundRows[0];
-                        res.writeHead(404, { 'Content-Type': 'text/html; charset=utf-8' });
-                    } else {
-                        // No /notfound page in database
-                        res.writeHead(404, { 'Content-Type': 'application/json' });
-                        res.end(JSON.stringify({ error: 'Page not found' }));
-                        return;
-                    }
-                }
-
-                // Check permissions if user is authenticated
-                if (req.userId && pageData.path !== '/notfound') {
-                    const userGroups = await this.getUserGroups(req.userId);
-                    const hasPermission = await this.checkPermission(
-                        req.userId,
-                        userGroups,
-                        'page',
-                        pageData.path
-                    );
-
-                    if (!hasPermission) {
-                        // Permission denied, serve notfound
-                        const accessDeniedQuery = `SELECT id, path, title, code FROM web_pages WHERE path = '/notfound' AND active = TRUE`;
-                        const [accessDeniedRows] = await connection.execute(accessDeniedQuery);
-                        
-                        if (accessDeniedRows.length > 0) {
-                            pageData = accessDeniedRows[0];
-                        }
-                        res.writeHead(403, { 'Content-Type': 'text/html; charset=utf-8' });
-                    }
-                }
-
-                // Load BASE template
-                const baseQuery = `SELECT code FROM web_pages WHERE path = 'BASE' AND active = TRUE`;
-                const [baseRows] = await connection.execute(baseQuery);
-
-                if (baseRows.length === 0) {
-                    res.writeHead(500, { 'Content-Type': 'application/json' });
-                    res.end(JSON.stringify({ error: 'BASE template not found' }));
-                    return;
-                }
-
-                const baseTemplate = baseRows[0].code;
-
-                // Assemble page: replace placeholders in BASE with page data
-                const pageTitle = pageData.title || 'Kore';
-                let html = baseTemplate
-                    .replace(/\{\{TITLE\}\}/g, pageTitle)
-                    .replace(/\{\{CONTENT\}\}/g, pageData.code);
-
-                // Set proper status code if not already set
-                if (!res.headersSent && res.statusCode === 200) {
-                    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-                }
-
-                res.end(html);
-
-            } finally {
-                connection.release();
-            }
-        } catch (error) {
-            console.error('[KoreWeb] Error loading page from database:', error);
-            res.writeHead(500, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ error: 'Internal server error' }));
-        }
-    }
 }
 
 // Export as singleton

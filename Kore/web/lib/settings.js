@@ -1742,16 +1742,58 @@ let currentUser = null;
             }
         }
 
+        function switchTabWithUnsavedCheck(tabName, event, loadCallback) {
+            if (window.hasUnsavedChanges()) {
+                window.showUnsaved(
+                    async () => {
+                        // Save current tab
+                        const activeTab = document.querySelector('.tab-btn.active');
+                        if (activeTab && activeTab.textContent.includes('General')) {
+                            if (currentEmailProfile) {
+                                await saveEmailProfile();
+                            } else if (currentSystemConfig || document.getElementById('systemTimezone')?.value) {
+                                await saveSystemConfig();
+                            } else if (currentLoggingConfig) {
+                                await saveLoggingConfig();
+                            }
+                        } else if (activeTab && activeTab.textContent.includes('Organization')) {
+                            if (currentOrganization?.org_id) {
+                                await saveOrganizationDetails(currentOrganization.org_id);
+                            }
+                        } else if (activeTab && activeTab.textContent.includes('Plugin')) {
+                            if (currentPluginName) {
+                                await savePluginSettings();
+                            }
+                        } else if (activeTab && activeTab.textContent.includes('Security')) {
+                            await saveSecuritySettings();
+                        } else if (activeTab && activeTab.textContent.includes('User')) {
+                            // Users tab doesn't have typical unsaved changes, but check anyway
+                        }
+                        // Then switch tab
+                        switchTab(tabName, event);
+                        if (loadCallback) loadCallback();
+                    },
+                    () => {
+                        // Discard and switch
+                        switchTab(tabName, event);
+                        if (loadCallback) loadCallback();
+                    }
+                );
+            } else {
+                switchTab(tabName, event);
+                if (loadCallback) loadCallback();
+            }
+        }
+        
         function switchToPluginsTab(event) {
-            console.log('switchToPluginsTab called');
-            window.switchTab('pluginsTab', event);
-            loadPluginsList();
+            switchTabWithUnsavedCheck('pluginsTab', event, loadPluginsList);
         }
 
         function switchToOrganizationsTab(event) {
-            window.switchTab('organizationsTab', event);
-            loadOrganizationsList();
-            loadAndCacheStackTypes();
+            switchTabWithUnsavedCheck('organizationsTab', event, () => {
+                loadOrganizationsList();
+                loadAndCacheStackTypes();
+            });
         }
 
         let cachedStackTypes = null;
@@ -1960,8 +2002,12 @@ let currentUser = null;
                 
                 await executeSqlQuery(sessionToken, currentUser, 'kore_sys', updateSql);
                 
-                window.clearUnsavedChanges();
-                document.getElementById('emailSaveBtn').disabled = true;
+                // Reinitialize unsaved tracking with the saved data
+                window.initializeUnsavedTracking(formData);
+                const emailSaveBtn = document.getElementById('emailSaveBtn');
+                if (emailSaveBtn) {
+                    emailSaveBtn.disabled = true;
+                }
                 window.showStatusBanner('Email profile saved successfully', 'success', 'generalStatusMessage');
             } catch (error) {
                 console.error('Error saving email profile:', error);
@@ -2281,8 +2327,9 @@ let currentUser = null;
                 
                 await executeSqlQuery(sessionToken, currentUser, 'kore_sys', updateSql);
                 
-                window.clearUnsavedChanges();
-                document.getElementById('loggingSaveBtn').disabled = true;
+                // Reinitialize unsaved tracking with the saved data
+                window.initializeUnsavedTracking(formData);
+                checkLoggingUnsavedChanges();
                 window.showStatusBanner('Logging configuration saved successfully', 'success', 'generalStatusMessage');
             } catch (error) {
                 console.error('Error saving logging config:', error);
@@ -2330,7 +2377,11 @@ let currentUser = null;
                 }
                 
                 populateTimezoneSelect();
-                window.initializeUnsavedTracking(getSystemFormData());
+                // Initialize unsaved tracking after timezone is set in the DOM
+                setTimeout(() => {
+                    window.initializeUnsavedTracking(getSystemFormData());
+                    document.getElementById('systemSaveBtn').disabled = true;
+                }, 0);
             } catch (error) {
                 console.error('Error loading system config:', error);
                 window.showStatusBanner('Error loading system configuration: ' + error.message, 'error', 'generalStatusMessage');
@@ -2383,8 +2434,10 @@ let currentUser = null;
                 
                 await executeSqlQuery(sessionToken, currentUser, 'kore_sys', updateSql);
                 
-                window.clearUnsavedChanges();
-                document.getElementById('systemSaveBtn').disabled = true;
+                // Reinitialize unsaved tracking with the saved data
+                window.initializeUnsavedTracking(formData);
+                checkSystemUnsavedChanges();
+                
                 window.showStatusBanner('System configuration saved successfully', 'success', 'generalStatusMessage');
             } catch (error) {
                 console.error('Error saving system config:', error);
@@ -2439,37 +2492,13 @@ let currentUser = null;
                 }
             });
             
-            // Setup page-level unsaved changes protection
-            window.setupPageUnsavedChangesProtection(
-                async () => {
-                    // Save callback - detect active tab and save
-                    const activeTab = document.querySelector('.tab-btn.active');
-                    if (activeTab && activeTab.textContent.includes('General')) {
-                        // Try to save all General tab configs if they have unsaved changes
-                        if (window.hasUnsavedChanges()) {
-                            // Determine which config was modified by checking current state
-                            if (currentEmailProfile) {
-                                await saveEmailProfile();
-                            } else if (currentSystemConfig || document.getElementById('systemTimezone')?.value) {
-                                await saveSystemConfig();
-                            } else if (currentLoggingConfig) {
-                                await saveLoggingConfig();
-                            }
-                        }
-                    } else if (activeTab && activeTab.textContent.includes('Organization')) {
-                        if (currentOrganization?.org_id) {
-                            await saveOrganizationDetails(currentOrganization.org_id);
-                        }
-                    } else if (activeTab && activeTab.textContent.includes('Plugin')) {
-                        if (currentPluginName) {
-                            await savePluginSettings();
-                        }
-                    }
-                },
-                () => {
-                    // Discard callback - nothing needed
+            // Setup page-level unsaved changes protection (browser alert only for out-of-page navigation)
+            window.addEventListener('beforeunload', (e) => {
+                if (window.hasUnsavedChanges()) {
+                    e.preventDefault();
+                    e.returnValue = '';
                 }
-            );
+            });
         });
         async function showAddUserModal() {
             const modalHtml = `
@@ -2938,13 +2967,11 @@ let currentUser = null;
         }
 
         function switchToUsersTab(event) {
-            switchTab('usersTab', event);
-            loadUsersList();
+            switchTabWithUnsavedCheck('usersTab', event, loadUsersList);
         }
 
         function switchToSecurityTab(event) {
-            switchTab('securityTab', event);
-            loadSecuritySettings();
+            switchTabWithUnsavedCheck('securityTab', event, loadSecuritySettings);
         }
 
         /**
@@ -2969,6 +2996,8 @@ let currentUser = null;
                 document.getElementById('passwordRequireNumbersOrSpecial').checked = config.password.requireNumbersOrSpecial;
                 document.getElementById('passwordFailureLimit').value = config.password.failureLimit;
                 document.getElementById('passwordFailureResetMinutes').value = config.password.failureResetMinutes;
+                document.getElementById('passwordHistoryCount').value = config.password.historyCount || 0;
+                document.getElementById('passwordOldPwdAge').value = config.password.oldPwdAge || 90;
 
                 document.getElementById('mfaFailureLimit').value = config.mfa.failureLimit;
                 document.getElementById('mfaFailureResetMinutes').value = config.mfa.failureResetMinutes;
@@ -2983,9 +3012,59 @@ let currentUser = null;
 
                 document.getElementById('sessionTokenExpiryMinutes').value = config.session.sessionTokenExpiryMinutes;
                 document.getElementById('reloginTokenExpiryDays').value = config.session.reloginTokenExpiryDays;
+                
+                // Initialize unsaved changes tracking
+                const formData = getSecurityFormData();
+                window.initializeUnsavedTracking(formData);
+                updateSecuritySaveButtonState();
+                attachSecurityFormListeners();
             } catch (error) {
                 console.error('Error loading security settings:', error);
                 window.showStatusBanner('Error loading security settings: ' + error.message, 'error', 'securityStatusMessage');
+            }
+        }
+        
+        function getSecurityFormData() {
+            return {
+                password: {
+                    minLength: parseInt(document.getElementById('passwordMinLength').value),
+                    requireUppercase: document.getElementById('passwordRequireUppercase').checked,
+                    requireNumbersOrSpecial: document.getElementById('passwordRequireNumbersOrSpecial').checked,
+                    failureLimit: parseInt(document.getElementById('passwordFailureLimit').value),
+                    failureResetMinutes: parseInt(document.getElementById('passwordFailureResetMinutes').value),
+                    historyCount: parseInt(document.getElementById('passwordHistoryCount').value),
+                    oldPwdAge: parseInt(document.getElementById('passwordOldPwdAge').value)
+                },
+                mfa: {
+                    failureLimit: parseInt(document.getElementById('mfaFailureLimit').value),
+                    failureResetMinutes: parseInt(document.getElementById('mfaFailureResetMinutes').value),
+                    backupCodeCount: parseInt(document.getElementById('mfaBackupCodeCount').value),
+                    codeValiditySeconds: parseInt(document.getElementById('mfaCodeValiditySeconds').value),
+                    allowedClockSkew: parseInt(document.getElementById('mfaAllowedClockSkew').value)
+                },
+                lockout: {
+                    durationMinutes: parseInt(document.getElementById('lockoutDurationMinutes').value),
+                    autoUnlock: document.getElementById('lockoutAutoUnlock').checked
+                },
+                invite: {
+                    expirationHours: parseInt(document.getElementById('inviteExpirationHours').value)
+                },
+                session: {
+                    sessionTokenExpiryMinutes: parseInt(document.getElementById('sessionTokenExpiryMinutes').value),
+                    reloginTokenExpiryDays: parseInt(document.getElementById('reloginTokenExpiryDays').value)
+                }
+            };
+        }
+        
+        let originalSecurityData = null;
+        
+        function updateSecuritySaveButtonState() {
+            const saveBtn = document.querySelector('#securityTab .btn[data-color="green"]');
+            if (saveBtn) {
+                const currentData = getSecurityFormData();
+                window.checkUnsavedChanges(currentData);
+                const hasChanges = window.hasUnsavedChanges();
+                saveBtn.disabled = !hasChanges;
             }
         }
 
@@ -2998,33 +3077,7 @@ let currentUser = null;
                     sessionToken = await window.getSessionToken();
                 }
 
-                const config = {
-                    password: {
-                        minLength: parseInt(document.getElementById('passwordMinLength').value),
-                        requireUppercase: document.getElementById('passwordRequireUppercase').checked,
-                        requireNumbersOrSpecial: document.getElementById('passwordRequireNumbersOrSpecial').checked,
-                        failureLimit: parseInt(document.getElementById('passwordFailureLimit').value),
-                        failureResetMinutes: parseInt(document.getElementById('passwordFailureResetMinutes').value)
-                    },
-                    mfa: {
-                        failureLimit: parseInt(document.getElementById('mfaFailureLimit').value),
-                        failureResetMinutes: parseInt(document.getElementById('mfaFailureResetMinutes').value),
-                        backupCodeCount: parseInt(document.getElementById('mfaBackupCodeCount').value),
-                        codeValiditySeconds: parseInt(document.getElementById('mfaCodeValiditySeconds').value),
-                        allowedClockSkew: parseInt(document.getElementById('mfaAllowedClockSkew').value)
-                    },
-                    lockout: {
-                        durationMinutes: parseInt(document.getElementById('lockoutDurationMinutes').value),
-                        autoUnlock: document.getElementById('lockoutAutoUnlock').checked
-                    },
-                    invite: {
-                        expirationHours: parseInt(document.getElementById('inviteExpirationHours').value)
-                    },
-                    session: {
-                        sessionTokenExpiryMinutes: parseInt(document.getElementById('sessionTokenExpiryMinutes').value),
-                        reloginTokenExpiryDays: parseInt(document.getElementById('reloginTokenExpiryDays').value)
-                    }
-                };
+                const config = getSecurityFormData();
 
                 // Escape single quotes in JSON for SQL
                 const configJson = JSON.stringify(config).replace(/'/g, "''");
@@ -3054,6 +3107,10 @@ let currentUser = null;
                 } catch (reloadError) {
                     console.warn('Error reloading auth:', reloadError);
                 }
+                
+                // Reset unsaved changes tracking
+                window.initializeUnsavedTracking(config);
+                updateSecuritySaveButtonState();
 
                 window.showStatusBanner('Security settings saved successfully. Restart Kore for some changes to take effect.', 'success', 'securityStatusMessage');
             } catch (error) {
@@ -3067,6 +3124,43 @@ let currentUser = null;
          */
         function resetSecurityForm() {
             loadSecuritySettings();
+        }
+        
+        /**
+         * Attach change listeners to security form fields
+         */
+        function attachUserPrefsFormListeners() {
+            const prefsInputs = document.querySelectorAll('#preferencesTab input, #preferencesTab select');
+            console.log('Attaching listeners to', prefsInputs.length, 'userprefs inputs');
+            prefsInputs.forEach(input => {
+                input.addEventListener('change', () => {
+                    console.log('Userprefs field changed:', input.id);
+                    updateUserPrefsSaveButtonState();
+                });
+                input.addEventListener('input', () => {
+                    console.log('Userprefs field input:', input.id);
+                    updateUserPrefsSaveButtonState();
+                });
+            });
+        }
+
+        function attachSecurityFormListeners() {
+            const securityInputs = document.querySelectorAll('#securityTab input');
+            console.log('Attaching listeners to', securityInputs.length, 'security inputs');
+            securityInputs.forEach(input => {
+                input.addEventListener('change', () => {
+                    console.log('Security field changed:', input.id);
+                    const hasChanges = window.hasUnsavedChanges();
+                    console.log('hasUnsavedChanges:', hasChanges);
+                    updateSecuritySaveButtonState();
+                });
+                input.addEventListener('input', () => {
+                    console.log('Security field input:', input.id);
+                    const hasChanges = window.hasUnsavedChanges();
+                    console.log('hasUnsavedChanges:', hasChanges);
+                    updateSecuritySaveButtonState();
+                });
+            });
         }
 
         // ============================================================================
@@ -3142,9 +3236,6 @@ let currentUser = null;
                 window.initializeUnsavedTracking({
                     userFullName: document.getElementById('userFullName').value,
                     userEmail: document.getElementById('userEmail').value,
-                    currentPassword: '',
-                    newPassword: '',
-                    confirmPassword: '',
                     notifyLogin: document.getElementById('notifyLogin').checked,
                     notifyPasswordChange: document.getElementById('notifyPasswordChange').checked,
                     notifySecurityAlerts: document.getElementById('notifySecurityAlerts').checked,
@@ -3152,8 +3243,9 @@ let currentUser = null;
                     notificationFrequency: document.getElementById('notificationFrequency').value
                 });
 
-                // Reset all save buttons
-                document.getElementById('userPrefsSaveBtn').disabled = true;
+                // Reset all save buttons and attach listeners
+                updateUserPrefsSaveButtonState();
+                attachUserPrefsFormListeners();
                 document.getElementById('changePasswordBtn').disabled = true;
                 console.log('loadUserPreferences completed successfully');
 
@@ -3223,8 +3315,18 @@ let currentUser = null;
                     return;
                 }
 
-                window.clearUnsavedChanges();
-                document.getElementById('userPrefsSaveBtn').disabled = true;
+                // Reinitialize unsaved changes tracking with saved data
+                const savedData = {
+                    userFullName: fullName,
+                    userEmail: email,
+                    notifyLogin: document.getElementById('notifyLogin').checked,
+                    notifyPasswordChange: document.getElementById('notifyPasswordChange').checked,
+                    notifySecurityAlerts: document.getElementById('notifySecurityAlerts').checked,
+                    notifySystemUpdates: document.getElementById('notifySystemUpdates').checked,
+                    notificationFrequency: document.getElementById('notificationFrequency').value
+                };
+                window.initializeUnsavedTracking(savedData);
+                updateUserPrefsSaveButtonState();
                 window.showStatusBanner('User preferences saved successfully', 'success', 'userprefStatusMessage');
 
             } catch (error) {
@@ -3233,9 +3335,33 @@ let currentUser = null;
             }
         }
 
+        function updateUserPrefsSaveButtonState() {
+            const saveBtn = document.getElementById('userPrefsSaveBtn');
+            if (saveBtn) {
+                const currentData = {
+                    userFullName: document.getElementById('userFullName').value,
+                    userEmail: document.getElementById('userEmail').value,
+                    notifyLogin: document.getElementById('notifyLogin').checked,
+                    notifyPasswordChange: document.getElementById('notifyPasswordChange').checked,
+                    notifySecurityAlerts: document.getElementById('notifySecurityAlerts').checked,
+                    notifySystemUpdates: document.getElementById('notifySystemUpdates').checked,
+                    notificationFrequency: document.getElementById('notificationFrequency').value
+                };
+                window.checkUnsavedChanges(currentData);
+                const hasChanges = window.hasUnsavedChanges();
+                saveBtn.disabled = !hasChanges;
+            }
+        }
+
         function checkUserPrefUnsavedChanges() {
-            const hasChanges = window.hasUnsavedChanges();
-            document.getElementById('userPrefsSaveBtn').disabled = !hasChanges;
+            updateUserPrefsSaveButtonState();
+        }
+
+        /**
+         * Check for unsaved changes in notification section
+         */
+        function checkNotificationUnsavedChanges() {
+            updateUserPrefsSaveButtonState();
         }
 
         /**
@@ -3248,14 +3374,6 @@ let currentUser = null;
             
             const hasChanges = currentPwd.length > 0 || newPwd.length > 0 || confirmPwd.length > 0;
             document.getElementById('changePasswordBtn').disabled = !hasChanges;
-        }
-
-        /**
-         * Check for unsaved changes in notification section
-         */
-        function checkNotificationUnsavedChanges() {
-            const hasChanges = window.hasUnsavedChanges();
-            document.getElementById('userPrefsSaveBtn').disabled = !hasChanges;
         }
 
         /**
@@ -3295,23 +3413,33 @@ let currentUser = null;
                     sessionToken = await window.getSessionToken();
                 }
 
-                const result = await window.changeUserPassword(sessionToken, currentUser, {
-                    current_password: currentPwd,
-                    new_password: newPwd
+                // Call the change-password endpoint
+                const response = await fetch('/auth/change-password', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${sessionToken}`
+                    },
+                    body: JSON.stringify({
+                        oldPassword: currentPwd,
+                        newPassword: newPwd
+                    })
                 });
 
-                if (!result) {
-                    window.showStatusBanner('Error changing password. Current password may be incorrect.', 'error', 'userprefStatusMessage');
-                    return;
+                const result = await response.json();
+
+                if (result.success) {
+                    // Clear password fields
+                    document.getElementById('currentPassword').value = '';
+                    document.getElementById('newPassword').value = '';
+                    document.getElementById('confirmPassword').value = '';
+                    document.getElementById('changePasswordBtn').disabled = true;
+                    window.showStatusBanner('Password changed successfully', 'success', 'userprefStatusMessage');
+                } else if (result.error) {
+                    window.showStatusBanner(result.error, 'error', 'userprefStatusMessage');
+                } else {
+                    window.showStatusBanner('Error changing password', 'error', 'userprefStatusMessage');
                 }
-
-                // Clear password fields
-                document.getElementById('currentPassword').value = '';
-                document.getElementById('newPassword').value = '';
-                document.getElementById('confirmPassword').value = '';
-
-                document.getElementById('changePasswordBtn').disabled = true;
-                window.showStatusBanner('Password changed successfully', 'success', 'userprefStatusMessage');
 
             } catch (error) {
                 console.error('Error changing password:', error);

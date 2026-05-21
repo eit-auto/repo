@@ -1,0 +1,123 @@
+<section class="panel-level-1 tab-container">
+            <div class="tab-navigation">
+                <button class="tab-btn active" onclick="switchToUserPreferencesTab(event)">User Preferences</button>
+            </div>
+            <div id="preferencesTab" class="tab-panel active">
+                <div class="status-message" id="userprefStatusMessage"></div>
+                
+                <div class="panel-level-2" style="margin-top: 0">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                        <h2 style="margin: 0; font-size: 16px; color: var(--text-primary);">User Preferences</h2>
+                        <button type="button" class="btn" data-color="green" data-size="sm" id="userPrefsSaveBtn" onclick="saveUserPreferencesData()" disabled="">Save</button>
+                    </div>
+                    <div class="panel-grid-responsive">
+                        
+                        <!-- Profile Information Section -->
+                        <div class="panel-level-3">
+                            <div style="margin-bottom: 15px;">
+                                <h3 style="margin: 0 0 15px 0; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Profile Information</h3>
+                            </div>
+                            
+                            <div style="display: flex; flex-direction: column; gap: 10px;">
+                                <!-- Full Name -->
+                                <div>
+                                    <label style="display: block; color: var(--text-muted); font-size: 11px; margin-bottom: 4px; font-weight: 600;">Full Name</label>
+                                    <input type="text" name="userFullName" id="userFullName" style="width: 100%;" placeholder="Enter your full name">
+                                </div>
+                                
+                                <!-- Email Address -->
+                                <div>
+                                    <label style="display: block; color: var(--text-muted); font-size: 11px; margin-bottom: 4px; font-weight: 600;">Email Address</label>
+                                    <input type="email" name="userEmail" id="userEmail" style="width: 100%;" placeholder="Enter your email address">
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Notifications Section -->
+                        <div class="panel-level-3">
+                            <div style="margin-bottom: 15px;">
+                                <h3 style="margin: 0 0 15px 0; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Notification Preferences</h3>
+                            </div>
+                            
+                            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px;">
+                                <!-- Notification Types -->
+                                <div>
+                                    <label style="display: block; color: var(--text-muted); font-size: 11px; margin-bottom: 8px; font-weight: 600;">Notification Types</label>
+                                    <div style="display: flex; flex-direction: column; gap: 8px;">
+                                        <div style="display: flex; align-items: center; gap: 8px;">
+                                            <input type="checkbox" name="notifyLogin" id="notifyLogin" style="width: 16px; height: 16px; cursor: pointer;">
+                                            <label for="notifyLogin" style="color: var(--text-muted); font-size: 11px; cursor: pointer; margin: 0;">Login Alerts</label>
+                                        </div>
+                                        <div style="display: flex; align-items: center; gap: 8px;">
+                                            <input type="checkbox" name="notifyPasswordChange" id="notifyPasswordChange" style="width: 16px; height: 16px; cursor: pointer;">
+                                            <label for="notifyPasswordChange" style="color: var(--text-muted); font-size: 11px; cursor: pointer; margin: 0;">Password Changes</label>
+                                        </div>
+                                        <div style="display: flex; align-items: center; gap: 8px;">
+                                            <input type="checkbox" name="notifySecurityAlerts" id="notifySecurityAlerts" style="width: 16px; height: 16px; cursor: pointer;">
+                                            <label for="notifySecurityAlerts" style="color: var(--text-muted); font-size: 11px; cursor: pointer; margin: 0;">Security Alerts</label>
+                                        </div>
+                                        <div style="display: flex; align-items: center; gap: 8px;">
+                                            <input type="checkbox" name="notifySystemUpdates" id="notifySystemUpdates" style="width: 16px; height: 16px; cursor: pointer;">
+                                            <label for="notifySystemUpdates" style="color: var(--text-muted); font-size: 11px; cursor: pointer; margin: 0;">System Updates</label>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <!-- Notification Frequency -->
+                                <div>
+                                    <label style="display: block; color: var(--text-muted); font-size: 11px; margin-bottom: 4px; font-weight: 600;">Email Frequency</label>
+                                    <select name="notificationFrequency" id="notificationFrequency" style="width: 100%;">
+                                        <option value="immediate">Immediate</option>
+                                        <option value="daily">Daily Digest</option>
+                                        <option value="weekly">Weekly Digest</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Change Password Section -->
+                        <div class="panel-level-3">
+                            <div style="margin-bottom: 15px;">
+                                <h3 style="margin: 0 0 15px 0; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Change Password</h3>
+                            </div>
+                            
+                            <div style="display: flex; flex-direction: column; gap: 10px;">
+                                <!-- Current Password -->
+                                <div>
+                                    <label style="display: block; color: var(--text-muted); font-size: 11px; margin-bottom: 4px; font-weight: 600;">Current Password</label>
+                                    <input type="password" id="currentPassword" style="width: 100%;" placeholder="Enter current password" oninput="checkPasswordUnsavedChanges()">
+                                </div>
+                                
+                                <!-- New Password -->
+                                <div>
+                                    <label style="display: block; color: var(--text-muted); font-size: 11px; margin-bottom: 4px; font-weight: 600;">New Password</label>
+                                    <input type="password" id="newPassword" style="width: 100%;" placeholder="Enter new password" oninput="checkPasswordUnsavedChanges()">
+                                </div>
+                                
+                                <!-- Confirm New Password -->
+                                <div>
+                                    <label style="display: block; color: var(--text-muted); font-size: 11px; margin-bottom: 4px; font-weight: 600;">Confirm New Password</label>
+                                    <input type="password" id="confirmPassword" style="width: 100%;" placeholder="Confirm new password" oninput="checkPasswordUnsavedChanges()">
+                                </div>
+                                
+                                <!-- Change Password Button -->
+                                <div style="display: flex; gap: 8px; margin-top: 15px;">
+                                    <button type="button" class="btn" data-color="blue" data-size="sm" id="changePasswordBtn" onclick="changeUserPassword()" disabled="">Change Password</button>
+                                </div>
+                            </div>
+                        </div>
+                    
+                </div>
+            </div>
+            </div>
+        </section>
+
+<script src="/lib/settings.js"></script>
+<script>
+    // Call immediately if DOM is already loaded, or on DOMContentLoaded if not
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', loadUserPreferences);
+    } else {
+        loadUserPreferences();
+    }
+</script>

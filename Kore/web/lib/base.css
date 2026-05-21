@@ -28,8 +28,8 @@ if (typeof theme === 'undefined') {
       drawer: '#0d1520',
       titlePod: '#000F23',
       panel1: '#2a3a5f',
-      panel2: '#263450',
-      panel3: '#242946',
+      panel2: '#212c47',
+      panel3: '#1a2238',
     },
 
     // Text Colors
@@ -247,15 +247,61 @@ if (typeof componentStyles === 'undefined') {
     gap: 15px;
   }
 
+  /* Table Styling */
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    background-color: transparent;
+  }
+
+  table thead {
+    background-color: rgba(0, 0, 0, 0.4);
+  }
+
+  table thead th {
+    padding: 6px;
+    text-align: left;
+    border-bottom: 1px solid var(--border-primary);
+    color: var(--text-primary);
+    background-color: rgba(0, 0, 0, 0.4);
+  }
+
+  table tbody {
+    background-color: transparent;
+  }
+
+  table tbody tr {
+    border-bottom: 1px solid var(--border-primary);
+  }
+
+  table tbody tr:hover {
+    background-color: rgba(76, 181, 255, 0.05);
+  }
+
+  table td {
+    padding: 6px;
+    text-align: left;
+  }
+
+  /* Remove background from flex container elements */
+  .panel-level-2 > div[style*="display: flex"] {
+    background-color: transparent !important;
+  }
+
   .btn {
-    padding: 6px 12px;
+    padding: 3px 5px;
+    height: 32px;
+    min-width: 32px;
     border: none;
     border-radius: 4px;
     cursor: pointer;
-    font-size: 0.8rem;
+    font-size: 0.9rem;
     color: white;
     background-color: var(--brand-light);
     transition: opacity 0.2s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
   }
 
   .btn:hover {
@@ -264,13 +310,17 @@ if (typeof componentStyles === 'undefined') {
 
   /* Button Sizes */
   .btn[data-size="sm"] {
-    padding: 4px 8px;
-    font-size: 0.7rem;
+    padding: 3px 5px;
+    height: 24px;
+    min-width: 24px;
+    font-size: 0.5rem;
   }
 
   .btn[data-size="lg"] {
-    padding: 10px 20px;
-    font-size: 0.9rem;
+    padding: 3px 5px;
+    height: 40px;
+    min-width: 40px;
+    font-size: 0.7rem;
   }
 
   /* Button Color Variants - Use data-color attribute */
@@ -409,6 +459,19 @@ if (typeof componentStyles === 'undefined') {
     animation: modalSlideIn 0.3s ease-out;
   }
 
+  .modal-container.modal-no-scroll {
+    max-height: 100vh;
+    min-height: 500px;
+    overflow: hidden;
+  }
+
+  .modal-container.modal-resizable {
+    max-width: none;
+    max-height: none;
+    width: 600px;
+    height: 400px;
+  }
+
   @keyframes modalSlideIn {
     from {
       opacity: 0;
@@ -420,7 +483,6 @@ if (typeof componentStyles === 'undefined') {
 
   .modal-header {
     padding: 20px;
-    border-bottom: 1px solid var(--border-primary);
     flex-shrink: 0;
   }
 
@@ -432,8 +494,13 @@ if (typeof componentStyles === 'undefined') {
   }
 
   .modal-body {
-    padding: 20px;
+    padding: 0 20px;
     overflow-y: auto;
+    flex: 1;
+  }
+
+  .modal-body.modal-body-no-scroll {
+    overflow: hidden;
     flex: 1;
   }
 
@@ -456,11 +523,27 @@ if (typeof componentStyles === 'undefined') {
 
   .modal-footer {
     padding: 15px 20px;
-    border-top: 1px solid var(--border-primary);
     display: flex;
     gap: 10px;
     justify-content: flex-end;
     flex-shrink: 0;
+  }
+
+  .modal-resize-handle {
+    position: absolute;
+    bottom: 0;
+    right: 0;
+    width: 20px;
+    height: 20px;
+    cursor: nwse-resize;
+    background: linear-gradient(135deg, transparent 50%, var(--brand-light) 50%);
+    border-radius: 0 0 8px 0;
+    opacity: 0.3;
+    transition: opacity 0.2s;
+  }
+
+  .modal-resize-handle:hover {
+    opacity: 0.6;
   }
 
   /* Tab Navigation */
@@ -502,6 +585,31 @@ if (typeof componentStyles === 'undefined') {
 
   .tab-panel.active {
     display: block;
+  }
+
+  /* CodeMirror Editor Styles */
+  .cm-editor {
+    background-color: var(--bg-panel3);
+    height: 100% !important;
+  }
+
+  .cm-content {
+    background-color: transparent !important;
+    color: var(--text-primary);
+  }
+
+  .cm-gutters {
+    background-color: rgba(0, 0, 0, 0.2) !important;
+    color: var(--text-muted);
+    border-right: 1px solid var(--border-color);
+  }
+
+  .cm-activeLineGutter {
+    background-color: rgba(0, 0, 0, 0.6) !important;
+  }
+
+  .cm-cursor {
+    border-left-color: var(--text-primary);
   }
 
   /* Tab Container - Use alongside panel-level-1 for tab-based layouts */
