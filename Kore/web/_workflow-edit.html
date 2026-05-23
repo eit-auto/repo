@@ -1,0 +1,273 @@
+<div class="panel-level-1" style="flex: 1; display: flex; flex-direction: column;">
+    <div id="statusMessage"></div>
+    
+    <!-- Header Panel -->
+    <div class="panel-level-2" style="padding: 10px; margin-bottom: 5px;">
+        <div style="display: flex; align-items: flex-end; gap: 20px; justify-content: space-between;">
+            <h1 id="workflowNameDisplay" style="margin: 0; font-size: 1.5rem; font-weight: 600; color: var(--text-primary); flex: 1;">-</h1>
+            <div style="display: flex; gap: 8px;">
+                <div style="position: relative;">
+                    <button class="btn" data-color="bluegrey" onclick="toggleMoreMenu()" title="More Options" style="font-size: 1.2rem;">...</button>
+                    <div id="moreMenu" style="display: none; position: absolute; top: 100%; left: 50%; transform: translateX(-50%); background: var(--secondary-slate); border: 1px solid var(--border-primary); border-radius: 4px; min-width: 120px; margin-top: 4px; z-index: 1000; box-shadow: 0 2px 8px rgba(0,0,0,0.3);">
+                        <div onclick="showJSONModal(); toggleMoreMenu();" style="padding: 8px 12px; color: var(--text-primary); cursor: pointer; font-size: 0.9rem; white-space: nowrap;">View JSON</div>
+                    </div>
+                </div>
+                <button class="btn" data-color="blue" onclick="showWorkflowSettingsModal()" title="Workflow Settings" style="font-size: 1.2rem;">&#9998;</button>
+                <button id="saveWorkflowBtn" class="btn" data-color="green" onclick="saveWorkflow()" title="Save Workflow" style="font-size: 1.5rem;">&#128427;</button>
+                <button class="btn" data-color="gold" onclick="showModal({title: 'Test Modal', content: 'This is a test'})" title="Test Workflow" style="font-size: 1.2rem;">▶</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Full-Height Canvas Layout -->
+    <div style="display: flex; flex: 1; width: 100%; max-width: 100%; gap: 5px;">
+        <!-- Left Sidebar - Step Types -->
+        <div class="panel-level-2" id="stepTypesPanel" style="width: 150px; padding: 15px; overflow-y: auto; box-sizing: border-box; display: flex; flex-direction: column; transition: width 0.3s ease;">
+            <div id="stepTypeHeader" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; flex-direction: row;">
+                <div id="stepTypesTitle" style="font-size: 0.85rem; font-weight: 600; color: var(--text-primary);">Step Types</div>
+                <button id="stepTypesToggle" onclick="toggleStepTypesPanel()" style="background: none; border: none; color: var(--text-primary); cursor: pointer; font-size: 0.8rem; padding: 0; display: flex; align-items: center; justify-content: center; width: 20px; height: 20px;">◀</button>
+            </div>
+            <div id="stepTypesList" style="display: flex; flex-direction: column; gap: 8px;">
+                <div draggable="true" class="step-type-item" data-type="Kore" style="padding: 0; background: #3a3a3a; border: 2px solid #666666; border-radius: 4px; cursor: move; text-align: center; font-size: 0.9rem; color: #ffffff; user-select: none; display: flex; align-items: center; justify-content: center; height: 30px; box-sizing: border-box;">
+                    Kore
+                </div>
+                <div draggable="true" class="step-type-item" data-type="Workflow" style="padding: 0; background: #4a1f77; border: 2px solid #7733bb; border-radius: 4px; cursor: move; text-align: center; font-size: 0.9rem; color: #ffffff; user-select: none; display: flex; align-items: center; justify-content: center; height: 30px; box-sizing: border-box;">
+                    Workflow
+                </div>
+                <div draggable="true" class="step-type-item" data-type="RMM" style="padding: 0; background: #0a3d55; border: 2px solid #3a7a99; border-radius: 4px; cursor: move; text-align: center; font-size: 0.9rem; color: #ffffff; user-select: none; display: flex; align-items: center; justify-content: center; height: 30px; box-sizing: border-box;">
+                    RMM
+                </div>
+                <div draggable="true" class="step-type-item" data-type="End" style="padding: 0; background: #5a1a1a; border: 2px solid #cc3333; border-radius: 4px; cursor: move; text-align: center; font-size: 0.9rem; color: #ffffff; user-select: none; display: flex; align-items: center; justify-content: center; height: 30px; box-sizing: border-box;">
+                    End
+                </div>
+            </div>
+        </div>
+
+        <!-- Canvas Area -->
+        <div class="panel-level-3" id="canvasContainer" style="flex: 1; position: relative; overflow: hidden; box-sizing: border-box; user-select: none; padding: 0;">
+            <!-- Tools Panel -->
+            <div id="toolsPanel" style="position: absolute; top: 6px; right: 6px; width: 90px; background: var(--bg-panel2); border: 1px solid var(--border-primary); border-radius: 4px; padding: 0; display: flex; flex-direction: column; z-index: 15;">
+                <!-- Tools Label with Collapse Button -->
+                <div onclick="toggleToolsPanel()" style="height: 15px; display: flex; align-items: center; justify-content: space-between; background: var(--bg-input); border-bottom: 1px solid var(--border-primary); padding: 0 4px; box-sizing: border-box; cursor: pointer;">
+                    <span style="font-size: 0.65rem; font-weight: 600; color: var(--text-primary); flex: 1;">TOOLS</span>
+                    <button id="toolsCollapseBtn" style="background: transparent; border: none; color: var(--text-primary); cursor: pointer; font-size: 10px; padding: 0; width: 12px; height: 12px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; pointer-events: none;">▼</button>
+                </div>
+                <!-- Icons Container -->
+                <div id="toolsButtonsContainer" style="display: none; height: 30px; padding: 0;">
+                    <!-- Shape Button -->
+                    <button id="toolShape" style="flex: 1; background: transparent; border: 1px solid var(--border-primary); border-right: 1px solid var(--border-primary); padding: 0; cursor: pointer; display: flex; align-items: center; justify-content: center; color: var(--text-primary); font-size: 18px; transition: background 0.2s;" title="Draw Shape">
+                        <svg width="20" height="20" viewBox="0 0 24 24" style="stroke: currentColor; fill: none;">
+                            <use xlink:href="/img/icons.svg#i-shape"></use>
+                        </svg>
+                    </button>
+                    <!-- Node Button -->
+                    <button id="toolNode" style="flex: 1; background: transparent; border: 1px solid var(--border-primary); border-right: 1px solid var(--border-primary); padding: 0; cursor: pointer; display: flex; align-items: center; justify-content: center; color: var(--text-primary); font-size: 18px; transition: background 0.2s;" title="Click and drag to place node">
+                        <svg width="20" height="20" viewBox="0 0 24 24" style="stroke: currentColor; fill: none;">
+                            <use xlink:href="/img/icons.svg#i-node"></use>
+                        </svg>
+                    </button>
+                    <!-- Note Button -->
+                    <button id="toolNote" style="flex: 1; background: transparent; border: 1px solid var(--border-primary); padding: 0; cursor: pointer; display: flex; align-items: center; justify-content: center; color: var(--text-primary); font-size: 18px; transition: background 0.2s;" title="Add Note">
+                        <svg width="20" height="20" viewBox="0 0 24 24" style="stroke: currentColor; fill: none;">
+                            <use xlink:href="/img/icons.svg#i-note"></use>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+            <div id="workflowCanvas" style="position: absolute; top: 0; left: 0; width: 5000px; height: 5000px; transform-origin: 0 0; background: transparent; background-image: linear-gradient(rgba(128, 128, 128, 0.15) 1px, transparent 1px), linear-gradient(90deg, rgba(128, 128, 128, 0.15) 1px, transparent 1px); background-size: 30px 30px;">
+            <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: var(--text-muted); text-align: center; font-size: 0.9rem; white-space: nowrap; user-select: none; pointer-events: none;">
+                Drag step types here to create steps
+            </div>
+            </div>
+            
+            <!-- Zoom Control -->
+            <div style="position: absolute; bottom: 6px; right: 6px; background: var(--bg-panel2); border: 1px solid var(--border-primary); border-radius: 4px; display: flex; align-items: center; justify-content: center; user-select: none; z-index: 100;">
+                <button onclick="zoomOut()" style="background: transparent; border: none; color: var(--text-primary); cursor: pointer; font-size: 1.2rem; display: flex; align-items: center; justify-content: center; width: 24px; height: 24px;">-</button>
+                <span id="zoomDisplay" style="color: var(--text-primary); background: var(--bg-input); border: 1px solid var(--border-primary); border-radius: 6px; font-size: 0.9rem; width: 41px; text-align: center;">100%</span>
+                <button onclick="zoomIn()" style="background: transparent; border: none; color: var(--text-primary); cursor: pointer; font-size: 1.2rem; display: flex; align-items: center; justify-content: center; width: 24px; height: 24px;">+</button>
+                <button onclick="resetZoom()" style="background: transparent; border: none; color: var(--text-primary); cursor: pointer; font-size: 1rem; display: flex; align-items: center; justify-content: center; width: 24px; height: 24px;">&#8635;</button>
+            </div>
+        </div>
+
+        <!-- Right Panel - Properties/Settings -->
+        <div class="panel-level-2" id="propertiesPanel" style="width: 350px; padding: 15px; overflow-y: auto; box-sizing: border-box; display: none;">
+            <div id="propertiesContent" style="color: var(--text-muted); font-size: 0.85rem;">Select a step or transition to edit properties</div>
+        </div>
+    </div>
+    
+    <!-- Version and ID Footer -->
+    <div style="font-size: 0.85rem; color: var(--text-muted); white-space: nowrap; text-align: right; line-height: 1; max-height: 12px; margin-top: 2px; margin-bottom: -8px;">
+        <span id="versionDisplay">-</span> - <span id="uuidDisplay" style="font-family: monospace; font-size: 0.8rem; color: var(--text-muted);">-</span>
+    </div>
+</div>
+
+<!-- Workflow Settings Modal -->
+<div id="workflowSettingsModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.7); z-index: 1000; align-items: center; justify-content: center;">
+    <div style="background: var(--bg-panel2); border: 1px solid var(--border-primary); border-radius: 6px; padding: 24px; max-width: 600px; width: 90%; max-height: 80vh; overflow-y: auto;">
+        <h2 style="font-size: 1.3rem; font-weight: 600; margin-bottom: 20px; margin-top: 0; color: var(--text-primary);">Workflow Settings</h2>
+        
+        <!-- Workflow Name Section -->
+        <div style="margin-bottom: 24px;">
+            <label style="display: block; margin-bottom: 8px; color: var(--text-muted); font-size: 0.85rem; font-weight: 600;">Workflow Name</label>
+            <input type="text" id="workflowName" placeholder="Workflow name" onchange="currentWorkflowName = this.value.trim(); currentDefinition.name = this.value.trim(); document.getElementById('workflowNameDisplay').textContent = this.value.trim(); updatePreview();" style="width: 100%; padding: 8px; background: var(--bg-input); border: 1px solid var(--border-primary); border-radius: 4px; color: var(--text-primary); font-size: 0.9rem; font-family: inherit; box-sizing: border-box;">
+        </div>
+        
+        <!-- Description Section -->
+        <div style="margin-bottom: 24px;">
+            <label style="display: block; margin-bottom: 8px; color: var(--text-muted); font-size: 0.85rem; font-weight: 600;">Description</label>
+            <textarea id="workflowDescription" placeholder="Enter workflow description..." onchange="currentDefinition.description = this.value; updatePreview();" style="width: 100%; min-height: 80px; padding: 8px; background: var(--bg-input); border: 1px solid var(--border-primary); border-radius: 4px; color: var(--text-primary); font-size: 0.85rem; font-family: inherit; resize: vertical;"></textarea>
+        </div>
+        
+        <!-- Input Variables Section -->
+        <div style="margin-bottom: 24px; padding-top: 12px; border-top: 1px solid var(--border-primary);">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; margin-top: 12px;">
+                <div style="font-size: 0.95rem; font-weight: 600; color: var(--text-primary);">Input Variables</div>
+                <button class="btn" data-size="sm" onclick="addInputVariable()" style="font-size: 0.85rem;">+ Add</button>
+            </div>
+            <div id="inputVariablesList"></div>
+        </div>
+
+        <!-- Output Variables Section -->
+        <div style="margin-bottom: 24px; padding-top: 12px; border-top: 1px solid var(--border-primary);">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; margin-top: 12px;">
+                <div style="font-size: 0.95rem; font-weight: 600; color: var(--text-primary);">Output Variables</div>
+                <button class="btn" data-size="sm" onclick="addOutputVariable()" style="font-size: 0.85rem;">+ Add</button>
+            </div>
+            <div id="outputVariablesList"></div>
+        </div>
+
+        <!-- Modal Buttons -->
+        <div style="display: flex; gap: 12px; justify-content: flex-end; margin-top: 24px;">
+            <button class="btn" data-color="grey" onclick="closeWorkflowSettingsModal()">Cancel</button>
+            <button class="btn" data-color="green" onclick="saveWorkflowSettings()">Save Settings</button>
+        </div>
+    </div>
+</div>
+
+<style>
+    .step-type-item {
+        transition: opacity 0.2s ease;
+    }
+    
+    .step-type-item:hover {
+        opacity: 0.8;
+    }
+
+    .step {
+        position: absolute;
+        padding: 0;
+        font-size: 0.9rem;
+        cursor: move;
+        box-sizing: border-box;
+        display: flex;
+        align-items: stretch;
+        justify-content: flex-start;
+        z-index: 3;
+        color: #ffffff;
+        border: 2px solid #3a7a99;
+        background: #3a7a99;
+        border-radius: 4px;
+    }
+
+    .step.selected {
+        border-color: #ffffff;
+    }
+
+    /* Connection point base styles */
+    .connectionPoint {
+        position: absolute;
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        border: 2px solid;
+        pointer-events: auto;
+        cursor: crosshair;
+        z-index: 1;
+        background: #3a7a99;
+        border-color: #3a7a99;
+    }
+
+    /* Step type styles */
+    [data-step-type="Begin"] {
+        background: #00aa00;
+        color: #ffffff;
+        border: 2px solid #00aa00;
+        border-radius: 4px;
+    }
+
+    [data-step-type="Begin"] .connectionPoint {
+        background: #00aa00;
+        border-color: #00aa00;
+    }
+
+    [data-step-type="Begin"].selected {
+        border-color: #ffffff;
+    }
+
+    [data-step-type="Kore"] {
+        background: #666666;
+        color: #ffffff;
+        border: 2px solid #666666;
+        border-radius: 4px;
+    }
+
+    [data-step-type="Kore"] .connectionPoint {
+        background: #666666;
+        border-color: #666666;
+    }
+
+    [data-step-type="Kore"].selected {
+        border-color: #ffffff;
+    }
+
+    [data-step-type="End"] {
+        background: #cc3333;
+        color: #ffffff;
+        border: 2px solid #cc3333;
+        border-radius: 4px;
+    }
+
+    [data-step-type="End"] .connectionPoint {
+        background: #ff6666;
+        border-color: #ff6666;
+    }
+
+    [data-step-type="End"].selected {
+        border-color: #ffffff;
+    }
+
+    [data-step-type="Workflow"] {
+        background: #7733bb;
+        color: #ffffff;
+        border: 2px solid #7733bb;
+        border-radius: 4px;
+    }
+
+    [data-step-type="Workflow"] .connectionPoint {
+        background: #7733bb;
+        border-color: #7733bb;
+    }
+
+    [data-step-type="Workflow"].selected {
+        border-color: #ffffff;
+    }
+
+    [data-step-type="RMM"] {
+        background: #3a7a99;
+        color: #ffffff;
+        border: 2px solid #3a7a99;
+        border-radius: 4px;
+    }
+
+    [data-step-type="RMM"] .connectionPoint {
+        background: #3a7a99;
+        border-color: #3a7a99;
+    }
+
+    [data-step-type="RMM"].selected {
+        border-color: #ffffff;
+    }
+</style>
+
+<script src="/lib/jinja-json.js"></script>
+<script src="/lib/workflow-edit.js"></script>

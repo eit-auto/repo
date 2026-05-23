@@ -4,6 +4,7 @@
                 <button class="tab-btn active" onclick="switchTab('generalTab', event)">General</button>
                 <button class="tab-btn" onclick="switchToOrganizationsTab(event)">Organizations</button>
                 <button class="tab-btn" onclick="switchToUsersTab(event)">Users</button>
+                <button class="tab-btn" onclick="switchToGroupsTab(event)">Groups</button>
                 <button class="tab-btn" onclick="switchToSecurityTab(event)">Security</button>
                 <button class="tab-btn" onclick="switchToPluginsTab(event)">Plugins</button>
             </div>
@@ -162,7 +163,7 @@
                 <div class="panel-level-2" style="flex: 1; min-height: 0;">
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
                         <h2 style="margin: 0; font-size: 16px; color: var(--text-primary);">Organization Management</h2>
-                        <button type="button" class="btn" data-color="green" onclick="showAddOrganizationModal()">Add Organization</button>
+                        <button type="button" class="btn" data-color="green" data-size="sm" onclick="showAddOrganizationModal()">Add Organization</button>
                     </div>
                     
                     <div style="display: grid; grid-template-columns: 250px 1fr; gap: 15px; flex: 1; min-height: 0;">
@@ -193,7 +194,7 @@
                 <div class="panel-level-2" style="flex: 1; min-height: 0;">
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
                         <h2 style="margin: 0; font-size: 16px; color: var(--text-primary);">User Management</h2>
-                        <button type="button" class="btn" data-color="green" onclick="showAddUserModal()">Add User</button>
+                        <button type="button" class="btn" data-color="green" data-size="sm" onclick="showAddUserModal()">Add User</button>
                     </div>
                     
                     <div style="display: grid; grid-template-columns: 250px 1fr; gap: 15px; flex: 1; min-height: 0;">
@@ -219,6 +220,37 @@
             </div>
 
             
+            <div id="groupsTab" class="tab-panel">
+                <div class="status-message" id="groupsStatusMessage"></div>
+                
+                <div class="panel-level-2" style="flex: 1; min-height: 0;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                        <h2 style="margin: 0; font-size: 16px; color: var(--text-primary);">Group Management</h2>
+                        <button type="button" class="btn" data-color="green" data-size="sm" onclick="showAddGroupModal()">Add Group</button>
+                    </div>
+                    
+                    <div style="display: grid; grid-template-columns: 250px 1fr; gap: 15px; flex: 1; min-height: 0;">
+                        <div class="panel-level-3">
+                            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
+                                <h3 style="margin: 0; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Groups</h3>
+                                <div style="display: flex; align-items: center; gap: 6px;">
+                                    <input type="checkbox" id="showInactiveGroups" style="width: 14px; height: 14px; cursor: pointer;">
+                                    <label for="showInactiveGroups" style="color: var(--text-muted); font-size: 10px; cursor: pointer; margin: 0;">Show Inactive</label>
+                                </div>
+                            </div>
+                            <div id="groupsListSidebar" style="display: flex; flex-direction: column; gap: 5px; flex: 1; overflow-y: auto; min-height: 0;">
+                            </div>
+                        </div>
+                        
+                        <div style="display: flex; flex-direction: column; flex: 1; min-height: 0;">
+                            <div id="groupsPlaceholder" class="panel-level-3" style="text-align: center; display: flex; align-items: center; justify-content: center; flex: 1; min-height: 0;">
+                                <p style="color: var(--text-muted); font-size: 13px; margin: 0;">Select a group to the left to view details or modify</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+ 
             <div id="securityTab" class="tab-panel">
                 <div class="status-message" id="securityStatusMessage"></div>
                 
@@ -226,8 +258,8 @@
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
                         <h2 style="margin: 0; font-size: 16px; color: var(--text-primary);">Security Settings</h2>
                         <div style="display: flex; gap: 10px;">
-                            <button type="button" class="btn" data-color="gray" onclick="resetSecurityForm()">Cancel</button>
-                            <button type="button" class="btn" data-color="green" onclick="saveSecuritySettings()">Save</button>
+                            <button type="button" class="btn" data-color="gray" data-size="sm" onclick="resetSecurityForm()">Cancel</button>
+                            <button type="button" class="btn" data-color="green" data-size="sm" onclick="saveSecuritySettings()">Save</button>
                         </div>
                     </div>
 
@@ -352,8 +384,8 @@
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
                         <h2 style="margin: 0; font-size: 16px; color: var(--text-primary);">Plugin Management</h2>
                         <div style="display: flex; gap: 10px;">
-                            <button type="button" class="btn" data-color="green" onclick="openAddPluginModal()">Add Plugin</button>
-                            <button type="button" class="btn" data-color="blue" onclick="reloadAllPlugins()">
+                            <button type="button" class="btn" data-color="green" data-size="sm" onclick="openAddPluginModal()">Add Plugin</button>
+                            <button type="button" class="btn" data-color="blue" data-size="sm" onclick="reloadAllPlugins()">
                                 Reload All Plugins
                             </button>
                         </div>

@@ -1,10 +1,10 @@
-<div class="panel-level-2">
+<div class="panel-level-1">
+        <div id="statusMessage"></div>
         <div class="panel-grid-responsive" style="grid-template-columns: 230px 1fr;">
-            <div class="panel-level-3 workflows-sidebar">
+            <div class="panel-level-2 workflows-sidebar">
                 <div id="foldersPanelContainer"></div>
             </div>
-            <div class="panel-level-3 workflows-main">
-                <div id="statusMessage"></div>
+            <div class="panel-level-2 workflows-main">
                 <div style="display: flex; justify-content: flex-start; align-items: center; margin-bottom: 15px; gap: 15px;">
                     <div style="display: flex; align-items: center; gap: 8px;">
                         <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; white-space: nowrap;">
@@ -17,7 +17,7 @@
                 </div>
                 <div style="display: flex; flex-direction: column; gap: 10px;">
                     <div class="loading show" id="loadingSpinner">Loading workflows...</div>
-                    <div id="workflowsList"></div>
+                    <div id="workflowsList" class="panel-level-3" style="padding: 0;"></div>
                 </div>
         </div>
         </div>
@@ -174,11 +174,11 @@ function buildFoldersPanel(containerId, folders, onFolderSelect, onEditFolder, o
     headerBar.appendChild(actionsBar);
     container.appendChild(headerBar);
     const listContainer = document.createElement('div');
-    listContainer.className = 'content-panel';
-    listContainer.style.cssText = 'flex: 1; overflow-y: auto;';
+    listContainer.className = 'panel-level-3';
+    listContainer.style.cssText = 'flex: 1; overflow-y: auto; padding: 0;';
     window.folderManagementEditBtn = editBtn;
     const allItem = document.createElement('div');
-    allItem.style.cssText = 'border-radius: 4px; transition: background-color 0.2s; cursor: pointer; display: flex; align-items: center; padding-left: 10px; height: 20px; font-size: 0.8rem;';
+    allItem.style.cssText = 'border-radius: 4px; transition: background-color 0.2s; cursor: pointer; display: flex; align-items: center; padding-left: 10px; height: 20px; font-size: 0.8rem; margin: 4px 4px 0 4px;';
     allItem.setAttribute('data-item-id', 'all');
     const allText = document.createElement('span');
     allText.textContent = 'All';
@@ -224,7 +224,7 @@ function buildFoldersPanel(containerId, folders, onFolderSelect, onEditFolder, o
     divider2.style.cssText = 'height: 1px; background: var(--border-primary); margin: 4px 0;';
     listContainer.appendChild(divider2);
     const noFolderItem = document.createElement('div');
-    noFolderItem.style.cssText = 'border-radius: 4px; transition: background-color 0.2s; cursor: pointer; display: flex; align-items: center; padding-left: 10px; height: 20px; font-size: 0.8rem;';
+    noFolderItem.style.cssText = 'border-radius: 4px; transition: background-color 0.2s; cursor: pointer; display: flex; align-items: center; padding-left: 10px; height: 20px; font-size: 0.8rem; margin: 0 4px 4px 4px;';
     noFolderItem.setAttribute('data-item-id', 'no_folder');
     const noFolderText = document.createElement('span');
     noFolderText.textContent = 'No Folder';
@@ -374,7 +374,7 @@ function createTreeNode(item, level = 0, isLastChild = true, ancestorSiblingInfo
     itemName.appendChild(nameText);
     folderRow.appendChild(itemName);
     folderRow.setAttribute('data-item-id', item.id);
-    folderRow.style.cssText += '; border-radius: 4px; transition: background-color 0.2s;';
+    folderRow.style.cssText += '; border-radius: 4px; transition: background-color 0.2s; margin: 0 4px;';
     folderRow.onmouseenter = () => {
         if (!folderRow.classList.contains('selected')) {
             folderRow.style.backgroundColor = 'rgba(90, 159, 184, 0.15)';
@@ -397,7 +397,7 @@ function createTreeNode(item, level = 0, isLastChild = true, ancestorSiblingInfo
         if (options.onItemClick) {
             options.onItemClick(item);
         }
-        const listContainer = folderRow.closest('.content-panel');
+        const listContainer = folderRow.closest('.panel-level-3');
         if (listContainer) {
             listContainer.querySelectorAll('[data-item-id]').forEach(el => {
                 el.classList.remove('selected');
@@ -526,6 +526,7 @@ function showFolderEditModal(folder, folders, onSave, onDelete, onReload) {
         };
         treeContainer.appendChild(noParentItem);
         const treeDiv = document.createElement('div');
+        treeDiv.style.cssText = 'margin: 0 4px;';
         const getDescendantIds = (folderId, foldersList) => {
             const descendants = new Set([folderId]);
             let toProcess = foldersList.filter(f => f.parent_id === folderId);
@@ -648,6 +649,7 @@ function openCreateFolderModalGeneric(folderTableName, folders, onCreated, onRel
         noParentItem.style.backgroundColor = 'rgba(90, 159, 184, 0.3)';
         window.createFolderSelectedParent = null;
         const treeDiv = document.createElement('div');
+        treeDiv.style.cssText = 'margin: 0 4px;';
         renderTree(folders || [], treeDiv, {
             onItemClick: (folder) => {
                 window.createFolderSelectedParent = folder.id;
@@ -715,7 +717,7 @@ function renderFilteredWorkflows(filteredWorkflows) {
                     <th style="display: none; padding: 0; background: transparent;"><input type="text" id="filterCreatedDate" placeholder="Filter..." style="width: 100%; height: 100%; box-sizing: border-box; pointer-events: auto; padding: 4px; border-radius: 0; font-size: 0.8rem;" onkeyup="filterWorkflows()"></th>
                     <th style="width: 70px; min-width: 70px; max-width: 70px; padding: 0; background: transparent;"><select id="filterActive" style="width: 100%; height: 100%; box-sizing: border-box; cursor: pointer; pointer-events: auto; padding: 4px; border-radius: 0; font-size: 0.8rem;" onchange="filterWorkflows()"><option style="" value="">All</option><option style="" value="True">True</option><option style="" value="False">False</option></select></th>
                     <th style="width: 80px; min-width: 80px; max-width: 80px; background: transparent;"></th>
-                    <th style="width: 70px; min-width: 70px; max-width: 70px; position: relative; background: transparent;"><div style="display: flex; justify-content: flex-end; align-items: center; height: 100%; padding: 0; width: 100%;"><button class="btn" data-color="blue" data-size="sm" onclick="loadWorkflows()" style="pointer-events: auto; cursor: pointer;">Refresh</button></div></th>
+                    <th style="width: 70px; min-width: 70px; max-width: 70px; position: relative; background: transparent; padding: 0;"><div style="display: flex; justify-content: flex-end; align-items: center; height: 100%; padding: 0; width: 100%;"><button class="btn" data-color="blue" data-size="sm" onclick="loadWorkflows()" style="pointer-events: auto; cursor: pointer;">Refresh</button></div></th>
                 </tr>
                 <tr style="background: var(--bg-panel2);">
                     <th style="font-weight: bold; font-size: 0.8rem; text-align: left;">Name</th>
@@ -724,8 +726,8 @@ function renderFilteredWorkflows(filteredWorkflows) {
                     <th style="font-weight: bold; font-size: 0.8rem; text-align: left;">Modified By</th>
                     <th style="display: none; font-weight: bold; font-size: 0.8rem; text-align: left;">Created Date</th>
                     <th style="width: 70px; min-width: 70px; max-width: 70px; font-weight: bold; font-size: 0.8rem; text-align: left;">Active</th>
-                    <th style="width: 80px; min-width: 80px; max-width: 80px; background: transparent; font-weight: bold; font-size: 0.8rem; text-align: left;">Version</th>
-                    <th style="width: 70px; min-width: 70px; max-width: 70px; font-weight: bold; font-size: 0.8rem; text-align: right; box-sizing: border-box; padding: 2px; overflow: hidden; display: flex; justify-content: flex-end; align-items: center;">Actions</th>
+                    <th style="width: 80px; min-width: 80px; max-width: 80px; font-weight: bold; font-size: 0.8rem; text-align: left;">Version</th>
+                    <th style="width: 70px; min-width: 70px; max-width: 70px; font-weight: bold; font-size: 0.8rem; text-align: right; padding: 6px; box-sizing: border-box;">Actions</th>
                 </tr>
             </thead>
             <tbody id="workflowsTableBody" style="background: transparent !important;">
@@ -738,10 +740,19 @@ function renderFilteredWorkflows(filteredWorkflows) {
         const modifiedBy = workflow.definition?.metadata?.updated_by || 'N/A';
         const toggleButtonText = activeValue === false ? 'Enable' : 'Disable';
         const toggleButtonClass = activeValue === false ? 'btn-green' : 'btn-gold';
+        
+        // Lookup folder name from folder_id
+        let folderName = '';
+        if (workflow.folder_id) {
+            const folders = window.workflows_folders || [];
+            const folder = folders.find(f => f.id === workflow.folder_id);
+            folderName = folder ? folder.name : workflow.folder_id;
+        }
+        
         html += `
             <tr data-workflow-id="${workflow.id}" style="font-size: 0.8rem; font-weight: normal;">
                 <td class="workflow-name"><a href="workflow-edit.html?id=${workflow.id}" style="color: inherit; text-decoration: none; font-weight: normal;">${workflow.name}</a></td>
-                <td style="font-weight: normal;">${workflow.folder_name || ''}</td>
+                <td style="font-weight: normal;">${folderName}</td>
                 <td style="white-space: nowrap; font-size: 0.8rem; font-weight: normal;">${lastModified}</td>
                 <td style="font-weight: normal;">${modifiedBy}</td>
                 <td style="display: none; white-space: nowrap; font-size: 0.8rem; font-weight: normal;">${createdDate}</td>
@@ -787,7 +798,7 @@ function renderWorkflowsList() {
                     <th style="display: none; padding: 0; background: transparent;"><input type="text" id="filterCreatedDate" placeholder="Filter..." style="width: 100%; height: 100%; box-sizing: border-box; pointer-events: auto; padding: 4px; border-radius: 0; font-size: 0.8rem;" onkeyup="filterWorkflows()"></th>
                     <th style="width: 70px; min-width: 70px; max-width: 70px; padding: 0; background: transparent;"><select id="filterActive" style="width: 100%; height: 100%; box-sizing: border-box; cursor: pointer; pointer-events: auto; padding: 4px; border-radius: 0; font-size: 0.8rem;" onchange="filterWorkflows()"><option style="" value="">All</option><option style="" value="True">True</option><option style="" value="False">False</option></select></th>
                     <th style="width: 80px; min-width: 80px; max-width: 80px; background: transparent;"></th>
-                    <th style="width: 70px; min-width: 70px; max-width: 70px; position: relative; background: transparent;"><div style="display: flex; justify-content: flex-end; align-items: center; height: 100%; padding: 0; width: 100%;"><button class="btn" data-color="blue" data-size="sm" onclick="loadWorkflows()" style="pointer-events: auto; cursor: pointer;">Refresh</button></div></th>
+                    <th style="width: 70px; min-width: 70px; max-width: 70px; position: relative; background: transparent; padding: 0;"><div style="display: flex; justify-content: flex-end; align-items: center; height: 100%; padding: 0; width: 100%;"><button class="btn" data-color="blue" data-size="sm" onclick="loadWorkflows()" style="pointer-events: auto; cursor: pointer;">Refresh</button></div></th>
                 </tr>
                 <tr style="background: var(--bg-panel2);">
                     <th style="font-weight: bold; font-size: 0.8rem; text-align: left;">Name</th>
@@ -795,8 +806,8 @@ function renderWorkflowsList() {
                     <th style="font-weight: bold; font-size: 0.8rem; text-align: left;">Modified By</th>
                     <th style="display: none; font-weight: bold; font-size: 0.8rem; text-align: left;">Created Date</th>
                     <th style="width: 70px; min-width: 70px; max-width: 70px; font-weight: bold; font-size: 0.8rem; text-align: left;">Active</th>
-                    <th style="width: 80px; min-width: 80px; max-width: 80px; background: transparent; font-weight: bold; font-size: 0.8rem; text-align: left;">Version</th>
-                    <th style="width: 70px; min-width: 70px; max-width: 70px; font-weight: bold; font-size: 0.8rem; text-align: right; box-sizing: border-box; padding: 2px; overflow: hidden; display: flex; justify-content: flex-end; align-items: center;">Actions</th>
+                    <th style="width: 80px; min-width: 80px; max-width: 80px; font-weight: bold; font-size: 0.8rem; text-align: left;">Version</th>
+                    <th style="width: 70px; min-width: 70px; max-width: 70px; font-weight: bold; font-size: 0.8rem; text-align: right; padding: 6px; box-sizing: border-box;">Actions</th>
                 </tr>
             </thead>
             <tbody id="workflowsTableBody" style="background: transparent !important;">
