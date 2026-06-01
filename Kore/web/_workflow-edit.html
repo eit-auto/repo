@@ -173,6 +173,14 @@
         border-color: #ffffff;
     }
 
+    .step.invalid {
+        border: 4px solid #cc3333 !important;
+    }
+
+    .node.invalid {
+        box-shadow: 0 0 0 4px #cc3333 !important;
+    }
+
     /* Connection point base styles */
     .connectionPoint {
         position: absolute;
@@ -181,7 +189,7 @@
         border-radius: 50%;
         border: 2px solid;
         pointer-events: auto;
-        cursor: crosshair;
+        cursor: default;
         z-index: 1;
         background: #3a7a99;
         border-color: #3a7a99;
@@ -270,4 +278,11 @@
 </style>
 
 <script src="/lib/jinja-json.js"></script>
-<script src="/lib/workflow-edit.js"></script>
+<script src="/lib/wf-variables.js"></script>
+<script src="/lib/wf-render.js"></script>
+<script src="/lib/wf-canvas.js"></script>
+<script src="/lib/wf-core.js"></script>
+<script>
+  // Initialize the workflow editor after all scripts have loaded
+  document.addEventListener('DOMContentLoaded', initWorkflowEditor);
+</script>

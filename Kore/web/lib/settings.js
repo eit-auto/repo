@@ -3,6 +3,277 @@ let currentUser = null;
         
         let confirmCallback = null;
 
+        // Entity type configurations for reducing duplication
+        const ENTITY_TYPES = {
+            org: { getter: 'getOrganizations', cache: 'cachedOrganizations', sidebar: 'organizationListSidebar', buttonClass: 'selectOrganizationFromList' },
+            user: { getter: 'getUsers', cache: 'cachedUsers', sidebar: 'usersListSidebar', buttonClass: 'selectUserFromList' },
+            group: { getter: 'getGroups', cache: 'cachedGroups', sidebar: 'groupsListSidebar', buttonClass: 'selectGroupFromList' }
+        };
+
+        // Generic list loader - reduces loadOrganizationsList, loadUsersList, loadGroupsList (3 functions → 1)
+        async function loadEntityListGeneric(type, preLoadFn) {
+            try {
+                if (!sessionToken) sessionToken = await window.getSessionToken();
+                const config = ENTITY_TYPES[type];
+                const entities = await window[config.getter](sessionToken, currentUser);
+                if (preLoadFn) await preLoadFn(entities);
+                
+                const sidebar = document.getElementById(config.sidebar);
+                const checkbox = document.getElementById('showInactive' + (type === 'org' ? 'Orgs' : type === 'user' ? 'Users' : 'Groups'));
+                if (checkbox && !checkbox.__initialized) {
+                    checkbox.__initialized = true;
+                    checkbox.addEventListener('change', () => displayEntityListGeneric(type, window[config.cache]));
+                }
+                displayEntityListGeneric(type, entities);
+            } catch (error) {
+                console.error(`Error loading ${type}:`, error);
+                const sidebar = document.getElementById(ENTITY_TYPES[type].sidebar);
+                if (sidebar) sidebar.innerHTML = '<p style="color: var(--text-muted); font-size: 11px; margin: 0;">Error loading ' + type + '</p>';
+            }
+        }
+
+        // Generic list display - reduces displayOrganizations, displayUsers, displayGroups (3 functions → 1)
+        function displayEntityListGeneric(type, entities) {
+            if (!entities?.length) {
+                const sidebar = document.getElementById(ENTITY_TYPES[type].sidebar);
+                sidebar.innerHTML = '<p style="color: var(--text-muted); font-size: 11px; margin: 0;">No ' + type + ' found</p>';
+                return;
+            }
+            
+            window[ENTITY_TYPES[type].cache] = entities;
+            const checkbox = document.getElementById('showInactive' + (type === 'org' ? 'Orgs' : type === 'user' ? 'Users' : 'Groups'));
+            const showInactive = checkbox?.checked || false;
+            
+            let filtered = entities;
+            if (type === 'org') {
+                filtered = entities.filter(e => e.org_id !== 0 && (showInactive || !e.inactive));
+            } else {
+                filtered = entities.filter(e => showInactive || e.active);
+            }
+            
+            const sidebar = document.getElementById(ENTITY_TYPES[type].sidebar);
+            const html = filtered.map(e => {
+                const id = type === 'org' ? e.org_id : type === 'user' ? e.userId : e.groupId;
+                const name = type === 'org' ? e.org_name : type === 'user' ? (e.fullName || e.email) : e.name;
+                return `<button class="btn" data-color="theme-neutral" data-size="sm" onclick="${ENTITY_TYPES[type].buttonClass}('${escapeHtml(String(id))}', this)" style="width: 100%; text-align: center;">${escapeHtml(name)}</button>`;
+            }).join('');
+            sidebar.innerHTML = html || '<p style="color: var(--text-muted); font-size: 11px; margin: 0;">No ' + type + ' found</p>';
+        }
+
+        // Detail display field specifications - defines editable and read-only fields for each entity type
+        const DETAIL_FIELD_SPECS = {
+            org: {
+                selector: '#organizationsTab .panel-level-2 > div > div:last-child',
+                title: 'Organization',
+                editableFields: [
+                    { id: 'orgNameInput', label: 'Organization Name', type: 'text', dataKey: 'org_name' },
+                    { id: 'orgStatusInput', label: 'Inactive', type: 'checkbox', dataKey: 'inactive' }
+                ],
+                readonlyFields: [
+                    { label: 'Organization ID', dataKey: 'org_id' },
+                    { label: 'Last Updated', dataKey: 'last_update', format: 'date' },
+                    { label: 'Last Updated By', dataKey: 'last_user' }
+                ],
+                unsavedCheckFn: 'checkOrgUnsavedChanges',
+                currentVar: 'currentOrganization',
+                cache: 'cachedOrganizations',
+                idField: 'org_id',
+                onDisplayComplete: 'loadOrgStack'
+            },
+            user: {
+                selector: '#usersTab .panel-level-2 > div > div:last-child',
+                title: 'User',
+                editableFields: [
+                    { id: 'userEmailInput', label: 'Email', type: 'email', dataKey: 'email' },
+                    { id: 'userFullNameInput', label: 'Full Name', type: 'text', dataKey: 'fullName' },
+                    { id: 'userActiveInput', label: 'Active', type: 'checkbox', dataKey: 'active' }
+                ],
+                readonlyFields: [
+                    { label: 'User ID', dataKey: 'userId' },
+                    { label: 'Status', dataKey: 'status' },
+                    { label: 'MFA Enabled', dataKey: 'mfaEnabled', format: 'yesno' },
+                    { label: 'Created', dataKey: 'createdAt', format: 'date' },
+                    { label: 'Last Login', dataKey: 'lastLoginAt', format: 'date', fallback: 'Never' },
+                    { label: 'Locked Until', dataKey: 'lockedUntil', format: 'date', conditional: 'isLocked' }
+                ],
+                unsavedCheckFn: 'checkUserUnsavedChanges',
+                currentVar: 'currentUserDetail',
+                cache: 'cachedUsers',
+                idField: 'userId',
+                onDisplayComplete: null
+            },
+            group: {
+                selector: '#groupsTab .panel-level-2 > div > div:last-child',
+                title: 'Group',
+                editableFields: [
+                    { id: 'groupNameInput', label: 'Group Name', type: 'text', dataKey: 'name' },
+                    { id: 'groupDescriptionInput', label: 'Description', type: 'text', dataKey: 'description' },
+                    { id: 'groupActiveInput', label: 'Active', type: 'checkbox', dataKey: 'active' }
+                ],
+                readonlyFields: [],
+                unsavedCheckFn: 'checkGroupUnsavedChanges',
+                currentVar: 'currentGroupDetail',
+                cache: 'cachedGroups',
+                idField: 'groupId',
+                onDisplayComplete: null
+            }
+        };
+
+        // Generic detail display - uses DETAIL_FIELD_SPECS to build entity detail panels
+        function displayEntityDetailsGeneric(entityType, entityId) {
+            const spec = DETAIL_FIELD_SPECS[entityType];
+            const detailArea = document.querySelector(spec.selector);
+            
+            if (!detailArea) {
+                console.error('Detail area not found for', entityType);
+                return;
+            }
+            
+            const entityData = window[spec.cache]?.find(e => e[spec.idField] == entityId);
+            if (!entityData) {
+                console.warn(`${entityType} data not found for ${spec.idField}:`, entityId);
+                return;
+            }
+            
+            // Build editable fields HTML
+            let editableHtml = '';
+            spec.editableFields.forEach(field => {
+                const value = entityData[field.dataKey];
+                const isCheckbox = field.type === 'checkbox';
+                
+                if (isCheckbox) {
+                    editableHtml += `
+                        <div>
+                            <div style="display: flex; align-items: center; gap: 6px;">
+                                <input type="checkbox" id="${field.id}" ${value ? 'checked' : ''} style="width: 16px; height: 16px; cursor: pointer;" onchange="${spec.unsavedCheckFn}()">
+                                <label for="${field.id}" style="color: var(--text-muted); font-size: 11px; cursor: pointer; margin: 0; font-weight: 600;">${field.label}</label>
+                            </div>
+                        </div>
+                    `;
+                } else {
+                    editableHtml += `
+                        <div>
+                            <label style="display: block; color: var(--text-muted); font-size: 11px; margin-bottom: 3px; font-weight: 600;">${field.label}</label>
+                            <input type="${field.type}" id="${field.id}" value="${escapeHtml(value || '')}" style="width: 100%;" oninput="${spec.unsavedCheckFn}()">
+                        </div>
+                    `;
+                }
+            });
+            
+            // Build readonly fields HTML
+            let readonlyHtml = '';
+            spec.readonlyFields.forEach(field => {
+                // Check conditional display
+                if (field.conditional) {
+                    const condValue = entityData[field.conditional.replace('is', '').toLowerCase()];
+                    const isLocked = entityData.lockedUntil && new Date(entityData.lockedUntil) > new Date();
+                    if (!isLocked) return;
+                }
+                
+                let displayValue = entityData[field.dataKey];
+                if (field.format === 'date' && displayValue) {
+                    displayValue = new Date(displayValue).toLocaleString();
+                } else if (field.format === 'yesno' && displayValue !== undefined) {
+                    displayValue = displayValue ? 'Yes' : 'No';
+                } else if (!displayValue && field.fallback) {
+                    displayValue = field.fallback;
+                }
+                
+                readonlyHtml += `
+                    <div style="display: flex; gap: 8px; font-size: 12px;">
+                        <span style="color: var(--text-muted); font-weight: 600;">${field.label}:</span>
+                        <span style="color: var(--text-primary);">${escapeHtml(String(displayValue || ''))}</span>
+                    </div>
+                `;
+            });
+            
+            // Build button bar
+            let buttonBar = `
+                <button class="btn" data-color="green" data-size="sm" onclick="save${entityType.charAt(0).toUpperCase() + entityType.slice(1)}Details('${escapeHtml(String(entityId))}')" id="save${entityType}Btn">Save</button>
+                <button class="btn" data-color="grey" data-size="sm" onclick="cancel${entityType.charAt(0).toUpperCase() + entityType.slice(1)}Edit('${escapeHtml(String(entityId))}')" id="cancel${entityType}Btn">Cancel</button>
+            `;
+            
+            // User-specific buttons
+            if (entityType === 'user') {
+                const isLocked = entityData.lockedUntil && new Date(entityData.lockedUntil) > new Date();
+                if (isLocked) {
+                    buttonBar += `<button class="btn" data-color="blue" data-size="sm" onclick="unlockUser('${escapeHtml(String(entityId))}')" id="unlockUserBtn">Unlock</button>`;
+                }
+                if (entityData.mfaEnabled) {
+                    buttonBar += `<button class="btn" data-color="orange" data-size="sm" onclick="resetUserMFA('${escapeHtml(String(entityId))}')" id="resetMFABtn">Reset MFA</button>`;
+                }
+                buttonBar += `<button class="btn" data-color="grey" data-size="sm" onclick="resendUserInvite('${escapeHtml(String(entityId))}')" id="resendInviteBtn">Resend Invite</button>`;
+            }
+            
+            // Build main panel
+            const detailsHtml = `
+                <div class="panel-level-3" style="display: flex; flex-direction: column; gap: 10px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                        <h3 style="margin: 0; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">${spec.title} Details</h3>
+                        <div style="display: flex; gap: 8px;">
+                            ${buttonBar}
+                        </div>
+                    </div>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+                        <div style="display: flex; flex-direction: column; gap: 15px;">
+                            ${editableHtml}
+                        </div>
+                        ${readonlyHtml ? `<div style="display: flex; flex-direction: column; gap: 15px;">${readonlyHtml}</div>` : ''}
+                    </div>
+                </div>
+            `;
+            
+            detailArea.innerHTML = detailsHtml;
+            window[spec.currentVar] = entityData;
+            window.clearUnsavedChanges();
+            
+            // Post-display setup
+            if (spec.onDisplayComplete) {
+                window[spec.onDisplayComplete](entityId);
+            }
+            if (entityType === 'user') {
+                addUserGroupsSection(entityData, detailArea);
+            }
+        }
+        
+        function addUserGroupsSection(userData, detailArea) {
+            if (!window.cachedGroups) return;
+            let userGroupIds = [];
+            try {
+                if (userData.groupIds) {
+                    if (Array.isArray(userData.groupIds)) {
+                        userGroupIds = userData.groupIds;
+                    } else if (typeof userData.groupIds === 'string') {
+                        try {
+                            userGroupIds = JSON.parse(userData.groupIds);
+                        } catch {
+                            userGroupIds = userData.groupIds.split(',').map(id => id.trim()).filter(id => id);
+                        }
+                    }
+                }
+            } catch (e) {
+                console.warn('Could not parse groupIds:', e);
+            }
+            
+            const groupsHtml = `
+                <div class="panel-level-3" style="display: flex; flex-direction: column; gap: 10px;">
+                    <h3 style="margin: 0 0 10px 0; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Groups</h3>
+                    <div style="display: flex; flex-direction: column; gap: 8px;">
+                        ${window.cachedGroups && window.cachedGroups.length > 0 
+                            ? window.cachedGroups.sort((a, b) => (a.name || '').localeCompare(b.name || '')).map(group => `
+                                <div style="display: flex; align-items: center; gap: 8px;">
+                                    <input type="checkbox" id="group_${escapeHtml(String(group.groupId))}" ${userGroupIds.includes(group.groupId) ? 'checked' : ''} style="width: 16px; height: 16px; cursor: pointer;" onchange="checkUserUnsavedChanges()">
+                                    <label for="group_${escapeHtml(String(group.groupId))}" style="flex: 1; color: var(--text-primary); font-size: 12px; cursor: pointer; margin: 0;">${escapeHtml(group.name)}</label>
+                                </div>
+                            `).join('')
+                            : '<p style="color: var(--text-muted); font-size: 11px; margin: 0;">No groups available</p>'
+                        }
+                    </div>
+                </div>
+            `;
+            detailArea.insertAdjacentHTML('beforeend', groupsHtml);
+        }
+
         function updateSaveButtonState() {
             const saveBtn = document.getElementById('savePluginBtn');
             if (saveBtn) {
@@ -436,69 +707,11 @@ let currentUser = null;
         }
 
         async function loadOrganizationsList() {
-            try {
-                if (!sessionToken) {
-                    sessionToken = await window.getSessionToken();
-                }
-
-                const organizations = await window.getOrganizations(sessionToken, currentUser);
-                displayOrganizations(organizations);
-                
-                // Add event listener for Show Inactive checkbox
-                const showInactiveCheckbox = document.getElementById('showInactiveOrgs');
-                if (showInactiveCheckbox) {
-                    showInactiveCheckbox.addEventListener('change', () => {
-                        displayOrganizations(window.cachedOrganizations);
-                    });
-                }
-            } catch (error) {
-                console.error('Error loading organizations:', error);
-                const sidebar = document.getElementById('organizationListSidebar');
-                if (sidebar) {
-                    sidebar.innerHTML = '<p style="color: var(--text-muted); font-size: 11px; margin: 0;">Error loading organizations</p>';
-                }
-            }
+            return loadEntityListGeneric('org');
         }
 
         function displayOrganizations(organizations) {
-            const sidebar = document.getElementById('organizationListSidebar');
-            
-            if (!organizations || organizations.length === 0) {
-                sidebar.innerHTML = '<p style="color: var(--text-muted); font-size: 11px; margin: 0;">No organizations found</p>';
-                return;
-            }
-
-            // Cache organizations for detail display
-            window.cachedOrganizations = organizations;
-            
-            // Filter out org_id 0 and filter based on checkbox
-            const showInactiveCheckbox = document.getElementById('showInactiveOrgs');
-            const showInactive = showInactiveCheckbox ? showInactiveCheckbox.checked : false;
-            const filteredOrgs = organizations
-                .filter(org => org.org_id !== 0 && org.org_id !== '0')  // Exclude org_id 0
-                .filter(org => showInactive || !org.inactive);  // Filter by inactive status
-            
-            let html = '';
-            filteredOrgs.forEach(org => {
-                if (!org) return;
-                
-                const orgId = org.org_id;
-                const displayName = org.org_name || 'Unknown';
-                
-                if (orgId === null || orgId === undefined) {
-                    console.warn('Organization has no org_id:', org);
-                    return;
-                }
-                
-                html += `
-                    <button class="btn" data-color="theme-neutral" data-size="sm" onclick="selectOrganizationFromList('${escapeHtml(String(orgId))}', this)" 
-                            style="width: 100%; text-align: center;">
-                        ${escapeHtml(displayName)}
-                    </button>
-                `;
-            });
-
-            sidebar.innerHTML = html || '<p style="color: var(--text-muted); font-size: 11px; margin: 0;">No organizations found</p>';
+            displayEntityListGeneric('org', organizations);
         }
 
         async function showAddOrganizationModal() {
@@ -721,89 +934,7 @@ let currentUser = null;
         }
 
         function displayOrganizationDetails(orgId) {
-            // Find the detail area container (the right column of the grid)
-            const detailArea = document.querySelector('#organizationsTab .panel-level-2 > div > div:last-child');
-            
-            if (!detailArea) {
-                console.error('Detail area not found');
-                return;
-            }
-            
-            // Find the organization data from the cached organizations
-            let selectedOrgData = null;
-            
-            if (window.cachedOrganizations) {
-                selectedOrgData = window.cachedOrganizations.find(org => org.org_id == orgId);
-            }
-            
-            if (!selectedOrgData) {
-                console.warn('Organization data not found for org_id:', orgId);
-                return;
-            }
-            
-            const detailsHtml = `
-                <div class="panel-level-3" style="display: flex; flex-direction: column; gap: 10px;">
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-                        <h3 style="margin: 0; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Organization Details</h3>
-                        <div style="display: flex; gap: 8px;">
-                            <button class="btn" data-color="green" data-size="sm" onclick="saveOrganizationDetails('${escapeHtml(String(selectedOrgData.org_id))}')" id="saveOrgBtn">Save</button>
-                            <button class="btn" data-color="grey" data-size="sm" onclick="cancelOrganizationEdit('${escapeHtml(String(selectedOrgData.org_id))}')" id="cancelOrgBtn">Cancel</button>
-                        </div>
-                    </div>
-                    
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
-                        <div style="display: flex; flex-direction: column; gap: 15px;">
-                            <div>
-                                <label style="display: block; color: var(--text-muted); font-size: 11px; margin-bottom: 3px; font-weight: 600;">Organization Name</label>
-                                <input type="text" id="orgNameInput" value="${escapeHtml(selectedOrgData.org_name)}" style="width: 100%;">
-                            </div>
-                            
-                            <div>
-                                <div style="display: flex; align-items: center; gap: 6px;">
-                                    <input type="checkbox" id="orgStatusInput" ${selectedOrgData.inactive ? 'checked' : ''} style="width: 16px; height: 16px; cursor: pointer;">
-                                    <label for="orgStatusInput" style="color: var(--text-muted); font-size: 11px; cursor: pointer; margin: 0; font-weight: 600;">Inactive</label>
-                                </div>
-                            </div>
-                        </div>
-                        
-                        <div style="display: flex; flex-direction: column; gap: 15px;">
-                            <div style="display: flex; gap: 8px; font-size: 12px;">
-                                <span style="color: var(--text-muted); font-weight: 600;">Organization ID:</span>
-                                <span style="color: var(--text-primary);">${escapeHtml(String(selectedOrgData.org_id))}</span>
-                            </div>
-                            
-                            <div style="display: flex; gap: 8px; font-size: 12px;">
-                                <span style="color: var(--text-muted); font-weight: 600;">Last Updated:</span>
-                                <span style="color: var(--text-primary);">${escapeHtml(new Date(selectedOrgData.last_update).toLocaleString())}</span>
-                            </div>
-                            
-                            <div style="display: flex; gap: 8px; font-size: 12px;">
-                                <span style="color: var(--text-muted); font-weight: 600;">Last Updated By:</span>
-                                <span style="color: var(--text-primary);">${escapeHtml(selectedOrgData.last_user)}</span>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            `;
-            
-            detailArea.innerHTML = detailsHtml;
-            currentOrganization = selectedOrgData;
-            
-            // Add change listeners for org details fields
-            const orgNameInput = document.getElementById('orgNameInput');
-            const orgStatusInput = document.getElementById('orgStatusInput');
-            
-            if (orgNameInput) orgNameInput.addEventListener('input', () => checkOrgUnsavedChanges());
-            if (orgStatusInput) orgStatusInput.addEventListener('change', () => checkOrgUnsavedChanges());
-            
-            // Disable save button initially
-            const saveBtn = document.getElementById('saveOrgBtn');
-            if (saveBtn) {
-                saveBtn.disabled = true;
-            }
-            
-            // Load org_stack data
-            loadOrgStack(orgId);
+            displayEntityDetailsGeneric('org', orgId);
         }
 
         async function loadOrgStack(orgId) {
@@ -2571,73 +2702,116 @@ let currentUser = null;
         }
 
         async function loadUsersList() {
-            try {
-                if (!sessionToken) {
-                    sessionToken = await window.getSessionToken();
-                }
-
-                const users = await window.getUsers(sessionToken, currentUser);
+            return loadEntityListGeneric('user', async (users) => {
                 const groups = await window.getGroups(sessionToken, currentUser);
-                
-                // Cache groups for use in detail display
                 window.cachedGroups = groups;
-                
-                displayUsers(users);
-                
-                // Add event listener for Show Inactive checkbox
-                const showInactiveCheckbox = document.getElementById('showInactiveUsers');
-                if (showInactiveCheckbox) {
-                    showInactiveCheckbox.addEventListener('change', () => {
-                        displayUsers(window.cachedUsers);
-                    });
-                }
-            } catch (error) {
-                console.error('Error loading users:', error);
-                const sidebar = document.getElementById('usersListSidebar');
-                if (sidebar) {
-                    sidebar.innerHTML = '<p style="color: var(--text-muted); font-size: 11px; margin: 0;">Error loading users</p>';
-                }
+            });
+        }
+
+        async function loadGroupsList() {
+            return loadEntityListGeneric('group');
+        }
+
+        function displayGroups(groups) {
+            displayEntityListGeneric('group', groups);
+        }
+
+        function selectGroupFromList(groupId, buttonElement) {
+            // Check if there are unsaved changes
+            if (window.hasUnsavedChanges()) {
+                window.showUnsaved(
+                    async () => {
+                        // Save before switching - would go here if we have editable fields
+                        doSelectGroupFromList(groupId, buttonElement);
+                    },
+                    () => {
+                        // Discard changes and switch
+                        doSelectGroupFromList(groupId, buttonElement);
+                    }
+                );
+            } else {
+                doSelectGroupFromList(groupId, buttonElement);
             }
         }
 
-        function displayUsers(users) {
-            const sidebar = document.getElementById('usersListSidebar');
+        function doSelectGroupFromList(groupId, buttonElement) {
+            // Reset all buttons to theme-neutral color
+            const buttons = document.querySelectorAll('#groupsListSidebar button');
+            buttons.forEach(btn => {
+                btn.setAttribute('data-color', 'theme-neutral');
+            });
             
-            if (!users || users.length === 0) {
-                sidebar.innerHTML = '<p style="color: var(--text-muted); font-size: 11px; margin: 0;">No users found</p>';
-                return;
+            // Highlight the selected button with theme-brand
+            if (buttonElement) {
+                buttonElement.setAttribute('data-color', 'theme-brand');
             }
+            
+            // Load group details
+            displayGroupDetails(groupId);
+            window.clearUnsavedChanges();
+        }
 
-            // Cache users for detail display
-            window.cachedUsers = users;
+
+        function displayGroupDetails(groupId) {
+            displayEntityDetailsGeneric('group', groupId);
+        }
+
+        function checkGroupUnsavedChanges() {
+            const name = document.getElementById('groupNameInput')?.value || '';
+            const description = document.getElementById('groupDescriptionInput')?.value || '';
+            const active = document.getElementById('groupActiveInput')?.checked || false;
             
-            // Filter based on checkbox
-            const showInactiveCheckbox = document.getElementById('showInactiveUsers');
-            const showInactive = showInactiveCheckbox ? showInactiveCheckbox.checked : false;
-            const filteredUsers = users.filter(user => showInactive || user.active);
+            const nameChanged = name !== (currentGroupDetail?.name || '');
+            const activeChanged = active !== (currentGroupDetail?.active || false);
+            const descriptionChanged = description !== (currentGroupDetail?.description || '');
             
-            let html = '';
-            filteredUsers.forEach(user => {
-                if (!user) return;
+            if (nameChanged || activeChanged || descriptionChanged) {
+                window.checkUnsavedChanges(true);
+            } else {
+                window.clearUnsavedChanges();
+            }
+        }
+
+        async function saveGroupDetails(groupId) {
+            const name = document.getElementById('groupNameInput')?.value || '';
+            const description = document.getElementById('groupDescriptionInput')?.value || ''; 
+            const active = document.getElementById('groupActiveInput')?.checked || false;
+            
+            try {
+                const response = await fetch(`/groups/${groupId}`, {
+                                               method: 'PUT',
+                                               headers: { 'Content-Type': 'application/json' },
+                                               body: JSON.stringify({
+                                                   groupName: name.trim(),
+                                                   description: description.trim(),
+                                                   active: active
+                                               })
+                                           });
                 
-                const userId = user.userId;
-                const displayName = user.fullName || user.email || 'Unknown';
-                const statusBadge = user.status === 'locked' ? ' 🔒' : !user.active ? ' ⊗' : '';
+                const data = await response.json();
                 
-                if (userId === null || userId === undefined) {
-                    console.warn('User has no userId:', user);
+                if (!response.ok) {
+                    window.showStatusBanner('Error updating group: ' + (data.error || 'Unknown error'), 'error', 'groupsStatusMessage');
                     return;
                 }
                 
-                html += `
-                    <button class="btn" data-color="theme-neutral" data-size="sm" onclick="selectUserFromList('${escapeHtml(String(userId))}', this)" 
-                            style="width: 100%; text-align: left; text-align: center;">
-                        ${escapeHtml(displayName)}${statusBadge}
-                    </button>
-                `;
-            });
+                window.showStatusBanner('Group updated successfully', 'success', 'groupsStatusMessage');
+                window.clearUnsavedChanges();
+                loadGroupsList();
+            } catch (error) {
+                console.error('Error updating group:', error);
+                window.showStatusBanner('Error updating group: ' + error.message, 'error', 'groupsStatusMessage');
+            }
+        }
 
-            sidebar.innerHTML = html || '<p style="color: var(--text-muted); font-size: 11px; margin: 0;">No users found</p>';
+        function cancelGroupEdit(groupId) {
+            window.clearUnsavedChanges();
+            displayGroupDetails(groupId);
+        }
+
+// ################################
+        function displayUsers(users) {
+            displayEntityListGeneric('user', users);
         }
 
         function selectUserFromList(userId, buttonElement) {
@@ -2676,153 +2850,7 @@ let currentUser = null;
         }
 
         function displayUserDetails(userId) {
-            // Find the detail area container (the right column of the grid)
-            const detailArea = document.querySelector('#usersTab .panel-level-2 > div > div:last-child');
-            
-            if (!detailArea) {
-                console.error('Detail area not found');
-                return;
-            }
-            
-            // Find the user data from the cached users
-            let selectedUserData = null;
-            
-            if (window.cachedUsers) {
-                selectedUserData = window.cachedUsers.find(user => user.userId === userId);
-            }
-            
-            if (!selectedUserData) {
-                console.warn('User data not found for userId:', userId);
-                return;
-            }
-            
-            const isLocked = selectedUserData.lockedUntil && new Date(selectedUserData.lockedUntil) > new Date();
-            const lockExpiresAt = isLocked ? new Date(selectedUserData.lockedUntil).toLocaleString() : null;
-            
-            // Parse group IDs and get group names
-            let userGroups = [];
-            try {
-                let groupIds = [];
-                if (selectedUserData.groupIds) {
-                    // If already an array, use it directly
-                    if (Array.isArray(selectedUserData.groupIds)) {
-                        groupIds = selectedUserData.groupIds;
-                    } else if (typeof selectedUserData.groupIds === 'string') {
-                        // Try parsing as JSON first, fall back to comma-separated
-                        try {
-                            groupIds = JSON.parse(selectedUserData.groupIds);
-                        } catch (e) {
-                            // If not JSON, treat as comma-separated string
-                            groupIds = selectedUserData.groupIds.split(',').map(id => id.trim()).filter(id => id);
-                        }
-                    }
-                }
-                
-                if (Array.isArray(groupIds) && window.cachedGroups) {
-                    userGroups = groupIds
-                        .map(groupId => window.cachedGroups.find(g => g.groupId === groupId))
-                        .filter(g => g)
-                        .map(g => g.name);
-                }
-            } catch (e) {
-                console.warn('Could not parse groupIds:', e);
-            }
-            
-            const detailsHtml = `
-                <div style="display: flex; flex-direction: column; gap: 15px; height: 100%; overflow-y: auto;">
-                    <div class="panel-level-3" style="display: flex; flex-direction: column; gap: 10px;">
-                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-                            <h3 style="margin: 0; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">User Details</h3>
-                            <div style="display: flex; gap: 8px;">
-                                <button class="btn" data-color="green" data-size="sm" onclick="saveUserDetails('${escapeHtml(String(selectedUserData.userId))}')" id="saveUserBtn">Save</button>
-                                <button class="btn" data-color="grey" data-size="sm" onclick="cancelUserEdit('${escapeHtml(String(selectedUserData.userId))}')" id="cancelUserBtn">Cancel</button>
-                                ${isLocked ? `<button class="btn" data-color="blue" data-size="sm" onclick="unlockUser('${escapeHtml(String(selectedUserData.userId))}')" id="unlockUserBtn">Unlock</button>` : ''}
-                                ${selectedUserData.mfaEnabled ? `<button class="btn" data-color="orange" data-size="sm" onclick="resetUserMFA('${escapeHtml(String(selectedUserData.userId))}')" id="resetMFABtn">Reset MFA</button>` : ''}
-                                <button class="btn" data-color="grey" data-size="sm" onclick="resendUserInvite('${escapeHtml(String(selectedUserData.userId))}')" id="resendInviteBtn">Resend Invite</button>
-                            </div>
-                        </div>
-                        
-                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
-                            <div style="display: flex; flex-direction: column; gap: 15px;">
-                                <div>
-                                    <label style="display: block; color: var(--text-muted); font-size: 11px; margin-bottom: 3px; font-weight: 600;">Email</label>
-                                    <input type="email" id="userEmailInput" value="${escapeHtml(selectedUserData.email)}" style="width: 100%;" oninput="checkUserUnsavedChanges()">
-                                </div>
-                                
-                                <div>
-                                    <label style="display: block; color: var(--text-muted); font-size: 11px; margin-bottom: 3px; font-weight: 600;">Full Name</label>
-                                    <input type="text" id="userFullNameInput" value="${escapeHtml(selectedUserData.fullName || '')}" style="width: 100%;" oninput="checkUserUnsavedChanges()">
-                                </div>
-                                
-                                <div>
-                                    <div style="display: flex; align-items: center; gap: 6px;">
-                                        <input type="checkbox" id="userActiveInput" ${selectedUserData.active ? 'checked' : ''} style="width: 16px; height: 16px; cursor: pointer;" onchange="checkUserUnsavedChanges()">
-                                        <label for="userActiveInput" style="color: var(--text-muted); font-size: 11px; cursor: pointer; margin: 0; font-weight: 600;">Active</label>
-                                    </div>
-                                </div>
-                            </div>
-                            
-                            <div style="display: flex; flex-direction: column; gap: 15px;">
-                                <div>
-                                    <label style="display: block; color: var(--text-muted); font-size: 11px; margin-bottom: 3px; font-weight: 600;">User ID</label>
-                                    <div style="color: var(--text-primary); font-size: 12px; word-break: break-all;">${escapeHtml(String(selectedUserData.userId))}</div>
-                                </div>
-                                
-                                <div>
-                                    <label style="display: block; color: var(--text-muted); font-size: 11px; margin-bottom: 3px; font-weight: 600;">Status</label>
-                                    <div style="color: var(--text-primary); font-size: 12px;">${escapeHtml(selectedUserData.status)}</div>
-                                </div>
-                                
-                                <div>
-                                    <label style="display: block; color: var(--text-muted); font-size: 11px; margin-bottom: 3px; font-weight: 600;">MFA Enabled</label>
-                                    <div style="color: var(--text-primary); font-size: 12px;">${selectedUserData.mfaEnabled ? 'Yes' : 'No'}</div>
-                                </div>
-                                
-                                <div>
-                                    <label style="display: block; color: var(--text-muted); font-size: 11px; margin-bottom: 3px; font-weight: 600;">Created</label>
-                                    <div style="color: var(--text-primary); font-size: 12px;">${escapeHtml(new Date(selectedUserData.createdAt).toLocaleString())}</div>
-                                </div>
-                                
-                                <div>
-                                    <label style="display: block; color: var(--text-muted); font-size: 11px; margin-bottom: 3px; font-weight: 600;">Last Login</label>
-                                    <div style="color: var(--text-primary); font-size: 12px;">${selectedUserData.lastLoginAt ? escapeHtml(new Date(selectedUserData.lastLoginAt).toLocaleString()) : 'Never'}</div>
-                                </div>
-                                
-                                ${isLocked ? `
-                                    <div>
-                                        <label style="display: block; color: var(--text-muted); font-size: 11px; margin-bottom: 3px; font-weight: 600;">Locked Until</label>
-                                        <div style="color: var(--text-primary); font-size: 12px;">${escapeHtml(lockExpiresAt)}</div>
-                                    </div>
-                                ` : ''}
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="panel-level-3" style="display: flex; flex-direction: column; gap: 10px;">
-                        <h3 style="margin: 0 0 10px 0; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Groups</h3>
-                        <div style="display: flex; flex-direction: column; gap: 8px;">
-                            ${window.cachedGroups && window.cachedGroups.length > 0 
-                                ? window.cachedGroups
-                                    .sort((a, b) => (a.name || '').localeCompare(b.name || ''))
-                                    .map(group => {
-                                        const isAssigned = userGroups.includes(group.name);
-                                        return `
-                                            <div style="display: flex; align-items: center; gap: 8px;">
-                                                <input type="checkbox" id="group_${escapeHtml(String(group.groupId))}" ${isAssigned ? 'checked' : ''} style="width: 16px; height: 16px; cursor: pointer;" onchange="checkUserUnsavedChanges()">
-                                                <label for="group_${escapeHtml(String(group.groupId))}" style="flex: 1; color: var(--text-primary); font-size: 12px; cursor: pointer; margin: 0;">${escapeHtml(group.name)}</label>
-                                            </div>
-                                        `;
-                                    }).join('')
-                                : '<p style="color: var(--text-muted); font-size: 11px; margin: 0;">No groups available</p>'
-                            }
-                        </div>
-                    </div>
-                </div>
-            `;
-            
-            detailArea.innerHTML = detailsHtml;
-            currentUserDetail = selectedUserData;
-            window.clearUnsavedChanges();
+            displayEntityDetailsGeneric('user', userId);
         }
 
         function checkUserUnsavedChanges() {
@@ -2925,7 +2953,8 @@ let currentUser = null;
             try {
                 const response = await fetch(`/admin/users/${userId}/reset-mfa`, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' }
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ resetBy: currentUser })
                 });
                 
                 const data = await response.json();
@@ -2968,6 +2997,10 @@ let currentUser = null;
 
         function switchToUsersTab(event) {
             switchTabWithUnsavedCheck('usersTab', event, loadUsersList);
+        }
+
+        function switchToGroupsTab(event) {
+            switchTabWithUnsavedCheck('groupsTab', event, loadGroupsList);
         }
 
         function switchToSecurityTab(event) {

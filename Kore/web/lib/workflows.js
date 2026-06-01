@@ -51,10 +51,22 @@ async function saveWorkflow(id, workflowData, options = {}) {
         let definitionToSave = { ...definition };
         if (updateMetadata) {
             const now = new Date().toISOString();
+            let userEmail = getUser(); // Fallback to user ID
+            
+            try {
+                const sessionToken = await getSessionToken();
+                const userData = await getCurrentUserData(sessionToken);
+                if (userData && userData.email) {
+                    userEmail = userData.email;
+                }
+            } catch (error) {
+                console.warn('Could not fetch user email, using user ID:', error);
+            }
+            
             definitionToSave.metadata = {
                 ...(definition.metadata || {}),
                 updated_at: now,
-                updated_by: getUser()
+                updated_by: userEmail
             };
         }
 
@@ -535,6 +547,7 @@ async function loadWorkflow() {
                         type: caseItem.type || 'Success',
                         conditions: caseItem.conditions || '',
                         targetSteps: caseItem.targetSteps || [],
+                        targetNodes: caseItem.targetNodes || [],
                         order: caseItem.order || (caseIndex + 1)
                     };
                     currentTransitions.push(transition);
@@ -1473,6 +1486,7 @@ function renderStep(stepData) {
                     type: 'Success',
                     conditions: '',
                     targetSteps: [],
+                    targetNodes: [],
                     order: 1
                 };
                 
@@ -1524,6 +1538,7 @@ function renderStep(stepData) {
                                         type: caseObj.type,
                                         conditions: caseObj.conditions,
                                         targetSteps: caseObj.targetSteps,
+                                        targetNodes: caseObj.targetNodes,
                                         order: caseObj.order
                                     } : null;
                                 }).filter(Boolean)
@@ -2090,7 +2105,7 @@ async function toggleWorkflowActive(workflowId) {
  * Edit a workflow
  */
 function editWorkflow(workflowId) {
-    window.location.href = `workflow-edit.html?id=${workflowId}`;
+    window.location.href = `/workflow-edit?id=${workflowId}`;
 }
 
 /**
@@ -2102,116 +2117,153 @@ function editWorkflow(workflowId) {
  * Open modal to create a new workflow
  */
 function openCreateModal() {
-    showModal({
-        title: 'Create New Workflow',
-        type: 'input',
-        input: {
-            label: 'Workflow Name'
-        },
-        buttons: [
+    showFormModal(
+        'Create New Workflow',
+        [
             {
-                label: 'Cancel',
-                className: 'btn-grey',
-                callback: ({ close }) => close()
-            },
-            {
-                label: 'Create',
-                className: 'btn-blue',
-                callback: async ({ close, inputValue, setError }) => {
-                    const workflowName = inputValue?.trim();
-                    
-                    if (!workflowName) {
-                        setError('Workflow name is required');
-                        return;
-                    }
-                    
-                    close();
-                    
-                    const newId = generateUUID();
-                    const newWorkflow = {
-                        id: newId,
-                        name: workflowName,
-                        version: '1.0.0',
-                        folder_id: null,
-                        definition: {
-                            id: newId,
-                            name: workflowName,
-                            folder_id: null,
-                            view: { pan: '0,0', zoom: 1 },
-                            steps: [{
-                                id: generateUUID(),
-                                name: 'BEGIN',
-                                type: 'Begin',
-                                width: 3,
-                                height: 1,
-                                position: '1,1',
-                                variables: [],
-                                overrideSize: false
-                            }],
-                            version: '1.0.0',
-                            active: true,
-                            inputs: [],
-                            outputs: [],
-                            metadata: {
-                                created_at: new Date().toISOString(),
-                                created_by: getUser(),
-                                updated_at: new Date().toISOString(),
-                                updated_by: getUser()
-                            }
+                name: 'workflowName',
+                type: 'text',
+                label: 'Workflow Name',
+                placeholder: 'Enter workflow name',
+                required: true
+            }
+        ],
+        async (formData) => {
+            const workflowName = formData.workflowName?.trim();
+            
+            if (!workflowName) {
+                showModal({
+                    title: 'Error',
+                    content: 'Workflow name is required',
+                    buttons: [
+                        {
+                            label: 'OK',
+                            className: 'btn-blue',
+                            callback: ({ close }) => close()
                         }
-                    };
-                    
-                    try {
-                        const payload = {
-                            id: newId,
-                            name: newWorkflow.name,
-                            version: newWorkflow.version,
-                            folder_id: newWorkflow.folder_id,
-                            definition: newWorkflow.definition
-                        };
-
-                        console.log('Creating workflow with payload:', payload);
-
-                        const response = await fetch('https://app.equinoxits.com:1139/kore/workflows', {
-                            method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/json',
-                                'X-User': getUser()
-                            },
-                            body: JSON.stringify(payload)
-                        });
-
-                        if (!response.ok) {
-                            const data = await response.json().catch(() => ({}));
-                            throw new Error(data.error || `HTTP ${response.status}: ${response.statusText}`);
-                        }
-
-                        const result = await response.json();
-                        
-                        // Refresh the workflow list
-                        await loadWorkflows();
-                        
-                        // Close the modal
-                        close();
-                        
-                        // Redirect to editor
-                        window.location.href = `workflow-edit.html?id=${newId}`;
-                    } catch (error) {
-                        console.error('Error creating workflow:', error);
-                        showModal({
-                            title: 'Error Creating Workflow',
-                            content: error.message,
-                            buttons: [
+                    ]
+                });
+                return;
+            }
+            
+            const newId = generateUUID();
+            let userEmail = getUser(); // Fallback to user ID
+            
+            try {
+                const sessionToken = await getSessionToken();
+                const userData = await getCurrentUserData(sessionToken);
+                if (userData && userData.email) {
+                    userEmail = userData.email;
+                }
+            } catch (error) {
+                console.warn('Could not fetch user email, using user ID:', error);
+            }
+            
+            const newWorkflow = {
+                id: newId,
+                name: workflowName,
+                version: '1.0.0',
+                folder_id: null,
+                definition: {
+                    id: newId,
+                    name: workflowName,
+                    folder_id: null,
+                    view: { pan: '0,0', zoom: 1 },
+                    steps: [{
+                        id: generateUUID(),
+                        name: 'BEGIN',
+                        type: 'Begin',
+                        width: 3,
+                        height: 1,
+                        position: '1,1',
+                        variables: [],
+                        overrideSize: false,
+                        transition: {
+                            position: '1,1',
+                            mode: 'First',
+                            vertical: false,
+                            attached: true,
+                            cases: [
                                 {
-                                    label: 'OK',
-                                    className: 'btn-blue',
-                                    callback: ({ close }) => close()
+                                    type: 'Success',
+                                    conditions: '',
+                                    targetSteps: [],
+                                    targetNodes: [],
+                                    order: 1
                                 }
                             ]
-                        });
+                        }
+                    }],
+                    version: '1.0.0',
+                    active: true,
+                    inputs: [],
+                    outputs: [],
+                    metadata: {
+                        created_at: new Date().toISOString(),
+                        created_by: userEmail,
+                        updated_at: new Date().toISOString(),
+                        updated_by: userEmail
                     }
                 }
+            };
+            
+            try {
+                const payload = {
+                    id: newId,
+                    name: newWorkflow.name,
+                    version: newWorkflow.version,
+                    folder_id: newWorkflow.folder_id,
+                    definition: newWorkflow.definition
+                };
+
+                console.log('Creating workflow with payload:', payload);
+
+                const response = await fetch('https://app.equinoxits.com:1139/kore/workflows', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-User': getUser()
+                    },
+                    body: JSON.stringify(payload)
+                });
+
+                if (!response.ok) {
+                    const data = await response.json().catch(() => ({}));
+                    throw new Error(data.error || `HTTP ${response.status}: ${response.statusText}`);
+                }
+
+                const result = await response.json();
+                
+                // Refresh the workflow list and re-render
+                await loadWorkflows();
+                
+                // Re-render the current view (if a folder is selected, show filtered; otherwise show all)
+                if (window.currentSelectedFolder) {
+                    renderFilteredWorkflows(workflows.filter(w => 
+                        window.currentSelectedFolder.id === 'all' ? true :
+                        window.currentSelectedFolder.id === 'no_folder' ? !w.folder_id :
+                        w.folder_id === window.currentSelectedFolder.id
+                    ));
+                } else {
+                    renderWorkflowsList();
+                }
+                
+                // Redirect to editor
+                window.location.href = `/workflow-edit?id=${newId}`;
+            } catch (error) {
+                console.error('Error creating workflow:', error);
+                showModal({
+                    title: 'Error Creating Workflow',
+                    content: error.message,
+                    buttons: [
+                        {
+                            label: 'OK',
+                            className: 'btn-blue',
+                            callback: ({ close }) => close()
+                        }
+                    ]
+                });
             }
-        ]
-    });
+        }
+    );
 }

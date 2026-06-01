@@ -5,6 +5,7 @@
                 <button class="tab-btn" onclick="switchToOrganizationsTab(event)">Organizations</button>
                 <button class="tab-btn" onclick="switchToUsersTab(event)">Users</button>
                 <button class="tab-btn" onclick="switchToGroupsTab(event)">Groups</button>
+                <button class="tab-btn" onclick="switchToPermissionsTab(event)">Permissions</button>
                 <button class="tab-btn" onclick="switchToSecurityTab(event)">Security</button>
                 <button class="tab-btn" onclick="switchToPluginsTab(event)">Plugins</button>
             </div>
@@ -27,6 +28,13 @@
                                     <select id="systemTimezone" style="width: 100%;" oninput="checkSystemUnsavedChanges()">
                                         <option value="">Select timezone...</option>
                                     </select>
+                                </div>
+                                
+                                <!-- Separator -->
+                                <div style="height: 1px; background-color: var(--border-primary); margin: 5px 0;"></div>
+                                
+                                <!-- Internal Whitelist -->
+                                <div id="systemInternalWhitelistContainer" style="display: flex; flex-direction: column; gap: 8px;">
                                 </div>
                                 
                                 <!-- Save Button -->
@@ -245,6 +253,71 @@
                         <div style="display: flex; flex-direction: column; flex: 1; min-height: 0;">
                             <div id="groupsPlaceholder" class="panel-level-3" style="text-align: center; display: flex; align-items: center; justify-content: center; flex: 1; min-height: 0;">
                                 <p style="color: var(--text-muted); font-size: 13px; margin: 0;">Select a group to the left to view details or modify</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+ 
+            <div id="permissionsTab" class="tab-panel">
+                <div class="status-message" id="pagePermStatusMessage"></div>
+                
+                <div class="panel-level-2" style="margin-top: 0;">
+                    <h2 style="margin: 0 0 20px 0; font-size: 16px; color: var(--text-primary);">Permission Management</h2>
+                    <div class="panel-grid-responsive">
+                        <!-- Page Permissions Pod -->
+                        <div class="panel-level-3">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                                <h3 style="margin: 0; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Page Permissions</h3>
+                            </div>
+                            
+                            <div style="display: flex; flex-direction: column; gap: 12px;">
+                                <!-- Page Dropdown -->
+                                <div>
+                                    <label style="display: block; color: var(--text-muted); font-size: 11px; margin-bottom: 4px; font-weight: 600;">Select Page</label>
+                                    <select id="pageSelect" style="width: 100%;">
+                                        <option value="">Select a page...</option>
+                                    </select>
+                                </div>
+                                
+                                <!-- Permissions List -->
+                                <div id="permissionsList" style="display: flex; flex-direction: column; gap: 8px;">
+                                </div>
+                                
+                                <!-- IP Restrictions -->
+                                <div id="allowedIPsList" style="display: flex; flex-direction: column; gap: 8px;">
+                                </div>
+                                
+                                <!-- Save/Cancel Buttons (shown when page selected) -->
+                                <div id="pagePermissionsButtons" style="display: none; flex-direction: column; gap: 12px;">
+                                    <div style="height: 1px; background-color: var(--border-primary);"></div>
+                                    <div style="display: flex; flex-direction: row; gap: 8px; justify-content: flex-end;">
+                                        <button id="cancelPagePermissionsBtn" class="btn" data-color="gray" data-size="sm">Cancel</button>
+                                        <button id="savePagePermissionsBtn" class="btn" data-color="green" data-size="sm" disabled>Save</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Feature Permissions Pod (Empty for future) -->
+                        <div class="panel-level-3">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                                <h3 style="margin: 0; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Feature Permissions</h3>
+                            </div>
+                            
+                            <div style="display: flex; flex-direction: column; gap: 10px;">
+                                <p style="color: var(--text-muted); font-size: 11px; margin: 0; text-align: center; padding: 20px 0;">Coming soon</p>
+                            </div>
+                        </div>
+                        
+                        <!-- API Permissions Pod (Empty for future) -->
+                        <div class="panel-level-3">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                                <h3 style="margin: 0; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">API Permissions</h3>
+                            </div>
+                            
+                            <div style="display: flex; flex-direction: column; gap: 10px;">
+                                <p style="color: var(--text-muted); font-size: 11px; margin: 0; text-align: center; padding: 20px 0;">Coming soon</p>
                             </div>
                         </div>
                     </div>

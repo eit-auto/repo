@@ -15,6 +15,8 @@
  *   POST   /kore/executions/:executionId/cancel - Cancel running execution
  *   
  *   GET    /kore/executions              - List executions (with filters)
+ * 
+ * @version 0.500 - [KORE_VERSION_INCREMENT_ON_UPDATE]
  */
 
 const fs = require('fs');
@@ -246,9 +248,12 @@ const Persephone = (() => {
         try {
             const [rows] = await conn.execute(
                 `SELECT w.id, w.name, w.version, w.folder_id, w.definition, 
-                        f.name as folder_name, f.parent_id as folder_parent_id
+                        f.name as folder_name, f.parent_id as folder_parent_id,
+                        GROUP_CONCAT(p.permissionId) as permissionIds
                  FROM kore_sys.workflows w
                  LEFT JOIN kore_sys.workflow_folders f ON w.folder_id = f.id
+                 LEFT JOIN kore_sys.permissions p ON p.resource = 'workflow' AND p.scope = w.id
+                 GROUP BY w.id, w.name, w.version, w.folder_id, w.definition, f.name, f.parent_id
                  ORDER BY w.name ASC`
             );
 
@@ -261,13 +266,17 @@ const Persephone = (() => {
                     folderName = row.folder_name;
                 }
                 
+                // Parse comma-separated permissionIds into array
+                const permissionIds = row.permissionIds ? row.permissionIds.split(',') : [];
+                
                 return {
                     id: row.id,
                     name: row.name,
                     version: row.version,
                     folder_id: row.folder_id || null,
                     folder_name: folderName,
-                    definition: definition
+                    definition: definition,
+                    permissionIds: permissionIds
                 };
             });
         } finally {

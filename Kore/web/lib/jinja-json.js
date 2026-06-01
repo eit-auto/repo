@@ -2081,20 +2081,19 @@ async function initializeEditors(jsonContainerId, jinjaContainerId, outputContai
  * @param {function} onSaveCallback - Callback(value) called with edited content
  * @param {boolean} readOnly - If true, makes the editor read-only with no Save button (default: false)
  */
-function openJinjaEditorModal(fieldLabel, initialValue, onSaveCallback, readOnly = false) {
-    const modalTitle = readOnly ? fieldLabel : `Edit: ${fieldLabel}`;
+function openJinjaEditorModal(title, initialValue, onSaveCallback, readOnly = false) {
     const fields = [
         {
             type: 'custom:jinja-editor',
             name: 'content',
-            label: fieldLabel,
+            label: title,
             value: initialValue || '',
             containerStyle: 'width: 100%; flex: 1; padding: 0; background-color: var(--bg-panel3); border-radius: 4px; overflow: auto; border: none;',
             readOnly: readOnly
         }
     ];
     
-    showFormModal(modalTitle, fields, (formData) => {
+    showFormModal(title, fields, (formData) => {
         if (onSaveCallback && !readOnly) {
             onSaveCallback(formData.content);
         }

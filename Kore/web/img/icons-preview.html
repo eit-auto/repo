@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Icons Preview</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background: #f5f5f5;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 30px;
+        }
+        .icon-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+            gap: 20px;
+        }
+        .icon-item {
+            background: white;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 10px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            transition: transform 0.2s;
+        }
+        .icon-item:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+        }
+        .icon-display {
+            width: 60px;
+            height: 60px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .icon-display svg {
+            width: 100%;
+            height: 100%;
+            color: #333;
+        }
+        .icon-name {
+            font-weight: bold;
+            font-size: 14px;
+            text-align: center;
+            word-break: break-word;
+        }
+        .icon-id {
+            font-size: 12px;
+            color: #999;
+            font-family: monospace;
+        }
+        .loading {
+            text-align: center;
+            color: #666;
+            font-size: 16px;
+        }
+        .error {
+            text-align: center;
+            color: #d32f2f;
+            font-size: 16px;
+            padding: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>SVG Icons Preview</h1>
+        <div class="icon-grid" id="iconGrid">
+            <div class="loading">Loading icons...</div>
+        </div>
+    </div>
+
+    <script>
+        async function loadIcons() {
+            try {
+                const response = await fetch('icons.svg');
+                const svgText = await response.text();
+                
+                // Parse SVG as XML
+                const parser = new DOMParser();
+                const svgDoc = parser.parseFromString(svgText, 'image/svg+xml');
+                
+                // Check for parsing errors
+                if (svgDoc.getElementsByTagName('parsererror').length > 0) {
+                    throw new Error('Failed to parse SVG file');
+                }
+                
+                // Find all symbols
+                const symbols = svgDoc.querySelectorAll('symbol');
+                const iconIds = Array.from(symbols).map(symbol => symbol.getAttribute('id')).filter(id => id);
+                
+                if (iconIds.length === 0) {
+                    document.getElementById('iconGrid').innerHTML = '<div class="error">No icons found in SVG file</div>';
+                    return;
+                }
+                
+                // Clear loading message
+                const grid = document.getElementById('iconGrid');
+                grid.innerHTML = '';
+                
+                // Create preview for each icon
+                iconIds.forEach(iconId => {
+                    const item = document.createElement('div');
+                    item.className = 'icon-item';
+                    
+                    const display = document.createElement('div');
+                    display.className = 'icon-display';
+                    
+                    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+                    svg.setAttribute('viewBox', '0 0 24 24');
+                    
+                    const use = document.createElementNS('http://www.w3.org/2000/svg', 'use');
+                    use.setAttributeNS('http://www.w3.org/1999/xlink', 'xlink:href', 'icons.svg#' + iconId);
+                    
+                    svg.appendChild(use);
+                    display.appendChild(svg);
+                    
+                    const name = document.createElement('div');
+                    name.className = 'icon-name';
+                    name.textContent = iconId.replace('i-', '').toUpperCase().replace(/-/g, ' ');
+                    
+                    const id = document.createElement('div');
+                    id.className = 'icon-id';
+                    id.textContent = iconId;
+                    
+                    item.appendChild(display);
+                    item.appendChild(name);
+                    item.appendChild(id);
+                    
+                    grid.appendChild(item);
+                });
+                
+            } catch (error) {
+                document.getElementById('iconGrid').innerHTML = `<div class="error">Error loading icons: ${error.message}</div>`;
+                console.error('Error loading icons:', error);
+            }
+        }
+        
+        // Load icons when page loads
+        window.addEventListener('DOMContentLoaded', loadIcons);
+    </script>
+</body>
+</html>

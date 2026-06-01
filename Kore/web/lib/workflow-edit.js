@@ -9,12 +9,255 @@
         let currentSteps = [];
         let currentTransitions = [];
         let currentTransitionFrames = [];
-        let currentInputVariables = [];
-        let currentOutputVariables = [];
+
         let currentNodes = [];
+        let currentStepBeingEdited = null;  // Track step for variable editing
+        let currentTransitionBeingEdited = null;  // Track transition for case variable editing
         let transitionCounter = 0;
         let transitionFrameCounter = 0;
         let toolsPanelCollapsed = true;
+
+        // ============================================================================
+        // WORKFLOW CONNECTIVITY VALIDATION
+        // ============================================================================
+
+        /**
+         * Validate workflow connectivity - all steps/nodes must have inbound connections
+         * Exception: BEGIN step doesn't need an inbound connection
+         * @returns {Object} { isValid: boolean, unreachableSteps: Array, unreachableNodes: Array }
+         */
+        function validateWorkflowConnectivity() {
+            const unreachableSteps = [];
+            const unreachableNodes = [];
+            
+            // Check each step
+            currentSteps.forEach(step => {
+                // BEGIN step is always valid
+                if (step.type === 'Begin') return;
+                
+                // Check if this step has any inbound connections
+                let hasInbound = false;
+                
+                // Check from other steps
+                currentSteps.forEach(sourceStep => {
+                    if (sourceStep.transition && sourceStep.transition.cases) {
+                        sourceStep.transition.cases.forEach(caseObj => {
+                            if (caseObj.targetSteps && caseObj.targetSteps.includes(step.id)) {
+                                hasInbound = true;
+                            }
+                        });
+                    }
+                });
+                
+                // Check from nodes
+                if (!hasInbound) {
+                    currentNodes.forEach(sourceNode => {
+                        if (sourceNode.targetSteps && sourceNode.targetSteps.includes(step.id)) {
+                            hasInbound = true;
+                        }
+                    });
+                }
+                
+                if (!hasInbound) {
+                    unreachableSteps.push(step);
+                }
+            });
+            
+            // Check each node
+            currentNodes.forEach(node => {
+                // Check if this node has any inbound connections
+                let hasInbound = false;
+                
+                // Check from steps
+                currentSteps.forEach(sourceStep => {
+                    if (sourceStep.transition && sourceStep.transition.cases) {
+                        sourceStep.transition.cases.forEach(caseObj => {
+                            if (caseObj.targetNodes && caseObj.targetNodes.includes(node.id)) {
+                                hasInbound = true;
+                            }
+                        });
+                    }
+                });
+                
+                // Check from other nodes
+                if (!hasInbound) {
+                    currentNodes.forEach(sourceNode => {
+                        if (sourceNode.targetNodes && sourceNode.targetNodes.includes(node.id)) {
+                            hasInbound = true;
+                        }
+                    });
+                }
+                
+                if (!hasInbound) {
+                    unreachableNodes.push(node);
+                }
+            });
+            
+            return {
+                isValid: unreachableSteps.length === 0 && unreachableNodes.length === 0,
+                unreachableSteps: unreachableSteps,
+                unreachableNodes: unreachableNodes
+            };
+        }
+
+        /**
+         * Highlight unreachable steps and nodes with red border
+         */
+        function highlightInvalidSteps(unreachableSteps, unreachableNodes) {
+            // Clear all invalid classes and borders first
+            document.querySelectorAll('.step.invalid, .node.invalid').forEach(el => {
+                el.classList.remove('invalid');
+                // Remove red border from nodes
+                if (el.getAttribute('data-node-id')) {
+                    el.style.border = 'none';
+                    el.style.borderRadius = '0px';
+                }
+            });
+            
+            // Add invalid class to unreachable steps by data-step-uuid
+            unreachableSteps.forEach(step => {
+                const stepElement = document.querySelector(`[data-step-uuid="${step.id}"]`);
+                if (stepElement) {
+                    stepElement.classList.add('invalid');
+                }
+            });
+            
+            // Add invalid class to unreachable nodes by data-node-id
+            // Also add red border directly to the node div
+            unreachableNodes.forEach(node => {
+                const nodeElement = document.querySelector(`[data-node-id="${node.id}"]`);
+                if (nodeElement) {
+                    nodeElement.classList.add('invalid');
+                    nodeElement.style.border = '4px solid #cc3333';
+                    nodeElement.style.borderRadius = '4px';
+                }
+            });
+        }
+
+        /**
+         * Clear invalid highlighting
+         */
+        function clearInvalidHighlight() {
+            document.querySelectorAll('.step.invalid').forEach(el => {
+                el.classList.remove('invalid');
+            });
+        }
+
+        /**
+         * Update connectivity banner message with unreachable items
+         */
+        function updateConnectivityBanner(unreachableSteps, unreachableNodes) {
+            const allUnreachable = [...unreachableSteps, ...unreachableNodes];
+            if (allUnreachable.length === 0) {
+                hideStatusBanner('statusMessage');
+                return;
+            }
+            
+            const itemNames = allUnreachable.map(item => item.name || item.id).join(', ');
+            const message = `${itemNames} not connected to BEGIN`;
+            showStatusBanner(message, 'error', 'statusMessage', 999999999);
+        }
+
+        /**
+         * Check if currently invalid steps/nodes are now valid (only checks flagged items)
+         * Called on connection changes to provide targeted feedback
+         */
+        function recheckFlaggedSteps() {
+            const flaggedElements = document.querySelectorAll('[data-step-uuid].invalid, [data-node-id].invalid');
+            if (flaggedElements.length === 0) return; // No flagged items, nothing to check
+            
+            // Check each flagged item - if it now has an inbound connection, remove flag
+            flaggedElements.forEach(el => {
+                const stepUuid = el.getAttribute('data-step-uuid');
+                const nodeId = el.getAttribute('data-node-id');
+                let hasInbound = false;
+                
+                if (stepUuid) {
+                    // Check if this step now has inbound connections
+                    // From other steps (via step.transition.cases)
+                    currentSteps.forEach(sourceStep => {
+                        if (sourceStep.transition && sourceStep.transition.cases) {
+                            sourceStep.transition.cases.forEach(caseObj => {
+                                if (caseObj.targetSteps && caseObj.targetSteps.includes(stepUuid)) {
+                                    hasInbound = true;
+                                }
+                            });
+                        }
+                    });
+                    
+                    // From nodes (via step.transition.cases)
+                    if (!hasInbound) {
+                        currentNodes.forEach(sourceNode => {
+                            if (sourceNode.targetSteps && sourceNode.targetSteps.includes(stepUuid)) {
+                                hasInbound = true;
+                            }
+                        });
+                    }
+                    
+                    // Also check currentTransitions for unsynced connections
+                    if (!hasInbound) {
+                        currentTransitions.forEach(transition => {
+                            if (transition.targetSteps && transition.targetSteps.includes(stepUuid)) {
+                                hasInbound = true;
+                            }
+                        });
+                    }
+                } else if (nodeId) {
+                    // Check if this node now has inbound connections
+                    // From steps (via step.transition.cases)
+                    currentSteps.forEach(sourceStep => {
+                        if (sourceStep.transition && sourceStep.transition.cases) {
+                            sourceStep.transition.cases.forEach(caseObj => {
+                                if (caseObj.targetNodes && caseObj.targetNodes.includes(nodeId)) {
+                                    hasInbound = true;
+                                }
+                            });
+                        }
+                    });
+                    
+                    // From other nodes
+                    if (!hasInbound) {
+                        currentNodes.forEach(sourceNode => {
+                            if (sourceNode.targetNodes && sourceNode.targetNodes.includes(nodeId)) {
+                                hasInbound = true;
+                            }
+                        });
+                    }
+                    
+                    // Also check currentTransitions for unsynced connections
+                    if (!hasInbound) {
+                        currentTransitions.forEach(transition => {
+                            if (transition.targetNodes && transition.targetNodes.includes(nodeId)) {
+                                hasInbound = true;
+                            }
+                        });
+                    }
+                }
+                
+                if (hasInbound) {
+                    el.classList.remove('invalid');
+                    // Remove red border from nodes
+                    if (nodeId) {
+                        el.style.border = 'none';
+                        el.style.borderRadius = '0px';
+                    }
+                }
+            });
+            
+            // If no more flagged items, clear banner
+            if (document.querySelectorAll('[data-step-uuid].invalid, [data-node-id].invalid').length === 0) {
+                hideStatusBanner('statusMessage');
+            } else {
+                // Update banner with remaining invalid items
+                const remainingInvalidSteps = currentSteps.filter(s => 
+                    document.querySelector(`[data-step-uuid="${s.id}"]`)?.classList.contains('invalid')
+                );
+                const remainingInvalidNodes = currentNodes.filter(n => 
+                    document.querySelector(`[data-node-id="${n.id}"]`)?.classList.contains('invalid')
+                );
+                updateConnectivityBanner(remainingInvalidSteps, remainingInvalidNodes);
+            }
+        }
 
         // ============================================================================
         // TOOLS PANEL COLLAPSE/EXPAND
@@ -283,7 +526,7 @@ document.body.appendChild(nodePreview);
                 const toStepId = line.getAttribute('data-to-step');
                 const toNodeId = line.getAttribute('data-to-node');
                 const transition = currentTransitions.find(t => t.id === conditionId);
-                const caseColor = transition ? getTransitionColors(transition.type).color : getTransitionColors('Success').color;
+                const caseColor = transition ? getTransitionTheme(transition.type).color : getTransitionTheme('Success').color;
                 const frame = currentTransitionFrames.find(f => f.conditions.includes(conditionId));
                 
                 if (toStepId) {
@@ -303,7 +546,7 @@ document.body.appendChild(nodePreview);
                 const frameElement = canvas.querySelector(`[data-transition-frame="${frameUUID}"]`);
                 if (stepElement && frameElement) {
                   const stepColor = currentSteps.find(s => s.id === elementId)?.type 
-                    ? getStepTypeLineColor(currentSteps.find(s => s.id === elementId).type)
+                    ? getStepTypeTheme(currentSteps.find(s => s.id === elementId).type).color
                     : '#3a7a99';
                   drawConnectionLine(line, elementId, 'step', frameUUID, 'frame', canvas, stepColor, true);
                 }
@@ -323,7 +566,7 @@ document.body.appendChild(nodePreview);
               const fromTransitionId = line.getAttribute('data-from-transition');
               const frame = currentTransitionFrames.find(f => f.conditions.includes(fromTransitionId));
               const transition = currentTransitions.find(t => t.id === fromTransitionId);
-              const caseColor = transition ? getTransitionColors(transition.type).color : getTransitionColors('Success').color;
+              const caseColor = transition ? getTransitionTheme(transition.type).color : getTransitionTheme('Success').color;
               drawConnectionLine(line, fromTransitionId, 'case', elementId, 'node', canvas, caseColor, false, frame);
             });
             
@@ -413,6 +656,11 @@ document.body.appendChild(nodePreview);
                 }
               }
               
+              // Mark that a drag occurred
+              if (elementType === 'node') {
+                element.setAttribute('data-was-dragged', 'true');
+              }
+              
               const canvasRect = canvas.getBoundingClientRect();
               let newX = (moveEvent.clientX - canvasRect.left) / zoomLevel - dragOffsetX;
               let newY = (moveEvent.clientY - canvasRect.top) / zoomLevel - dragOffsetY;
@@ -486,41 +734,60 @@ document.body.appendChild(nodePreview);
             user-select: none;
           `;
           
-          // Create SVG with diamond (dark grey background, medium grey outline) and downward triangle overlay
+          // Create SVG with large circle (filled) and small circle at bottom
           const diamondSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
           diamondSvg.setAttribute('width', '30');
           diamondSvg.setAttribute('height', '30');
           diamondSvg.setAttribute('viewBox', '0 0 24 24');
           diamondSvg.style.cssText = 'pointer-events: none;';
           
-          // Dark grey background with medium grey outline diamond + downward triangle at bottom point
+          // Large circle with Node Dark fill and Node Light stroke, plus small circles on all 4 sides
           diamondSvg.innerHTML = `
-            <path d="M12 2 L22 12 L12 22 L2 12 Z" fill="#3a3a3a" stroke="#707070" stroke-width="1.5" stroke-linejoin="round"/>
-            <path d="M6 16 L18 16 L12 22 Z" fill="#707070"/>
+            <g fill="none" stroke="#707070" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="7.5" fill="#3a3a3a"></circle>
+            </g>
+            <g stroke="#707070" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" fill="none">
+              <circle cx="12" cy="3.3" r="2.6" fill="#3a3a3a"></circle>
+              <circle cx="3.3" cy="12" r="2.6" fill="#3a3a3a"></circle>
+              <circle cx="20.7" cy="12" r="2.6" fill="#3a3a3a"></circle>
+              <circle cx="12" cy="20.7" r="2.6" fill="#3a3a3a"></circle>
+            </g>
           `;
           nodeElement.appendChild(diamondSvg);
           
-          // Add click handler to show properties
+          // Add click handler to show properties (but not if node was just dragged)
           nodeElement.addEventListener('click', (e) => {
               e.stopPropagation();
-              showNodeProperties(nodeId);
+              // Only open properties if the node wasn't dragged
+              if (!nodeElement.getAttribute('data-was-dragged')) {
+                  showNodeProperties(nodeId);
+              }
+              nodeElement.removeAttribute('data-was-dragged');
           });
           
-          // Create hitbox for triangle (invisible, for interaction)
-          const triangleHitbox = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-          triangleHitbox.setAttribute('width', '30');
-          triangleHitbox.setAttribute('height', '30');
-          triangleHitbox.setAttribute('viewBox', '0 0 24 24');
-          triangleHitbox.style.cssText = `
+          // Create hitbox for all 4 small circles (invisible, for interaction)
+          const circleHitbox = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+          circleHitbox.setAttribute('width', '30');
+          circleHitbox.setAttribute('height', '30');
+          circleHitbox.setAttribute('viewBox', '0 0 24 24');
+          circleHitbox.style.cssText = `
             position: absolute;
             top: 0;
             left: 0;
             pointer-events: none;
           `;
-          triangleHitbox.innerHTML = `<path d="M4 18 L20 18 L12 24 Z" fill="transparent" pointer-events="auto" style="cursor: move;"/>`;
+          circleHitbox.innerHTML = `
+            <circle cx="12" cy="3.3" r="2.8" fill="transparent" pointer-events="auto" data-circle="top" style="cursor: move;"/>
+            <circle cx="3.3" cy="12" r="2.8" fill="transparent" pointer-events="auto" data-circle="left" style="cursor: move;"/>
+            <circle cx="20.7" cy="12" r="2.8" fill="transparent" pointer-events="auto" data-circle="right" style="cursor: move;"/>
+            <circle cx="12" cy="20.7" r="2.8" fill="transparent" pointer-events="auto" data-circle="bottom" style="cursor: move;"/>
+          `;
           
-          // Add mousedown handler to start drawing connection line
-          triangleHitbox.addEventListener('mousedown', (e) => {
+          // Add mousedown handler to start drawing connection line from any circle
+          circleHitbox.addEventListener('mousedown', (e) => {
+            const circle = e.target.closest('[data-circle]');
+            if (!circle) return;
+            
             e.stopPropagation();
             
             let isDrawing = false;
@@ -530,14 +797,26 @@ document.body.appendChild(nodePreview);
             isDrawing = true;
             const nodeId = nodeElement.getAttribute('data-node-id');
             const nodeData = currentNodes.find(n => n.id === nodeId);
+            const circlePosition = circle.getAttribute('data-circle');
             
-            // Get starting position from triangle hitbox
+            // Map circle positions to SVG coordinates
+            const circleCoords = {
+              top: { cx: 12, cy: 3.3 },
+              left: { cx: 3.3, cy: 12 },
+              right: { cx: 20.7, cy: 12 },
+              bottom: { cx: 12, cy: 20.7 }
+            };
+            
+            const coords = circleCoords[circlePosition];
             const rect = nodeElement.getBoundingClientRect();
             const canvasRect = canvas.getBoundingClientRect();
             
-            // Start from the center of the triangle (bottom point of diamond)
-            screenStartX = rect.left - canvasRect.left + (rect.width / 2);
-            screenStartY = rect.top - canvasRect.top + rect.height - 5; // Near bottom
+            // Convert SVG coordinates (0-24) to pixel coordinates (0-30)
+            const pxX = (coords.cx / 24) * 30;
+            const pxY = (coords.cy / 24) * 30;
+            
+            screenStartX = rect.left - canvasRect.left + pxX;
+            screenStartY = rect.top - canvasRect.top + pxY;
             
             startX = (screenStartX / zoomLevel) + panX;
             startY = (screenStartY / zoomLevel) + panY;
@@ -621,7 +900,6 @@ document.body.appendChild(nodePreview);
                       canvas.appendChild(line);
                       drawConnectionLine(line, nodeId, 'node', targetStepUUID, 'step', canvas, '#707070', true);
                       
-                      console.log('Node connected to step:', targetStepUUID);
                     }
                   } else if (targetNodeElement && targetNodeElement !== nodeElement) {
                     // Connecting to another node
@@ -644,7 +922,6 @@ document.body.appendChild(nodePreview);
                       canvas.appendChild(line);
                       drawConnectionLine(line, nodeId, 'node', targetNodeId, 'node', canvas, '#707070', true);
                       
-                      console.log('Node connected to node:', targetNodeId);
                     }
                   } else {
                     // Dropped on empty space - spawn a new node
@@ -681,7 +958,6 @@ document.body.appendChild(nodePreview);
                     
                     updateSaveButtonState();
                     updatePreview();
-                    console.log('Node spawned at empty space:', newNodeId);
                   }
                 }
               }
@@ -691,7 +967,7 @@ document.body.appendChild(nodePreview);
             document.addEventListener('mouseup', handleMouseUp);
           });
           
-          nodeElement.appendChild(triangleHitbox);
+          nodeElement.appendChild(circleHitbox);
           
           canvas.appendChild(nodeElement);
           
@@ -707,15 +983,20 @@ document.body.appendChild(nodePreview);
             (newX, newY, element) => {
               const nodeData = currentNodes.find(n => n.id === nodeId);
               if (nodeData) {
-                // Update data as we drag
-                nodeData.position = `${newX},${newY}`;
+                // Convert pixels to grid coordinates
+                const gridX = newX / 30;
+                const gridY = newY / 30;
+                nodeData.position = `${gridX},${gridY}`;
               }
             },
             // onDragEnd callback
             (finalX, finalY, element) => {
               const nodeData = currentNodes.find(n => n.id === nodeId);
               if (nodeData) {
-                nodeData.position = `${finalX},${finalY}`;
+                // Convert pixels to grid coordinates
+                const gridX = finalX / 30;
+                const gridY = finalY / 30;
+                nodeData.position = `${gridX},${gridY}`;
                 updateSaveButtonState();
                 updatePreview();
               }
@@ -737,324 +1018,6 @@ document.body.appendChild(nodePreview);
          * Detect the type of a Jinja template value
          * Returns: boolean, string, integer, float, object, array, jinja
          */
-        function detectVariableType(value) {
-          if (!value || typeof value !== 'string') {
-            return 'jinja';
-          }
-
-          const trimmed = value.trim();
-
-          // Check for empty
-          if (trimmed === '') {
-            return 'string';
-          }
-
-          // ============================================================================
-          // 1. Try JSON detection first (hardcoded JSON)
-          // ============================================================================
-          try {
-            const parsed = JSON.parse(trimmed);
-            if (Array.isArray(parsed)) {
-              return 'array';
-            } else if (typeof parsed === 'object' && parsed !== null) {
-              return 'object';
-            } else if (typeof parsed === 'boolean') {
-              return 'boolean';
-            } else if (typeof parsed === 'number') {
-              return Number.isInteger(parsed) ? 'integer' : 'float';
-            } else if (typeof parsed === 'string') {
-              return 'string';
-            }
-          } catch (e) {
-            // Not JSON, continue
-          }
-
-          // ============================================================================
-          // 2. Try detecting single values (raw or Jinja-wrapped)
-          // ============================================================================
-          const singleValueType = detectSingleValueType(trimmed);
-          if (singleValueType) {
-            return singleValueType;
-          }
-
-          // ============================================================================
-          // 3. Try Jinja object/array detection
-          // ============================================================================
-          const jinjaObjectType = detectJinjaObjectOrArray(trimmed);
-          if (jinjaObjectType) {
-            return jinjaObjectType;
-          }
-
-          // ============================================================================
-          // 4. Check if it contains Jinja syntax
-          // ============================================================================
-          if (trimmed.includes('{{') || trimmed.includes('{%')) {
-            return 'jinja';
-          }
-
-          // ============================================================================
-          // 5. Default to string for any other raw value
-          // ============================================================================
-          return 'string';
-        }
-
-        /**
-         * Detect single value types (raw or Jinja-wrapped)
-         * Returns the type if detected, null otherwise
-         */
-        function detectSingleValueType(value) {
-          const trimmed = value.trim();
-
-          // ====== Raw values (no braces) ======
-
-          // Boolean literals
-          if (trimmed === 'true' || trimmed === 'false') {
-            return 'boolean';
-          }
-
-          // Quoted strings
-          if ((trimmed.startsWith('"') && trimmed.endsWith('"')) ||
-              (trimmed.startsWith("'") && trimmed.endsWith("'"))) {
-            return 'string';
-          }
-
-          // Numeric values
-          if (!isNaN(trimmed) && trimmed !== '') {
-            return Number.isInteger(parseFloat(trimmed)) ? 'integer' : 'float';
-          }
-
-          // ====== Jinja-wrapped values {{ ... }} ======
-          const jinjaMatch = trimmed.match(/^\{\{-?\s*(.*?)\s*-?\}\}$/);
-          if (jinjaMatch) {
-            const innerContent = jinjaMatch[1].trim();
-            return detectSingleValueType(innerContent);  // Recursive
-          }
-
-          // ====== If/else conditionals ======
-          const ifElseType = detectIfElseType(trimmed);
-          if (ifElseType) {
-            return ifElseType;
-          }
-
-          return null;
-        }
-
-        /**
-         * Detect type from if/else conditionals
-         */
-        function detectIfElseType(value) {
-          // Simple pattern: {% if ... %} content1 {% else %} content2 {% endif %}
-          const ifElsePattern = /^\{%-?\s*if\s+.*?-?%\}([\s\S]*?)\{%-?\s*else\s*-?%\}([\s\S]*?)\{%-?\s*endif\s*-?%\}$/;
-          const match = value.match(ifElsePattern);
-
-          if (match) {
-            const ifBranch = match[1].trim();
-            const elseBranch = match[2].trim();
-
-            const ifType = detectSingleValueType(ifBranch);
-            const elseType = detectSingleValueType(elseBranch);
-
-            // Both branches resolve to same type
-            if (ifType && elseType && ifType === elseType) {
-              return ifType;
-            }
-          }
-
-          // Multi-branch: {% if ... %} {% elif ... %} {% else %} {% endif %}
-          const multiIfPattern = /^\{%-?\s*if\s+.*?-?%\}([\s\S]*?)(?:\{%-?\s*elif\s+.*?-?%\}([\s\S]*?))*\{%-?\s*else\s*-?%\}([\s\S]*?)\{%-?\s*endif\s*-?%\}$/;
-          const multiMatch = value.match(multiIfPattern);
-
-          if (multiMatch) {
-            const branches = [];
-            for (let i = 1; i < multiMatch.length; i++) {
-              if (multiMatch[i]) {
-                branches.push(multiMatch[i].trim());
-              }
-            }
-
-            const types = branches.map(b => detectSingleValueType(b)).filter(t => t !== null);
-            
-            // All branches resolve to same type
-            if (types.length === branches.length && types.every(t => t === types[0])) {
-              return types[0];
-            }
-          }
-
-          return null;
-        }
-
-        /**
-         * Detect Jinja object or array literals
-         * Returns 'object', 'array', or null
-         */
-        function detectJinjaObjectOrArray(value) {
-          const trimmed = value.trim();
-
-          // Extract from {{ ... }}
-          let contentToCheck = trimmed;
-          const jinjaMatch = trimmed.match(/^\{\{-?\s*(.*?)\s*-?\}\}$/);
-          if (jinjaMatch) {
-            contentToCheck = jinjaMatch[1].trim();
-          }
-
-          // Check if it's a JSON-like object literal
-          if (contentToCheck.startsWith('{') && contentToCheck.endsWith('}')) {
-            try {
-              // Try to validate it's JSON-like
-              JSON.parse(contentToCheck);
-              return 'object';
-            } catch (e) {
-              // Might be a Jinja dict with variable references, still treat as object
-              if (contentToCheck.includes(':') && contentToCheck.includes(',')) {
-                return 'object';
-              }
-            }
-          }
-
-          // Check if it's a JSON-like array literal
-          if (contentToCheck.startsWith('[') && contentToCheck.endsWith(']')) {
-            try {
-              JSON.parse(contentToCheck);
-              return 'array';
-            } catch (e) {
-              // Might be a Jinja list with variable references, still treat as array
-              if (contentToCheck.includes(',') || contentToCheck.includes('[')) {
-                return 'array';
-              }
-            }
-          }
-
-          return null;
-        }
-
-        // ============================================================================
-        // END UPDATED VARIABLE TYPE DETECTION
-        // ============================================================================
-
-        /**
-         * Find all steps that can reach a target step (reverse graph traversal)
-         */
-        function getReachableSteps(targetStepId, steps, transitions) {
-          console.log('DEBUG getReachableSteps: targetStepId:', targetStepId);
-          
-          const reachable = new Set();
-          const visited = new Set();
-
-          function findPredecessors(stepId) {
-            console.log('DEBUG findPredecessors: looking for predecessors of', stepId);
-            if (visited.has(stepId)) {
-              console.log('DEBUG findPredecessors: already visited', stepId);
-              return;
-            }
-            visited.add(stepId);
-
-            // Find transitions where this step is in targetSteps
-            transitions.forEach(transition => {
-              if (transition.targetSteps && transition.targetSteps.includes(stepId)) {
-                const sourceStepId = transition.parentStepId;
-                console.log('DEBUG: found predecessor transition from', sourceStepId, 'to', stepId);
-                if (sourceStepId && !reachable.has(sourceStepId)) {
-                  reachable.add(sourceStepId);
-                  findPredecessors(sourceStepId);
-                }
-              }
-            });
-          }
-
-          findPredecessors(targetStepId);
-          console.log('DEBUG getReachableSteps: final reachable:', Array.from(reachable));
-          return Array.from(reachable);
-        }
-
-        /**
-         * Find the BEGIN step
-         */
-        function findBeginStep(steps) {
-          return steps.find(s => s.type === 'Begin') || null;
-        }
-
-        /**
-         * Build variable context for a specific step (all accessible variables)
-         */
-        function getVariableContextForStep(stepId, definition, transitions) {
-          console.log('DEBUG ENTRY: getVariableContextForStep called with stepId:', stepId, 'transitions length:', transitions?.length);
-          
-          const variables = {};
-
-          if (!definition || !definition.steps || !transitions) {
-            console.log('DEBUG: Missing definition, steps, or transitions');
-            return variables;
-          }
-
-          console.log('DEBUG: Definition has transitions, count:', transitions.length);
-          
-          // 1. Add Input Variables
-          if (definition.inputVariables && Array.isArray(definition.inputVariables)) {
-            definition.inputVariables.forEach(v => {
-              if (v.name) {
-                variables[v.name] = {
-                  value: v.type || '',
-                  source: 'Input Variable',
-                  type: detectVariableType(v.type)
-                };
-              }
-            });
-          }
-
-          // 2. Add BEGIN step outputs
-          const beginStep = findBeginStep(definition.steps);
-          console.log('DEBUG: Looking for BEGIN step. Found:', beginStep);
-          if (beginStep) {
-            console.log('DEBUG: BEGIN step found, variables:', beginStep.variables);
-            if (beginStep.variables && Array.isArray(beginStep.variables)) {
-              beginStep.variables.forEach(v => {
-                if (v.name) {
-                  variables[v.name] = {
-                    value: v.value || '',
-                    source: 'Step BEGIN',
-                    type: detectVariableType(v.value)
-                  };
-                }
-              });
-            }
-          }
-
-          // 3. Add reachable steps' outputs
-          const reachableStepIds = getReachableSteps(stepId, definition.steps, transitions);
-          console.log('DEBUG: Reachable steps for', stepId, ':', reachableStepIds);
-          
-          reachableStepIds.forEach(reachableId => {
-            const step = definition.steps.find(s => s.id === reachableId);
-            if (step && step.variables && Array.isArray(step.variables)) {
-              step.variables.forEach(v => {
-                if (v.name) {
-                  variables[v.name] = {
-                    value: v.value || '',
-                    source: `Step ${step.label || step.id}`,
-                    type: detectVariableType(v.value)
-                  };
-                }
-              });
-            }
-          });
-
-          console.log('DEBUG: Final variables for step', stepId, ':', variables);
-          return variables;
-        }
-
-        /**
-         * Get flattened, sorted list of available variables for Reference Panel
-         */
-        function getAvailableVariables(stepId, definition, transitions) {
-          const context = getVariableContextForStep(stepId, definition, transitions);
-          
-          return Object.entries(context)
-            .map(([name, data]) => ({
-              name,
-              ...data
-            }))
-            .sort((a, b) => a.name.localeCompare(b.name));
-        }
 
         // ============================================================================
         // REFERENCE PANEL - Jinja Editor Enhancement
@@ -1100,11 +1063,8 @@ document.body.appendChild(nodePreview);
           // Get available variables
           let variables = [];
           
-          console.log('injectReferencePanel - stepId:', stepId);
-          console.log('injectReferencePanel - currentDefinition:', currentDefinition);
           
           if (currentDefinition) {
-            console.log('Input variables:', currentDefinition.inputVariables);
             
             // Always show input variables
             if (currentDefinition.inputVariables && Array.isArray(currentDefinition.inputVariables)) {
@@ -1134,7 +1094,6 @@ document.body.appendChild(nodePreview);
           }
           
           variables.sort((a, b) => a.name.localeCompare(b.name));
-          console.log('Variables to display:', variables);
 
           // Create reference panel container
           const refPanel = document.createElement('div');
@@ -1322,6 +1281,30 @@ document.body.appendChild(nodePreview);
             if (panel) panel.style.display = 'none';
         }
 
+        function renderPropertiesPanel(title, borderColor, deleteButtonConfig, contentHTML, onListenersAttach) {
+            const propertiesContent = document.getElementById('propertiesContent');
+            showPropertiesPanel();
+            
+            const deleteButtonHTML = deleteButtonConfig 
+                ? `<button class="btn" data-color="red" onclick="deleteElement('${deleteButtonConfig.id}', '${deleteButtonConfig.type}')" style="padding: 6px 12px;">Delete</button>`
+                : '';
+            
+            propertiesContent.innerHTML = `
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; padding-bottom: 10px; border-bottom: 1px solid ${borderColor};">
+                    <div style="font-size: 0.9rem; color: #e0e0e0; font-weight: 500;">${title}</div>
+                    ${deleteButtonHTML}
+                </div>
+                <div style="display: flex; flex-direction: column; gap: 15px;">
+                    ${contentHTML}
+                </div>
+            `;
+            
+            // Call the type-specific listener setup function
+            if (typeof onListenersAttach === 'function') {
+                onListenersAttach(propertiesContent);
+            }
+        }
+
         function toggleStepTypesPanel() {
             const panel = document.getElementById('stepTypesPanel');
             const list = document.getElementById('stepTypesList');
@@ -1443,10 +1426,65 @@ document.body.appendChild(nodePreview);
             document.querySelectorAll('[data-transition-frame]').forEach(el => el.remove());
             document.querySelectorAll('[data-connection-line]').forEach(el => el.remove());
             document.querySelectorAll('[data-transition-connection-line]').forEach(el => el.remove());
+            document.querySelectorAll('[data-node-id]').forEach(el => el.remove());
+            document.querySelectorAll('[data-node-connection-line]').forEach(el => el.remove());
             
             // Render each loaded step on canvas
             currentSteps.forEach(step => {
                 renderStep(step);
+            });
+            
+            // Render each loaded node on canvas
+            currentNodes.forEach(node => {
+                renderNode(node);
+                makeNodeDraggable(canvas.querySelector(`[data-node-id="${node.id}"]`), canvas);
+            });
+            
+            // Create node connection lines for loaded nodes
+            currentNodes.forEach(node => {
+                // Create lines from this node to target steps
+                if (node.targetSteps && node.targetSteps.length > 0) {
+                    node.targetSteps.forEach(targetStepId => {
+                        const lineUUID = String(Date.now()) + '-' + Math.random().toString(36).substr(2, 9);
+                        const nodeLine = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+                        nodeLine.setAttribute('data-node-connection-line', lineUUID);
+                        nodeLine.setAttribute('data-from-node', node.id);
+                        nodeLine.setAttribute('data-to-step', targetStepId);
+                        nodeLine.style.cssText = `
+                            position: absolute;
+                            top: 0;
+                            left: 0;
+                            width: 100%;
+                            height: 100%;
+                            pointer-events: none;
+                            z-index: 1;
+                        `;
+                        canvas.appendChild(nodeLine);
+                        drawConnectionLine(nodeLine, node.id, 'node', targetStepId, 'step', canvas, '#707070', true);
+                    });
+                }
+                
+                // Create lines from this node to target nodes
+                if (node.targetNodes && node.targetNodes.length > 0) {
+                    node.targetNodes.forEach(targetNodeId => {
+                        const lineUUID = String(Date.now()) + '-' + Math.random().toString(36).substr(2, 9);
+                        const nodeLine = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+                        nodeLine.setAttribute('data-node-connection-line', lineUUID);
+                        nodeLine.setAttribute('data-from-node', node.id);
+                        nodeLine.setAttribute('data-to-node', targetNodeId);
+                        nodeLine.style.cssText = `
+                            position: absolute;
+                            top: 0;
+                            left: 0;
+                            width: 100%;
+                            height: 100%;
+                            pointer-events: none;
+                            z-index: 1;
+                        `;
+                        canvas.appendChild(nodeLine);
+                        drawConnectionLine(nodeLine, node.id, 'node', targetNodeId, 'node', canvas, '#707070', true);
+                    });
+                }
             });
             
             // Convert step.transition data into transition frames
@@ -1627,7 +1665,7 @@ document.body.appendChild(nodePreview);
                                     });
                                     
                                     // Render the case line
-                                    const caseColor = transition ? getTransitionColors(transition.type).color : getTransitionColors('Success').color;
+                                    const caseColor = transition ? getTransitionTheme(transition.type).color : getTransitionTheme('Success').color;
                                     drawConnectionLine(caseLine, conditionId, 'case', targetStepId, 'step', canvas, caseColor, false, frame);
                                 });
                             }
@@ -1660,7 +1698,7 @@ document.body.appendChild(nodePreview);
                                     });
                                     
                                     // Render the case line to node
-                                    const caseColor = transition ? getTransitionColors(transition.type).color : getTransitionColors('Success').color;
+                                    const caseColor = transition ? getTransitionTheme(transition.type).color : getTransitionTheme('Success').color;
                                     drawConnectionLine(caseLine, conditionId, 'case', targetNodeId, 'node', canvas, caseColor, false, frame);
                                 });
                             }
@@ -1730,247 +1768,6 @@ document.body.appendChild(nodePreview);
             return { droppedOnStep, droppedOnNode };
         }
 
-        function renderStepsEditor() {
-            const stepsList = document.getElementById('stepsList');
-            if (!stepsList) return;
-
-            stepsList.innerHTML = '';
-            currentSteps.forEach((step, index) => {
-                const stepDiv = document.createElement('div');
-                stepDiv.className = 'step-item';
-                stepDiv.style.cssText = 'border: 1px solid #404040; border-radius: 4px; padding: 12px; margin-bottom: 12px; background: rgba(26, 53, 64, 0.5);';
-                
-                stepDiv.innerHTML = `
-                    <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; margin-bottom: 12px;">
-                        <div class="form-group" style="margin-bottom: 0;">
-                            <label style="display: block; margin-bottom: 4px; font-size: 0.8rem;">Name</label>
-                            <input type="text" class="form-field-input step-name-${index}" value="${step.name || ''}" placeholder="Step name" onchange="regenerateTransitionSelectors()">
-                        </div>
-                        <div class="form-group" style="margin-bottom: 0;">
-                            <label style="display: block; margin-bottom: 4px; font-size: 0.8rem;">Type</label>
-                            <input type="text" class="form-field-input step-type-${index}" value="${step.type || ''}" placeholder="e.g., command, action">
-                        </div>
-                        <div class="form-group" style="margin-bottom: 0;">
-                            <label style="display: block; margin-bottom: 4px; font-size: 0.8rem;">Action</label>
-                            <input type="text" class="form-field-input step-action-${index}" value="${step.action || ''}" placeholder="Action">
-                        </div>
-                    </div>
-                    <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #404040; display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
-                        <div>
-                            <div style="margin-bottom: 12px;">
-                                <label style="display: block; margin-bottom: 8px; font-size: 0.85rem; font-weight: 600;">Transitions</label>
-                                <div id="transitions-list-${index}"></div>
-                                <button class="btn btn-blue btn-small" onclick="addTransition(${index})" style="margin-top: 8px;">+ Add Transition</button>
-                            </div>
-                        </div>
-                        <div>
-                            <div style="margin-bottom: 12px;">
-                                <label style="display: block; margin-bottom: 8px; font-size: 0.85rem; font-weight: 600;">Variables</label>
-                                <div id="variables-list-${index}"></div>
-                                <button class="btn btn-blue btn-small" onclick="addVariable(${index})" style="margin-top: 8px;">+ Add Variable</button>
-                            </div>
-                        </div>
-                    </div>
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 12px; padding-top: 12px; border-top: 1px solid #404040;">
-                        <div style="font-size: 0.75rem; color: #b0b0b0;">
-                            UUID: <code style="color: #a0a0a0; font-family: monospace; font-size: 0.75rem;">${step.id || ''}</code>
-                        </div>
-                        <button class="btn btn-red btn-small" onclick="deleteStep(${index})" title="Delete step">Delete Step &#8856;</button>
-                    </div>
-                `;
-                stepsList.appendChild(stepDiv);
-                
-                // Render transitions and variables for this step
-                renderTransitions(index);
-                renderVariables(index);
-            });
-            updatePreview();
-        }
-
-        function addStep() {
-            const newStep = {
-                id: generateUUID(),
-                name: '',
-                type: '',
-                action: '',
-                width: 3,
-                height: 1,
-                overrideSize: false,
-                variables: []
-            };
-            currentSteps.push(newStep);
-            renderStepsEditor();
-        }
-
-        function deleteStep(index) {
-            if (confirm('Delete this step?')) {
-                currentSteps.splice(index, 1);
-                renderStepsEditor();
-            }
-        }
-
-        function rebuildStepsFromForm() {
-            currentSteps.forEach((step, index) => {
-                step.name = document.querySelector(`.step-name-${index}`)?.value || '';
-                step.type = document.querySelector(`.step-type-${index}`)?.value || '';
-                step.action = document.querySelector(`.step-action-${index}`)?.value || '';
-                
-                // Rebuild transitions from form
-                step.transitions = [];
-                const transitionItems = document.querySelectorAll(`.transition-item-${index}`);
-                transitionItems.forEach((item) => {
-                    const targetStep = item.querySelector(`.transition-target-${index}`)?.value || '';
-                    const conditions = item.querySelector(`.transition-conditions-${index}`)?.value || '';
-                    if (targetStep) {
-                        step.transitions.push({
-                            targetStep: targetStep,
-                            conditions: conditions
-                        });
-                    }
-                });
-                
-                // Rebuild variables from form
-                step.variables = [];
-                const variableItems = document.querySelectorAll(`.variable-item-${index}`);
-                variableItems.forEach((item) => {
-                    const name = item.querySelector(`.variable-name-${index}`)?.value || '';
-                    const value = item.querySelector(`.variable-value-${index}`)?.value || '';
-                    if (name) {
-                        step.variables.push({
-                            name: name,
-                            value: value
-                        });
-                    }
-                });
-            });
-        }
-
-        function renderTransitions(stepIndex) {
-            const transitionsContainer = document.getElementById(`transitions-list-${stepIndex}`);
-            if (!transitionsContainer) return;
-            
-            const step = currentSteps[stepIndex];
-            transitionsContainer.innerHTML = '';
-            
-            if (!step.transitions) step.transitions = [];
-            
-            step.transitions.forEach((transition, transitionIndex) => {
-                const transitionDiv = document.createElement('div');
-                transitionDiv.className = `transition-item-${stepIndex}`;
-                transitionDiv.style.cssText = 'display: grid; grid-template-columns: 1fr 1fr auto; gap: 8px; margin-bottom: 8px; align-items: flex-end; padding: 8px; background: rgba(0, 0, 0, 0.3); border-radius: 3px;';
-                
-                // Build options for Target Step selector (exclude current step)
-                let optionsHtml = '<option value="">-- Select Target Step --</option>';
-                currentSteps.forEach((s, idx) => {
-                    if (idx !== stepIndex) {
-                        const selected = transition.targetStep === s.id ? 'selected' : '';
-                        optionsHtml += `<option value="${s.id}" ${selected}>${s.name || '(Unnamed)'} [${s.id.substring(0, 8)}...]</option>`;
-                    }
-                });
-                
-                transitionDiv.innerHTML = `
-                    <div class="form-group" style="margin-bottom: 0;">
-                        <label style="display: block; margin-bottom: 4px; font-size: 0.75rem;">Target Step</label>
-                        <select class="form-field-input transition-target-${stepIndex}" style="padding: 6px 8px; font-size: 0.85rem;">
-                            ${optionsHtml}
-                        </select>
-                    </div>
-                    <div class="form-group" style="margin-bottom: 0;">
-                        <label style="display: block; margin-bottom: 4px; font-size: 0.75rem;">Conditions</label>
-                        <div style="display: flex; gap: 4px; align-items: flex-end;">
-                            <input type="text" class="form-field-input transition-conditions-${stepIndex}" value="${transition.conditions || ''}" placeholder="Conditions" style="padding: 6px 8px; font-size: 0.85rem; flex: 1;">
-                            <button class="btn btn-grey btn-small" onclick="openTextEditor('Edit Conditions', document.querySelector('.transition-conditions-${stepIndex}').value, (value) => { document.querySelector('.transition-conditions-${stepIndex}').value = value; })" title="Edit in modal" style="padding: 6px 8px; height: 36px; min-width: 32px; display: flex; align-items: center; justify-content: center;">&#9998;</button>
-                        </div>
-                    </div>
-                    <div style="display: flex; align-items: flex-end;">
-                        <button class="btn btn-red btn-small" onclick="deleteTransitionFromList(${stepIndex}, ${transitionIndex})" title="Delete transition" style="padding: 6px 8px; height: 36px; min-width: auto;">&#8856;</button>
-                    </div>
-                `;
-                transitionsContainer.appendChild(transitionDiv);
-            });
-        }
-
-        function addTransition(stepIndex) {
-            const step = currentSteps[stepIndex];
-            if (!step.transitions) step.transitions = [];
-            
-            step.transitions.push({
-                targetStep: '',
-                conditions: ''
-            });
-            renderTransitions(stepIndex);
-        }
-
-        function deleteTransitionFromList(stepIndex, transitionIndex) {
-            if (confirm('Delete this transition?')) {
-                currentSteps[stepIndex].transitions.splice(transitionIndex, 1);
-                renderTransitions(stepIndex);
-            }
-        }
-
-        function regenerateTransitionSelectors() {
-            // First rebuild steps from form to get updated names
-            rebuildStepsFromForm();
-            // Then re-render transitions for all steps to update Target Step selectors
-            currentSteps.forEach((step, stepIndex) => {
-                if (step.transitions) {
-                    renderTransitions(stepIndex);
-                }
-            });
-        }
-
-        function renderVariables(stepIndex) {
-            const variablesContainer = document.getElementById(`variables-list-${stepIndex}`);
-            if (!variablesContainer) return;
-            
-            const step = currentSteps[stepIndex];
-            variablesContainer.innerHTML = '';
-            
-            if (!step.variables) step.variables = [];
-            
-            step.variables.forEach((variable, variableIndex) => {
-                const variableDiv = document.createElement('div');
-                variableDiv.className = `variable-item-${stepIndex}`;
-                variableDiv.style.cssText = 'display: grid; grid-template-columns: 1fr 1fr auto; gap: 8px; margin-bottom: 4px; align-items: flex-end; padding: 8px; background: rgba(0, 0, 0, 0.3); border-radius: 3px;';
-                
-                variableDiv.innerHTML = `
-                    <div class="form-group" style="margin-bottom: 0;">
-                        <label style="display: block; margin-bottom: 4px; font-size: 0.75rem;">Variable Name</label>
-                        <input type="text" class="form-field-input variable-name-${stepIndex}" value="${variable.name || ''}" placeholder="Variable name" style="padding: 6px 8px; font-size: 0.85rem;">
-                    </div>
-                    <div class="form-group" style="margin-bottom: 0;">
-                        <label style="display: block; margin-bottom: 4px; font-size: 0.75rem;">Value</label>
-                        <div style="display: flex; gap: 4px; align-items: flex-end;">
-                            <input type="text" class="form-field-input variable-value-${stepIndex}" value="${variable.value || ''}" placeholder="Value" style="padding: 6px 8px; font-size: 0.85rem; flex: 1;">
-                        <button class="btn" data-size="sm" data-color="blue" onclick="openTextEditor('Edit Value', document.querySelector('.variable-value-${stepIndex}').value, (value) => { document.querySelector('.variable-value-${stepIndex}').value = value; })" title="Edit in modal">&#9998;</button>
-                        </div>
-                    </div>
-                    <div style="display: flex; align-items: flex-end; gap: 4px;">
-                        <button class="btn" data-size="sm" data-color="red" onclick="deleteVariable(${stepIndex}, ${variableIndex})" title="Delete variable" style="white-space: nowrap;">🗑</button>
-                    </div>
-                `;
-                variablesContainer.appendChild(variableDiv);
-            });
-        }
-
-        function addVariable(stepIndex) {
-            const step = currentSteps[stepIndex];
-            if (!step.variables) step.variables = [];
-            
-            step.variables.push({
-                name: '',
-                value: ''
-            });
-            renderVariables(stepIndex);
-        }
-
-        function deleteVariable(stepIndex, variableIndex) {
-            showDeleteConfirm('Delete this variable?', () => {
-                currentSteps[stepIndex].variables.splice(variableIndex, 1);
-                renderVariables(stepIndex);
-                updatePreview();
-            });
-        }
 
         function showJSONModal() {
             // Rebuild input and output variables from form to get current state
@@ -2007,38 +1804,6 @@ document.body.appendChild(nodePreview);
             openJsonEditorModal('Workflow Configuration', jsonContent, null, true);
         }
 
-        function showTransitionFrameProperties(frameUUID) {
-            const frame = (currentTransitionFrames || []).find(f => f.id === frameUUID);
-            if (!frame) return;
-            
-            const propertiesContent = document.getElementById('propertiesContent');
-            showPropertiesPanel();
-            
-            propertiesContent.innerHTML = `
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; padding-bottom: 10px; border-bottom: 1px solid #d4af37;">
-                    <div style="font-size: 0.9rem; color: #e0e0e0; font-weight: 500;">Transition Frame Properties</div>
-                    <button class="btn btn-red" onclick="deleteTransitionFrame('${frameUUID}')" style="padding: 6px 12px;">Delete Frame</button>
-                </div>
-                <div style="display: flex; flex-direction: column; gap: 15px;">
-                    <div>
-                        <label style="display: block; font-size: 0.8rem; color: #b0b0b0; margin-bottom: 5px;">Execution Mode</label>
-                        <select id="frameExecution" class="form-field-input" style="width: 100%; padding: 6px; box-sizing: border-box; font-size: 0.85rem;">
-                            <option value="First" ${frame.execution === 'First' ? 'selected' : ''}>First (stop at first match)</option>
-                            <option value="All" ${frame.execution === 'All' ? 'selected' : ''}>All (execute all matches)</option>
-                        </select>
-                    </div>
-                </div>
-            `;
-            
-            // Add change listener for execution mode
-            const executionSelect = document.getElementById('frameExecution');
-            if (executionSelect) {
-                executionSelect.addEventListener('change', (e) => {
-                    frame.execution = e.target.value;
-                    updatePreview();
-                });
-            }
-        }
 
         function renderTransitionFrame(frameUUID, vertical) {
             const canvas = document.getElementById('workflowCanvas');
@@ -2070,8 +1835,8 @@ document.body.appendChild(nodePreview);
             
             if (vertical) {
                 // Vertical layout: 60px wide, height grows with conditions
-                // Minimum: 60px (2 gridboxes), +30px for each additional condition
-                const frameHeight = Math.max(60, 45 + (frame.conditions.length - 1) * 30);
+                // Each condition gets a full grid box (30px): (conditions + 2) * 30
+                const frameHeight = (frame.conditions.length + 1) * 30;
                 frameRect.style.cssText = `
                     position: absolute;
                     width: 60px;
@@ -2143,7 +1908,7 @@ document.body.appendChild(nodePreview);
                 
                 sortedConditions.forEach(conditionId => {
                     const transition = currentTransitions.find(t => t.id === conditionId);
-                    const colors = getTransitionColors(transition ? transition.type : 'Success');
+                    const colors = getTransitionTheme(transition ? transition.type : 'Success');
                     
                     const wrapper = document.createElement('div');
                     wrapper.style.cssText = `
@@ -2163,7 +1928,7 @@ document.body.appendChild(nodePreview);
                     conditionBox.style.cssText = `
                         width: 26px;
                         height: 26px;
-                        margin: 0 0 3px 0;
+                        margin: 0 0 2px 0;
                         background: ${boxColor};
                         border: none;
                         border-radius: 2px;
@@ -2180,12 +1945,10 @@ document.body.appendChild(nodePreview);
                         line-height: 1;
                     `;
                     const transitionType = transition ? transition.type : 'Success';
-                    let icon = '&#10003;';  // ? checkmark for Success
-                    if (transitionType === 'Failure') icon = '&#10005;';  // ? X for Failure
-                    else if (transitionType === 'Logic') {
-                        icon = `<span style="font-size: 0.85rem;">&lt;&gt;</span>`;  // < > larger
+                    let icon = getTransitionTheme(transitionType).icon;
+                    if (transitionType === 'Always') {
+                        icon = `<span style="display: inline-block; transform: scaleY(2);">&#9658;</span>`;  // right triangle stretched
                     }
-                    else if (transitionType === 'Always') icon = `<span style="display: inline-block; transform: scaleY(2);">&#9658;</span>`;  // ? right triangle stretched
                     conditionBox.innerHTML = icon;
                     conditionBox.addEventListener('click', (e) => {
                         e.stopPropagation();
@@ -2260,6 +2023,7 @@ document.body.appendChild(nodePreview);
                     
                     // Right-pointing triangle with hitbox
                     const triangle = document.createElement('div');
+                    const boxCenterY = conditionBox.offsetTop + 13; // 13 is half of 26px height
                     triangle.style.cssText = `
                         position: absolute;
                         width: 0;
@@ -2267,8 +2031,8 @@ document.body.appendChild(nodePreview);
                         border-top: 8px solid transparent;
                         border-bottom: 8px solid transparent;
                         border-left: 10px solid #d4af37;
-                        left: 26px;
-                        top: 50%;
+                        left: 28px;
+                        top: ${boxCenterY}px;
                         transform: translateY(-50%);
                     `;
                     
@@ -2279,8 +2043,8 @@ document.body.appendChild(nodePreview);
                         position: absolute;
                         width: 25px;
                         height: 30px;
-                        left: 30px;
-                        top: 50%;
+                        left: 32px;
+                        top: ${boxCenterY}px;
                         transform: translateY(-50%);
                         cursor: move;
                         z-index: 1;
@@ -2390,7 +2154,7 @@ document.body.appendChild(nodePreview);
                 
                 sortedConditions.forEach(conditionId => {
                     const transition = currentTransitions.find(t => t.id === conditionId);
-                    const colors = getTransitionColors(transition ? transition.type : 'Success');
+                    const colors = getTransitionTheme(transition ? transition.type : 'Success');
                     
                     const wrapper = document.createElement('div');
                     wrapper.style.cssText = `
@@ -2406,9 +2170,9 @@ document.body.appendChild(nodePreview);
                     conditionBox.setAttribute('data-frame-id', frameUUID);
                     const boxColor = colors.color;
                     conditionBox.style.cssText = `
-                        width: 28px;
+                        width: 26px;
                         height: 26px;
-                        margin-right: 2px;
+                        margin-right: 4px;
                         background: ${boxColor};
                         border: none;
                         border-radius: 2px;
@@ -2425,12 +2189,10 @@ document.body.appendChild(nodePreview);
                         line-height: 1;
                     `;
                     const transitionType = transition ? transition.type : 'Success';
-                    let icon = '&#10003;';  // ? checkmark for Success
-                    if (transitionType === 'Failure') icon = '&#10005;';  // ? X for Failure
-                    else if (transitionType === 'Logic') {
-                        icon = `<span style="font-size: 0.85rem;">&lt;&gt;</span>`;  // < > larger
+                    let icon = getTransitionTheme(transitionType).icon;
+                    if (transitionType === 'Always') {
+                        icon = '&#9660;';  // down triangle
                     }
-                    else if (transitionType === 'Always') icon = '&#9660;';  // ? down triangle
                     conditionBox.innerHTML = icon;
                     conditionBox.addEventListener('click', (e) => {
                         e.stopPropagation();
@@ -2505,6 +2267,7 @@ document.body.appendChild(nodePreview);
                     
                     // Down-pointing triangle
                     const triangle = document.createElement('div');
+                    const boxCenterX = conditionBox.offsetLeft + 13; // 13 is half of 26px width
                     triangle.style.cssText = `
                         position: absolute;
                         width: 0;
@@ -2513,7 +2276,7 @@ document.body.appendChild(nodePreview);
                         border-right: 8px solid transparent;
                         border-top: 10px solid #d4af37;
                         top: 28px;
-                        left: 50%;
+                        left: ${boxCenterX}px;
                         transform: translateX(-50%);
                     `;
                     
@@ -2525,7 +2288,7 @@ document.body.appendChild(nodePreview);
                         width: 30px;
                         height: 25px;
                         top: 28px;
-                        left: 50%;
+                        left: ${boxCenterX}px;
                         transform: translateX(-50%);
                         cursor: move;
                         z-index: 1;
@@ -2710,6 +2473,9 @@ document.body.appendChild(nodePreview);
                             frameData.attachedToStepId = null;
                             frameData.attached = false;  // Mark as detached
                             
+                            // Refresh step's connection lines since entry points changed
+                            updateConnectedLines(attachedStep.id, 'step');
+                            
                             // Restore step border radius only
                             stepElement.style.borderRadius = '4px';
                             
@@ -2818,7 +2584,12 @@ document.body.appendChild(nodePreview);
                                     // Find the condition box and calculate its absolute position
                                     const conditionBox = frameRect.querySelector(`[data-condition-id="${conditionId}"]`);
                                     if (conditionBox) {
-                                        // Get condition box position relative to its parent frame
+                                        // Get the wrapper element (parent of the condition box)
+                                        const wrapper = conditionBox.parentElement;
+                                        const wrapperOffsetX = wrapper ? wrapper.offsetLeft : 0;
+                                        const wrapperOffsetY = wrapper ? wrapper.offsetTop : 0;
+                                        
+                                        // Get condition box position relative to its parent wrapper
                                         const conditionOffsetX = conditionBox.offsetLeft;
                                         const conditionOffsetY = conditionBox.offsetTop;
                                         
@@ -2827,15 +2598,20 @@ document.body.appendChild(nodePreview);
                                         const conditionHeight = conditionBox.offsetHeight;
                                         
                                         // Calculate absolute position of condition box on canvas (in pixels)
-                                        const conditionAbsX = frameX + conditionOffsetX;
-                                        const conditionAbsY = frameY + conditionOffsetY;
+                                        // Total offset includes wrapper position plus condition position within wrapper
+                                        const conditionAbsX = frameX + wrapperOffsetX + conditionOffsetX;
+                                        // In vertical layout, wrappers are stacked vertically so include wrapperOffsetY
+                                        // In horizontal layout, wrappers have same offsetTop so wrapperOffsetY is redundant but harmless
+                                        const conditionAbsY = frameData.verticalLayout 
+                                            ? frameY + wrapperOffsetY + conditionOffsetY
+                                            : frameY + conditionOffsetY;
                                         
                                         let startX, startY, startDirection;
                                         
                                         if (frameData.verticalLayout) {
-                                            // Vertical layout: start from right edge at arrow center
-                                            startX = conditionAbsX + conditionWidth;
-                                            startY = conditionAbsY + conditionHeight / 2 + 3;
+                                            // Vertical layout: start from right edge at case box center Y
+                                            startX = conditionAbsX + conditionWidth + 10;
+                                            startY = conditionAbsY + 13;
                                             startDirection = 'right';
                                         } else {
                                             // Horizontal layout: start from bottom + arrow offset
@@ -2878,7 +2654,7 @@ document.body.appendChild(nodePreview);
                                             
                                             const path = createCurvedPath(startX, startY, startDirection, lineEnd.x, lineEnd.y, nearestSide.name);
                                             
-                                            const transitionColors = getTransitionColors(transition.type);
+                                            const transitionColors = getTransitionTheme(transition.type);
                                             line.innerHTML = `<defs><marker id="caseArrowhead-${conditionId}" markerWidth="10" markerHeight="10" refX="0" refY="3" orient="auto"><polygon points="0 0, 6 3, 0 6" fill="${transitionColors.color}"/></marker></defs><path d="${path}" stroke="${transitionColors.color}" stroke-width="2" fill="none" marker-end="url(#caseArrowhead-${conditionId})" style="pointer-events: none;"/><circle cx="${lineEnd.x}" cy="${lineEnd.y}" r="8" fill="transparent" data-case-arrow-hitbox="${conditionId}" style="cursor: crosshair !important; pointer-events: auto;" />`;
                                             // Ensure z-index is preserved after innerHTML update
                                             line.style.zIndex = '5';
@@ -2918,7 +2694,7 @@ document.body.appendChild(nodePreview);
                                             
                                             const path = createCurvedPath(startX, startY, startDirection, lineEnd.x, lineEnd.y, nearestPoint.name);
                                             
-                                            const transitionColors = getTransitionColors(transition.type);
+                                            const transitionColors = getTransitionTheme(transition.type);
                                             line.innerHTML = `<defs><marker id="caseArrowhead-${conditionId}" markerWidth="10" markerHeight="10" refX="0" refY="3" orient="auto"><polygon points="0 0, 6 3, 0 6" fill="${transitionColors.color}"/></marker></defs><path d="${path}" stroke="${transitionColors.color}" stroke-width="2" fill="none" marker-end="url(#caseArrowhead-${conditionId})" style="pointer-events: none;"/><circle cx="${lineEnd.x}" cy="${lineEnd.y}" r="8" fill="transparent" data-case-arrow-hitbox="${conditionId}" style="cursor: crosshair !important; pointer-events: auto;" />`;
                                             line.style.zIndex = '5';
                                             line.style.cursor = 'crosshair';
@@ -3014,6 +2790,9 @@ document.body.appendChild(nodePreview);
                         frameData.attachedToStepId = attachedToStep.id;
                         frameData.attached = true;  // Mark as attached for JSON persistence
                         
+                        // Refresh step's connection lines since entry points changed
+                        updateConnectedLines(attachedToStep.id, 'step');
+                        
                         // Get frame width
                         const stepElement = canvas.querySelector(`[data-step-uuid="${attachedToStep.id}"]`);
                         const frameElement = canvas.querySelector(`[data-transition-frame="${frameUUID}"]`);
@@ -3044,6 +2823,10 @@ document.body.appendChild(nodePreview);
                         const stepPos = attachedToStep.position.split(',').map(Number);
                         frameData.position = `${stepPos[0]},${stepPos[1]}`;
                         frameData.attachedToStepId = attachedToStep.id;
+                        frameData.attached = true;  // Mark as attached for JSON persistence
+                        
+                        // Refresh step's connection lines since entry points changed
+                        updateConnectedLines(attachedToStep.id, 'step');
                         
                         // Remove transition connection line
                         const transitionLines = canvas.querySelectorAll(`[data-connection-line][data-from-step="${attachedToStep.id}"]`);
@@ -3060,7 +2843,7 @@ document.body.appendChild(nodePreview);
                                 const toStepId = line.getAttribute('data-to-step');
                                 const toNodeId = line.getAttribute('data-to-node');
                                 const transition = currentTransitions.find(t => t.id === conditionId);
-                                const caseColor = transition ? getTransitionColors(transition.type).color : getTransitionColors('Success').color;
+                                const caseColor = transition ? getTransitionTheme(transition.type).color : getTransitionTheme('Success').color;
                                 
                                 if (toStepId) {
                                     drawConnectionLine(line, conditionId, 'case', toStepId, 'step', canvas, caseColor, false, frameData);
@@ -3089,13 +2872,20 @@ document.body.appendChild(nodePreview);
             // Frame click handler
             frameRect.addEventListener('click', (e) => {
                 e.stopPropagation();
-                showTransitionFrameProperties(frameUUID);
                 
-                // Deselect all steps (remove inline border colors so CSS applies)
-                document.querySelectorAll('[data-step-id]').forEach(el => {
-                    el.style.borderColor = '';
-                });
-                frameRect.style.borderColor = '#ffff00';
+                // Only show properties if the frame wasn't dragged
+                if (!frameRect._isFrameDragging) {
+                    showTransitionFrameProperties(frameUUID);
+                    
+                    // Deselect all steps (remove inline border colors so CSS applies)
+                    document.querySelectorAll('[data-step-id]').forEach(el => {
+                        el.style.borderColor = '';
+                    });
+                    frameRect.style.borderColor = '#ffff00';
+                }
+                
+                // Reset the dragging flag for next interaction
+                frameRect._isFrameDragging = false;
             });
             
             canvas.appendChild(frameRect);
@@ -3296,7 +3086,6 @@ document.body.appendChild(nodePreview);
             let executionMode = 'First';
             for (const step of currentSteps) {
                 if (step.transition && step.transition.cases) {
-                    // Check if any of this step's transition cases are in the frame's conditions
                     const hasConditionFromFrame = step.transition.cases.some(c => 
                         frame.conditions.includes(currentTransitions.find(t => t.order === c.order)?.id)
                     );
@@ -3310,188 +3099,183 @@ document.body.appendChild(nodePreview);
                 }
             }
             
-            const propertiesContent = document.getElementById('propertiesContent');
-            showPropertiesPanel();
-            propertiesContent.innerHTML = `
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; padding-bottom: 10px; border-bottom: 1px solid #d4af37;">
-                    <div style="font-size: 0.9rem; color: #e0e0e0; font-weight: 500;">Transition Frame Properties</div>
-                    <button class="btn btn-red" onclick="deleteTransitionFrame('${frameUUID}')" style="padding: 6px 12px;">Delete</button>
+            // Generate content HTML
+            const contentHTML = `
+                <div>
+                    <label style="display: block; font-size: 0.8rem; color: #b0b0b0; margin-bottom: 5px;">Execution Mode</label>
+                    <select id="frameExecution" class="form-field-input" style="width: 100%; padding: 6px; box-sizing: border-box; font-size: 0.85rem;">
+                        <option value="First" ${frame.execution === 'First' ? 'selected' : ''}>First</option>
+                        <option value="All" ${frame.execution === 'All' ? 'selected' : ''}>All</option>
+                    </select>
                 </div>
-                <div style="display: flex; flex-direction: column; gap: 15px;">
-                    <div>
-                        <label style="display: block; font-size: 0.8rem; color: #b0b0b0; margin-bottom: 5px;">Execution Mode</label>
-                        <select id="frameExecution" class="form-field-input" style="width: 100%; padding: 6px; box-sizing: border-box; font-size: 0.85rem;">
-                            <option value="First" ${frame.execution === 'First' ? 'selected' : ''}>First</option>
-                            <option value="All" ${frame.execution === 'All' ? 'selected' : ''}>All</option>
-                        </select>
-                    </div>
-                    
-                    <div style="display: flex; align-items: center; gap: 8px;">
-                        <input type="checkbox" id="verticalLayout" ${isVertical ? 'checked' : ''} style="cursor: pointer;">
-                        <label for="verticalLayout" style="font-size: 0.8rem; color: #b0b0b0; cursor: pointer; margin: 0;">Vertical Layout</label>
-                    </div>
+                
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <input type="checkbox" id="verticalLayout" ${isVertical ? 'checked' : ''} style="cursor: pointer;">
+                    <label for="verticalLayout" style="font-size: 0.8rem; color: #b0b0b0; cursor: pointer; margin: 0;">Vertical Layout</label>
                 </div>
             `;
             
-            const executionSelect = document.getElementById('frameExecution');
-            if (executionSelect) {
-                executionSelect.addEventListener('change', (e) => {
-                    frame.execution = e.target.value;
-                    
-                    // Update the step(s) connected to this frame
-                    currentSteps.forEach(step => {
-                        const hasConditionFromFrame = step.transitions.some(t => 
-                            frame.conditions.includes(t.id)
-                        );
-                        if (hasConditionFromFrame) {
-                            step.trans_mode = frame.execution;
-                        }
-                    });
-                    
-                    updatePreview();
-                });
-            }
-            
-            const verticalLayoutCheckbox = document.getElementById('verticalLayout');
-            if (verticalLayoutCheckbox) {
-                verticalLayoutCheckbox.addEventListener('change', (e) => {
-                    frame.verticalLayout = e.target.checked;
-                    applyFrameLayout(frameUUID, frame.verticalLayout);
-                    
-                    // Find the step(s) connected to this frame and update trans_vertical
-                    currentSteps.forEach(step => {
-                        // Check if this step has a transition with cases from this frame
-                        if (step.transition && step.transition.cases) {
-                            const hasConditionFromFrame = step.transition.cases.some(c => 
-                                frame.conditions.includes(
-                                    currentTransitions.find(t => t.order === c.order)?.id
-                                )
+            // Setup event listeners
+            const onListenersAttach = (container) => {
+                const executionSelect = container.querySelector('#frameExecution');
+                if (executionSelect) {
+                    executionSelect.addEventListener('change', (e) => {
+                        frame.execution = e.target.value;
+                        currentSteps.forEach(step => {
+                            const hasConditionFromFrame = step.transitions.some(t => 
+                                frame.conditions.includes(t.id)
                             );
                             if (hasConditionFromFrame) {
-                                step.transition.vertical = frame.verticalLayout;
-                            }
-                        }
-                    });
-                    
-                    // Update all case lines from conditions in this frame
-                    const canvas = document.getElementById('workflowCanvas');
-                    frame.conditions.forEach(conditionId => {
-                        const caseLines = canvas.querySelectorAll(`[data-transition-connection-line][data-from-transition="${conditionId}"]`);
-                        caseLines.forEach(line => {
-                            const toStepId = line.getAttribute('data-to-step');
-                            const toNodeId = line.getAttribute('data-to-node');
-                            const transition = currentTransitions.find(t => t.id === conditionId);
-                            const caseColor = transition ? getTransitionColors(transition.type).color : getTransitionColors('Success').color;
-                            
-                            // Re-render the case line using drawConnectionLine
-                            if (toStepId) {
-                                drawConnectionLine(line, conditionId, 'case', toStepId, 'step', canvas, caseColor, false, frame);
-                            } else if (toNodeId) {
-                                drawConnectionLine(line, conditionId, 'case', toNodeId, 'node', canvas, caseColor, false, frame);
+                                step.trans_mode = frame.execution;
                             }
                         });
+                        updatePreview();
                     });
-                    
-                    updatePreview();
-                });
-            }
+                }
+                
+                const verticalLayoutCheckbox = container.querySelector('#verticalLayout');
+                if (verticalLayoutCheckbox) {
+                    verticalLayoutCheckbox.addEventListener('change', (e) => {
+                        frame.verticalLayout = e.target.checked;
+                        applyFrameLayout(frameUUID, frame.verticalLayout);
+                        
+                        currentSteps.forEach(step => {
+                            if (step.transition && step.transition.cases) {
+                                const hasConditionFromFrame = step.transition.cases.some(c => 
+                                    frame.conditions.includes(
+                                        currentTransitions.find(t => t.order === c.order)?.id
+                                    )
+                                );
+                                if (hasConditionFromFrame) {
+                                    step.transition.vertical = frame.verticalLayout;
+                                }
+                            }
+                        });
+                        
+                        const canvas = document.getElementById('workflowCanvas');
+                        frame.conditions.forEach(conditionId => {
+                            const caseLines = canvas.querySelectorAll(`[data-transition-connection-line][data-from-transition="${conditionId}"]`);
+                            caseLines.forEach(line => {
+                                const toStepId = line.getAttribute('data-to-step');
+                                const toNodeId = line.getAttribute('data-to-node');
+                                const transition = currentTransitions.find(t => t.id === conditionId);
+                                const caseColor = transition ? getTransitionTheme(transition.type).color : getTransitionTheme('Success').color;
+                                
+                                if (toStepId) {
+                                    drawConnectionLine(line, conditionId, 'case', toStepId, 'step', canvas, caseColor, false, frame);
+                                } else if (toNodeId) {
+                                    drawConnectionLine(line, conditionId, 'case', toNodeId, 'node', canvas, caseColor, false, frame);
+                                }
+                            });
+                        });
+                        
+                        updatePreview();
+                    });
+                }
+            };
+            
+            renderPropertiesPanel(
+                'Transition Frame Properties',
+                '#d4af37',
+                { id: frameUUID, type: 'frame' },
+                contentHTML,
+                onListenersAttach
+            );
         }
 
         function showTransitionProperties(transitionUUID) {
             const transition = (currentTransitions || []).find(t => t.id === transitionUUID);
             if (!transition) return;
             
-            const propertiesContent = document.getElementById('propertiesContent');
-            showPropertiesPanel();
-            
-            propertiesContent.innerHTML = `
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; padding-bottom: 10px; border-bottom: 1px solid #3a7a99;">
-                    <div style="font-size: 0.9rem; color: #e0e0e0; font-weight: 500;">Transition Case Properties</div>
-                    <button class="btn btn-red" onclick="deleteTransition('${transitionUUID}')" style="padding: 6px 12px;">Delete</button>
+            const contentHTML = `
+                <div>
+                    <label style="display: block; font-size: 0.8rem; color: #b0b0b0; margin-bottom: 5px;">Name</label>
+                    <input type="text" id="transitionName" class="form-field-input" value="${transition.name || ''}" style="width: 100%; padding: 6px; box-sizing: border-box; font-size: 0.85rem;">
                 </div>
-                <div style="display: flex; flex-direction: column; gap: 15px;">
-                    <div>
-                        <label style="display: block; font-size: 0.8rem; color: #b0b0b0; margin-bottom: 5px;">Name</label>
-                        <input type="text" id="transitionName" class="form-field-input" value="${transition.name || ''}" style="width: 100%; padding: 6px; box-sizing: border-box; font-size: 0.85rem;">
+                
+                <div>
+                    <label style="display: block; font-size: 0.8rem; color: #b0b0b0; margin-bottom: 5px;">Type</label>
+                    <select id="transitionType" class="form-field-input" style="width: 100%; padding: 6px; box-sizing: border-box; font-size: 0.85rem;">
+                        <option value="Success" ${transition.type === 'Success' ? 'selected' : ''}>Success</option>
+                        <option value="Failure" ${transition.type === 'Failure' ? 'selected' : ''}>Failure</option>
+                        <option value="Logic" ${transition.type === 'Logic' ? 'selected' : ''}>Logic</option>
+                        <option value="Always" ${transition.type === 'Always' ? 'selected' : ''}>Always</option>
+                    </select>
+                </div>
+                
+                <div id="conditionsDiv" style="display: ${transition.type === 'Logic' ? 'block' : 'none'}; margin-top: 10px;">
+                    <label style="display: block; font-size: 0.8rem; color: #b0b0b0; margin-bottom: 5px;">Conditions</label>
+                    <div style="display: flex; gap: 8px;">
+                        <input type="text" id="transitionConditions" class="form-field-input" value="${transition.conditions || ''}" style="flex: 1; padding: 6px; box-sizing: border-box; font-size: 0.85rem;" onchange="transition.conditions = this.value; updatePreview();">
+                        <button class="btn transition-conditions-edit-btn" data-transition-uuid="${transitionUUID}" data-color="blue" style="padding: 0; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; font-size: 16px;" title="Edit Conditions">&#9998;</button>
                     </div>
-                    
-                    <div>
-                        <label style="display: block; font-size: 0.8rem; color: #b0b0b0; margin-bottom: 5px;">Type</label>
-                        <select id="transitionType" class="form-field-input" style="width: 100%; padding: 6px; box-sizing: border-box; font-size: 0.85rem;">
-                            <option value="Success" ${transition.type === 'Success' ? 'selected' : ''}>Success</option>
-                            <option value="Failure" ${transition.type === 'Failure' ? 'selected' : ''}>Failure</option>
-                            <option value="Logic" ${transition.type === 'Logic' ? 'selected' : ''}>Logic</option>
-                            <option value="Always" ${transition.type === 'Always' ? 'selected' : ''}>Always</option>
-                        </select>
-                    </div>
-                    
-                    <div id="conditionsDiv" style="display: ${transition.type === 'Logic' ? 'block' : 'none'}; margin-top: 10px;">">
-                        <label style="display: block; font-size: 0.8rem; color: #b0b0b0; margin-bottom: 5px;">Conditions</label>
-                        <div style="display: flex; gap: 8px;">
-                            <input type="text" id="transitionConditions" class="form-field-input" value="${transition.conditions || ''}" style="flex: 1; padding: 6px; box-sizing: border-box; font-size: 0.85rem;" readonly>
-                            <button class="transition-conditions-edit" data-transition-uuid="${transitionUUID}" style="padding: 6px 12px; background: #3a7a99; border: 1px solid #5a9ab9; color: #e0e0e0; border-radius: 3px; cursor: pointer; font-size: 0.85rem; white-space: nowrap;">&#9998;</button>
-                        </div>
-                    </div>
-                    
-                    <div style="border-top: 1px solid #3a7a99; padding-top: 10px; margin-top: 10px;">
-                        <div style="font-size: 0.75rem; color: #707070; word-break: break-all;">ID: ${transition.id}</div>
-                    </div>
+                </div>
+                
+                <div style="border-top: 1px solid #3a7a99; padding-top: 10px; margin-top: 10px;">
+                    <div style="font-size: 0.75rem; color: #707070; word-break: break-all;">ID: ${transition.id}</div>
                 </div>
             `;
             
-            // Add event listeners
-            document.getElementById('transitionName').addEventListener('change', (e) => {
-                transition.name = e.target.value;
-                updatePreview();
-            });
+            const onListenersAttach = (container) => {
+                container.querySelector('#transitionName')?.addEventListener('change', (e) => {
+                    transition.name = e.target.value;
+                    updatePreview();
+                });
+                
+                container.querySelector('#transitionType')?.addEventListener('change', (e) => {
+                    transition.type = e.target.value;
+                    
+                    const conditionsDiv = container.querySelector('#conditionsDiv');
+                    if (conditionsDiv) {
+                        conditionsDiv.style.display = transition.type === 'Logic' ? 'block' : 'none';
+                    }
+                    
+                    const canvas = document.getElementById('workflowCanvas');
+                    const conditionBox = canvas.querySelector(`[data-condition-id="${transitionUUID}"]`);
+                    if (conditionBox) {
+                        conditionBox.setAttribute('data-transition-type', transition.type);
+                        const newColors = getTransitionTheme(transition.type);
+                        conditionBox.style.background = newColors.color;
+                        conditionBox.style.color = '#ffffff';
+                        
+                        let icon = getTransitionTheme(transition.type).icon;
+                        if (transition.type === 'Always') {
+                            icon = '&#9660;';
+                        }
+                        conditionBox.innerHTML = icon;
+                    }
+                    
+                    updateTransitionLineColors(transitionUUID, transition.type);
+                    updatePreview();
+                });
+            };
             
-            document.getElementById('transitionType').addEventListener('change', (e) => {
-                transition.type = e.target.value;
-                
-                // Show/hide conditions div based on type
-                const conditionsDiv = document.getElementById('conditionsDiv');
-                if (conditionsDiv) {
-                    conditionsDiv.style.display = transition.type === 'Logic' ? 'block' : 'none';
-                }
-                
-                // Update condition box colors and icon
-                const canvas = document.getElementById('workflowCanvas');
-                const conditionBox = canvas.querySelector(`[data-condition-id="${transitionUUID}"]`);
-                if (conditionBox) {
-                    // Update the data attribute
-                    conditionBox.setAttribute('data-transition-type', transition.type);
-                    
-                    const newColors = getTransitionColors(transition.type);
-                    conditionBox.style.background = newColors.color;
-                    conditionBox.style.color = '#ffffff';
-                    
-                    // Update with proper icon instead of text
-                    let icon = '&#10003;';  // checkmark for Success
-                    if (transition.type === 'Failure') icon = '&#10005;';  // X for Failure
-                    else if (transition.type === 'Logic') icon = `<span style="font-size: 0.85rem;">&lt;&gt;</span>`;
-                    else if (transition.type === 'Always') icon = '&#9660;';  // down triangle
-                    conditionBox.innerHTML = icon;
-                }
-                
-                // Update connection line colors
-                updateTransitionLineColors(transitionUUID, transition.type);
-                
-                updatePreview();
-            });
+            renderPropertiesPanel(
+                'Transition Case Properties',
+                '#3a7a99',
+                { id: transitionUUID, type: 'transition' },
+                contentHTML,
+                onListenersAttach
+            );
         }
         
         // Event listener for transition condition edit button
         document.addEventListener('click', (e) => {
-            if (e.target.classList.contains('transition-conditions-edit')) {
+            if (e.target.classList.contains('transition-conditions-edit-btn')) {
                 const transitionUUID = e.target.getAttribute('data-transition-uuid');
                 const transition = currentTransitions.find(t => t.id === transitionUUID);
                 if (transition) {
-                    openTextEditor('Transition Conditions', transition.conditions || '', (value) => {
-                        document.getElementById('transitionConditions').value = value;
+                    const step = currentSteps.find(s => s.transition && s.transition.cases && 
+                        s.transition.cases.some(c => c.id === transitionUUID || c === transition));
+                    
+                    openWorkflowJinjaEditorModal('Edit Conditions', transition.conditions || '', (value) => {
+                        const conditionsInput = document.getElementById('transitionConditions');
+                        if (conditionsInput) {
+                            conditionsInput.value = value;
+                        }
                         transition.conditions = value;
-                        
                         updatePreview();
-                    });
+                    }, step ? step.id : null);
                 }
             }
         });
@@ -3574,7 +3358,7 @@ document.body.appendChild(nodePreview);
                 const fromTransitionId = line.getAttribute('data-from-transition');
                 const frame = currentTransitionFrames.find(f => f.conditions.includes(fromTransitionId));
                 const transition = currentTransitions.find(t => t.id === fromTransitionId);
-                const caseColor = transition ? getTransitionColors(transition.type).color : getTransitionColors('Success').color;
+                const caseColor = transition ? getTransitionTheme(transition.type).color : getTransitionTheme('Success').color;
                 drawConnectionLine(line, fromTransitionId, 'case', stepUUID, 'step', canvas, caseColor, false, frame);
             });
         }
@@ -3582,6 +3366,8 @@ document.body.appendChild(nodePreview);
         function showStepProperties(stepUUID) {
             const step = currentSteps.find(s => s.id === stepUUID);
             if (!step) return;
+            
+            currentStepBeingEdited = step;  // Track this step for variable editing
             
             const propertiesContent = document.getElementById('propertiesContent');
             showPropertiesPanel();
@@ -3607,7 +3393,7 @@ document.body.appendChild(nodePreview);
             const isEndType = step.type === 'End';
             
             // Build delete button HTML (hidden for BEGIN steps)
-            const deleteButtonHTML = isBeginStep ? '' : `<button class="btn btn-red" onclick="deleteStep('${stepUUID}')" style="padding: 6px 12px;">Delete</button>`;
+            const deleteButtonHTML = isBeginStep ? '' : `<button class="btn" data-color="red" onclick="deleteElement('${stepUUID}', 'step')" style="padding: 6px 12px;">Delete</button>`;
             
             // Build Action field HTML based on type
             let actionFieldHTML = '';
@@ -3850,7 +3636,7 @@ document.body.appendChild(nodePreview);
                                 
                                 const greenCurvePath = createCurvedPath(x1, y1, 'bottom', nearestSide.x, nearestSide.y, nearestSide.name);
                                 const transitionData = currentTransitions.find(t => t.id === fromTransitionId);
-                                const transitionColors = getTransitionColors(transitionData ? transitionData.type : 'Success');
+                                const transitionColors = getTransitionTheme(transitionData ? transitionData.type : 'Success');
                                 line.innerHTML = `<defs><marker id="greenArrowhead" markerWidth="10" markerHeight="10" refX="0" refY="3" orient="auto"><polygon points="0 0, 6 3, 0 6" fill="${transitionColors.color}"/></marker></defs><path d="${greenCurvePath}" stroke="${transitionColors.color}" stroke-width="2" fill="none" marker-end="url(#greenArrowhead)"/>`;
                             }
                         });
@@ -3917,13 +3703,9 @@ document.body.appendChild(nodePreview);
             
             // Add variable button
             document.getElementById('addVariableBtn').addEventListener('click', () => {
-                console.log('Add Variable button clicked');
                 step.variables.push({ name: '', value: '' });
-                console.log('Variable pushed to step');
                 showStepProperties(stepUUID); // Refresh to show new variable
-                console.log('showStepProperties called');
                 updatePreview();
-                console.log('updatePreview called');
             });
             
             // Add event listeners for size override
@@ -3966,66 +3748,22 @@ document.body.appendChild(nodePreview);
             const node = currentNodes.find(n => n.id === nodeId);
             if (!node) return;
             
-            const propertiesContent = document.getElementById('propertiesContent');
-            showPropertiesPanel();
-            
-            const deleteButtonHTML = `<button class="btn btn-red" onclick="deleteNode('${nodeId}')" style="padding: 6px 12px;">Delete</button>`;
-            
-            propertiesContent.innerHTML = `
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; padding-bottom: 10px; border-bottom: 1px solid #3a7a99;">
-                    <div style="font-size: 0.9rem; color: #e0e0e0; font-weight: 500;">Node Properties</div>
-                    ${deleteButtonHTML}
+            const contentHTML = `
+                <div>
+                    <!-- Settings section (empty for now) -->
                 </div>
-                <div style="display: flex; flex-direction: column; gap: 15px;">
-                    <div>
-                        <!-- Settings section (empty for now) -->
-                    </div>
-                    
-                    <div style="border-top: 1px solid #3a7a99; padding-top: 10px; margin-top: 10px;">
-                        <div style="font-size: 0.75rem; color: #707070; word-break: break-all;">ID: ${nodeId}</div>
-                    </div>
+                
+                <div style="border-top: 1px solid #3a7a99; padding-top: 10px; margin-top: 10px;">
+                    <div style="font-size: 0.75rem; color: #707070; word-break: break-all;">ID: ${nodeId}</div>
                 </div>
             `;
-        }
-
-        function deleteNode(nodeId) {
-            showDeleteConfirm(
-                'Delete this node? All connections will be removed.',
-                function() {
-                    // Remove node from currentNodes
-                    currentNodes = currentNodes.filter(n => n.id !== nodeId);
-                    
-                    // Remove references to this node from all transitions' targetNodes
-                    currentTransitions.forEach(t => {
-                        if (t.targetNodes) {
-                            t.targetNodes = t.targetNodes.filter(id => id !== nodeId);
-                        }
-                    });
-                    
-                    // Remove references from step transitions' cases
-                    currentSteps.forEach(step => {
-                        if (step.transition && step.transition.cases) {
-                            step.transition.cases.forEach(caseObj => {
-                                if (caseObj.targetNodes) {
-                                    caseObj.targetNodes = caseObj.targetNodes.filter(id => id !== nodeId);
-                                }
-                            });
-                        }
-                    });
-                    
-                    // Remove node DOM element
-                    const canvas = document.getElementById('workflowCanvas');
-                    const nodeElement = canvas.querySelector(`[data-node-id="${nodeId}"]`);
-                    if (nodeElement) nodeElement.remove();
-                    
-                    // Remove all connection lines related to this node
-                    document.querySelectorAll(`[data-from-node="${nodeId}"]`).forEach(line => line.remove());
-                    document.querySelectorAll(`[data-to-node="${nodeId}"]`).forEach(line => line.remove());
-                    
-                    hidePropertiesPanel();
-                    document.getElementById('propertiesContent').innerHTML = '<div style="color: #b0b0b0; font-size: 0.85rem;">Select a step or transition to edit properties</div>';
-                    updatePreview();
-                }
+            
+            renderPropertiesPanel(
+                'Node Properties',
+                '#3a7a99',
+                { id: nodeId, type: 'node' },
+                contentHTML,
+                null // No event listeners needed for nodes
             );
         }
 
@@ -4055,7 +3793,6 @@ document.body.appendChild(nodePreview);
                     // Find the frame for this step using parentStepId
                     let frame = currentTransitionFrames.find(f => f.parentStepId === step.id);
                     if (frame) {
-                        console.log('Step', step.type, step.id, 'has frame with conditions:', frame.conditions);
                         // Set attached flag based on whether frame has attachedToStepId
                         step.transition.attached = frame.attachedToStepId !== null && frame.attachedToStepId !== undefined;
                         
@@ -4080,12 +3817,10 @@ document.body.appendChild(nodePreview);
         }
 
         function updatePreview() {
-            console.log('updatePreview() started');
             
             try {
                 // Sync transition cases to step before creating preview
                 syncTransitionCasesToStep();
-                console.log('syncTransitionCasesToStep completed');
             } catch (syncError) {
                 console.error('Error in syncTransitionCasesToStep:', syncError);
             }
@@ -4106,7 +3841,6 @@ document.body.appendChild(nodePreview);
                 // Log what's being exported for BEGIN step
                 const beginStepExport = stepsForExport.find(s => s.type === 'Begin');
                 if (beginStepExport && beginStepExport.transition) {
-                    console.log('Exporting BEGIN step with cases:', JSON.stringify(beginStepExport.transition.cases));
                 }
                 
                 const payload = { 
@@ -4126,11 +3860,8 @@ document.body.appendChild(nodePreview);
                 
                 // Update currentDefinition and check for changes
                 currentDefinition = payload;
-                console.log('updatePreview - checking changes...');
                 const hasChanges = checkUnsavedChanges(currentDefinition);
-                console.log('updatePreview - hasChanges:', hasChanges);
                 updateSaveButtonState();
-                console.log('updatePreview - button state updated');
                 
                 // Only update preview display if preview element exists and there are actual changes
                 if (previewElement && hasChanges) {
@@ -4146,163 +3877,7 @@ document.body.appendChild(nodePreview);
 
         let pendingConfirmCallback = null;
 
-        function deleteStep(stepUUID) {
-            showDeleteConfirm(
-                'This step and all its connections will be removed. This action cannot be undone.',
-                function() {
-                    // Get the step to find its transitions
-                    const step = currentSteps.find(s => s.id === stepUUID);
-                    if (step && step.transitions) {
-                        // Delete each transition of this step
-                        step.transitions.forEach(transition => {
-                            const transitionUUID = transition.id;
-                            
-                            // Remove transition from DOM
-                            const transitionElement = document.querySelector(`[data-transition-uuid="${transitionUUID}"]`);
-                            if (transitionElement) {
-                                transitionElement.remove();
-                            }
-                            
-                            // Remove all connection lines for this transition
-                            document.querySelectorAll(`[data-from-transition="${transitionUUID}"]`).forEach(line => line.remove());
-                            document.querySelectorAll(`[data-to-transition="${transitionUUID}"]`).forEach(line => line.remove());
-                            
-                            // Remove from currentTransitions
-                            currentTransitions = currentTransitions.filter(t => t.id !== transitionUUID);
-                        });
-                    }
-                    
-                    // Remove the step from currentSteps
-                    currentSteps = currentSteps.filter(s => s.id !== stepUUID);
-                    
-                    // Remove references to this step from all transitions' targetSteps
-                    currentTransitions.forEach(t => {
-                        if (t.targetSteps) {
-                            t.targetSteps = t.targetSteps.filter(id => id !== stepUUID);
-                        }
-                    });
-                    
-                    // Remove step DOM element
-                    const stepElement = document.querySelector(`[data-step-uuid="${stepUUID}"]`);
-                    if (stepElement) stepElement.remove();
-                    
-                    // Remove all connection lines related to this step
-                    // Blue lines: [data-from-step] (from this step to transitions)
-                    // Green lines: [data-to-step] (from transitions to this step)
-                    document.querySelectorAll(`[data-from-step="${stepUUID}"], [data-to-step="${stepUUID}"]`).forEach(line => line.remove());
-                    
-                    hidePropertiesPanel();
-                    document.getElementById('propertiesContent').innerHTML = '<div style="color: #b0b0b0; font-size: 0.85rem;">Select a step or transition to edit properties</div>';
-                    updatePreview();
-                }
-            );
-        }
 
-        function deleteTransition(transitionUUID) {
-            // Check if this is the only condition in a frame
-            const frame = currentTransitionFrames.find(f => f.conditions.includes(transitionUUID));
-            if (frame && frame.conditions.length === 1) {
-                alert('A transition frame must have at least one condition. Delete the frame instead.');
-                return;
-            }
-            
-            showDeleteConfirm(
-                'This transition and all its connections will be removed. This action cannot be undone.',
-                function() {
-                    // Remove from frame's conditions array if it's in a frame
-                    if (frame) {
-                        frame.conditions = frame.conditions.filter(c => c !== transitionUUID);
-                    }
-                    
-                    // Remove from steps' transitions arrays
-                    currentSteps.forEach(step => {
-                        if (step.transitions) {
-                            step.transitions = step.transitions.filter(t => t.id !== transitionUUID);
-                        }
-                    });
-                    
-                    // Remove from currentTransitions
-                    currentTransitions = currentTransitions.filter(t => t.id !== transitionUUID);
-                    
-                    // Remove references to this transition from all transitions' targetNodes (case lines can't target other cases)
-                    // Actually, transitions target steps and nodes, not other transitions
-                    // But we should clean up any stale references
-                    currentTransitions.forEach(t => {
-                        if (t.targetNodes) {
-                            t.targetNodes = t.targetNodes.filter(id => id !== transitionUUID);
-                        }
-                    });
-                    
-                    // Remove the transition DOM element
-                    const transitionElement = document.querySelector(`[data-condition-id="${transitionUUID}"]`);
-                    if (transitionElement) {
-                        transitionElement.parentElement.remove();
-                    }
-                    
-                    // Remove all connection lines related to this transition
-                    document.querySelectorAll(`[data-from-transition="${transitionUUID}"]`).forEach(line => line.remove());
-                    
-                    // Re-render the frame to update height
-                    if (frame) {
-                        const canvas = document.getElementById('workflowCanvas');
-                        renderTransitionFrame(frame.id, frame.verticalLayout);
-                        
-                        // If frame is attached to a step, handle step width adjustment after frame re-renders
-                        setTimeout(() => {
-                            const attachedStep = currentSteps.find(s => s.id === frame.attachedToStepId);
-                            if (attachedStep) {
-                                const stepElement = canvas.querySelector(`[data-step-uuid="${attachedStep.id}"]`);
-                                const frameElement = canvas.querySelector(`[data-transition-frame="${frame.id}"]`);
-                                if (stepElement && frameElement) {
-                                    const currentStepWidth = parseInt(stepElement.style.width);
-                                    const frameWidth = parseInt(frameElement.style.width);
-                                    
-                                    // Calculate the original step width (before attachment)
-                                    const tempDiv = document.createElement('div');
-                                    tempDiv.style.cssText = `
-                                        position: absolute;
-                                        visibility: hidden;
-                                        font-size: 0.9rem;
-                                        white-space: nowrap;
-                                    `;
-                                    tempDiv.textContent = attachedStep.name || `${attachedStep.type} Step`;
-                                    document.body.appendChild(tempDiv);
-                                    const textWidth = tempDiv.offsetWidth;
-                                    document.body.removeChild(tempDiv);
-                                    
-                                    let originalWidth = 120;  // Default 4 grid units
-                                    if (textWidth > 80) {
-                                        const gridSpaces = Math.ceil((textWidth - 80) / 30);
-                                        originalWidth = 120 + (gridSpaces * 30);
-                                    }
-                                    
-                                    // If step is wider than frame, reduce by 30px but not below original width
-                                    if (currentStepWidth > frameWidth) {
-                                        const newWidth = Math.max(originalWidth, currentStepWidth - 30);
-                                        stepElement.style.width = newWidth + 'px';
-                                        attachedStep.width = newWidth / 30;
-                                        
-                                        // Adjust border radius based on comparison to frame width
-                                        if (newWidth > frameWidth) {
-                                            // Step is still wider than frame: de-radius only bottom left corner
-                                            stepElement.style.borderRadius = '4px 4px 4px 0px';
-                                        } else {
-                                            // Frame is now same width or wider: de-radius both bottom corners
-                                            stepElement.style.borderRadius = '4px 4px 0px 0px';
-                                        }
-                                    }
-                                }
-                            }
-                        }, 50);
-                    }
-                    
-                    hidePropertiesPanel();
-                    document.getElementById('propertiesContent').innerHTML = '<div style="color: #b0b0b0; font-size: 0.85rem;">Select a step or transition to edit properties</div>';
-                    updatePreview();
-                }
-            );
-        }
-        
         function cleanupStaleReferences() {
             // Remove references to deleted nodes and steps
             const nodeIds = new Set(currentNodes.map(n => n.id));
@@ -4332,59 +3907,242 @@ document.body.appendChild(nodePreview);
             });
         }
         
-        function deleteTransitionFrame(frameUUID) {
-            showDeleteConfirm(
-                'This frame and all its conditions and connections will be removed. This action cannot be undone.',
-                function() {
-                    const canvas = document.getElementById('workflowCanvas');
-                    
-                    // Get the frame
-                    const frame = (currentTransitionFrames || []).find(f => f.id === frameUUID);
-                    if (!frame) return;
-                    
-                    // Remove all conditions in the frame
-                    frame.conditions.forEach(conditionId => {
-                        currentTransitions = currentTransitions.filter(t => t.id !== conditionId);
-                    });
-                    
-                    // Remove transition from steps that reference this frame
-                    currentSteps.forEach(step => {
-                        if (step.transition && step.transition.position === frame.position) {
-                            delete step.transition;
+        /**
+         * Unified delete function for all element types (step, transition, node, frame)
+         * @param {string} elementId - The unique ID of the element to delete
+         * @param {string} elementType - Type of element: 'step', 'transition', 'node', or 'frame'
+         * @param {object} options - Additional options: {skipConfirm: bool, skipRender: bool}
+         */
+        function deleteElement(elementId, elementType, options = {}) {
+            const { skipConfirm = false, skipRender = false } = options;
+            const canvas = document.getElementById('workflowCanvas');
+            
+            // Confirmation messages
+            const messages = {
+                'step': 'This step and all its connections will be removed. This action cannot be undone.',
+                'transition': 'This transition and all its connections will be removed. This action cannot be undone.',
+                'node': 'Delete this node? All connections will be removed.',
+                'frame': 'This frame and all its conditions and connections will be removed. This action cannot be undone.'
+            };
+            
+            const confirmFn = () => {
+                try {
+                    // --- STEP DELETION ---
+                    if (elementType === 'step') {
+                        const step = currentSteps.find(s => s.id === elementId);
+                        if (!step) return;
+                        
+                        // Delete all transitions of this step
+                        if (step.transitions) {
+                            step.transitions.forEach(transition => {
+                                const transitionUUID = transition.id;
+                                document.querySelectorAll(`[data-transition-uuid="${transitionUUID}"]`).forEach(el => el.remove());
+                                document.querySelectorAll(`[data-from-transition="${transitionUUID}"]`).forEach(el => el.remove());
+                                document.querySelectorAll(`[data-to-transition="${transitionUUID}"]`).forEach(el => el.remove());
+                                currentTransitions = currentTransitions.filter(t => t.id !== transitionUUID);
+                            });
                         }
-                    });
-                    
-                    // Remove from currentTransitionFrames
-                    currentTransitionFrames = currentTransitionFrames.filter(f => f.id !== frameUUID);
-                    
-                    // Remove the frame DOM element
-                    const frameElement = canvas.querySelector(`[data-transition-frame="${frameUUID}"]`);
-                    if (frameElement) {
-                        frameElement.remove();
+                        
+                        // Remove transition frame(s) for this step
+                        const framesToRemove = currentTransitionFrames.filter(f => f.parentStepId === elementId);
+                        framesToRemove.forEach(frame => {
+                            const frameElement = canvas.querySelector(`[data-transition-frame="${frame.id}"]`);
+                            if (frameElement) frameElement.remove();
+                        });
+                        currentTransitionFrames = currentTransitionFrames.filter(f => f.parentStepId !== elementId);
+                        
+                        // Remove from currentSteps
+                        currentSteps = currentSteps.filter(s => s.id !== elementId);
+                        
+                        // Remove references from all transitions
+                        currentTransitions.forEach(t => {
+                            if (t.targetSteps) {
+                                t.targetSteps = t.targetSteps.filter(id => id !== elementId);
+                            }
+                        });
+                        
+                        // Remove step DOM element
+                        const stepElement = canvas.querySelector(`[data-step-uuid="${elementId}"]`);
+                        if (stepElement) stepElement.remove();
+                        
+                        // Remove connection lines
+                        document.querySelectorAll(`[data-from-step="${elementId}"], [data-to-step="${elementId}"]`).forEach(el => el.remove());
                     }
                     
-                    // Remove all connection lines related to this frame
-                    document.querySelectorAll(`[data-to-frame="${frameUUID}"]`).forEach(line => line.remove());
-                    
-                    // Remove transition connection lines from steps to this frame
-                    document.querySelectorAll(`[data-connection-line="${frameUUID}"]`).forEach(line => line.remove());
-                    
-                    // Remove orphaned case lines (lines whose condition no longer exists)
-                    document.querySelectorAll('[data-transition-connection-line]').forEach(line => {
-                        const conditionId = line.getAttribute('data-from-transition');
-                        const targetStepId = line.getAttribute('data-to-step');
-                        const conditionExists = currentTransitions.some(t => t.id === conditionId);
-                        const stepExists = currentSteps.some(s => s.id === targetStepId);
-                        if (!conditionExists || !stepExists) {
-                            line.remove();
+                    // --- TRANSITION DELETION ---
+                    else if (elementType === 'transition') {
+                        // Check if only condition in frame
+                        const frame = currentTransitionFrames.find(f => f.conditions.includes(elementId));
+                        if (frame && frame.conditions.length === 1) {
+                            alert('A transition frame must have at least one condition. Delete the frame instead.');
+                            return;
                         }
-                    });
+                        
+                        // Remove from frame's conditions
+                        if (frame) {
+                            frame.conditions = frame.conditions.filter(c => c !== elementId);
+                        }
+                        
+                        // Remove from steps' transitions arrays
+                        currentSteps.forEach(step => {
+                            if (step.transitions) {
+                                step.transitions = step.transitions.filter(t => t.id !== elementId);
+                            }
+                        });
+                        
+                        // Remove from currentTransitions
+                        currentTransitions = currentTransitions.filter(t => t.id !== elementId);
+                        
+                        // Remove transition DOM element
+                        const transitionElement = document.querySelector(`[data-condition-id="${elementId}"]`);
+                        if (transitionElement) {
+                            transitionElement.parentElement.remove();
+                        }
+                        
+                        // Remove connection lines
+                        document.querySelectorAll(`[data-from-transition="${elementId}"]`).forEach(el => el.remove());
+                        
+                        // Re-render frame if it exists
+                        if (frame) {
+                            renderTransitionFrame(frame.id, frame.verticalLayout);
+                            
+                            // Handle step width adjustment after frame re-renders
+                            setTimeout(() => {
+                                const attachedStep = currentSteps.find(s => s.id === frame.attachedToStepId);
+                                if (attachedStep) {
+                                    const stepElement = canvas.querySelector(`[data-step-uuid="${attachedStep.id}"]`);
+                                    const frameElement = canvas.querySelector(`[data-transition-frame="${frame.id}"]`);
+                                    if (stepElement && frameElement) {
+                                        const currentStepWidth = parseInt(stepElement.style.width);
+                                        const frameWidth = parseInt(frameElement.style.width);
+                                        
+                                        // Calculate original step width
+                                        const tempDiv = document.createElement('div');
+                                        tempDiv.style.cssText = `position: absolute; visibility: hidden; font-size: 0.9rem; white-space: nowrap;`;
+                                        tempDiv.textContent = attachedStep.name || `${attachedStep.type} Step`;
+                                        document.body.appendChild(tempDiv);
+                                        const textWidth = tempDiv.offsetWidth;
+                                        document.body.removeChild(tempDiv);
+                                        
+                                        let originalWidth = 120;
+                                        if (textWidth > 80) {
+                                            const gridSpaces = Math.ceil((textWidth - 80) / 30);
+                                            originalWidth = 120 + (gridSpaces * 30);
+                                        }
+                                        
+                                        if (currentStepWidth > frameWidth) {
+                                            const newWidth = Math.max(originalWidth, currentStepWidth - 30);
+                                            stepElement.style.width = newWidth + 'px';
+                                            attachedStep.width = newWidth / 30;
+                                            
+                                            if (newWidth > frameWidth) {
+                                                stepElement.style.borderRadius = '4px 4px 4px 0px';
+                                            } else {
+                                                stepElement.style.borderRadius = '4px 4px 0px 0px';
+                                            }
+                                        }
+                                    }
+                                }
+                            }, 50);
+                        }
+                    }
                     
+                    // --- NODE DELETION ---
+                    else if (elementType === 'node') {
+                        // Remove from currentNodes
+                        currentNodes = currentNodes.filter(n => n.id !== elementId);
+                        
+                        // Remove references from transitions' targetNodes
+                        currentTransitions.forEach(t => {
+                            if (t.targetNodes) {
+                                t.targetNodes = t.targetNodes.filter(id => id !== elementId);
+                            }
+                        });
+                        
+                        // Remove references from step transitions' cases
+                        currentSteps.forEach(step => {
+                            if (step.transition && step.transition.cases) {
+                                step.transition.cases.forEach(caseObj => {
+                                    if (caseObj.targetNodes) {
+                                        caseObj.targetNodes = caseObj.targetNodes.filter(id => id !== elementId);
+                                    }
+                                });
+                            }
+                        });
+                        
+                        // Remove node DOM element
+                        const nodeElement = canvas.querySelector(`[data-node-id="${elementId}"]`);
+                        if (nodeElement) nodeElement.remove();
+                        
+                        // Remove connection lines
+                        document.querySelectorAll(`[data-from-node="${elementId}"]`).forEach(el => el.remove());
+                        document.querySelectorAll(`[data-to-node="${elementId}"]`).forEach(el => el.remove());
+                    }
+                    
+                    // --- FRAME DELETION ---
+                    else if (elementType === 'frame') {
+                        const frame = currentTransitionFrames.find(f => f.id === elementId);
+                        if (!frame) return;
+                        
+                        // Remove all conditions in the frame
+                        frame.conditions.forEach(conditionId => {
+                            currentTransitions = currentTransitions.filter(t => t.id !== conditionId);
+                        });
+                        
+                        // Remove transition from steps that reference this frame
+                        currentSteps.forEach(step => {
+                            if (step.transition && step.transition.position === frame.position) {
+                                delete step.transition;
+                            }
+                        });
+                        
+                        // Remove from currentTransitionFrames
+                        currentTransitionFrames = currentTransitionFrames.filter(f => f.id !== elementId);
+                        
+                        // Remove frame DOM element
+                        const frameElement = canvas.querySelector(`[data-transition-frame="${elementId}"]`);
+                        if (frameElement) frameElement.remove();
+                        
+                        // Remove connection lines
+                        document.querySelectorAll(`[data-to-frame="${elementId}"]`).forEach(el => el.remove());
+                        document.querySelectorAll(`[data-connection-line="${elementId}"]`).forEach(el => el.remove());
+                        
+                        // Remove orphaned case lines
+                        document.querySelectorAll('[data-transition-connection-line]').forEach(line => {
+                            const conditionId = line.getAttribute('data-from-transition');
+                            const targetStepId = line.getAttribute('data-to-step');
+                            const conditionExists = currentTransitions.some(t => t.id === conditionId);
+                            const stepExists = currentSteps.some(s => s.id === targetStepId);
+                            if (!conditionExists || !stepExists) {
+                                line.remove();
+                            }
+                        });
+                    }
+                    
+                    // Common cleanup
                     hidePropertiesPanel();
                     document.getElementById('propertiesContent').innerHTML = '<div style="color: #b0b0b0; font-size: 0.85rem;">Select a step or transition to edit properties</div>';
-                    updatePreview();
+                    
+                    // Trigger relevant updates
+                    if (!skipRender) {
+                        if (elementType === 'step' || elementType === 'frame') {
+                            recheckFlaggedSteps();
+                        }
+                        updatePreview();
+                    }
+                    
+                } catch (err) {
+                    console.error(`Error deleting ${elementType}:`, err);
+                    alert(`Failed to delete ${elementType}. Check console for details.`);
                 }
-            );
+            };
+            
+            // Show confirmation or execute directly
+            if (skipConfirm) {
+                confirmFn();
+            } else {
+                showDeleteConfirm(messages[elementType] || 'Delete this element?', confirmFn);
+            }
         }
 
         async function saveWorkflow() {
@@ -4392,6 +4150,23 @@ document.body.appendChild(nodePreview);
                 alert('Not ready to save');
                 return;
             }
+
+            // Sync frame.conditions back to step.transition.cases before saving
+            currentTransitionFrames.forEach(frame => {
+                const step = currentSteps.find(s => s.id === frame.parentStepId);
+                if (step && step.transition) {
+                    step.transition.cases = frame.conditions.map(conditionId => {
+                        const transition = currentTransitions.find(t => t.id === conditionId);
+                        return {
+                            type: transition?.type || 'Success',
+                            conditions: transition?.conditions || '',
+                            targetSteps: transition?.targetSteps || [],
+                            targetNodes: transition?.targetNodes || [],
+                            order: transition?.order || 1
+                        };
+                    });
+                }
+            });
 
             // Update currentDefinition from current state
             currentDefinition = {
@@ -4409,6 +4184,14 @@ document.body.appendChild(nodePreview);
                 steps: currentSteps,
                 nodes: currentNodes
             };
+
+            // Validate workflow connectivity before saving
+            const validation = validateWorkflowConnectivity();
+            if (!validation.isValid) {
+                highlightInvalidSteps(validation.unreachableSteps, validation.unreachableNodes);
+                updateConnectivityBanner(validation.unreachableSteps, validation.unreachableNodes);
+                return; // Don't proceed with save
+            }
 
             // Check for unsaved changes using base.js function
             if (!checkUnsavedChanges(currentDefinition)) {
@@ -4786,31 +4569,6 @@ document.body.appendChild(nodePreview);
         });
 
         // Text Editor Modal - Generic for any multiline text field
-        let textEditorCallback = null;
-
-        function openTextEditor(fieldLabel, initialValue, onSaveCallback) {
-            document.getElementById('textEditorTitle').textContent = fieldLabel;
-            document.getElementById('textEditorTextarea').value = initialValue || '';
-            textEditorCallback = onSaveCallback;
-            document.getElementById('textEditorModal').classList.add('show');
-            // Focus textarea for immediate editing
-            setTimeout(() => {
-                document.getElementById('textEditorTextarea').focus();
-            }, 100);
-        }
-
-        function closeTextEditor() {
-            document.getElementById('textEditorModal').classList.remove('show');
-            textEditorCallback = null;
-        }
-
-        function saveTextEditor() {
-            const value = document.getElementById('textEditorTextarea').value;
-            if (textEditorCallback) {
-                textEditorCallback(value);
-            }
-            closeTextEditor();
-        }
 
         // Helper function to find which side of a step is closest to a frame
         function getClosestSideToFrame(stepElement, frameElement, canvas) {
@@ -4849,7 +4607,7 @@ document.body.appendChild(nodePreview);
             // If color not provided, determine it from step type
             if (!lineColor) {
                 const stepData = currentSteps.find(s => s.id === fromStepId);
-                lineColor = stepData ? getStepTypeLineColor(stepData.type) : '#3a7a99';
+                lineColor = stepData ? getStepTypeTheme(stepData.type).color : '#3a7a99';
             }
             
             if (!frameElement || !stepElement) return;
@@ -4904,22 +4662,6 @@ document.body.appendChild(nodePreview);
             line.innerHTML = `<defs><marker id="transitionArrowhead-${frameUUID}" markerWidth="10" markerHeight="10" refX="0" refY="3" orient="auto"><polygon points="0 0, 6 3, 0 6" fill="${lineColor}"/></marker></defs><path d="${path}" stroke="${lineColor}" stroke-width="2" fill="none" marker-end="url(#transitionArrowhead-${frameUUID})"/>`;
         }
 
-        function updateCaseLineStartPoint(line, frameCanvasX, frameCanvasY, conditionOffsetPixelX, conditionOffsetPixelY) {
-            // Update start point when frame moves
-            const pathElement = line.querySelector('path');
-            if (!pathElement) return;
-            
-            const pathData = pathElement.getAttribute('d');
-            
-            // Calculate new start in grid units
-            const newStartX = (frameCanvasX + conditionOffsetPixelX) / 30;
-            const newStartY = (frameCanvasY + conditionOffsetPixelY) / 30;
-            
-            // Replace M x y with new start coordinates
-            const newPath = pathData.replace(/M\s+[\d.-]+\s+[\d.-]+/, `M ${newStartX} ${newStartY}`);
-            pathElement.setAttribute('d', newPath);
-        }
-        
         /**
          * Unified line drawing for all connection types
          * @param {SVGElement} lineElement - SVG to draw into
@@ -4955,6 +4697,27 @@ document.body.appendChild(nodePreview);
             const targetWidth = parseInt(targetEl.style.width);
             const targetHeight = parseInt(targetEl.style.height);
 
+            // Pre-calculate centers for use in both source and target logic
+            let sourceCenterX = sourceX + sourceWidth / 2;
+            let sourceCenterY = sourceY + sourceHeight / 2;
+            let targetCenterX = targetX + targetWidth / 2;
+            let targetCenterY = targetY + targetHeight / 2;
+            
+            // If target is a step with attached transition frame, use bottom of step as centerY
+            if (targetType === 'step') {
+                const transitionFrames = Array.from(canvas.querySelectorAll('[data-transition-frame]'));
+                const attachedFrame = transitionFrames.find(el => {
+                    const frameY = parseInt(el.style.top);
+                    // If frame is at same Y position as step, it's likely attached to this step
+                    return frameY === targetY;
+                });
+                
+                if (attachedFrame) {
+                    // Use the bottom of the step as the effective centerY
+                    targetCenterY = targetY + targetHeight;
+                }
+            }
+
             let startX, startY, startDir;
 
             // Calculate source point
@@ -4968,16 +4731,27 @@ document.body.appendChild(nodePreview);
                 
                 const frameX = parseInt(frameElement.style.left);
                 const frameY = parseInt(frameElement.style.top);
+                
+                // Get the wrapper element (parent of the condition box)
+                const wrapper = sourceEl.parentElement;
+                const wrapperOffsetX = wrapper ? wrapper.offsetLeft : 0;
+                const wrapperOffsetY = wrapper ? wrapper.offsetTop : 0;
+                
                 const conditionOffsetX = sourceEl.offsetLeft;
                 const conditionOffsetY = sourceEl.offsetTop;
                 const conditionWidth = sourceEl.offsetWidth;
                 const conditionHeight = sourceEl.offsetHeight;
-                const conditionAbsX = frameX + conditionOffsetX;
-                const conditionAbsY = frameY + conditionOffsetY;
+                
+                // Total offset includes the wrapper position plus the condition's position within the wrapper
+                const conditionAbsX = frameX + wrapperOffsetX + conditionOffsetX;
+                // In vertical layout, wrappers are stacked vertically so include wrapperOffsetY
+                const conditionAbsY = frame.verticalLayout 
+                    ? frameY + wrapperOffsetY + conditionOffsetY
+                    : frameY + conditionOffsetY;
 
                 if (frame.verticalLayout) {
-                    startX = conditionAbsX + conditionWidth;
-                    startY = conditionAbsY + conditionHeight / 2 + 3;
+                    startX = conditionAbsX + conditionWidth + 10;
+                    startY = conditionAbsY + 13;
                     startDir = 'right';
                 } else {
                     startX = conditionAbsX + conditionWidth / 2 + 2;
@@ -4986,10 +4760,6 @@ document.body.appendChild(nodePreview);
                 }
             } else {
                 // Step/Node: floating - find nearest side/point to target
-                const sourceCenterX = sourceX + sourceWidth / 2;
-                const sourceCenterY = sourceY + sourceHeight / 2;
-                const targetCenterX = targetX + targetWidth / 2;
-                const targetCenterY = targetY + targetHeight / 2;
 
                 if (sourceType === 'step') {
                     // Step: nearest side
@@ -5013,7 +4783,49 @@ document.body.appendChild(nodePreview);
                     const absY = Math.abs(dy);
                     const diamondPoint = 6; // Distance from center to diamond point
 
-                    if (absX > absY) {
+                    // Special case: node-to-step with close horizontal alignment and node above target
+                    if (targetType === 'step') {
+                        // Determine exit point based on target position relative to node
+                        const sourceGridX = sourceCenterX / 30;
+                        const targetCenterGridY = targetCenterY / 30;
+                        const sourceCenterGridY = sourceCenterY / 30;
+                        const targetLeftGridX = targetX / 30;  // Target left edge in grid coords
+                        const targetRightGridX = (targetX + targetWidth) / 30;  // Target right edge in grid coords
+                        
+                        if (targetCenterGridY < sourceCenterGridY - 2) {
+                            // Target is well above node: exit from TOP
+                            startX = sourceCenterX;
+                            startY = sourceCenterY - diamondPoint;
+                            startDir = 'top';
+                        } else if (targetCenterGridY > sourceCenterGridY + 2) {
+                            // Target is well below node: exit from BOTTOM
+                            startX = sourceCenterX;
+                            startY = sourceCenterY + diamondPoint;
+                            startDir = 'bottom';
+                        } else if (targetLeftGridX >= sourceGridX + 1.5) {
+                            // Target's left edge is well to the right: exit from RIGHT
+                            startX = sourceCenterX + diamondPoint;
+                            startY = sourceCenterY;
+                            startDir = 'right';
+                        } else if (targetRightGridX <= sourceGridX - 1.5) {
+                            // Target's right edge is well to the left: exit from LEFT
+                            startX = sourceCenterX - diamondPoint;
+                            startY = sourceCenterY;
+                            startDir = 'left';
+                        } else {
+                            // No strong directional preference: use closest side
+                            const targetCenterGridX = (targetLeftGridX + targetRightGridX) / 2;
+                            if (targetCenterGridX > sourceGridX) {
+                                startX = sourceCenterX + diamondPoint;
+                                startY = sourceCenterY;
+                                startDir = 'right';
+                            } else {
+                                startX = sourceCenterX - diamondPoint;
+                                startY = sourceCenterY;
+                                startDir = 'left';
+                            }
+                        }
+                    } else if (absX > absY) {
                         // Exiting from left or right point
                         startX = sourceCenterX + (dx > 0 ? diamondPoint : -diamondPoint);
                         startY = sourceCenterY;
@@ -5028,8 +4840,6 @@ document.body.appendChild(nodePreview);
             }
 
             // Calculate target point (handle node targets specially)
-            const targetCenterX = targetX + targetWidth / 2;
-            const targetCenterY = targetY + targetHeight / 2;
             
             let nearestTargetSide;
             if (targetType === 'node') {
@@ -5040,9 +4850,22 @@ document.body.appendChild(nodePreview);
                     { x: targetCenterX, y: targetCenterY + targetHeight / 2, name: 'bottom' }, // bottom point
                     { x: targetCenterX, y: targetCenterY - targetHeight / 2, name: 'top' }     // top point
                 ];
-                nearestTargetSide = diamondPoints.reduce((a, b) =>
-                    Math.hypot(a.x - startX, a.y - startY) < Math.hypot(b.x - startX, b.y - startY) ? a : b
-                );
+                
+                // Check if line is nearly vertical
+                const startGridX = startX / 30;
+                const targetGridX = targetX / 30;
+                const targetGridY = targetY / 30;
+                const startGridY = startY / 30;
+                const horizontalDistance = Math.abs(startGridX - targetGridX);
+                
+                // If nearly vertical and target is lower, attach to top
+                if (horizontalDistance <= 1 && targetGridY > startGridY) {
+                    nearestTargetSide = diamondPoints[3]; // top point
+                } else {
+                    nearestTargetSide = diamondPoints.reduce((a, b) =>
+                        Math.hypot(a.x - startX, a.y - startY) < Math.hypot(b.x - startX, b.y - startY) ? a : b
+                    );
+                }
             } else {
                 // Step or frame target: use rectangular sides
                 const targetSides = [
@@ -5051,9 +4874,70 @@ document.body.appendChild(nodePreview);
                     { x: targetX, y: targetCenterY, name: 'left' },
                     { x: targetX + targetWidth, y: targetCenterY, name: 'right' }
                 ];
-                nearestTargetSide = targetSides.reduce((a, b) =>
-                    Math.hypot(a.x - startX, a.y - startY) < Math.hypot(b.x - startX, b.y - startY) ? a : b
-                );
+                
+                // If target step has attached transition frame, adjust entry points
+                if (targetType === 'step') {
+                    const transitionFrames = Array.from(canvas.querySelectorAll('[data-transition-frame]'));
+                    const attachedFrame = transitionFrames.find(el => {
+                        const frameY = parseInt(el.style.top);
+                        return frameY === targetY;
+                    });
+                    
+                    if (attachedFrame) {
+                        // Adjust entry points for attached frame
+                        targetSides[1].y += 30;      // BOTTOM: lowered by 1 grid unit (30px)
+                        // TOP, LEFT, RIGHT remain unchanged
+                    }
+                }
+                
+                // Check if line is nearly vertical (within 1 grid unit horizontally)
+                const startGridX = startX / 30;
+                const targetGridX = targetX / 30;
+                const targetGridY = targetY / 30;
+                const startGridY = startY / 30;
+                const horizontalDistance = Math.abs(startGridX - targetGridX);
+                
+                // Special case: node-to-step with step's right edge within 0.5 of node center
+                if (sourceType === 'node' && targetType === 'step') {
+                    const sourceCenterGridX = sourceCenterX / 30;  // Node center in grid coords
+                    const sourceCenterGridY = sourceCenterY / 30;  // Node center Y in grid coords
+                    const targetCenterGridX = targetCenterX / 30;  // Target center in grid coords
+                    const targetCenterGridY = targetCenterY / 30;  // Target center Y in grid coords
+                    
+                    console.log('Node-to-step routing:', {
+                        sourceCenterGridX: sourceCenterGridX.toFixed(2),
+                        targetCenterGridX: targetCenterGridX.toFixed(2),
+                        sourceCenterGridY: sourceCenterGridY.toFixed(2),
+                        targetCenterGridY: targetCenterGridY.toFixed(2)
+                    });
+                    
+                    // Entry point based on target center Y position relative to node center Y
+                    if (targetCenterGridY < sourceCenterGridY - 1.5) {
+                        console.log('→ Target above node, entering from BOTTOM');
+                        nearestTargetSide = targetSides[1]; // bottom
+                    } else if (targetCenterGridY > sourceCenterGridY + 1.5) {
+                        console.log('→ Target below node, entering from TOP');
+                        nearestTargetSide = targetSides[0]; // top
+                    } else {
+                        // Target within ±1 grid unit Y of node: enter from side (left or right, closer to node center X)
+                        const distToLeft = Math.abs(sourceCenterX - targetX);
+                        const distToRight = Math.abs(sourceCenterX - (targetX + targetWidth));
+                        if (distToLeft <= distToRight) {
+                            console.log('→ Target centered Y, entering from LEFT');
+                            nearestTargetSide = targetSides[2]; // left
+                        } else {
+                            console.log('→ Target centered Y, entering from RIGHT');
+                            nearestTargetSide = targetSides[3]; // right
+                        }
+                    }
+                } else if (horizontalDistance <= 1 && targetGridY > startGridY) {
+                    // If nearly vertical and target is lower, attach to top
+                    nearestTargetSide = targetSides[0]; // top
+                } else {
+                    nearestTargetSide = targetSides.reduce((a, b) =>
+                        Math.hypot(a.x - startX, a.y - startY) < Math.hypot(b.x - startX, b.y - startY) ? a : b
+                    );
+                }
             }
 
             // Offset endpoint to account for arrow width (~6px) plus 7px gap = ~13px from target
@@ -5123,24 +5007,32 @@ document.body.appendChild(nodePreview);
             const conditionBox = frameElement.querySelector(`[data-condition-id="${conditionId}"]`);
             if (!conditionBox) return;
             
+            // Get the wrapper element (parent of the condition box)
+            const wrapper = conditionBox.parentElement;
+            const wrapperOffsetX = wrapper ? wrapper.offsetLeft : 0;
+            const wrapperOffsetY = wrapper ? wrapper.offsetTop : 0;
+            
             const conditionOffsetX = conditionBox.offsetLeft;
             const conditionOffsetY = conditionBox.offsetTop;
-            const conditionWidth = conditionBox.offsetWidth;
-            const conditionHeight = conditionBox.offsetHeight;
+            const conditionWidth = 26;  // Hardcoded condition box width
+            const conditionHeight = 26; // Hardcoded condition box height
             
-            // Calculate absolute position
-            const conditionAbsX = frameX + conditionOffsetX;
-            const conditionAbsY = frameY + conditionOffsetY;
+            // Calculate absolute position (including wrapper offset)
+            const conditionAbsX = frameX + wrapperOffsetX + conditionOffsetX;
+            // In vertical layout, wrappers are stacked vertically so include wrapperOffsetY
+            const conditionAbsY = frame.verticalLayout 
+                ? frameY + wrapperOffsetY + conditionOffsetY
+                : frameY + conditionOffsetY;
             
             // Start from condition box edge
             let startX, startY, startDirection;
             if (frame.verticalLayout) {
-                startX = conditionAbsX + conditionWidth;
-                startY = conditionAbsY + conditionHeight / 2 + 3;
+                startX = conditionAbsX + conditionWidth + 10;
+                startY = conditionAbsY + 13;
                 startDirection = 'right';
             } else {
-                startX = conditionAbsX + conditionWidth / 2 + 2;
-                startY = conditionAbsY + conditionHeight + 40;
+                startX = conditionAbsX + conditionWidth / 2;
+                startY = conditionAbsY + conditionHeight + 39;
                 startDirection = 'bottom';
             }
             
@@ -5157,7 +5049,7 @@ document.body.appendChild(nodePreview);
             const path = createCurvedPath(startX, startY, startDirection, endX, endY, startDirection);
             
             const transition = currentTransitions.find(t => t.id === conditionId);
-            const transitionColors = transition ? getTransitionColors(transition.type) : getTransitionColors('Success');
+            const transitionColors = transition ? getTransitionTheme(transition.type) : getTransitionTheme('Success');
             
             // Draw line with arrow and hitbox at the end
             line.innerHTML = `<defs><marker id="caseArrowhead-${conditionId}" markerWidth="10" markerHeight="10" refX="0" refY="3" orient="auto"><polygon points="0 0, 6 3, 0 6" fill="${transitionColors.color}"/></marker></defs><path d="${path}" stroke="${transitionColors.color}" stroke-width="2" fill="none" marker-end="url(#caseArrowhead-${conditionId})" style="pointer-events: none;"/><circle cx="${endX}" cy="${endY}" r="8" fill="transparent" data-case-arrow-hitbox="${conditionId}" style="cursor: crosshair !important; pointer-events: auto;" />`;
@@ -5173,35 +5065,6 @@ document.body.appendChild(nodePreview);
                 case 'right': return { x: x + offset, y: y };
                 default: return { x: x, y: y };
             }
-        }
-
-        function createCurvedPathWithOffsetControl(x1, y1, exitSide, x2, y2, enterSide) {
-            // Like createCurvedPath but the endpoint (x2, y2) is the actual edge
-            // and we offset the control point away from the edge
-            const distance = Math.hypot(x2 - x1, y2 - y1);
-            
-            let offset = Math.min(40, distance * 0.4);
-            if (distance < 60) {
-                offset = Math.max(10, distance * 0.3);
-            }
-            
-            let cx1, cy1, cx2, cy2;
-            
-            // Calculate first control point (exit from source)
-            switch(exitSide) {
-                case 'top': cx1 = x1; cy1 = y1 - offset; break;
-                case 'bottom': cx1 = x1; cy1 = y1 + offset; break;
-                case 'left': cx1 = x1 - offset; cy1 = y1; break;
-                case 'right': cx1 = x1 + offset; cy1 = y1; break;
-                default: cx1 = x1; cy1 = y1;
-            }
-            
-            // Calculate second control point offset from the edge
-            const controlOffset = offsetPointFromEdge(x2, y2, enterSide, 6);
-            cx2 = controlOffset.x;
-            cy2 = controlOffset.y;
-            
-            return `M ${x1} ${y1} C ${cx1} ${cy1} ${cx2} ${cy2} ${x2} ${y2}`;
         }
 
         function createCurvedPath(x1, y1, exitSide, x2, y2, enterSide) {
@@ -5231,13 +5094,13 @@ document.body.appendChild(nodePreview);
             }
             
             // Simple cubic bezier curve
-            return `M ${x1} ${y1} C ${ctrl1_x} ${ctrl1_y} ${ctrl2_x} ${ctrl2_y} ${x2} ${y2 + 1}`;
+            return `M ${x1} ${y1} C ${ctrl1_x} ${ctrl1_y} ${ctrl2_x} ${ctrl2_y} ${x2} ${y2}`;
         }
 
         // Create a single transition condition box (2x1)
         function createTransitionConditionBox(transitionData, frameElement) {
             const conditionBox = document.createElement('div');
-            const colors = getTransitionColors(transitionData.type);
+            const colors = getTransitionTheme(transitionData.type);
             
             conditionBox.setAttribute('data-transition-uuid', transitionData.id);
             conditionBox.style.cssText = `
@@ -5386,40 +5249,99 @@ document.body.appendChild(nodePreview);
         const GRID_SIZE = 5000;
         const MIN_DRAG_DISTANCE = 10; // pixels required to create a transition
 
-        // Transition type color theming
-        function getTransitionColors(type) {
-            const colors = {
+        // Transition type theming - centralized color and icon definitions
+        function getTransitionTheme(type) {
+            const themes = {
                 'Success': {
-                    color: '#008000'
+                    color: '#008000',
+                    icon: '&#10003;'  // checkmark
                 },
                 'Failure': {
-                    color: '#a00000'
+                    color: '#a00000',
+                    icon: '&#10005;'  // X
                 },
                 'Logic': {
-                    color: '#1a5577'
+                    color: '#1a5577',
+                    icon: `<span style="font-size: 0.85rem;">&#123;&nbsp;&#125;</span>`  // { }
                 },
                 'Always': {
-                    color: '#666666'
+                    color: '#666666',
+                    icon: null  // handled separately based on layout
                 }
             };
-            return colors[type] || colors['Success'];
+            return themes[type] || themes['Success'];
         }
         
-        function getStepTypeLineColor(stepType) {
-            // Returns line color based on step type - matches the connection point colors
-            const stepTypeColors = {
-                'Begin': '#00aa00',      // Green (matches connection point)
-                'End': '#ff6666',        // Light red (matches connection point)
-                'Kore': '#666666',       // Gray (matches connection point)
-                'Workflow': '#7733bb',   // Purple (matches connection point)
-                'RMM': '#3a7a99',        // Blue (matches connection point)
-                'Standard': '#3a7a99'    // Blue - default
+        // Step type theming - centralized color, display name, and icon definitions
+        function getStepTypeTheme(type) {
+            const themes = {
+                'Begin': {
+                    color: '#00aa00',
+                    displayName: 'BEGIN',
+                    icon: {
+                        type: 'html',
+                        html: '&#8599;',
+                        fontSize: '28px',
+                        transform: 'rotate(90deg)'
+                    }
+                },
+                'End': {
+                    color: '#ff6666',
+                    displayName: 'End',
+                    icon: {
+                        type: 'html',
+                        html: '&#10005;',
+                        fontSize: '20px'
+                    }
+                },
+                'Kore': {
+                    color: '#666666',
+                    displayName: 'Kore',
+                    icon: {
+                        type: 'svg',
+                        href: '/img/icons.svg#i-kore',
+                        fill: 'currentColor',
+                        stroke: 'currentColor',
+                        strokeWidth: '0'
+                    }
+                },
+                'Workflow': {
+                    color: '#7733bb',
+                    displayName: 'Workflow',
+                    icon: {
+                        type: 'svg',
+                        href: '/img/icons.svg#i-workflows',
+                        fill: 'none',
+                        stroke: 'currentColor',
+                        strokeWidth: '1.75'
+                    }
+                },
+                'RMM': {
+                    color: '#3a7a99',
+                    displayName: 'RMM Step',
+                    icon: {
+                        type: 'svg',
+                        href: '/img/icons.svg#i-settings',
+                        fill: 'none',
+                        stroke: 'currentColor',
+                        strokeWidth: '1.75'
+                    }
+                },
+                'Standard': {
+                    color: '#3a7a99',
+                    displayName: 'Standard',
+                    icon: {
+                        type: 'html',
+                        html: '&#9881;',
+                        fontSize: '24px'
+                    }
+                }
             };
-            return stepTypeColors[stepType] || stepTypeColors['Standard'];
+            return themes[type] || themes['Standard'];
         }
         
         function updateTransitionLineColors(transitionId, type) {
-            const colors = getTransitionColors(type);
+            const colors = getTransitionTheme(type);
             const canvas = document.getElementById('workflowCanvas');
             // Update all lines FROM this transition (transition to step lines)
             const lines = canvas.querySelectorAll(`[data-from-transition="${transitionId}"]`);
@@ -5768,10 +5690,11 @@ document.body.appendChild(nodePreview);
                             canvas.appendChild(newLine);
                             
                             const frame = currentTransitionFrames.find(f => f.conditions.includes(draggedConnectionSourceId));
-                            const caseColor = transition ? getTransitionColors(transition.type).color : getTransitionColors('Success').color;
+                            const caseColor = transition ? getTransitionTheme(transition.type).color : getTransitionTheme('Success').color;
                             drawConnectionLine(newLine, draggedConnectionSourceId, 'case', droppedOnStep || droppedOnNode, droppedOnStep ? 'step' : 'node', canvas, caseColor, false, frame);
                             
                             syncTransitionCasesToStep();
+                            recheckFlaggedSteps();
                             updatePreview();
                         }
                     } else if (draggedConnectionSourceType === 'node') {
@@ -5815,6 +5738,7 @@ document.body.appendChild(nodePreview);
                             
                             drawConnectionLine(newLine, draggedConnectionSourceId, 'node', droppedOnStep || droppedOnNode, droppedOnStep ? 'step' : 'node', canvas, '#707070', true);
                             
+                            recheckFlaggedSteps();
                             updatePreview();
                         }
                     }
@@ -5829,6 +5753,7 @@ document.body.appendChild(nodePreview);
                                 transition.targetNodes = transition.targetNodes.filter(n => n !== draggedConnectionTargetId);
                             }
                             syncTransitionCasesToStep();
+                            recheckFlaggedSteps();
                             updatePreview();
                         }
                     } else if (draggedConnectionSourceType === 'node') {
@@ -5839,6 +5764,7 @@ document.body.appendChild(nodePreview);
                             } else if (draggedConnectionTargetType === 'node') {
                                 sourceNode.targetNodes = sourceNode.targetNodes.filter(n => n !== draggedConnectionTargetId);
                             }
+                            recheckFlaggedSteps();
                             updatePreview();
                         }
                     }
@@ -5991,9 +5917,11 @@ document.body.appendChild(nodePreview);
                             
                             // Use standard case line rendering
                             const frame = currentTransitionFrames.find(f => f.conditions.includes(savedTransitionId));
-                            const caseColor = transition ? getTransitionColors(transition.type).color : getTransitionColors('Success').color;
+                            const caseColor = transition ? getTransitionTheme(transition.type).color : getTransitionTheme('Success').color;
                             drawConnectionLine(connectionLine, savedTransitionId, 'case', targetStepId, 'step', canvas, caseColor, false, frame);
                             
+                            syncTransitionCasesToStep();
+                            recheckFlaggedSteps();
                             updatePreview();
                         }
                     } else if (nodeElement && Math.hypot(gridEndX - transitionStartX, gridEndY - transitionStartY) >= MIN_DRAG_DISTANCE) {
@@ -6028,9 +5956,11 @@ document.body.appendChild(nodePreview);
                             
                             // Use standard case line rendering
                             const frame = currentTransitionFrames.find(f => f.conditions.includes(savedTransitionId));
-                            const caseColor = transition ? getTransitionColors(transition.type).color : getTransitionColors('Success').color;
+                            const caseColor = transition ? getTransitionTheme(transition.type).color : getTransitionTheme('Success').color;
                             drawConnectionLine(connectionLine, savedTransitionId, 'case', targetNodeId, 'node', canvas, caseColor, false, frame);
                             
+                            syncTransitionCasesToStep();
+                            recheckFlaggedSteps();
                             updatePreview();
                         }
                     } else if (Math.hypot(gridEndX - transitionStartX, gridEndY - transitionStartY) >= MIN_DRAG_DISTANCE) {
@@ -6056,12 +5986,8 @@ document.body.appendChild(nodePreview);
                             currentNodes.push(newNodeData);
                             
                             // Verify we're adding to the correct transition by checking savedTransitionId
-                            console.log('Creating node from transition:', savedTransitionId, 'Transition object id:', transition.id);
                             const trans1 = currentTransitions.find(t => t.id === '1');
                             const trans2 = currentTransitions.find(t => t.id === '2');
-                            console.log('Transition 1:', trans1?.id, 'targetNodes:', trans1?.targetNodes);
-                            console.log('Transition 2:', trans2?.id, 'targetNodes:', trans2?.targetNodes);
-                            console.log('Same targetNodes array?', trans1?.targetNodes === trans2?.targetNodes);
                             if (savedTransitionId !== transition.id) {
                                 console.error('ERROR: Transition ID mismatch! savedTransitionId:', savedTransitionId, 'transition.id:', transition.id);
                             }
@@ -6070,7 +5996,6 @@ document.body.appendChild(nodePreview);
                             if (!transition.targetNodes) transition.targetNodes = [];
                             if (!transition.targetNodes.includes(newNodeId)) {
                                 transition.targetNodes.push(newNodeId);
-                                console.log('Added node', newNodeId, 'to transition', transition.id);
                             }
                             syncTransitionCasesToStep();
                             updateSaveButtonState();
@@ -6096,8 +6021,7 @@ document.body.appendChild(nodePreview);
                             
                             // Render the case line to the new node
                             const frame = currentTransitionFrames.find(f => f.conditions.includes(savedTransitionId));
-                            console.log('Transition', savedTransitionId, 'is in frame:', frame?.id, 'attached to step:', frame?.attachedToStepId);
-                            const caseColor = transition ? getTransitionColors(transition.type).color : getTransitionColors('Success').color;
+                            const caseColor = transition ? getTransitionTheme(transition.type).color : getTransitionTheme('Success').color;
                             drawConnectionLine(newLine, savedTransitionId, 'case', newNodeId, 'node', canvas, caseColor, false, frame);
                             
                             updatePreview();
@@ -6120,7 +6044,7 @@ document.body.appendChild(nodePreview);
                     document.querySelectorAll('[data-transition-uuid]').forEach(el => {
                         const transId = el.getAttribute('data-transition-uuid');
                         const transObj = currentTransitions.find(t => t.id === transId);
-                        const transColors = getTransitionColors(transObj ? transObj.type : 'Success');
+                        const transColors = getTransitionTheme(transObj ? transObj.type : 'Success');
                         el.style.borderColor = transColors.border;
                     });
                     document.querySelectorAll('[data-transition-frame]').forEach(el => {
@@ -6202,101 +6126,36 @@ document.body.appendChild(nodePreview);
                 justify-content: center;
             `;
             
-            // Add icon based on step type
-            if (stepData.type === 'Begin') {
-                // Arrow pointing diagonally toward lower right (rotated 90 degrees)
+            // Add icon based on step type using centralized theme
+            const stepTheme = getStepTypeTheme(stepData.type);
+            const iconData = stepTheme.icon;
+            
+            if (iconData.type === 'html') {
                 const icon = document.createElement('div');
                 icon.style.cssText = `
-                    font-size: 28px;
-                    color: #ffffff;
-                    line-height: 1;
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                    transform: rotate(90deg);
-                    font-weight: bold;
-                `;
-                icon.innerHTML = '&#8599;';
-                leftColumn.appendChild(icon);
-            } else if (stepData.type === 'End') {
-                // X icon (&#10005;)
-                const icon = document.createElement('div');
-                icon.style.cssText = `
-                    font-size: 20px;
+                    font-size: ${iconData.fontSize || '24px'};
                     color: #ffffff;
                     line-height: 1;
                     display: flex;
                     align-items: center;
                     justify-content: center;
                     font-weight: bold;
+                    ${iconData.transform ? `transform: ${iconData.transform};` : ''}
                 `;
-                icon.innerHTML = '&#10005;';
+                icon.innerHTML = iconData.html;
                 leftColumn.appendChild(icon);
-            } else if (stepData.type === 'Kore') {
-//                // Diamond icon (&#9830;)
-//                const icon = document.createElement('div');
-//                icon.style.cssText = `
-//                    font-size: 24px;
-//                    color: #ffffff;
-//                    line-height: 1;
-//                    display: flex;
-//                    align-items: center;
-//                    justify-content: center;
-//                    font-weight: bold;
-//                `;
-//                icon.innerHTML = '&#9830;';
-//                leftColumn.appendChild(icon);
+            } else if (iconData.type === 'svg') {
                 const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
                 icon.setAttribute('width', '20');
                 icon.setAttribute('height', '20');
                 icon.setAttribute('viewBox', '0 0 24 24');
-                icon.setAttribute('fill', 'currentColor');
-                icon.setAttribute('stroke', 'currentColor');
-                icon.setAttribute('stroke-width', '0');
-                icon.setAttribute('color', '#ffffff');
-                icon.innerHTML = '<use href="/img/icons.svg#i-kore"></use>';
-                leftColumn.appendChild(icon);
-            } else if (stepData.type === 'Workflow') {
-                // Workflows SVG icon
-                const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-                icon.setAttribute('width', '20');
-                icon.setAttribute('height', '20');
-                icon.setAttribute('viewBox', '0 0 24 24');
-                icon.setAttribute('fill', 'none');
-                icon.setAttribute('stroke', 'currentColor');
-                icon.setAttribute('stroke-width', '1.75');
+                icon.setAttribute('fill', iconData.fill);
+                icon.setAttribute('stroke', iconData.stroke);
+                icon.setAttribute('stroke-width', iconData.strokeWidth);
                 icon.setAttribute('stroke-linecap', 'round');
                 icon.setAttribute('stroke-linejoin', 'round');
                 icon.setAttribute('color', '#ffffff');
-                icon.innerHTML = '<use href="/img/icons.svg#i-workflows"></use>';
-                leftColumn.appendChild(icon);
-            } else if (stepData.type === 'RMM') {
-                // Settings SVG icon
-                const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-                icon.setAttribute('width', '20');
-                icon.setAttribute('height', '20');
-                icon.setAttribute('viewBox', '0 0 24 24');
-                icon.setAttribute('fill', 'none');
-                icon.setAttribute('stroke', 'currentColor');
-                icon.setAttribute('stroke-width', '1.75');
-                icon.setAttribute('stroke-linecap', 'round');
-                icon.setAttribute('stroke-linejoin', 'round');
-                icon.setAttribute('color', '#ffffff');
-                icon.innerHTML = '<use href="/img/icons.svg#i-settings"></use>';
-                leftColumn.appendChild(icon);
-            } else {
-                // Standard/Function - Gear icon (&#9881;)
-                const icon = document.createElement('div');
-                icon.style.cssText = `
-                    font-size: 24px;
-                    color: #ffffff;
-                    line-height: 1;
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                    font-weight: bold;
-                `;
-                icon.innerHTML = '&#9881;';
+                icon.innerHTML = `<use href="${iconData.href}"></use>`;
                 leftColumn.appendChild(icon);
             }
             
@@ -6316,7 +6175,7 @@ document.body.appendChild(nodePreview);
                 border: 1px solid ${darkColor};
                 border-radius: 4px;
             `;
-            contentArea.textContent = stepData.name || (stepData.type === 'Begin' ? 'BEGIN' : stepData.type === 'End' ? 'End' : stepData.type === 'Workflow' ? 'Workflow' : stepData.type === 'RMM' ? 'RMM Step' : stepData.type === 'Kore' ? 'Kore' : `${stepData.type} Step`);
+            contentArea.textContent = stepData.name || getStepTypeTheme(stepData.type).displayName;
             stepElement.appendChild(contentArea);
             
             // Add to canvas temporarily to measure
@@ -6736,7 +6595,7 @@ document.body.appendChild(nodePreview);
                                     const toStepId = line.getAttribute('data-to-step');
                                     const toNodeId = line.getAttribute('data-to-node');
                                     const transition = currentTransitions.find(t => t.id === conditionId);
-                                    const caseColor = transition ? getTransitionColors(transition.type).color : getTransitionColors('Success').color;
+                                    const caseColor = transition ? getTransitionTheme(transition.type).color : getTransitionTheme('Success').color;
                                     
                                     if (toStepId) {
                                         drawConnectionLine(line, conditionId, 'case', toStepId, 'step', canvas, caseColor, false, attachedFrame);
@@ -6792,7 +6651,7 @@ document.body.appendChild(nodePreview);
                         const fromTransitionId = line.getAttribute('data-from-transition');
                         const frame = currentTransitionFrames.find(f => f.conditions.includes(fromTransitionId));
                         const transition = currentTransitions.find(t => t.id === fromTransitionId);
-                        const caseColor = transition ? getTransitionColors(transition.type).color : getTransitionColors('Success').color;
+                        const caseColor = transition ? getTransitionTheme(transition.type).color : getTransitionTheme('Success').color;
                         drawConnectionLine(line, fromTransitionId, 'case', stepData.id, 'step', canvas, caseColor, false, frame);
                     });
                     
@@ -6953,7 +6812,6 @@ document.body.appendChild(nodePreview);
                 
                 // Store the original definition from the API response for later comparison (deep copy)
                 originalData = JSON.parse(JSON.stringify(data.definition));
-                console.log('originalData loaded:', originalData);
                 
                 // Set workflow metadata
                 currentWorkflowName = data.name || 'Untitled Workflow';
@@ -7008,6 +6866,9 @@ document.body.appendChild(nodePreview);
                 // Render on canvas
                 renderLoadedStepsOnCanvas();
                 
+                // Draw all connection lines (node-to-node, case lines, etc.)
+                updatePreview();
+                
                 // Apply initial zoom
                 const canvas = document.getElementById('workflowCanvas');
                 if (canvas) {
@@ -7020,165 +6881,6 @@ document.body.appendChild(nodePreview);
             }
         }
 
-        function rebuildInputVariablesFromForm() {
-            // Placeholder - rebuilds input variables from form if needed
-            // Currently a no-op as variables are managed by the application
-        }
-
-        function rebuildOutputVariablesFromForm() {
-            // Placeholder - rebuilds output variables from form if needed
-            // Currently a no-op as variables are managed by the application
-        }
-
-        function showWorkflowSettingsModal() {
-            // Load workflow name
-            document.getElementById('workflowName').value = currentWorkflowName;
-            
-            // Load description from definition
-            document.getElementById('workflowDescription').value = currentDefinition.description || '';
-            
-            renderInputVariablesList();
-            renderOutputVariablesList();
-            document.getElementById('workflowSettingsModal').style.display = 'flex';
-        }
-
-        function closeWorkflowSettingsModal() {
-            document.getElementById('workflowSettingsModal').style.display = 'none';
-        }
-
-        function saveWorkflowSettings() {
-            // Save description to definition
-            currentDefinition.description = document.getElementById('workflowDescription').value;
-            
-            // Save variables - they auto-update as you edit them
-            // Just close the modal and show success
-            closeWorkflowSettingsModal();
-            showStatusBanner('Workflow settings saved', 'success');
-        }
-
-        function renderInputVariablesList() {
-            const list = document.getElementById('inputVariablesList');
-            list.innerHTML = '';
-            
-            currentInputVariables.forEach((variable, index) => {
-                const item = document.createElement('div');
-                item.style.cssText = 'display: grid; grid-template-columns: 1fr 1fr auto auto; gap: 8px; margin-bottom: 4px; align-items: center;';
-                item.innerHTML = `
-                    <input type="text" value="${variable.name || ''}" placeholder="Name" 
-                        class="form-field-input" style="padding: 6px; font-size: 0.85rem; min-width: 0; box-sizing: border-box;"
-                        data-input-var-idx="${index}" data-var-field="name"
-                        onchange="currentInputVariables[${index}].name = this.value; updatePreview();">
-                    <input type="text" value="${variable.type || ''}" placeholder="Type"
-                        class="form-field-input" style="padding: 6px; font-size: 0.85rem; min-width: 0; box-sizing: border-box;"
-                        data-input-var-idx="${index}" data-var-field="type"
-                        onchange="currentInputVariables[${index}].type = this.value; updatePreview();">
-                    <button class="btn input-var-edit-btn" data-size="sm" data-color="blue" data-var-idx="${index}" title="Edit variable" style="padding: 0; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; font-size: 16px;">&#9998;</button>
-                    <button class="btn input-var-delete-btn" data-size="sm" data-color="red" data-var-idx="${index}" title="Delete variable" style="padding: 0; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; font-size: 16px;">🗑</button>
-                `;
-                list.appendChild(item);
-            });
-
-            // Attach event listeners for input variable edit buttons
-            document.querySelectorAll('.input-var-edit-btn').forEach(btn => {
-                btn.addEventListener('click', () => {
-                    const idx = parseInt(btn.getAttribute('data-var-idx'));
-                    editInputVariable(idx);
-                });
-            });
-
-            // Attach event listeners for input variable delete buttons
-            document.querySelectorAll('.input-var-delete-btn').forEach(btn => {
-                btn.addEventListener('click', () => {
-                    const idx = parseInt(btn.getAttribute('data-var-idx'));
-                    showDeleteConfirm('Delete this variable?', () => {
-                        currentInputVariables.splice(idx, 1);
-                        renderInputVariablesList();
-                        updatePreview();
-                    });
-                });
-            });
-        }
-
-        function renderOutputVariablesList() {
-            const list = document.getElementById('outputVariablesList');
-            list.innerHTML = '';
-            
-            currentOutputVariables.forEach((variable, index) => {
-                const item = document.createElement('div');
-                item.style.cssText = 'display: grid; grid-template-columns: 1fr 1fr auto auto; gap: 8px; margin-bottom: 4px; align-items: center;';
-                item.innerHTML = `
-                    <input type="text" value="${variable.name || ''}" placeholder="Name"
-                        class="form-field-input" style="padding: 6px; font-size: 0.85rem; min-width: 0; box-sizing: border-box;"
-                        data-output-var-idx="${index}" data-var-field="name"
-                        onchange="currentOutputVariables[${index}].name = this.value; updatePreview();">
-                    <input type="text" value="${variable.type || ''}" placeholder="Type"
-                        class="form-field-input" style="padding: 6px; font-size: 0.85rem; min-width: 0; box-sizing: border-box;"
-                        data-output-var-idx="${index}" data-var-field="type"
-                        onchange="currentOutputVariables[${index}].type = this.value; updatePreview();">
-                    <button class="btn output-var-edit-btn" data-size="sm" data-color="blue" data-var-idx="${index}" title="Edit variable" style="padding: 0; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; font-size: 16px;">&#9998;</button>
-                    <button class="btn output-var-delete-btn" data-size="sm" data-color="red" data-var-idx="${index}" title="Delete variable" style="padding: 0; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; font-size: 16px;">🗑</button>
-                `;
-                list.appendChild(item);
-            });
-
-            // Attach event listeners for output variable edit buttons
-            document.querySelectorAll('.output-var-edit-btn').forEach(btn => {
-                btn.addEventListener('click', () => {
-                    const idx = parseInt(btn.getAttribute('data-var-idx'));
-                    editOutputVariable(idx);
-                });
-            });
-
-            // Attach event listeners for output variable delete buttons
-            document.querySelectorAll('.output-var-delete-btn').forEach(btn => {
-                btn.addEventListener('click', () => {
-                    const idx = parseInt(btn.getAttribute('data-var-idx'));
-                    showDeleteConfirm('Delete this variable?', () => {
-                        currentOutputVariables.splice(idx, 1);
-                        renderOutputVariablesList();
-                        updatePreview();
-                    });
-                });
-            });
-        }
-
-        function editInputVariable(index) {
-            const variable = currentInputVariables[index];
-            openJinjaEditorModal(
-                'Edit Input Variable: ' + (variable.name || 'Variable'),
-                variable.type || '',
-                (value) => {
-                    currentInputVariables[index].type = value;
-                    renderInputVariablesList();
-                    updatePreview();
-                }
-            );
-        }
-
-        function editOutputVariable(index) {
-            const variable = currentOutputVariables[index];
-            openJinjaEditorModal(
-                'Edit Output Variable: ' + (variable.name || 'Variable'),
-                variable.type || '',
-                (value) => {
-                    currentOutputVariables[index].type = value;
-                    renderOutputVariablesList();
-                    updatePreview();
-                }
-            );
-        }
-
-        function addInputVariable() {
-            currentInputVariables.push({ name: '', type: '' });
-            renderInputVariablesList();
-            updatePreview();
-        }
-
-        function addOutputVariable() {
-            currentOutputVariables.push({ name: '', type: '' });
-            renderOutputVariablesList();
-            updatePreview();
-        }
 
         document.addEventListener('DOMContentLoaded', setupEventListeners);
         window.addEventListener('load', () => {
@@ -7186,14 +6888,124 @@ document.body.appendChild(nodePreview);
           initializeNodeTool();
         });
 
+        function showWorkflowSettingsModal() {
+            // Variables to store the working copies from the modal
+            let modalInputVariables = [];
+            let modalOutputVariables = [];
+
+            const fields = [
+                {
+                    type: 'text',
+                    name: 'workflowName',
+                    label: 'Workflow Name',
+                    value: currentWorkflowName,
+                    placeholder: 'Enter workflow name',
+                    required: true
+                },
+                {
+                    type: 'textarea',
+                    name: 'workflowDescription',
+                    label: 'Description',
+                    value: currentDefinition.description || '',
+                    placeholder: 'Enter workflow description',
+                    rows: 4
+                }
+            ];
+
+            showFormModal(
+                'Workflow Settings',
+                fields,
+                (formData) => {
+                    // Commit variable changes from the modal
+                    currentInputVariables = modalInputVariables;
+                    currentOutputVariables = modalOutputVariables;
+                    
+                    currentWorkflowName = formData.workflowName.trim();
+                    currentDefinition.name = formData.workflowName.trim();
+                    document.getElementById('workflowNameDisplay').textContent = formData.workflowName.trim();
+                    currentDefinition.description = formData.workflowDescription;
+                    closeWorkflowSettingsModal();
+                    showStatusBanner('Workflow settings saved', 'success');
+                    updatePreview();
+                },
+                false,
+                false,
+                true
+            );
+
+            // Wait for modal to render, then inject variable sections
+            setTimeout(() => {
+                const modal = document.querySelector('.modal-container');
+                if (modal) {
+                    // Use COPIES of the variables so changes only commit on Save
+                    modalInputVariables = JSON.parse(JSON.stringify(currentInputVariables));
+                    modalOutputVariables = JSON.parse(JSON.stringify(currentOutputVariables));
+                    
+                    renderWorkflowVariablesSection(modal, modalInputVariables, modalOutputVariables, updatePreview);
+                    
+                    // Resize modal to fit content or 95% of viewport, whichever is smaller
+                    setTimeout(() => {
+                        const modalBody = document.querySelector('.modal-body');
+                        const modalBodyContent = document.querySelector('#modal-body-content');
+                        
+                        console.log('=== MODAL RESIZE DEBUG ===');
+                        console.log('modal found:', !!modal);
+                        console.log('modalBody found:', !!modalBody);
+                        console.log('modalBodyContent found:', !!modalBodyContent);
+                        
+                        if (modal && modalBody && modalBodyContent) {
+                            // Calculate 95% of viewport height
+                            const viewportHeight = window.innerHeight;
+                            const maxModalHeight = viewportHeight * 0.95;
+                            
+                            console.log('viewportHeight:', viewportHeight);
+                            console.log('maxModalHeight (95%):', maxModalHeight);
+                            
+                            // Get the actual content height
+                            const contentHeight = modalBodyContent.scrollHeight;
+                            console.log('contentHeight:', contentHeight);
+                            
+                            // Account for modal header, footer, and padding
+                            const newHeight = Math.min(contentHeight + 80, maxModalHeight);
+                            console.log('calculated newHeight:', newHeight);
+                            
+                            // Set modal height
+                            modal.style.height = newHeight + 'px';
+                            modal.style.minHeight = 'auto';
+                            
+                            console.log('modal.style.height set to:', newHeight + 'px');
+                            console.log('modal computed height after:', window.getComputedStyle(modal).height);
+                            
+                            // Enable scrolling in modal-body-content if content is too tall
+                            if (contentHeight + 80 > maxModalHeight) {
+                                const maxContentHeight = maxModalHeight - 80;
+                                modalBodyContent.style.overflowY = 'auto';
+                                modalBodyContent.style.maxHeight = maxContentHeight + 'px';
+                                console.log('scrolling enabled, maxHeight set to:', maxContentHeight + 'px');
+                            } else {
+                                console.log('content fits, no scrolling needed');
+                            }
+                        }
+                    }, 100);
+                }
+            }, 150);
+        }
+
+        function closeWorkflowSettingsModal() {
+            // Clear working variables - if we got here without saving, changes are discarded
+            workingInputVariables = null;
+            workingOutputVariables = null;
+            
+            // showFormModal modals have their own close mechanism, but keep this for compatibility
+            const modal = document.querySelector('.modal-container');
+            if (modal) {
+                modal.remove();
+            }
+        }
+
         // Expose functions to global scope for onclick handlers
         window.showWorkflowSettingsModal = showWorkflowSettingsModal;
         window.closeWorkflowSettingsModal = closeWorkflowSettingsModal;
-        window.saveWorkflowSettings = saveWorkflowSettings;
-        window.addInputVariable = addInputVariable;
-        window.addOutputVariable = addOutputVariable;
-        window.editInputVariable = editInputVariable;
-        window.editOutputVariable = editOutputVariable;
         window.showJSONModal = showJSONModal;
         window.saveWorkflow = saveWorkflow;
         window.loadWorkflow = loadWorkflow;

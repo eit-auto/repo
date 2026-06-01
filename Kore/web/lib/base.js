@@ -869,7 +869,7 @@ async function getGroups(sessionToken, user) {
             sessionToken,
             user,
             'kore_sys',
-            'SELECT groupId, name FROM user_groups ORDER BY name'
+            'SELECT groupId, name, active, description FROM user_groups ORDER BY name'
         );
         return result.result || [];
     } catch (error) {
