@@ -465,7 +465,7 @@ const ProxyLib = (() => {
                     'X-Session-Token': sessionToken
                 },
                 body: JSON.stringify({
-                    database: database,
+                    datasource: database,
                     query: query
                 })
             });
