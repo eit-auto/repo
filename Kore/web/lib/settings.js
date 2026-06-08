@@ -110,7 +110,11 @@ let currentUser = null;
                     { id: 'groupDescriptionInput', label: 'Description', type: 'text', dataKey: 'description' },
                     { id: 'groupActiveInput', label: 'Active', type: 'checkbox', dataKey: 'active' }
                 ],
-                readonlyFields: [],
+                readonlyFields: [
+                    { label: 'Group ID', dataKey: 'groupId' },
+                    { label: 'Created', dataKey: 'createdAt', format: 'date' },
+                    { label: 'Created By', dataKey: 'createdBy' }
+                ],
                 unsavedCheckFn: 'checkGroupUnsavedChanges',
                 currentVar: 'currentGroupDetail',
                 cache: 'cachedGroups',
@@ -193,21 +197,17 @@ let currentUser = null;
                 <button class="btn" data-color="grey" data-size="sm" onclick="cancel${entityType.charAt(0).toUpperCase() + entityType.slice(1)}Edit('${escapeHtml(String(entityId))}')" id="cancel${entityType}Btn">Cancel</button>
             `;
             
-            // User-specific buttons
+            // User-specific buttons (action pod buttons removed from header)
             if (entityType === 'user') {
                 const isLocked = entityData.lockedUntil && new Date(entityData.lockedUntil) > new Date();
                 if (isLocked) {
                     buttonBar += `<button class="btn" data-color="blue" data-size="sm" onclick="unlockUser('${escapeHtml(String(entityId))}')" id="unlockUserBtn">Unlock</button>`;
                 }
-                if (entityData.mfaEnabled) {
-                    buttonBar += `<button class="btn" data-color="orange" data-size="sm" onclick="resetUserMFA('${escapeHtml(String(entityId))}')" id="resetMFABtn">Reset MFA</button>`;
-                }
-                buttonBar += `<button class="btn" data-color="grey" data-size="sm" onclick="resendUserInvite('${escapeHtml(String(entityId))}')" id="resendInviteBtn">Resend Invite</button>`;
             }
             
             // Build main panel
             const detailsHtml = `
-                <div class="panel-level-3" style="display: flex; flex-direction: column; gap: 10px;">
+                <div class="panel-level-3" style="display: flex; flex-direction: column; gap: 10px; flex: 1;">
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
                         <h3 style="margin: 0; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">${spec.title} Details</h3>
                         <div style="display: flex; gap: 8px;">
@@ -223,7 +223,44 @@ let currentUser = null;
                 </div>
             `;
             
-            detailArea.innerHTML = detailsHtml;
+            detailArea.innerHTML = '';
+
+            if (entityType === 'user') {
+                const isInvited = entityData.status === 'invited';
+                const actionsHtml = `
+                    <div class="panel-level-3" style="display: flex; flex-direction: column; gap: 8px; flex: 1;">
+                        <h3 style="margin: 0 0 10px 0; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Actions</h3>
+                        ${entityData.mfaEnabled ? `<button class="btn" data-color="orange" data-size="sm" onclick="resetUserMFA('${escapeHtml(String(entityId))}')" id="resetMFABtn" style="width: 100%;">Reset MFA</button>` : ''}
+                        ${isInvited ? `<button class="btn" data-color="gold" data-size="sm" onclick="resendUserInvite('${escapeHtml(String(entityId))}')" id="resendInviteBtn" style="width: 100%;">Resend Invite</button>` : ''}
+                        <button class="btn" data-color="blue" data-size="sm" onclick="viewUserPermissions('${escapeHtml(String(entityId))}')" id="viewPermissionsBtn" style="width: 100%;">View Permissions</button>
+                    </div>
+                `;
+                detailArea.innerHTML = `
+                    <div style="display: flex; flex-direction: column; gap: 15px; flex: 1; min-height: 0;">
+                        <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 15px; align-items: stretch;">
+                            <div style="display: flex; flex-direction: column;">${detailsHtml}</div>
+                            <div style="display: flex; flex-direction: column;">${actionsHtml}</div>
+                        </div>
+                        <div id="userGroupsCell"></div>
+                    </div>`;
+            } else if (entityType === 'group') {
+                const actionsHtml = `
+                    <div class="panel-level-3" style="display: flex; flex-direction: column; gap: 8px; flex: 1;">
+                        <h3 style="margin: 0 0 10px 0; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Actions</h3>
+                        <button class="btn" data-color="blue" data-size="sm" onclick="viewGroupPermissions('${escapeHtml(String(entityId))}')" id="viewGroupPermissionsBtn" style="width: 100%;">View Permissions</button>
+                    </div>
+                `;
+                detailArea.innerHTML = `
+                    <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 15px; align-items: stretch;">
+                        <div style="display: flex; flex-direction: column;">${detailsHtml}</div>
+                        <div style="display: flex; flex-direction: column;">${actionsHtml}</div>
+                    </div>`;
+            } else if (entityType === 'org') {
+                detailArea.innerHTML = detailsHtml;
+            } else {
+                detailArea.innerHTML = detailsHtml;
+            }
+
             window[spec.currentVar] = entityData;
             window.clearUnsavedChanges();
             
@@ -232,12 +269,12 @@ let currentUser = null;
                 window[spec.onDisplayComplete](entityId);
             }
             if (entityType === 'user') {
-                addUserGroupsSection(entityData, detailArea);
+                addUserGroupsSection(entityData, document.getElementById('userGroupsCell'));
             }
         }
         
-        function addUserGroupsSection(userData, detailArea) {
-            if (!window.cachedGroups) return;
+        function addUserGroupsSection(userData, targetEl) {
+            if (!targetEl) return;
             let userGroupIds = [];
             try {
                 if (userData.groupIds) {
@@ -258,7 +295,7 @@ let currentUser = null;
             const groupsHtml = `
                 <div class="panel-level-3" style="display: flex; flex-direction: column; gap: 10px;">
                     <h3 style="margin: 0 0 10px 0; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Groups</h3>
-                    <div style="display: flex; flex-direction: column; gap: 8px;">
+                    <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px;">
                         ${window.cachedGroups && window.cachedGroups.length > 0 
                             ? window.cachedGroups.sort((a, b) => (a.name || '').localeCompare(b.name || '')).map(group => `
                                 <div style="display: flex; align-items: center; gap: 8px;">
@@ -271,440 +308,9 @@ let currentUser = null;
                     </div>
                 </div>
             `;
-            detailArea.insertAdjacentHTML('beforeend', groupsHtml);
+            targetEl.innerHTML = groupsHtml;
         }
 
-        function updateSaveButtonState() {
-            const saveBtn = document.getElementById('savePluginBtn');
-            if (saveBtn) {
-                let hasChanges = window.hasUnsavedChanges();
-                
-                // Also check if headers have changed
-                if (!hasChanges && originalPluginConfig) {
-                    const originalHeaders = originalPluginConfig.config?.headers || [];
-                    const originalJson = JSON.stringify(originalHeaders);
-                    const currentJson = JSON.stringify(currentEditingHeaders);
-                    hasChanges = originalJson !== currentJson;
-                    if (hasChanges) {
-                        console.log('Save button activated due to header changes');
-                    }
-                }
-                
-                saveBtn.disabled = !hasChanges;
-            }
-        }
-
-        let pendingPluginCode = '';
-
-        function openCodeModal(code, onSave) {
-            showFormModal('View Code', [{name: 'code', type: 'textarea', label: 'Code', placeholder: '', value: code || '', rows: 15}], (formData) => {
-                if (onSave) {
-                    onSave(formData.code);
-                } else {
-                    // Default behavior if no callback (for existing plugins)
-                    console.log('Code updated');
-                }
-            });
-        }
-
-        async function openAddPluginModal() {
-            try {
-                const sessionToken = await window.getSessionToken();
-                const result = await window.executeSqlQuery(
-                    sessionToken,
-                    currentUser,
-                    'kore_sys',
-                    'SELECT plugin_config FROM system_config LIMIT 1'
-                );
-
-                if (!result.result || result.result.length === 0) {
-                    showStatusBanner('Unable to load plugin configuration', 'error');
-                    return;
-                }
-
-                let config;
-                try {
-                    config = typeof result.result[0].plugin_config === 'string' 
-                        ? JSON.parse(result.result[0].plugin_config) 
-                        : result.result[0].plugin_config;
-                } catch (e) {
-                    showStatusBanner('Error parsing plugin configuration', 'error');
-                    return;
-                }
-
-                if (!config || !config.types) {
-                    showStatusBanner('Unable to load plugin configuration', 'error');
-                    return;
-                }
-
-                const fields = [];
-
-                // Type field FIRST - always visible
-                fields.push({
-                    name: 'pluginType',
-                    type: 'select',
-                    label: 'Type',
-                    options: ['', ...Object.keys(config.types)],
-                    required: true,
-                    value: ''
-                });
-
-                // Basic Information Section - hide until type selected
-                fields.push({ type: 'section', label: 'Basic Information', pluginTypes: ['api', 'service'] });
-
-                // These fields show when a type is selected
-                fields.push({
-                    name: 'pluginName',
-                    type: 'text',
-                    label: 'Name',
-                    placeholder: 'plugin-name (no spaces)',
-                    required: true,
-                    value: '',
-                    pluginTypes: ['api', 'service']
-                });
-                fields.push({
-                    name: 'pluginDisplayName',
-                    type: 'text',
-                    label: 'Display Name',
-                    required: true,
-                    value: '',
-                    pluginTypes: ['api', 'service']
-                });
-                fields.push({
-                    name: 'pluginDescription',
-                    type: 'textarea',
-                    label: 'Description',
-                    rows: 2,
-                    value: '',
-                    pluginTypes: ['api', 'service']
-                });
-                fields.push({
-                    name: 'configRateLimit',
-                    type: 'number',
-                    label: 'Rate Limit (req/min)',
-                    required: true,
-                    value: '100',
-                    pluginTypes: ['api', 'service']
-                });
-                fields.push({
-                    name: 'configRoutes',
-                    type: 'textarea',
-                    label: 'Routes',
-                    placeholder: '/route1\n/route2',
-                    required: true,
-                    rows: 2,
-                    value: '',
-                    pluginTypes: ['api', 'service']
-                });
-                fields.push({
-                    name: 'pluginEnabled',
-                    type: 'checkbox',
-                    label: 'Enabled',
-                    checked: true,
-                    pluginTypes: ['api', 'service']
-                });
-
-                // API-only fields
-                fields.push({
-                    name: 'viewCode',
-                    type: 'button',
-                    label: 'View Code',
-                    buttonText: 'View Code',
-                    onClick: () => {
-                        openCodeModal(pendingPluginCode, (code) => {
-                            pendingPluginCode = code;
-                        });
-                    },
-                    pluginTypes: ['api']
-                });
-                fields.push({
-                    name: 'baseUrl',
-                    type: 'text',
-                    label: 'Base URL',
-                    required: true,
-                    value: '',
-                    pluginTypes: ['api']
-                });
-                fields.push({
-                    name: 'apiPath',
-                    type: 'text',
-                    label: 'API Path',
-                    required: true,
-                    value: '',
-                    pluginTypes: ['api']
-                });
-                fields.push({
-                    name: 'authType',
-                    type: 'select',
-                    label: 'Auth Type',
-                    options: ['', 'bearer', 'oauth'],
-                    required: true,
-                    value: '',
-                    pluginTypes: ['api']
-                });
-
-                // Auth-specific fields
-                fields.push({
-                    name: 'apiKey',
-                    type: 'password',
-                    label: 'API Key',
-                    required: true,
-                    value: '',
-                    authTypes: ['bearer'],
-                    pluginTypes: ['api']
-                });
-                fields.push({
-                    name: 'publicKey',
-                    type: 'textarea',
-                    label: 'Public Key',
-                    required: true,
-                    rows: 2,
-                    value: '',
-                    authTypes: ['oauth'],
-                    pluginTypes: ['api']
-                });
-                fields.push({
-                    name: 'privateKey',
-                    type: 'textarea',
-                    label: 'Private Key',
-                    required: true,
-                    rows: 2,
-                    value: '',
-                    authTypes: ['oauth'],
-                    pluginTypes: ['api']
-                });
-
-                // Custom headers field
-                fields.push({
-                    name: 'headers',
-                    type: 'custom:headers',
-                    label: 'Additional Headers',
-                    required: false,
-                    pluginTypes: ['api']
-                });
-
-                // Show the form modal
-                showFormModal('Add Plugin', fields, async (formData) => {
-                    // Extract headers from DOM since custom:headers field doesn't populate formData
-                    const headerDivs = document.querySelectorAll('[id^="header_"]');
-                    const headers = [];
-                    headerDivs.forEach(div => {
-                        const inputs = div.querySelectorAll('input[type="text"]');
-                        if (inputs.length === 2) {
-                            const key = inputs[0].value.trim();
-                            const value = inputs[1].value.trim();
-                            if (key && value) {
-                                headers.push({ key, value });
-                            }
-                        }
-                    });
-                    
-                    if (headers.length > 0) {
-                        formData.headers = headers;
-                    }
-                    
-                    if (!formData.pluginType) {
-                        window.showStatusBanner('Please select a plugin type', 'error', 'pluginsStatusMessage');
-                        return;
-                    }
-
-                    // Transform flat form data into plugin structure
-                    const code = pendingPluginCode;
-                    pendingPluginCode = ''; // Reset for next time
-                    
-                    const pluginType = formData.pluginType;
-                    
-                    const pluginData = {
-                        name: formData.pluginName,
-                        display_name: formData.pluginDisplayName,
-                        description: formData.pluginDescription,
-                        enabled: formData.pluginEnabled ? 1 : 0,
-                        version: 1,
-                        code: code,
-                        config: {
-                            type: pluginType,
-                            rateLimit: parseInt(formData.configRateLimit) || 100,
-                            routes: formData.configRoutes.split('\n').filter(r => r.trim())
-                        }
-                    };
-                    
-                    // Add API-specific config
-                    if (pluginType === 'api') {
-                        pluginData.config.baseUrl = formData.baseUrl;
-                        pluginData.config.apiPath = formData.apiPath;
-                        pluginData.config.authType = formData.authType;
-                        
-                        // Add auth-specific fields
-                        if (formData.authType === 'bearer' && formData.apiKey) {
-                            pluginData.config.apiKey = formData.apiKey;
-                        } else if (formData.authType === 'oauth') {
-                            pluginData.config.publicKey = formData.publicKey;
-                            pluginData.config.privateKey = formData.privateKey;
-                        }
-                        
-                        // Add headers if any
-                        if (formData.headers && Array.isArray(formData.headers) && formData.headers.length > 0) {
-                            pluginData.config.headers = formData.headers;
-                        }
-                    }
-                    
-                    pluginData.username = currentUser;
-                    
-                    try {
-                        const response = await addPlugin(pluginData);
-                        
-                        if (response.status === 201) {
-                            window.showStatusBanner('Plugin created successfully!', 'success', 'pluginsStatusMessage');
-                            await loadPluginsList();
-                        } else {
-                            const error = await response.json();
-                            window.showStatusBanner('Error: ' + (error.error || 'Unknown error'), 'error', 'pluginsStatusMessage');
-                        }
-                    } catch (error) {
-                        window.showStatusBanner('Error saving plugin: ' + error.message, 'error', 'pluginsStatusMessage');
-                    }
-                });
-            } catch (error) {
-                showStatusBanner('Error loading plugin configuration', 'error');
-            }
-        }
-
-        async function addPlugin(pluginPayload) {
-            const response = await fetch('https://app.equinoxits.com:1139/kore/plugins/add', {
-                method: 'POST',
-                headers: {
-                    'X-Session-Token': sessionToken,
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify(pluginPayload)
-            });
-            return response;
-        }
-
-        function getCurrentPluginFormData() {
-            const data = {
-                name: currentPluginName,
-                display_name: document.getElementById('pluginDisplayName').value,
-                description: document.getElementById('pluginDescription').value,
-                enabled: document.getElementById('pluginEnabled').checked,
-                type: document.getElementById('configTypeValue').textContent,
-                rateLimit: parseInt(document.getElementById('configRateLimit').value) || 0,
-                routes: document.getElementById('configRoutes').value,
-                baseUrl: document.getElementById('configBaseUrl').value,
-                apiPath: document.getElementById('configApiPath').value,
-                apiKey: document.getElementById('configApiKey').value,
-                clientBaseUrl: document.getElementById('configClientBaseUrl').value,
-                clientApiPath: document.getElementById('configClientApiPath').value,
-                clientId: document.getElementById('configClientId').value,
-                publicKey: document.getElementById('configPublicKey').value,
-                privateKey: document.getElementById('configPrivateKey').value,
-                databases: currentDatabases,
-                headers: currentEditingHeaders  // Include headers in form data
-            };
-            return data;
-        }
-
-        function showConfirmModal(title, message, callback) {
-            confirmCallback = callback;
-            document.getElementById('confirmTitle').textContent = title;
-            document.getElementById('confirmMessage').textContent = message;
-            document.getElementById('confirmModal').style.display = 'block';
-        }
-
-        function closeConfirmModal() {
-            document.getElementById('confirmModal').style.display = 'none';
-            confirmCallback = null;
-        }
-
-        function proceedWithConfirm() {
-            const callback = confirmCallback;
-            closeConfirmModal();
-            if (callback) {
-                callback();
-            }
-        }
-
-        async function reloadAllPlugins() {
-            try {
-                if (!sessionToken) {
-                    sessionToken = await getSessionToken();
-                }
-
-                const response = await fetch(`https://app.equinoxits.com:1139/kore/plugins/reload-all`, {
-                    method: 'POST',
-                    headers: {
-                        'X-Session-Token': sessionToken,
-                        'Content-Type': 'application/json'
-                    }
-                });
-
-                const data = await response.json();
-
-                if (response.ok) {
-                    showStatusBanner('All plugins reloaded successfully.', 'success');
-                } else {
-                    showStatusBanner('Error reloading plugins: ' + (data.message || 'Unknown error'), 'error');
-                }
-            } catch (error) {
-                console.error('Error reloading all plugins:', error);
-                showStatusBanner('Error reloading plugins', 'error');
-            }
-        }
-
-        async function loadPluginsList() {
-            console.log('loadPluginsList called');
-            try {
-                if (!sessionToken) {
-                    sessionToken = await getSessionToken();
-                }
-
-                console.log('Fetching plugins list...');
-                const response = await fetch('https://app.equinoxits.com:1139/kore/plugins/list', {
-                    method: 'GET',
-                    headers: {
-                        'X-Session-Token': sessionToken
-                    }
-                });
-
-                const data = await response.json();
-                console.log('Plugins list response:', response.ok, data);
-
-                if (response.ok && data.plugins) {
-                    console.log('Displaying plugins:', data.plugins.map(p => p.name));
-                    displayPlugins(data.plugins);
-                } else {
-                    document.getElementById('pluginListSidebar').innerHTML = '<p style="color: var(--text-muted);">No plugins loaded</p>';
-                }
-            } catch (error) {
-                console.error('Error loading plugins:', error);
-                document.getElementById('pluginListSidebar').innerHTML = '<p style="color: var(--text-muted);">Error loading plugins: ' + error.message + '</p>';
-            }
-        }
-
-        function displayPlugins(plugins) {
-            console.log('displayPlugins called with:', plugins);
-            const sidebar = document.getElementById('pluginListSidebar');
-            console.log('Plugin sidebar element:', sidebar);
-            
-            if (!plugins || plugins.length === 0) {
-                sidebar.innerHTML = '<p style="color: var(--text-muted); font-size: 11px; margin: 0;">No plugins found</p>';
-                return;
-            }
-
-            let html = '';
-            plugins.forEach(plugin => {
-                const displayName = plugin.display_name || plugin.name;
-                html += `
-                    <button class="btn" data-color="theme-neutral" data-size="sm" onclick="selectPluginFromList('${escapeHtml(plugin.name)}', this)" 
-                            style="width: 100%; text-align: center;">
-                        ${escapeHtml(displayName)}
-                    </button>
-                `;
-            });
-
-            console.log('Setting sidebar HTML with', plugins.length, 'plugins');
-            sidebar.innerHTML = html;
-        }
 
         async function loadOrganizationsList() {
             return loadEntityListGeneric('org');
@@ -1006,22 +612,26 @@ let currentUser = null;
                 `;
             }
             
-            // Create the org_stack panel HTML
+            // Create the org_stack content HTML
             const stackHtml = `
-                <div class="panel-level-3" style="display: flex; flex-direction: column; gap: 10px; margin-top: 15px;">
-                    <h3 style="margin: 0; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">System Integrations</h3>
-                    <div style="display: flex; flex-direction: column; gap: 15px;">
-                        ${buildTypeDropdown('RMM', 'rmm', stackTypes.rmm, orgStack?.rmm_type_id, orgStack?.rmm_id)}
-                        ${buildTypeDropdown('PSA', 'psa', stackTypes.psa, orgStack?.psa_type_id, orgStack?.psa_id)}
-                        ${buildTypeDropdown('Control', 'control', stackTypes.control, orgStack?.control_type_id, orgStack?.control_id)}
-                        ${buildTypeDropdown('RPA', 'rpa', stackTypes.rpa, orgStack?.rpa_type_id, orgStack?.rpa_id)}
-                        ${buildTypeDropdown('BDR', 'bdr', stackTypes.bdr, orgStack?.bdr_type_id, orgStack?.bdr_id)}
-                    </div>
+                <hr style="border: none; border-top: 1px solid var(--border-primary); margin: 10px 0;">
+                <h3 style="margin: 0 0 10px 0; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">System Integrations</h3>
+                <div style="display: flex; flex-direction: column; gap: 15px;">
+                    ${buildTypeDropdown('RMM', 'rmm', stackTypes.rmm, orgStack?.rmm_type_id, orgStack?.rmm_id)}
+                    ${buildTypeDropdown('PSA', 'psa', stackTypes.psa, orgStack?.psa_type_id, orgStack?.psa_id)}
+                    ${buildTypeDropdown('Control', 'control', stackTypes.control, orgStack?.control_type_id, orgStack?.control_id)}
+                    ${buildTypeDropdown('RPA', 'rpa', stackTypes.rpa, orgStack?.rpa_type_id, orgStack?.rpa_id)}
+                    ${buildTypeDropdown('BDR', 'bdr', stackTypes.bdr, orgStack?.bdr_type_id, orgStack?.bdr_id)}
                 </div>
             `;
-            
-            // Append the org_stack panel to the detail area
-            detailArea.insertAdjacentHTML('beforeend', stackHtml);
+
+            // Append inside the existing panel-level-3 pod
+            const pod = detailArea.querySelector('.panel-level-3');
+            if (pod) {
+                pod.insertAdjacentHTML('beforeend', stackHtml);
+            } else {
+                detailArea.insertAdjacentHTML('beforeend', stackHtml);
+            }
             
             // Add change listeners to org_stack fields for unsaved changes tracking
             ['rmm', 'psa', 'control', 'rpa', 'bdr'].forEach(integration => {
@@ -1162,716 +772,6 @@ let currentUser = null;
             }
         }
 
-        function selectPluginFromList(pluginName, buttonElement) {
-            console.log('selectPluginFromList - checking for unsaved changes');
-            const formData = getCurrentPluginFormData();
-            const hasUnsaved = window.checkUnsavedChanges(formData);
-            console.log('selectPluginFromList - formData:', formData);
-            console.log('selectPluginFromList - hasUnsaved:', hasUnsaved, 'currentPluginName:', currentPluginName);
-            
-            if (hasUnsaved && currentPluginName && currentPluginName !== pluginName) {
-                window.showUnsaved(
-                    async () => {
-                        // Save the current SQL database form if one is being edited
-                        if (selectedSqlDatabaseName) {
-                            saveSqlDatabaseForm(selectedSqlDatabaseName);
-                        }
-                        // Now save the plugin settings
-                        await savePluginSettings();
-                        doSelectPluginFromList(pluginName, buttonElement);
-                    },
-                    () => {
-                        doSelectPluginFromList(pluginName, buttonElement);
-                    }
-                );
-            } else {
-                doSelectPluginFromList(pluginName, buttonElement);
-            }
-        }
-
-        function doSelectPluginFromList(pluginName, buttonElement) {
-            loadPluginDetails(pluginName);
-            
-            // Reset all buttons to theme-neutral color
-            const buttons = document.querySelectorAll('#pluginListSidebar button');
-            buttons.forEach(btn => {
-                btn.setAttribute('data-color', 'theme-neutral');
-            });
-            
-            // Highlight the selected button with theme-brand
-            if (buttonElement) {
-                buttonElement.setAttribute('data-color', 'theme-brand');
-            }
-            
-            window.clearUnsavedChanges();
-        }
-
-        function cancelPluginSelection() {
-            // Reset all sidebar buttons to unselected state
-            const buttons = document.querySelectorAll('#pluginListSidebar button');
-            buttons.forEach(btn => {
-                btn.setAttribute('data-color', 'theme-neutral');
-            });
-            
-            // Hide settings container, show placeholder
-            document.getElementById('pluginSettingsContainer').style.display = 'none';
-            document.getElementById('pluginPlaceholder').style.display = 'block';
-            
-            // Hide reload button
-            document.getElementById('reloadPluginBtn').style.display = 'none';
-            currentPluginName = '';
-            window.clearUnsavedChanges();
-            updateSaveButtonState();
-        }
-
-        async function loadPluginDetails(pluginName) {
-            if (!pluginName) {
-                return;
-            }
-
-            try {
-                if (!sessionToken) {
-                    sessionToken = await getSessionToken();
-                }
-
-                console.log('Fetching plugin details for:', pluginName);
-                const response = await fetch(`https://app.equinoxits.com:1139/kore/plugins/details?name=${encodeURIComponent(pluginName)}`, {
-                    method: 'GET',
-                    headers: {
-                        'X-Session-Token': sessionToken
-                    }
-                });
-
-                const data = await response.json();
-                console.log('Plugin fetch response:', response.ok, data);
-
-                if (response.ok && data.plugin) {
-                    console.log('Calling populatePluginForm with:', data.plugin);
-                    populatePluginForm(data.plugin);
-                } else {
-                    showStatusBanner('Plugin not found: ' + (data.error || 'Unknown error'), 'error');
-                }
-            } catch (error) {
-                console.error('Plugin fetch error:', error);
-                showStatusBanner('Error loading plugin details: ' + error.message, 'error');
-            }
-        }
-
-        let currentPluginName = '';
-        let currentPluginVersion = 0;
-        let originalPluginConfig = null;
-
-        function populatePluginForm(plugin) {
-            // Store plugin info in memory
-            currentPluginName = plugin.name;
-            currentPluginVersion = plugin.version || 0;
-            originalPluginConfig = JSON.parse(JSON.stringify(plugin));  // Deep copy of original plugin
-
-            // Show settings container, hide placeholder
-            document.getElementById('pluginSettingsContainer').style.display = 'flex';
-            document.getElementById('pluginPlaceholder').style.display = 'none';
-            
-            // Show reload button
-            document.getElementById('reloadPluginBtn').style.display = 'inline-block';
-
-            // Update header
-            document.getElementById('headerPluginName').textContent = plugin.name;
-            document.getElementById('headerPluginVersion').textContent = plugin.version || '0';
-
-            // Basic info
-            document.getElementById('pluginDisplayName').value = plugin.display_name || '';
-            document.getElementById('pluginDescription').value = plugin.description || '';
-            document.getElementById('pluginEnabled').checked = plugin.enabled === 1 || plugin.enabled === true;
-
-            // Metadata
-            document.getElementById('pluginCreatedAt').value = plugin.created_at || '';
-            document.getElementById('pluginCreatedBy').value = plugin.created_by || '';
-            document.getElementById('pluginUpdatedAt').value = plugin.updated_at || '';
-            document.getElementById('pluginUpdatedBy').value = plugin.updated_by || '';
-
-            // Config
-            const config = plugin.config || {};
-            document.getElementById('configTypeValue').textContent = config.type || '';
-            document.getElementById('configRateLimit').value = config.rateLimit || 100;
-            document.getElementById('configRoutes').value = Array.isArray(config.routes) ? config.routes.join('\n') : '';
-
-            // Show/hide API fields based on plugin type
-            const apiFieldsContainer = document.getElementById('apiFieldsContainer');
-            const bearerAuthFields = document.getElementById('bearerAuthFields');
-            const clientAuthFields = document.getElementById('clientAuthFields');
-            const sqlFieldsContainer = document.getElementById('sqlFieldsContainer');
-
-            // Hide all configuration panels by default
-            if (apiFieldsContainer) apiFieldsContainer.style.display = 'none';
-            if (sqlFieldsContainer) sqlFieldsContainer.style.display = 'none';
-
-            if (config.type === 'api') {
-                if (apiFieldsContainer) apiFieldsContainer.style.display = 'block';
-                
-                // Determine auth type based on fields present
-                // Check for publicKey/privateKey (client auth pattern) or apiKey (bearer auth pattern)
-                if (config.publicKey || config.privateKey) {
-                    // Client/OAuth auth (includes MeshCentral, CWM, etc.)
-                    if (bearerAuthFields) bearerAuthFields.style.display = 'none';
-                    if (clientAuthFields) clientAuthFields.style.display = 'block';
-                    document.getElementById('configClientBaseUrl').value = config.baseUrl || '';
-                    document.getElementById('configClientApiPath').value = config.apiPath || '';
-                    document.getElementById('configClientId').value = config.clientId || '';
-                    document.getElementById('configPublicKey').value = config.publicKey || '';
-                    document.getElementById('configPrivateKey').value = config.privateKey || '';
-                } else if (config.apiKey) {
-                    // Bearer token auth (Snipe-IT, etc.)
-                    if (bearerAuthFields) bearerAuthFields.style.display = 'block';
-                    if (clientAuthFields) clientAuthFields.style.display = 'none';
-                    document.getElementById('configBaseUrl').value = config.baseUrl || '';
-                    document.getElementById('configApiPath').value = config.apiPath || '';
-                    document.getElementById('configApiKey').value = config.apiKey || '';
-                }
-            } else if (config.type === 'sql') {
-                // SQL type - show SQL Configurations panel
-                if (sqlFieldsContainer) sqlFieldsContainer.style.display = 'block';
-                
-                // Initialize currentDatabases from config
-                currentDatabases = JSON.parse(JSON.stringify(config.databases || {}));
-                
-                // Populate SQL database dropdown
-                const dbSelect = document.getElementById('sqlDatabaseSelect');
-                dbSelect.innerHTML = '<option value="">-- Select Database --</option>';
-                for (const dbName in currentDatabases) {
-                    const option = document.createElement('option');
-                    option.value = dbName;
-                    option.textContent = dbName;
-                    dbSelect.appendChild(option);
-                }
-                
-                // Hide the form and disable buttons since nothing is selected
-                const sqlDatabaseForm = document.getElementById('sqlDatabaseForm');
-                if (sqlDatabaseForm) sqlDatabaseForm.style.display = 'none';
-                const testBtn = document.querySelector('button[onclick="testSqlConnection()"]');
-                const cancelBtn = document.querySelector('button[onclick="cancelSqlDatabase()"]');
-                const deleteBtn = document.querySelector('button[onclick="deleteSqlDatabase()"]');
-                if (testBtn) testBtn.disabled = true;
-                if (cancelBtn) cancelBtn.disabled = true;
-                if (deleteBtn) deleteBtn.disabled = true;
-            }
-            
-            // Store headers for editing BEFORE initializing unsaved changes tracking
-            if (config.type === 'api') {
-                currentEditingHeaders = JSON.parse(JSON.stringify(config.headers || []));
-            }
-            
-            // Initialize unsaved changes tracking after all fields are populated
-            const formData = getCurrentPluginFormData();
-            console.log('populatePluginForm - Initial form data:', formData);
-            console.log('populatePluginForm - Original config:', plugin.config);
-            window.initializeUnsavedTracking(formData);
-            console.log('populatePluginForm - Unsaved changes after init:', window.hasUnsavedChanges());
-            updateSaveButtonState();
-        }
-
-        let currentEditingHeaders = [];
-
-        /**
-         * Open modal to edit headers for API plugin
-         */
-        function openEditHeadersModal() {
-            console.log('openEditHeadersModal - currentEditingHeaders:', currentEditingHeaders);
-            
-            const fields = [
-                {
-                    name: 'headers',
-                    type: 'custom:headers',
-                    label: 'Additional Headers',
-                    required: false
-                }
-            ];
-
-            showFormModal('Edit Headers', fields, async (formData) => {
-                // Extract headers from DOM since custom:headers field doesn't populate formData
-                const headerDivs = document.querySelectorAll('[id^="header_"]');
-                const headers = [];
-                headerDivs.forEach(div => {
-                    const inputs = div.querySelectorAll('input[type="text"]');
-                    if (inputs.length === 2) {
-                        const key = inputs[0].value.trim();
-                        const value = inputs[1].value.trim();
-                        if (key && value) {
-                            headers.push({ key, value });
-                        }
-                    }
-                });
-                
-                console.log('Headers extracted from modal:', headers);
-                console.log('Previous headers:', currentEditingHeaders);
-                
-                // Check if headers actually changed
-                const oldHeadersJson = JSON.stringify(currentEditingHeaders);
-                const newHeadersJson = JSON.stringify(headers);
-                
-                console.log('Headers changed?', oldHeadersJson !== newHeadersJson);
-                
-                if (oldHeadersJson !== newHeadersJson) {
-                    // Headers changed, update
-                    currentEditingHeaders = headers;
-                    console.log('Updated currentEditingHeaders to:', currentEditingHeaders);
-                }
-                
-                updateSaveButtonState();
-            });
-            
-            // Wait for modal to render, then populate existing headers
-            setTimeout(() => {
-                console.log('Looking for Add Header button...');
-                
-                // Find the "Add Header" button
-                const addHeaderBtn = Array.from(document.querySelectorAll('button')).find(btn => btn.textContent.trim() === 'Add Header');
-                console.log('Add Header button:', addHeaderBtn);
-                
-                if (addHeaderBtn && addHeaderBtn.parentElement) {
-                    const container = addHeaderBtn.parentElement;
-                    
-                    currentEditingHeaders.forEach((header, index) => {
-                        const rowId = 'header_' + (Date.now() + index);
-                        const headerDiv = document.createElement('div');
-                        headerDiv.id = rowId;
-                        headerDiv.style.cssText = 'display: flex; gap: 8px; align-items: center; margin-bottom: 8px;';
-                        headerDiv.innerHTML = `
-                            <input type="text" placeholder="Header name" value="${header.key || ''}" style="flex: 1; padding: 6px; background: var(--bg-input); color: var(--text-primary); border: 1px solid var(--border-primary); border-radius: 4px;">
-                            <input type="text" placeholder="Header value" value="${header.value || ''}" style="flex: 2; padding: 6px; background: var(--bg-input); color: var(--text-primary); border: 1px solid var(--border-primary); border-radius: 4px;">
-                            <button type="button" class="btn" data-color="red" data-size="sm" onclick="document.getElementById('${rowId}').remove()">Remove</button>
-                        `;
-                        
-                        console.log('Inserting header before Add Header button:', header);
-                        container.insertBefore(headerDiv, addHeaderBtn);
-                    });
-                } else {
-                    console.log('Could not find Add Header button or its parent');
-                }
-            }, 100);
-        }
-
-        let currentDatabases = {};
-        let selectedSqlDatabaseName = null;  // Track the original name of the selected database
-
-        function selectSqlDatabase() {
-            const dbSelect = document.getElementById('sqlDatabaseSelect');
-            const dbName = dbSelect.value;
-            
-            if (!dbName) {
-                const sqlDatabaseForm = document.getElementById('sqlDatabaseForm');
-                if (sqlDatabaseForm) sqlDatabaseForm.style.display = 'none';
-                const testBtn = document.querySelector('button[onclick="testSqlConnection()"]');
-                const cancelBtn = document.querySelector('button[onclick="cancelSqlDatabase()"]');
-                const deleteBtn = document.querySelector('button[onclick="deleteSqlDatabase()"]');
-                if (testBtn) testBtn.disabled = true;
-                if (cancelBtn) cancelBtn.disabled = true;
-                if (deleteBtn) deleteBtn.disabled = true;
-                return;
-            }
-            
-            selectedSqlDatabaseName = dbName;  // Store original name
-            const db = currentDatabases[dbName];
-            
-            if (db) {
-                document.getElementById('sqlDbType').value = db.type || '';
-                document.getElementById('sqlDbHost').value = db.host || '';
-                document.getElementById('sqlDbPort').value = db.port || '';
-                document.getElementById('sqlDbUser').value = db.user || '';
-                document.getElementById('sqlDbPassword').value = '';  // Don't show stored password
-                document.getElementById('sqlDbDatabase').value = db.database || '';
-                document.getElementById('sqlDbEncrypt').checked = db.encrypt || false;
-                document.getElementById('sqlDbTrustServerCert').checked = db.trustServerCert || false;
-            }
-            
-            updateSqlDbTypeFields();
-            const sqlDatabaseForm = document.getElementById('sqlDatabaseForm');
-            if (sqlDatabaseForm) sqlDatabaseForm.style.display = 'block';
-            const testBtn = document.querySelector('button[onclick="testSqlConnection()"]');
-            const cancelBtn = document.querySelector('button[onclick="cancelSqlDatabase()"]');
-            const deleteBtn = document.querySelector('button[onclick="deleteSqlDatabase()"]');
-            if (testBtn) testBtn.disabled = false;
-            if (cancelBtn) cancelBtn.disabled = false;
-            if (deleteBtn) deleteBtn.disabled = false;
-        }
-
-        function saveSqlDatabaseForm(dbNameOrOriginal) {
-            const name = dbNameOrOriginal || document.getElementById('sqlDbName').value;
-            
-            if (!name) {
-                showStatusBanner('Database name is required', 'error');
-                return;
-            }
-            
-            // If renaming, delete the old entry
-            if (selectedSqlDatabaseName && selectedSqlDatabaseName !== name) {
-                delete currentDatabases[selectedSqlDatabaseName];
-            }
-            
-            currentDatabases[name] = {
-                name: name,
-                type: document.getElementById('sqlDbType').value,
-                host: document.getElementById('sqlDbHost').value,
-                port: parseInt(document.getElementById('sqlDbPort').value) || 1433,
-                user: document.getElementById('sqlDbUser').value,
-                password: document.getElementById('sqlDbPassword').value,
-                database: document.getElementById('sqlDbDatabase').value,
-                encrypt: document.getElementById('sqlDbEncrypt').checked,
-                trustServerCert: document.getElementById('sqlDbTrustServerCert').checked
-            };
-            
-            // Update dropdown
-            const dbSelect = document.getElementById('sqlDatabaseSelect');
-            let option = Array.from(dbSelect.options).find(opt => opt.value === selectedSqlDatabaseName);
-            
-            if (option) {
-                option.value = name;
-                option.textContent = name;
-            } else {
-                option = document.createElement('option');
-                option.value = name;
-                option.textContent = name;
-                dbSelect.appendChild(option);
-            }
-            
-            dbSelect.value = name;
-            selectedSqlDatabaseName = name;  // Update tracked name
-        }
-
-        async function testSqlConnection() {
-            const dbName = selectedSqlDatabaseName;
-            
-            if (!dbName) {
-                showStatusBanner('Please select a database', 'error');
-                return;
-            }
-            
-            // Save form first
-            saveSqlDatabaseForm(dbName);
-            
-            const db = currentDatabases[dbName];
-            const testQuery = db.type === 'mysql' ? 'SELECT 1' : 'SELECT 1';
-            
-            try {
-                if (!sessionToken) {
-                    sessionToken = await getSessionToken();
-                }
-
-                // Use the executeSqlQuery function with the configuration name
-                const result = await executeSqlQuery(sessionToken, 'admin', dbName, testQuery);
-                
-                const resultDiv = document.getElementById('sqlTestResult');
-                if (result.success) {
-                    resultDiv.innerHTML = `<p style="color: #4caf50; margin: 0;">✓ Connection successful</p>`;
-                    resultDiv.style.display = 'block';
-                } else {
-                    resultDiv.innerHTML = `<p style="color: #b8242f; margin: 0;">✗ Connection failed: ${result.error}</p>`;
-                    resultDiv.style.display = 'block';
-                }
-            } catch (error) {
-                const resultDiv = document.getElementById('sqlTestResult');
-                resultDiv.innerHTML = `<p style="color: #b8242f; margin: 0;">✗ Error: ${error.message}</p>`;
-                resultDiv.style.display = 'block';
-            }
-        }
-
-        function updateSqlDbTypeFields() {
-            const dbType = document.getElementById('sqlDbType').value;
-            const mssqlFields = document.querySelectorAll('[id^="sqlDbEncrypt"], [id^="sqlDbTrustServerCert"]').forEach(el => {
-                el.parentElement.style.display = dbType === 'mssql' ? 'flex' : 'none';
-            });
-        }
-
-        // Code modal - called directly via showFormModal in HTML
-
-        // Password modal - called directly via showFormModal in HTML
-
-        // Reload Plugin modal state
-        async function openReloadPluginModal() {
-            const pluginName = currentPluginName;
-            if (!pluginName) {
-                showStatusBanner('No plugin selected', 'error');
-                return;
-            }
-
-            try {
-                if (!sessionToken) {
-                    sessionToken = await getSessionToken();
-                }
-
-                const response = await fetch(`https://app.equinoxits.com:1139/kore/plugins/load?name=${encodeURIComponent(pluginName)}`, {
-                    method: 'POST',
-                    headers: {
-                        'X-Session-Token': sessionToken,
-                        'Content-Type': 'application/json'
-                    }
-                });
-
-                const data = await response.json();
-
-                if (response.ok) {
-                    showStatusBanner(`Plugin "${pluginName}" reloaded successfully.`, 'success');
-                } else {
-                    showStatusBanner('Error reloading plugin: ' + (data.message || 'Unknown error'), 'error');
-                }
-            } catch (error) {
-                console.error('Error reloading plugin:', error);
-                showStatusBanner('Error reloading plugin', 'error');
-            }
-        }
-
-        function addSqlDatabase() {
-            const dbSelect = document.getElementById('sqlDatabaseSelect');
-            const form = document.getElementById('sqlDatabaseForm');
-            
-            // Clear dropdown selection
-            dbSelect.value = '';
-            selectedSqlDatabaseName = null;  // No original name for new database
-            
-            // Hide test result banner
-            const resultDiv = document.getElementById('sqlTestResult');
-            resultDiv.style.display = 'none';
-            
-            // Clear all form fields
-            document.getElementById('sqlDbType').value = '';
-            document.getElementById('sqlDbHost').value = '';
-            document.getElementById('sqlDbPort').value = '';
-            document.getElementById('sqlDbUser').value = '';
-            document.getElementById('sqlDbPassword').value = '';
-            document.getElementById('sqlDbDatabase').value = '';
-            document.getElementById('sqlDbEncrypt').checked = false;
-            document.getElementById('sqlDbTrustServerCert').checked = false;
-            
-            updateSqlDbTypeFields();
-            if (form) form.style.display = 'block';
-        }
-
-        function doCancelSqlDatabase() {
-            document.getElementById('sqlDatabaseSelect').value = '';
-            const sqlDatabaseForm = document.getElementById('sqlDatabaseForm');
-            if (sqlDatabaseForm) sqlDatabaseForm.style.display = 'none';
-            const testBtn = document.querySelector('button[onclick="testSqlConnection()"]');
-            const cancelBtn = document.querySelector('button[onclick="cancelSqlDatabase()"]');
-            const deleteBtn = document.querySelector('button[onclick="deleteSqlDatabase()"]');
-            if (testBtn) testBtn.disabled = true;
-            if (cancelBtn) cancelBtn.disabled = true;
-            if (deleteBtn) deleteBtn.disabled = true;
-            selectedSqlDatabaseName = null;
-            window.clearUnsavedChanges();
-        }
-
-        function cancelSqlDatabase() {
-            if (window.checkUnsavedChanges(getCurrentPluginFormData())) {
-                window.showUnsaved(
-                    () => {
-                        // Save the current SQL database form
-                        if (selectedSqlDatabaseName) {
-                            saveSqlDatabaseForm(selectedSqlDatabaseName);
-                        }
-                        window.clearUnsavedChanges();
-                    },
-                    doCancelSqlDatabase
-                );
-            } else {
-                doCancelSqlDatabase();
-            }
-        }
-
-        function deleteSqlDatabase() {
-            const dbSelect = document.getElementById('sqlDatabaseSelect');
-            const dbName = dbSelect.value;
-            
-            if (!dbName) {
-                showStatusBanner('No database selected', 'error');
-                return;
-            }
-            
-            showConfirmModal('Delete SQL Configuration', `Delete SQL configuration "${dbName}"? This cannot be undone.`, () => {
-                // Remove from currentDatabases
-                delete currentDatabases[dbName];
-                
-                // Remove from dropdown
-                const option = Array.from(dbSelect.options).find(opt => opt.value === dbName);
-                if (option) {
-                    option.remove();
-                }
-                
-                // Reset form and buttons
-                const sqlDatabaseForm = document.getElementById('sqlDatabaseForm');
-                if (sqlDatabaseForm) sqlDatabaseForm.style.display = 'none';
-                dbSelect.value = '';
-                const testBtn = document.querySelector('button[onclick="testSqlConnection()"]');
-                const cancelBtn = document.querySelector('button[onclick="cancelSqlDatabase()"]');
-                const deleteBtn = document.querySelector('button[onclick="deleteSqlDatabase()"]');
-                if (testBtn) testBtn.disabled = true;
-                if (cancelBtn) cancelBtn.disabled = true;
-                if (deleteBtn) deleteBtn.disabled = true;
-                
-                showStatusBanner(`SQL configuration "${dbName}" deleted.`, 'success');
-            });
-        }
-
-        async function savePluginSettings() {
-            const pluginName = currentPluginName;
-            const btn = document.getElementById('savePluginBtn');
-            const originalText = btn.textContent;
-
-            btn.disabled = true;
-            btn.textContent = 'Saving...';
-
-            try {
-                if (!sessionToken) {
-                    sessionToken = await getSessionToken();
-                }
-
-                // Build the update object from form values
-                // Increment version: "1.0" -> "1.1", "1.9" -> "1.10", etc.
-                let newVersion = '1.0';
-                if (currentPluginVersion) {
-                    const parts = currentPluginVersion.toString().split('.');
-                    if (parts.length === 2) {
-                        const major = parseInt(parts[0]) || 1;
-                        const minor = (parseInt(parts[1]) || 0) + 1;
-                        newVersion = `${major}.${minor}`;
-                    }
-                }
-
-                const updates = {
-                    display_name: document.getElementById('pluginDisplayName').value,
-                    version: newVersion,
-                    description: document.getElementById('pluginDescription').value,
-                    enabled: document.getElementById('pluginEnabled').checked ? 1 : 0,
-                    updated_by: currentUser,
-                    updated_at: new Date().toISOString().replace('T', ' ').split('.')[0],
-                    config: {
-                        type: document.getElementById('configTypeValue').textContent,
-                        rateLimit: parseInt(document.getElementById('configRateLimit').value) || 100,
-                        routes: document.getElementById('configRoutes').value.split('\n').filter(r => r.trim())
-                    },
-                    originalConfig: originalPluginConfig  // Send original config for history
-                };
-
-                // Include code if it was modified
-                if (originalPluginConfig && originalPluginConfig.code) {
-                    updates.code = originalPluginConfig.code;
-                }
-
-                // Add API fields based on type
-                const configType = document.getElementById('configTypeValue').textContent;
-                if (configType === 'api') {
-                    const bearerFields = document.getElementById('bearerAuthFields');
-                    const clientFields = document.getElementById('clientAuthFields');
-
-                    if (bearerFields.style.display !== 'none') {
-                        // Bearer token auth
-                        updates.config.baseUrl = document.getElementById('configBaseUrl').value;
-                        updates.config.apiPath = document.getElementById('configApiPath').value;
-                        updates.config.apiKey = document.getElementById('configApiKey').value;
-                    } else if (clientFields.style.display !== 'none') {
-                        // Client/OAuth auth
-                        updates.config.baseUrl = document.getElementById('configClientBaseUrl').value;
-                        updates.config.apiPath = document.getElementById('configClientApiPath').value;
-                        updates.config.clientId = document.getElementById('configClientId').value;
-                        updates.config.publicKey = document.getElementById('configPublicKey').value;
-                        updates.config.privateKey = document.getElementById('configPrivateKey').value;
-                    }
-                    
-                    // Add headers from current editing state if any
-                    if (currentEditingHeaders && currentEditingHeaders.length > 0) {
-                        updates.config.headers = currentEditingHeaders;
-                    }
-                } else if (configType === 'sql') {
-                    // Save current SQL database form before submitting
-                    const currentDb = document.getElementById('sqlDatabaseSelect').value;
-                    if (currentDb) {
-                        saveSqlDatabaseForm(currentDb);
-                    }
-                    // Include all databases in config
-                    updates.config.databases = currentDatabases;
-                }
-
-                // Send update to server (will create this endpoint next)
-                const response = await fetch(`https://app.equinoxits.com:1139/kore/plugins/update?name=${encodeURIComponent(pluginName)}`, {
-                    method: 'POST',
-                    headers: {
-                        'X-Session-Token': sessionToken,
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify(updates)
-                });
-
-                const data = await response.json();
-
-                if (response.ok) {
-                    window.showStatusBanner('Plugin settings saved successfully.', 'success', 'pluginsStatusMessage');
-                    // Auto-reload the plugin to pick up new config
-                    try {
-                        const reloadResponse = await fetch(`https://app.equinoxits.com:1139/kore/plugins/load?name=${encodeURIComponent(pluginName)}`, {
-                            method: 'POST',
-                            headers: {
-                                'X-Session-Token': sessionToken,
-                                'Content-Type': 'application/json'
-                            }
-                        });
-                        if (reloadResponse.ok) {
-                            window.showStatusBanner('Plugin saved successfully.', 'success', 'pluginsStatusMessage');
-                        }
-                    } catch (reloadError) {
-                        console.error('Error reloading plugin after save:', reloadError);
-                    }
-                    cancelPluginSelection();
-                } else {
-                    window.showStatusBanner('Error: ' + (data.error || 'Unknown error'), 'error', 'pluginsStatusMessage');
-                }
-            } catch (error) {
-                window.showStatusBanner('Error saving settings: ' + error.message, 'error', 'pluginsStatusMessage');
-            } finally {
-                btn.disabled = false;
-                btn.textContent = originalText;
-            }
-        }
-
-        async function reloadSelectedPlugin() {
-            const pluginName = document.getElementById('pluginName').value;
-            
-            if (!pluginName) {
-                showStatusBanner('Please select a plugin first', 'error');
-                return;
-            }
-
-            const btn = document.getElementById('reloadPluginBtn');
-            const originalText = btn.textContent;
-
-            btn.disabled = true;
-            btn.textContent = 'Reloading...';
-
-            try {
-                if (!sessionToken) {
-                    sessionToken = await getSessionToken();
-                }
-
-                const response = await fetch(`https://app.equinoxits.com:1139/kore/plugins/load?name=${encodeURIComponent(pluginName)}`, {
-                    method: 'POST',
-                    headers: {
-                        'X-Session-Token': sessionToken,
-                        'Content-Type': 'application/json'
-                    }
-                });
-
-                const data = await response.json();
-
-                if (response.ok) {
-                    showStatusBanner('Plugin "' + pluginName + '" reloaded successfully.', 'success');
-                    loadPluginDetails();
-                } else {
-                    showStatusBanner('Error: ' + (data.error || 'Unknown error'), 'error');
-                }
-            } catch (error) {
-                showStatusBanner('Error: ' + error.message, 'error');
-            } finally {
-                btn.disabled = false;
-                btn.textContent = originalText;
-            }
-        }
 
         function switchTabWithUnsavedCheck(tabName, event, loadCallback) {
             if (window.hasUnsavedChanges()) {
@@ -1890,10 +790,6 @@ let currentUser = null;
                         } else if (activeTab && activeTab.textContent.includes('Organization')) {
                             if (currentOrganization?.org_id) {
                                 await saveOrganizationDetails(currentOrganization.org_id);
-                            }
-                        } else if (activeTab && activeTab.textContent.includes('Plugin')) {
-                            if (currentPluginName) {
-                                await savePluginSettings();
                             }
                         } else if (activeTab && activeTab.textContent.includes('Security')) {
                             await saveSecuritySettings();
@@ -1915,9 +811,229 @@ let currentUser = null;
                 if (loadCallback) loadCallback();
             }
         }
-        
+
         function switchToPluginsTab(event) {
             switchTabWithUnsavedCheck('pluginsTab', event, loadPluginsList);
+        }
+
+        function switchToUtilitiesTab(event) {
+            switchTabWithUnsavedCheck('utilitiesTab', event, loadSystemHealth);
+        }
+
+        /**
+         * Load and display system health information
+         */
+        async function loadSystemHealth() {
+            try {
+                const response = await fetch('/kore/admin/system-health');
+                const data = await response.json();
+                
+                if (data.status === 'success') {
+                    // Update uptime
+                    document.getElementById('healthUptime').textContent = data.uptime.formatted;
+                    
+                    // Store the base uptime in seconds for the ticker
+                    window.baseUptimeSeconds = data.uptime.seconds;
+                    window.lastUptimeUpdateTime = Date.now();
+                    
+                    // Start or restart the uptime ticker
+                    if (window.uptimeTicker) {
+                        clearInterval(window.uptimeTicker);
+                    }
+                    startUptimeTicker();
+                    
+                    // Update Kore version
+                    document.getElementById('healthKoreVersion').textContent = `v${data.koreVersion}`;
+                    
+                    // Update Node version
+                    document.getElementById('healthNodeVersion').textContent = data.nodeVersion;
+                    
+                    // Update memory
+                    const memoryText = `${data.memory.heapUsedMB} MB / ${data.memory.heapTotalMB} MB`;
+                    document.getElementById('healthMemory').textContent = memoryText;
+                    
+                    // Update modules
+                    document.getElementById('healthModules').textContent = data.modules.count.toString();
+                    
+                    // Update subsystems
+                    document.getElementById('healthResources').textContent = `${data.subsystems.resources.status} (v${data.subsystems.resources.version})`;
+                    document.getElementById('healthAuth').textContent = `${data.subsystems.auth.status} (v${data.subsystems.auth.version})`;
+                    document.getElementById('healthWeb').textContent = `${data.subsystems.web.status} (v${data.subsystems.web.version})`;
+                    document.getElementById('healthPersephone').textContent = `${data.subsystems.persephone.status} (v${data.subsystems.persephone.version})`;
+                    
+                    // Update database
+                    document.getElementById('healthDatabase').textContent = data.database.korePool;
+                } else {
+                    console.error('Failed to load system health:', data.message);
+                }
+            } catch (error) {
+                console.error('Error loading system health:', error);
+            }
+        }
+
+        /**
+         * Start the uptime ticker - increments uptime every second
+         */
+        function startUptimeTicker() {
+            window.uptimeTicker = setInterval(() => {
+                if (window.baseUptimeSeconds !== undefined) {
+                    const elapsedMs = Date.now() - window.lastUptimeUpdateTime;
+                    const elapsedSeconds = Math.floor(elapsedMs / 1000);
+                    const currentUptimeSeconds = window.baseUptimeSeconds + elapsedSeconds;
+                    
+                    // Format uptime string
+                    const days = Math.floor(currentUptimeSeconds / 86400);
+                    const hours = Math.floor((currentUptimeSeconds % 86400) / 3600);
+                    const minutes = Math.floor((currentUptimeSeconds % 3600) / 60);
+                    const seconds = currentUptimeSeconds % 60;
+                    
+                    let uptimeString = '';
+                    if (days > 0) uptimeString += `${days}d `;
+                    if (hours > 0) uptimeString += `${hours}h `;
+                    if (minutes > 0) uptimeString += `${minutes}m `;
+                    uptimeString += `${seconds}s`;
+                    
+                    document.getElementById('healthUptime').textContent = uptimeString;
+                }
+            }, 1000);
+        }
+
+        /**
+         * Show modules list in a modal
+         */
+        async function showModulesModal() {
+            try {
+                const response = await fetch('/kore/admin/system-health/modules');
+                const data = await response.json();
+                
+                if (data.status === 'success') {
+                    // Create HTML table for modules
+                    let modulesHTML = `
+                        <div style="font-size: 12px;">
+                            <p style="margin: 0 0 10px 0; color: var(--text-muted);">
+                                Base Modules: <span style="color: var(--text-primary); font-weight: 600;">${data.totalBaseModules}</span> | 
+                                Total Loaded Files: <span style="color: var(--text-primary); font-weight: 600;">${data.totalLoadedFiles}</span>
+                            </p>
+                            <div style="max-height: 400px; overflow-y: auto; border: 1px solid var(--border-primary); border-radius: 4px;">
+                                <table style="width: 100%; border-collapse: collapse;">
+                                    <tbody>
+                    `;
+                    
+                    data.modules.forEach((module, index) => {
+                        const bgColor = index % 2 === 0 ? 'transparent' : 'rgba(0, 0, 0, 0.1)';
+                        // Convert forward slashes to backslashes in the path
+                        const displayPath = module.path.replace(/\//g, '\\');
+                        modulesHTML += `
+                            <tr style="background-color: ${bgColor};">
+                                <td style="padding: 6px; border-bottom: 1px solid var(--border-primary); word-break: break-all; color: var(--text-primary);">
+                                    ${module.name} <span style="color: var(--text-muted);">- ${displayPath}</span>
+                                </td>
+                            </tr>
+                        `;
+                    });
+                    
+                    modulesHTML += `
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    `;
+                    
+                    showModal({
+                        title: 'Loaded Modules',
+                        content: modulesHTML,
+                        buttons: [
+                            {
+                                label: 'Close',
+                                type: 'secondary',
+                                onClick: () => {}
+                            }
+                        ]
+                    });
+                } else {
+                    showModal({
+                        title: 'Error',
+                        content: `<p style="color: var(--text-primary);">Failed to load modules list: ${data.message}</p>`,
+                        buttons: [
+                            {
+                                label: 'Close',
+                                type: 'secondary',
+                                onClick: () => {}
+                            }
+                        ]
+                    });
+                }
+            } catch (error) {
+                console.error('Error fetching modules:', error);
+                showModal({
+                    title: 'Error',
+                    content: `<p style="color: var(--text-primary);">Error: ${error.message}</p>`,
+                    buttons: [
+                        {
+                            label: 'Close',
+                            type: 'secondary',
+                            onClick: () => {}
+                        }
+                    ]
+                });
+            }
+        }
+
+        /**
+         * Refresh system health data
+         */
+        async function refreshSystemHealth() {
+            await loadSystemHealth();
+        }
+
+        /**
+         * Show confirmation modal before restarting a subsystem
+         */
+        function confirmRestartSubsystem(subsystem, buttonLabel) {
+            const confirmMessage = 'This will restart the subsystem and may disrupt any current actions taking place. Are you sure you want to continue?';
+            showConfirm(buttonLabel, confirmMessage, () => {
+                restartSubsystem(subsystem);
+            }, 'Restart');
+        }
+
+        /**
+         * Restart a subsystem (resources, auth, web, persephone, or all)
+         */
+        async function restartSubsystem(subsystem) {
+            try {
+                const statusMessage = document.getElementById('utilitiesStatusMessage');
+                if (!statusMessage) return;
+                
+                // Show loading state
+                statusMessage.innerHTML = `<div class="alert alert-info">Restarting ${subsystem === 'all' ? 'all subsystems' : subsystem + ' subsystem'}...</div>`;
+                statusMessage.style.display = 'block';
+                
+                // Make the reload request
+                const response = await fetch(`/kore/admin/reload-subsystem?subsystem=${subsystem}`, {
+                    method: 'POST'
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    statusMessage.innerHTML = `<div class="alert alert-success">${data.message}</div>`;
+                } else {
+                    statusMessage.innerHTML = `<div class="alert alert-error">${data.message || 'Failed to restart subsystem'}</div>`;
+                }
+                
+                // Auto-hide message after 5 seconds
+                setTimeout(() => {
+                    statusMessage.style.display = 'none';
+                }, 5000);
+                
+            } catch (error) {
+                console.error('Error restarting subsystem:', error);
+                const statusMessage = document.getElementById('utilitiesStatusMessage');
+                if (statusMessage) {
+                    statusMessage.innerHTML = `<div class="alert alert-error">Error: ${error.message}</div>`;
+                    statusMessage.style.display = 'block';
+                }
+            }
         }
 
         function switchToOrganizationsTab(event) {
@@ -2493,7 +1609,7 @@ let currentUser = null;
                     sessionToken, 
                     currentUser, 
                     'kore_sys', 
-                    'SELECT timezone FROM system_config'
+                    'SELECT timezone, whitelists FROM system_config'
                 );
                 
                 console.log('System config query result:', result);
@@ -2501,14 +1617,17 @@ let currentUser = null;
                 if (result && result.result && result.result.length > 0) {
                     const configRow = result.result[0];
                     currentSystemConfig = {
-                        timezone: configRow.timezone || 'UTC'
+                        timezone: configRow.timezone || 'UTC',
+                        whitelists: configRow.whitelists || '{}'
                     };
                 } else {
-                    currentSystemConfig = { timezone: 'UTC' };
+                    currentSystemConfig = { timezone: 'UTC', whitelists: '{}' };
                 }
                 
                 populateTimezoneSelect();
-                // Initialize unsaved tracking after timezone is set in the DOM
+                await displayInternalWhitelist();
+                
+                // Initialize unsaved tracking after both fields are set in the DOM
                 setTimeout(() => {
                     window.initializeUnsavedTracking(getSystemFormData());
                     document.getElementById('systemSaveBtn').disabled = true;
@@ -2536,9 +1655,138 @@ let currentUser = null;
         }
 
         function getSystemFormData() {
-            return {
-                timezone: document.getElementById('systemTimezone').value || 'UTC'
+            const formData = {
+                timezone: document.getElementById('systemTimezone').value || 'UTC',
+                internalWhitelistIPs: []
             };
+            
+            // Collect internal whitelist IPs
+            const ipInputs = document.querySelectorAll('#systemInternalWhitelistContainer .ip-input');
+            ipInputs.forEach(input => {
+                const value = input.value.trim();
+                if (value) {
+                    formData.internalWhitelistIPs.push(value);
+                }
+            });
+            
+            return formData;
+        }
+
+        /**
+         * Display the Internal Whitelist IPs form
+         */
+        async function displayInternalWhitelist() {
+            const container = document.getElementById('systemInternalWhitelistContainer');
+            if (!container) return;
+            
+            container.innerHTML = '';
+            
+            // Parse whitelists from system config
+            let internalIPs = [];
+            try {
+                const whitelists = typeof currentSystemConfig.whitelists === 'string' 
+                    ? JSON.parse(currentSystemConfig.whitelists) 
+                    : currentSystemConfig.whitelists;
+                
+                internalIPs = whitelists.internal || [];
+            } catch (e) {
+                console.warn('Could not parse whitelists:', e);
+            }
+            
+            // Create wrapper
+            const wrapper = document.createElement('div');
+            wrapper.style.cssText = 'display: flex; flex-direction: column; gap: 12px;';
+            
+            // Header row with label and Add button
+            const headerRow = document.createElement('div');
+            headerRow.style.cssText = 'display: flex; justify-content: space-between; align-items: center; gap: 12px;';
+            
+            const label = document.createElement('label');
+            label.style.cssText = 'color: var(--text-muted); font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; margin: 0;';
+            label.textContent = 'Internal Whitelist IPs';
+            headerRow.appendChild(label);
+            
+            // Add button
+            const addBtn = document.createElement('button');
+            addBtn.textContent = 'Add IP';
+            addBtn.className = 'btn';
+            addBtn.setAttribute('data-color', 'blue');
+            addBtn.setAttribute('data-size', 'sm');
+            headerRow.appendChild(addBtn);
+            
+            wrapper.appendChild(headerRow);
+            
+            // IPs container
+            const ipsContainer = document.createElement('div');
+            ipsContainer.style.cssText = 'display: flex; flex-direction: column; gap: 6px;';
+            
+            // Add existing IPs
+            internalIPs.forEach(ip => {
+                addIPFieldToSystemWhitelist(ipsContainer, ip);
+            });
+            
+            // Add button handler
+            addBtn.onclick = () => {
+                addIPFieldToSystemWhitelist(ipsContainer, '');
+                checkSystemUnsavedChanges();
+            };
+            
+            wrapper.appendChild(ipsContainer);
+            container.appendChild(wrapper);
+            
+            // Set up change detection for IP fields
+            const ipInputs = container.querySelectorAll('.ip-input');
+            ipInputs.forEach(input => {
+                input.addEventListener('input', checkSystemUnsavedChanges);
+            });
+            
+            // Set up delete button detection
+            const deleteButtons = container.querySelectorAll('.btn[data-color="red"]');
+            deleteButtons.forEach(btn => {
+                btn.addEventListener('click', () => {
+                    setTimeout(checkSystemUnsavedChanges, 10);
+                });
+            });
+        }
+        
+        /**
+         * Helper to add an IP field to the system whitelist form
+         */
+        function addIPFieldToSystemWhitelist(container, ipValue = '') {
+            const fieldDiv = document.createElement('div');
+            fieldDiv.style.cssText = 'display: flex; gap: 6px; align-items: center;';
+
+            const input = document.createElement('input');
+            input.type = 'text';
+            input.className = 'ip-input';
+            input.value = ipValue;
+            input.placeholder = 'e.g., 192.168.1.0/24';
+            input.style.cssText = `
+                flex: 1;
+                padding: 6px 8px;
+                border: 1px solid var(--border-primary);
+                border-radius: 4px;
+                background-color: var(--bg-input);
+                color: var(--text-primary);
+                font-family: monospace;
+                font-size: 12px;
+                box-sizing: border-box;
+            `;
+
+            const deleteBtn = document.createElement('button');
+            deleteBtn.textContent = 'Delete';
+            deleteBtn.className = 'btn';
+            deleteBtn.setAttribute('data-color', 'red');
+            deleteBtn.setAttribute('data-size', 'sm');
+            deleteBtn.style.cssText = 'flex: 0 0 auto; width: 60px;';
+            deleteBtn.onclick = () => {
+                fieldDiv.remove();
+                checkSystemUnsavedChanges();
+            };
+
+            fieldDiv.appendChild(input);
+            fieldDiv.appendChild(deleteBtn);
+            container.appendChild(fieldDiv);
         }
 
         function checkSystemUnsavedChanges() {
@@ -2558,12 +1806,31 @@ let currentUser = null;
                 }
                 
                 const formData = getSystemFormData();
-                currentSystemConfig = formData;
+                
+                // Build the whitelists JSON
+                let whitelists = {};
+                try {
+                    const existing = typeof currentSystemConfig.whitelists === 'string'
+                        ? JSON.parse(currentSystemConfig.whitelists)
+                        : currentSystemConfig.whitelists;
+                    whitelists = existing || {};
+                } catch (e) {
+                    whitelists = {};
+                }
+                
+                // Update internal whitelist
+                whitelists.internal = formData.internalWhitelistIPs;
+                const whitelistsJson = JSON.stringify(whitelists);
+                const escapedJson = whitelistsJson.replace(/'/g, "''");
                 
                 // Save to system_config using SQL
-                const updateSql = `UPDATE system_config SET timezone = '${formData.timezone}'`;
+                const updateSql = `UPDATE system_config SET timezone = '${formData.timezone}', whitelists = '${escapedJson}'`;
                 
                 await executeSqlQuery(sessionToken, currentUser, 'kore_sys', updateSql);
+                
+                // Update current config
+                currentSystemConfig.timezone = formData.timezone;
+                currentSystemConfig.whitelists = whitelistsJson;
                 
                 // Reinitialize unsaved tracking with the saved data
                 window.initializeUnsavedTracking(formData);
@@ -2577,7 +1844,6 @@ let currentUser = null;
         }
 
         document.addEventListener('DOMContentLoaded', () => {
-            buildKoreHeader('Settings');
             currentUser = getUser();
             // Load system, email and logging config when General tab is active (only if on /settings page)
             if (document.getElementById('systemTimezone')) {
@@ -2592,36 +1858,6 @@ let currentUser = null;
             // Don't load organizations on page load - load them when tab is opened
             
             
-            // Add change listeners to all plugin configuration form fields
-            const allFormFields = [
-                // Basic plugin info
-                'pluginDisplayName', 'pluginDescription', 'pluginEnabled',
-                // Config fields
-                'configRateLimit', 'configRoutes',
-                // API Bearer auth fields
-                'configBaseUrl', 'configApiPath', 'configApiKey',
-                // API Client auth fields
-                'configClientBaseUrl', 'configClientApiPath', 'configClientId',
-                'configPublicKey', 'configPrivateKey',
-                // SQL database form fields
-                'sqlDbType', 'sqlDbHost', 'sqlDbPort',
-                'sqlDbUser', 'sqlDbPassword', 'sqlDbDatabase',
-                'sqlDbEncrypt', 'sqlDbTrustServerCert'
-            ];
-            
-            allFormFields.forEach(fieldId => {
-                const field = document.getElementById(fieldId);
-                if (field) {
-                    field.addEventListener('change', () => {
-                        window.checkUnsavedChanges(getCurrentPluginFormData());
-                        updateSaveButtonState();
-                    });
-                    field.addEventListener('input', () => {
-                        window.checkUnsavedChanges(getCurrentPluginFormData());
-                        updateSaveButtonState();
-                    });
-                }
-            });
             
             // Setup page-level unsaved changes protection (browser alert only for out-of-page navigation)
             window.addEventListener('beforeunload', (e) => {
@@ -2706,6 +1942,61 @@ let currentUser = null;
                 const groups = await window.getGroups(sessionToken, currentUser);
                 window.cachedGroups = groups;
             });
+        }
+
+        async function showAddGroupModal() {
+            const modalHtml = `
+                <div style="display: flex; flex-direction: column; gap: 15px; min-height: 0;">
+                    <div>
+                        <label style="color: var(--text-muted); font-weight: 600; display: block; margin-bottom: 3px; font-size: 11px;">Group Name</label>
+                        <input type="text" id="add_groupName" style="width: 100%; font-size: 12px;" placeholder="Group name">
+                    </div>
+                    <div>
+                        <label style="color: var(--text-muted); font-weight: 600; display: block; margin-bottom: 3px; font-size: 11px;">Description</label>
+                        <input type="text" id="add_groupDescription" style="width: 100%; font-size: 12px;" placeholder="Optional description">
+                    </div>
+                </div>
+            `;
+
+            window.showFormModal('Add Group', [], async () => {
+                await saveNewGroup();
+            });
+
+            const modalBody = document.getElementById('modal-body-content');
+            if (modalBody) modalBody.innerHTML = modalHtml;
+        }
+
+        async function saveNewGroup() {
+            const groupName = document.getElementById('add_groupName')?.value || '';
+            const description = document.getElementById('add_groupDescription')?.value || '';
+
+            if (!groupName.trim()) {
+                window.showStatusBanner('Group name cannot be empty', 'error', 'groupsStatusMessage');
+                return;
+            }
+
+            try {
+                const response = await fetch('/groups', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ groupName: groupName.trim(), description: description.trim() })
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    window.showStatusBanner('Error creating group: ' + (data.error || 'Unknown error'), 'error', 'groupsStatusMessage');
+                    return;
+                }
+
+                window.showStatusBanner('Group created successfully', 'success', 'groupsStatusMessage');
+                window.closeModal();
+                loadGroupsList();
+
+            } catch (error) {
+                console.error('Error creating group:', error);
+                window.showStatusBanner('Error creating group: ' + error.message, 'error', 'groupsStatusMessage');
+            }
         }
 
         async function loadGroupsList() {
@@ -2869,6 +2160,129 @@ let currentUser = null;
             }
         }
 
+        async function viewUserPermissions(userId) {
+            const userData = window.cachedUsers?.find(u => u.userId == userId);
+            const userName = userData ? (userData.fullName || userData.email || userId) : userId;
+
+            const tableContainer = document.createElement('div');
+            tableContainer.innerHTML = '<p style="color: var(--text-muted); font-size: 12px;">Loading permissions...</p>';
+
+            window.showModal({
+                title: `Permissions - ${escapeHtml(userName)}`,
+                content: tableContainer,
+                resizable: true,
+                width: 'auto',
+                height: 'auto'
+            });
+
+            try {
+                if (!sessionToken) sessionToken = await window.getSessionToken();
+                const response = await fetch(`/kore/users/${encodeURIComponent(userId)}/permissions?includeRevoked=true`, {
+                    method: 'GET',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+
+                if (!response.ok) throw new Error(`Server error: ${response.status}`);
+                const permissions = await response.json();
+
+                if (!permissions.length) {
+                    tableContainer.innerHTML = '<p style="color: var(--text-muted); font-size: 12px; margin: 0;">No permissions found for this user.</p>';
+                    return;
+                }
+
+                const active = permissions.filter(p => !p.revokedAt);
+                const revoked = permissions.filter(p => p.revokedAt);
+
+                const buildRows = (perms, includeRevokedCol) => perms.map(p => {
+                    const fmt = (val) => val === '*' ? 'All' : val ? (val.charAt(0).toUpperCase() + val.slice(1)) : '—';
+                    const scopeVal = p.scope_name || p.scope;
+                    const scopeDisplay = (!scopeVal || scopeVal === '*') ? 'All' : escapeHtml(scopeVal);
+                    const effectColor = p.effect === 'deny' ? 'color: var(--color-red, #e55);' : 'color: var(--color-green, #5a5);';
+                    const sourceDisplay = p.source?.type === 'group' ? escapeHtml(`Group: ${p.source.groupName || p.source.groupId}`) : 'User';
+                    const revokedCell = includeRevokedCol
+                        ? `<td>${new Date(p.revokedAt).toLocaleString()}</td>`
+                        : '';
+                    return `<tr><td>${escapeHtml(p.resource || '—')}</td><td>${scopeDisplay}</td><td>${escapeHtml(fmt(p.action))}</td><td style="${effectColor} font-weight:600;">${escapeHtml(fmt(p.effect))}</td><td>${sourceDisplay}</td>${revokedCell}</tr>`;
+                }).join('');
+
+                const thStyle = 'text-transform:uppercase;letter-spacing:0.5px;font-size:11px;color:var(--text-muted);';
+                const buildTable = (rows, includeRevokedCol) => {
+                    const revokedHeader = includeRevokedCol ? `<th style="${thStyle}">Revoked At</th>` : '';
+                    return `<div class="panel-level-2" style="width:fit-content;"><table style="font-size:11px;width:auto;"><thead><tr><th style="${thStyle}">Resource</th><th style="${thStyle}">Scope</th><th style="${thStyle}">Action</th><th style="${thStyle}">Effect</th><th style="${thStyle}">Source</th>${revokedHeader}</tr></thead><tbody>${rows}</tbody></table></div>`;
+                };
+
+                let html = '';
+                if (active.length) html += `<p style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin:0 0 6px 0;">Active (${active.length})</p>` + buildTable(buildRows(active, false), false);
+                if (revoked.length) html += `<p style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin:${active.length?'16px':'0'} 0 6px 0;">Revoked (${revoked.length})</p>` + buildTable(buildRows(revoked, true), true);
+
+                tableContainer.innerHTML = html;
+
+            } catch (error) {
+                console.error('[Settings] Error loading user permissions:', error);
+                tableContainer.innerHTML = `<p style="color:var(--color-red,#e55);font-size:12px;margin:0;">Error loading permissions: ${escapeHtml(error.message)}</p>`;
+            }
+        }
+
+        async function viewGroupPermissions(groupId) {
+            const groupData = window.cachedGroups?.find(g => g.groupId == groupId);
+            const groupName = groupData ? (groupData.name || groupId) : groupId;
+
+            const tableContainer = document.createElement('div');
+            tableContainer.innerHTML = '<p style="color: var(--text-muted); font-size: 12px;">Loading permissions...</p>';
+
+            window.showModal({
+                title: `Permissions - ${escapeHtml(groupName)}`,
+                content: tableContainer,
+                resizable: true,
+                width: 'auto',
+                height: 'auto'
+            });
+
+            try {
+                if (!sessionToken) sessionToken = await window.getSessionToken();
+                const response = await fetch('/kore/permissions', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ targetType: 'group', targetId: groupId })
+                });
+
+                if (!response.ok) throw new Error(`Server error: ${response.status}`);
+                const permissions = await response.json();
+
+                if (!permissions.length) {
+                    tableContainer.innerHTML = '<p style="color: var(--text-muted); font-size: 12px; margin: 0;">No permissions found for this group.</p>';
+                    return;
+                }
+
+                // Sort by resource, scope, action
+                permissions.sort((a, b) => {
+                    const r = (a.resource || '').localeCompare(b.resource || '');
+                    if (r !== 0) return r;
+                    const s = (a.scope || '').localeCompare(b.scope || '');
+                    if (s !== 0) return s;
+                    return (a.action || '').localeCompare(b.action || '');
+                });
+
+                const fmt = (val) => val === '*' ? 'All' : val ? (val.charAt(0).toUpperCase() + val.slice(1)) : '—';
+                const thStyle = 'text-transform:uppercase;letter-spacing:0.5px;font-size:11px;color:var(--text-muted);';
+
+                const rows = permissions.map(p => {
+                    const scopeVal = p.scope_name || p.scope;
+                    const scopeDisplay = (!scopeVal || scopeVal === '*') ? 'All' : escapeHtml(scopeVal);
+                    const effectColor = p.effect === 'deny' ? 'color: var(--color-red, #e55);' : 'color: var(--color-green, #5a5);';
+                    return `<tr><td>${escapeHtml(p.resource || '—')}</td><td>${scopeDisplay}</td><td>${escapeHtml(fmt(p.action))}</td><td style="${effectColor} font-weight:600;">${escapeHtml(fmt(p.effect))}</td></tr>`;
+                }).join('');
+
+                const table = `<div class="panel-level-2" style="width:fit-content;"><table style="font-size:11px;width:auto;"><thead><tr><th style="${thStyle}">Resource</th><th style="${thStyle}">Scope</th><th style="${thStyle}">Action</th><th style="${thStyle}">Effect</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+
+                tableContainer.innerHTML = table;
+
+            } catch (error) {
+                console.error('[Settings] Error loading group permissions:', error);
+                tableContainer.innerHTML = `<p style="color:var(--color-red,#e55);font-size:12px;margin:0;">Error loading permissions: ${escapeHtml(error.message)}</p>`;
+            }
+        }
+
         async function saveUserDetails(userId) {
             const email = document.getElementById('userEmailInput')?.value || '';
             const fullName = document.getElementById('userFullNameInput')?.value || '';
@@ -2976,7 +2390,7 @@ let currentUser = null;
             if (!confirm('Resend invite to this user?')) return;
             
             try {
-                const response = await fetch(`/users/${userId}/resend-invite`, {
+                const response = await fetch(`/users/${userId}/send-invite`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' }
                 });
@@ -2984,14 +2398,14 @@ let currentUser = null;
                 const data = await response.json();
                 
                 if (!response.ok) {
-                    window.showStatusBanner('Error resending invite: ' + (data.error || 'Unknown error'), 'error', 'usersStatusMessage');
+                    window.showStatusBanner('Error sending invite: ' + (data.error || 'Unknown error'), 'error', 'usersStatusMessage');
                     return;
                 }
                 
-                window.showStatusBanner('Invite resent successfully', 'success', 'usersStatusMessage');
+                window.showStatusBanner('Invite sent successfully', 'success', 'usersStatusMessage');
             } catch (error) {
-                console.error('Error resending invite:', error);
-                window.showStatusBanner('Error resending invite: ' + error.message, 'error', 'usersStatusMessage');
+                console.error('Error sending invite:', error);
+                window.showStatusBanner('Error sending invite: ' + error.message, 'error', 'usersStatusMessage');
             }
         }
 
@@ -3001,6 +2415,10 @@ let currentUser = null;
 
         function switchToGroupsTab(event) {
             switchTabWithUnsavedCheck('groupsTab', event, loadGroupsList);
+        }
+
+        function switchToPermissionsTab(event) {
+            switchTabWithUnsavedCheck('permissionsTab', event, loadPermissionsPage);
         }
 
         function switchToSecurityTab(event) {
@@ -3511,5 +2929,420 @@ let currentUser = null;
             } catch (error) {
                 console.error('Error saving notification preferences:', error);
                 window.showStatusBanner('Error saving preferences: ' + error.message, 'error', 'userprefStatusMessage');
+            }
+        }
+
+        /**
+         * Load page permissions data from backend
+         */
+        /**
+         * Load the Permissions page - initializes all permission management
+         */
+        async function loadPermissionsPage() {
+            try {
+                if (!sessionToken) sessionToken = await window.getSessionToken();
+                await loadPagePermissions();
+                
+                // Set up dropdown change handler
+                const pageSelect = document.getElementById('pageSelect');
+                const buttonsContainer = document.getElementById('pagePermissionsButtons');
+                const saveBtn = document.getElementById('savePagePermissionsBtn');
+                const cancelBtn = document.getElementById('cancelPagePermissionsBtn');
+                
+                if (pageSelect && buttonsContainer && saveBtn && cancelBtn) {
+                    // Show/hide buttons and load forms based on selection
+                    pageSelect.addEventListener('change', (e) => {
+                        if (e.target.value) {
+                            displayPermissions('page', e.target.value);
+                            buttonsContainer.style.display = 'flex';
+                        } else {
+                            buttonsContainer.style.display = 'none';
+                            document.getElementById('permissionsList').innerHTML = '';
+                            document.getElementById('allowedIPsList').innerHTML = '';
+                        }
+                    });
+                    
+                    // Save button handler
+                    saveBtn.onclick = async () => {
+                        if (pageSelect.value) {
+                            await savePermissionsByType('page', pageSelect.value);
+                        }
+                    };
+                    
+                    // Cancel button handler - clears selection and resets forms
+                    cancelBtn.onclick = () => {
+                        pageSelect.value = '';
+                        buttonsContainer.style.display = 'none';
+                        document.getElementById('permissionsList').innerHTML = '';
+                        document.getElementById('allowedIPsList').innerHTML = '';
+                    };
+                }
+            } catch (error) {
+                console.error('Error loading permissions page:', error);
+                window.showStatusBanner('Error loading permissions: ' + error.message, 'error', 'permissionsStatusMessage');
+            }
+        }
+
+        /**
+         * Permission Management Configuration
+         */
+        const PERMISSION_TYPES = {
+            page: {
+                resource: 'page',
+                loadEndpoint: '/kore/page-permissions',
+                saveEndpoint: '/kore/permissions',
+                dropdownId: 'pageSelect',
+                dataKey: 'pagePermissionsData',
+                itemLabel: (item) => `${item.path} - ${item.title}`,
+                itemId: (item) => item.path,
+                statusMessageId: 'pagePermStatusMessage',
+                permissionsListId: 'permissionsList',
+                scopeKey: 'path'
+            }
+        };
+
+        /**
+         * Load permissions by type
+         */
+        async function loadPermissionsByType(permType) {
+            try {
+                const config = PERMISSION_TYPES[permType];
+                if (!config) {
+                    throw new Error(`Unknown permission type: ${permType}`);
+                }
+
+                // Use loadEndpoint for loading permission data
+                const loadConfig = { ...config, endpoint: config.loadEndpoint };
+                const permissionsData = await loadPermissionsForResource(loadConfig);
+                window[config.dataKey] = permissionsData;
+                populatePermissionDropdown(permType);
+            } catch (error) {
+                console.error(`Error loading ${permType} permissions:`, error);
+                window.showStatusBanner(`Error loading ${permType} permissions: ` + error.message, 'error', PERMISSION_TYPES[permType].statusMessageId);
+            }
+        }
+
+        /**
+         * Populate the permission dropdown
+         */
+        function populatePermissionDropdown(permType) {
+            const config = PERMISSION_TYPES[permType];
+            const dropdown = document.getElementById(config.dropdownId);
+            if (!dropdown) return;
+
+            const permissionsData = window[config.dataKey];
+            dropdown.innerHTML = `<option value="">Select ${permType}...</option>`;
+            
+            Object.values(permissionsData).forEach(item => {
+                const option = document.createElement('option');
+                option.value = config.itemId(item);
+                option.textContent = config.itemLabel(item);
+                dropdown.appendChild(option);
+            });
+            
+            // Event listener is now handled centrally in loadPermissionsPage
+        }
+
+        /**
+         * Display permissions for selected item
+         */
+        async function displayPermissions(permType, itemId) {
+            const config = PERMISSION_TYPES[permType];
+            const permissionsData = window[config.dataKey];
+            const itemData = permissionsData[itemId];
+            if (!itemData) return;
+
+            // Load all users and groups for dropdowns if not already loaded
+            if (!window.allUsersAndGroups) {
+                await loadAllUsersAndGroups();
+            }
+
+            const permissionsList = document.getElementById(config.permissionsListId);
+            
+            // Clear the container
+            permissionsList.innerHTML = '';
+            
+            // Create main wrapper
+            const mainWrapper = document.createElement('div');
+            mainWrapper.style.cssText = 'display: flex; flex-direction: column; gap: 12px;';
+            
+            // Add separator
+            const separator1 = document.createElement('div');
+            separator1.style.cssText = 'height: 1px; background-color: var(--border-primary);';
+            mainWrapper.appendChild(separator1);
+            
+            // Create header row with "Permissions" label and Add button
+            const headerRow = document.createElement('div');
+            headerRow.style.cssText = 'display: flex; justify-content: space-between; align-items: center; gap: 12px;';
+            
+            const permissionsHeader = document.createElement('label');
+            permissionsHeader.style.cssText = 'color: var(--text-muted); font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; margin: 0;';
+            permissionsHeader.textContent = 'Permissions';
+            headerRow.appendChild(permissionsHeader);
+            
+            // Create a temporary container for the form
+            const formContainer = document.createElement('div');
+            
+            // Use the displayPermissionsForm function from base.js
+            displayPermissionsForm(formContainer, itemData.permissions || [], {
+                addButtonLabel: 'Add Permission',
+                saveButtonLabel: `Save ${permType.charAt(0).toUpperCase() + permType.slice(1)} Permissions`,
+                showSaveButton: false,  // Use fixed button at bottom instead
+                onSave: () => savePermissionsByType(permType, itemId)
+            });
+            
+            // Extract the add button and put it in the header row
+            const addBtn = formContainer.querySelector('.btn[data-color="blue"]');
+            console.log('[Permissions] Found Add button:', addBtn);
+            
+            if (addBtn) {
+                // Store the original onclick
+                const originalOnclick = addBtn.onclick;
+                
+                // Replace the onclick to append to the correct container (rowsContainer)
+                // The original closure references permissionsContainer which is not in the visible DOM
+                addBtn.onclick = () => {
+                    console.log('[Permissions] Add button clicked');
+                    // Find the visible rows container
+                    const rowsContainer = mainWrapper.querySelector('[style*="flex-direction: column; gap: 8px;"]');
+                    if (rowsContainer) {
+                        // Call createPermissionRow to add a new row to the visible container
+                        window.createPermissionRow(rowsContainer, true, null, null);
+                        console.log('[Permissions] New row created');
+                        setTimeout(checkPagePermissionsUnsavedChanges, 10);
+                    } else {
+                        console.error('[Permissions] Could not find rows container');
+                    }
+                };
+                headerRow.appendChild(addBtn);
+            } else {
+                console.log('[Permissions] WARNING: Could not find Add Permission button!');
+            }
+            
+            mainWrapper.appendChild(headerRow);
+            
+            // Add the permission rows (everything except the button wrapper)
+            const permissionRows = formContainer.querySelectorAll('.permission-row');
+            const rowsContainer = document.createElement('div');
+            rowsContainer.style.cssText = 'display: flex; flex-direction: column; gap: 8px;';
+            permissionRows.forEach(row => rowsContainer.appendChild(row));
+            mainWrapper.appendChild(rowsContainer);
+            
+            permissionsList.appendChild(mainWrapper);
+
+            // For page resource type, also display allowedIPs form
+            if (permType === 'page') {
+                const allowedIPsList = document.getElementById('allowedIPsList');
+                if (allowedIPsList) {
+                    // Clear it first
+                    allowedIPsList.innerHTML = '';
+                    
+                    // Create wrapper for IPs section
+                    const ipsWrapper = document.createElement('div');
+                    ipsWrapper.style.cssText = 'display: flex; flex-direction: column; gap: 12px;';
+                    
+                    // Call displayAllowedIPsForm on the wrapper
+                    await displayAllowedIPsForm(ipsWrapper, 'web_pages', 'path', itemId, {
+                        showSeparator: true,
+                        showButtons: false,
+                        onSave: () => savePermissionsByType(permType, itemId)
+                    });
+                    
+                    allowedIPsList.appendChild(ipsWrapper);
+                }
+            }
+
+            // Initialize unsaved changes tracking for page permissions
+            if (permType === 'page') {
+                window.initializeUnsavedTracking(getPagePermissionsFormData());
+                checkPagePermissionsUnsavedChanges();
+
+                // Hook change handlers to all form elements
+                // Permission row changes (delegation - handles dynamic rows)
+                const permissionsList = document.getElementById('permissionsList');
+                permissionsList.addEventListener('change', (e) => {
+                    if (e.target.closest('.permission-row')) {
+                        checkPagePermissionsUnsavedChanges();
+                    }
+                });
+
+                // Whitelist checkbox changes (delegation)
+                const allowedIPsList = document.getElementById('allowedIPsList');
+                if (allowedIPsList) {
+                    allowedIPsList.addEventListener('change', (e) => {
+                        if (e.target.classList.contains('whitelist-checkbox')) {
+                            checkPagePermissionsUnsavedChanges();
+                        }
+                    });
+
+                    // IP field changes (delegation - handles dynamic fields)
+                    allowedIPsList.addEventListener('input', (e) => {
+                        if (e.target.classList.contains('ip-input')) {
+                            checkPagePermissionsUnsavedChanges();
+                        }
+                    });
+
+                    // Delete IP button clicks - trigger check after field is removed
+                    // Need to use delegation since buttons are created dynamically
+                    allowedIPsList.addEventListener('click', (e) => {
+                        if (e.target.classList.contains('btn') && e.target.getAttribute('data-color') === 'red') {
+                            // Delete button clicked - after the field is removed, check for changes
+                            setTimeout(checkPagePermissionsUnsavedChanges, 10);
+                        }
+                    });
+
+                    // Add IP Address button click - trigger check after new field is added
+                    const addIPBtn = allowedIPsList.querySelector('button[data-color="blue"]');
+                    if (addIPBtn) {
+                        const originalOnclick = addIPBtn.onclick;
+                        if (originalOnclick) {
+                            addIPBtn.onclick = () => {
+                                originalOnclick();
+                                setTimeout(checkPagePermissionsUnsavedChanges, 10);
+                            };
+                        }
+                    }
+                }
+            }
+        }
+
+        /**
+         * Save permissions by type (and allowedIPs for page resources)
+         */
+        async function savePermissionsByType(permType, itemId) {
+            try {
+                const config = PERMISSION_TYPES[permType];
+                
+                // Use saveEndpoint for saving permission data
+                const saveConfig = { ...config, endpoint: config.saveEndpoint };
+                await savePermissionsForResource(saveConfig, itemId);
+                
+                // For page resource type, also save allowedIPs if the form exists
+                if (permType === 'page') {
+                    const allowedIPsInput = document.getElementById('allowedIPsInput');
+                    if (allowedIPsInput) {
+                        try {
+                            const inputValue = allowedIPsInput.value.trim();
+                            let ipsToSave;
+
+                            // Try to parse as JSON first
+                            try {
+                                ipsToSave = JSON.parse(inputValue);
+                                if (!Array.isArray(ipsToSave)) {
+                                    throw new Error('Must be an array');
+                                }
+                            } catch (e) {
+                                // If not JSON, treat as comma-separated
+                                ipsToSave = inputValue
+                                    .split(',')
+                                    .map(ip => ip.trim())
+                                    .filter(ip => ip.length > 0);
+                            }
+
+                            // Save allowedIPs
+                            await saveAllowedIPs('web_pages', 'path', itemId, ipsToSave);
+                            console.log('[Settings] Saved allowedIPs for page:', itemId);
+                        } catch (ipError) {
+                            console.warn('[Settings] Could not save allowedIPs:', ipError.message);
+                            // Don't fail completely if allowedIPs save fails
+                        }
+                    }
+                }
+                
+                window.showStatusBanner(`${permType} permissions saved successfully`, 'success', config.statusMessageId);
+                
+                // Reset unsaved changes tracking for page permissions
+                if (permType === 'page') {
+                    window.initializeUnsavedTracking(getPagePermissionsFormData());
+                    checkPagePermissionsUnsavedChanges();
+                }
+                
+                await loadPermissionsByType(permType); // Reload to sync
+            } catch (error) {
+                console.error(`Error saving ${permType} permissions:`, error);
+                window.showStatusBanner(`Error saving ${permType} permissions: ` + error.message, 'error', PERMISSION_TYPES[permType].statusMessageId);
+            }
+        }
+
+        async function loadPagePermissions() {
+            return loadPermissionsByType('page');
+        }
+
+        /**
+         * Get current page permissions form data (permissions + IPs)
+         */
+        function getPagePermissionsFormData() {
+            const formData = {
+                permissions: [],
+                whitelists: [],
+                ips: []
+            };
+
+            // Collect permission rows
+            const permissionRows = document.querySelectorAll('.permission-row');
+            permissionRows.forEach(row => {
+                const targetElement = row.querySelector('.permission-target');
+                const effectElement = row.querySelector('.permission-effect');
+                const actionElement = row.querySelector('.permission-action');
+                
+                if (targetElement) {
+                    formData.permissions.push({
+                        target: targetElement.value,
+                        effect: effectElement ? effectElement.value : 'allow',
+                        action: actionElement ? actionElement.value : 'view'
+                    });
+                }
+            });
+
+            // Collect whitelist checkboxes
+            const whitelistCheckboxes = document.querySelectorAll('.whitelist-checkbox:checked');
+            whitelistCheckboxes.forEach(checkbox => {
+                formData.whitelists.push(`whitelist.${checkbox.dataset.category}`);
+            });
+
+            // Collect IP fields
+            const ipInputs = document.querySelectorAll('.ip-input');
+            ipInputs.forEach(input => {
+                const value = input.value.trim();
+                if (value) {
+                    formData.ips.push(value);
+                }
+            });
+
+            return formData;
+        }
+
+        /**
+         * Check for unsaved changes in page permissions form
+         */
+        function checkPagePermissionsUnsavedChanges() {
+            const currentData = getPagePermissionsFormData();
+            window.checkUnsavedChanges(currentData);
+            
+            const saveBtn = document.getElementById('savePagePermissionsBtn');
+            if (saveBtn) {
+                saveBtn.disabled = !window.hasUnsavedChanges();
+            }
+        }
+
+        /**
+         * Load all users and groups for the target dropdown
+         */
+        async function loadAllUsersAndGroups() {
+            try {
+                if (!sessionToken) sessionToken = await window.getSessionToken();
+
+                const [users, groups] = await Promise.all([
+                    window.getUsers(sessionToken, currentUser),
+                    window.getGroups(sessionToken, currentUser)
+                ]);
+
+                window.allUsersAndGroups = {
+                    users: users || [],
+                    groups: groups || []
+                };
+            } catch (error) {
+                console.error('Error loading users and groups:', error);
+                window.allUsersAndGroups = { users: [], groups: [] };
             }
         }

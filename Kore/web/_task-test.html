@@ -1,0 +1,395 @@
+<div class="panel-level-1">
+    <style>
+        .description {
+            font-size: 12px;
+            color: #999;
+            margin-top: 8px;
+            line-height: 1.4;
+        }
+    </style>
+    <div id="statusMessage" class="status-message"></div>
+
+    <!-- Plugin & Task Selection -->
+    <div class="panel-level-2" style="padding: 20px; margin-bottom: 15px;">
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+                <div>
+                    <label style="display: block; font-size: 11px; margin-bottom: 8px; font-weight: 600;">SELECT PLUGIN</label>
+                    <select id="pluginsDropdown" onchange="selectPlugin(this.value)">
+                        <option value="">-- Select a Plugin --</option>
+                    </select>
+                </div>
+                
+                <div>
+                    <label style="display: block; font-size: 11px; margin-bottom: 8px; font-weight: 600;">SELECT TASK</label>
+                    <select id="tasksDropdown" onchange="selectTaskFromDropdown(this.value)" disabled>
+                        <option value="">-- Select a Task --</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+    <!-- Task Details & Inputs -->
+    <div class="panel-level-2" style="padding: 20px; margin-bottom: 15px;">
+        <div id="taskDetails"></div>
+        <div id="testButtonContainer" style="display: none; margin-top: 20px; padding-top: 20px; border-top: 1px solid #eee;">
+            <button id="testTaskBtn" onclick="testTask()" style="padding: 10px 20px; background: #4CAF50; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 14px;">Test Task</button>
+        </div>
+    </div>
+    
+    <div id="taskResults" class="panel-level-2" style="padding: 20px; display: none;">
+        <div style="font-weight: 600; margin-bottom: 15px;">Task Results</div>
+        <div id="resultsContent"></div>
+    </div>
+    </div>
+
+    <!-- Load Kore libraries -->
+    <script src="/lib/plugins-front.js"></script>
+
+    <script>
+        // Test page state
+        let selectedPluginName = null;
+        let selectedTaskId = null;
+        let currentPluginConfig = null;
+        let currentPluginTasks = [];
+        let currentTask = null;
+        let authToken = null;
+        let authUser = null;
+
+        // ============================================================================
+        // INITIALIZATION
+        // ============================================================================
+
+        async function init() {
+            try {
+                // Get auth using Kore's built-in functions
+                authUser = getUser();
+                if (!authUser) {
+                    showStatusBanner('No user found. Please log in to Kore first.', 'error');
+                    return;
+                }
+
+                // Get session token
+                authToken = await getSessionToken();
+                if (!authToken) {
+                    showStatusBanner('Failed to get session token', 'error');
+                    return;
+                }
+
+                // Set sessionToken for plugins-front.js
+                window.sessionToken = authToken;
+                
+                // Load plugins using shared function from plugins-front.js
+                try {
+                    const plugins = await listPlugins();
+                    renderPluginsList(plugins);
+                } catch (error) {
+                    showStatusBanner(`Failed to load plugins: ${error.message}`, 'error');
+                    console.error(error);
+                }
+            } catch (error) {
+                showStatusBanner(`Failed to initialize: ${error.message}`, 'error');
+                console.error(error);
+            }
+        }
+
+        // ============================================================================
+        // UI INTERACTION
+        // ============================================================================
+
+        function renderPluginsList(plugins) {
+            const dropdown = document.getElementById('pluginsDropdown');
+            
+            if (!plugins || plugins.length === 0) {
+                dropdown.innerHTML = '<option value="">No plugins found</option>';
+                return;
+            }
+            
+            // Sort plugins alphabetically by display name
+            const sortedPlugins = [...plugins].sort((a, b) => {
+                const nameA = (a.display_name || a.name).toLowerCase();
+                const nameB = (b.display_name || b.name).toLowerCase();
+                return nameA.localeCompare(nameB);
+            });
+            
+            dropdown.innerHTML = '<option value="">-- Select a Plugin --</option>' + 
+                sortedPlugins.map(plugin => `
+                    <option value="${escapeHtml(plugin.name)}" data-info="${escapeHtml(plugin.display_name || plugin.name)} v${plugin.version || '0'}">
+                        ${escapeHtml(plugin.display_name || plugin.name)} (v${plugin.version || '0'})
+                    </option>
+                `).join('');
+        }
+
+        function renderTasksList(tasks) {
+            const dropdown = document.getElementById('tasksDropdown');
+            
+            if (!tasks || tasks.length === 0) {
+                dropdown.innerHTML = '<option value="">No tasks found</option>';
+                dropdown.disabled = true;
+                return;
+            }
+            
+            // Sort tasks alphabetically by display name
+            const sortedTasks = [...tasks].sort((a, b) => {
+                const nameA = a.display_name.toLowerCase();
+                const nameB = b.display_name.toLowerCase();
+                return nameA.localeCompare(nameB);
+            });
+            
+            dropdown.innerHTML = '<option value="">-- Select a Task --</option>' + 
+                sortedTasks.map((task, idx) => {
+                    // Find the original index of this task in currentPluginTasks
+                    const originalIdx = currentPluginTasks.findIndex(t => t.task_id === task.task_id);
+                    return `
+                        <option value="${originalIdx}">
+                            ${escapeHtml(task.display_name)} (${(task.inputs || []).length} inputs)
+                        </option>
+                    `;
+                }).join('');
+            
+            // Enable dropdown only after tasks are loaded
+            dropdown.disabled = false;
+        }
+
+        function renderTaskDetails(task) {
+            const container = document.getElementById('taskDetails');
+            
+            if (!task) {
+                container.innerHTML = '<div class="placeholder">Select a task to view inputs</div>';
+                currentTask = null;
+                return;
+            }
+            
+            currentTask = task;
+            
+            let html = `
+                <div class="task-header">
+                    <div class="task-title">${escapeHtml(task.display_name)}</div>
+                    <div class="description">${escapeHtml(task.description || '')}</div>
+                </div>
+            `;
+            
+            // Get rendered input HTML from plugins-front.js
+            const inputsHtml = renderTaskInputsHtml(task.inputs, task, currentPluginConfig);
+            
+            if (!inputsHtml || inputsHtml === '<div id="taskInputs"></div>') {
+                html += '<p class="placeholder">No inputs for this task</p>';
+            } else {
+                html += inputsHtml;
+            }
+            
+            container.innerHTML = html;
+            
+            // Show test button for testable plugin types
+            const pluginType = currentPluginConfig?.config?.type;
+            console.log('Plugin type:', pluginType);
+            const isTestable = pluginType && ['sql', 'api'].includes(pluginType);
+            console.log('Is testable:', isTestable);
+            document.getElementById('testButtonContainer').style.display = isTestable ? 'block' : 'none';
+            document.getElementById('taskResults').style.display = 'none';
+        }
+
+        function renderSelectField(inputId, input, pluginConfig) {
+            let options = [];
+            
+            console.log('renderSelectField - input.options:', input.options, 'pluginConfig:', pluginConfig);
+            
+            if (Array.isArray(input.options)) {
+                // Check if array contains a single @config reference
+                if (input.options.length === 1 && typeof input.options[0] === 'string' && input.options[0].startsWith('@config.')) {
+                    console.log('Resolving config reference from array:', input.options[0]);
+                    options = resolveConfigReference(input.options[0], pluginConfig) || [];
+                    console.log('Resolved to:', options);
+                } else {
+                    options = input.options;
+                }
+            } else if (typeof input.options === 'string' && input.options.startsWith('@config.')) {
+                // Resolve config reference
+                console.log('Resolving config reference:', input.options);
+                options = resolveConfigReference(input.options, pluginConfig) || [];
+                console.log('Resolved to:', options);
+            } else if (typeof input.options === 'string') {
+                options = input.options.split(',').map(s => s.trim());
+            }
+            
+            const optionsHtml = options.map(opt => {
+                // Handle object options (from @task references with value/label)
+                if (typeof opt === 'object' && opt !== null && 'value' in opt && 'label' in opt) {
+                    return `<option value="${escapeHtml(String(opt.value))}">${escapeHtml(opt.label)}</option>`;
+                }
+                // Handle string options (static lists)
+                return `<option value="${escapeHtml(String(opt))}">${escapeHtml(String(opt))}</option>`;
+            }).join('');
+            
+            return `<select id="${inputId}" class="input-field"><option value="">-- Select --</option>${optionsHtml}</select>`;
+        }
+
+        function formatOptionsDisplay(options) {
+            if (Array.isArray(options)) {
+                // Check if these are object options (from @task references)
+                if (options.length > 0 && typeof options[0] === 'object' && 'label' in options[0]) {
+                    return `<em>${options.length} options from dynamic source</em>`;
+                }
+                return `[${options.map(o => escapeHtml(String(o))).join(', ')}]`;
+            } else if (typeof options === 'string') {
+                if (options.startsWith('@config.')) {
+                    return `<em>${escapeHtml(options)}</em>`;
+                }
+                return escapeHtml(options);
+            }
+            return '';
+        }
+
+
+        // ============================================================================
+        // EVENT HANDLERS
+        // ============================================================================
+
+        async function selectPlugin(pluginName) {
+            const taskDropdown = document.getElementById('tasksDropdown');
+            
+            if (!pluginName) {
+                taskDropdown.innerHTML = '<option value="">-- Select a Task --</option>';
+                taskDropdown.disabled = true;
+                document.getElementById('taskDetails').innerHTML = '<div style="text-align: center; padding: 40px 20px;">Select a plugin first</div>';
+                return;
+            }
+
+            selectedPluginName = pluginName;
+            selectedTaskId = null;
+            
+            // Keep task dropdown disabled while loading
+            taskDropdown.disabled = true;
+            taskDropdown.innerHTML = '<option value="">Loading tasks...</option>';
+            
+            document.getElementById('taskDetails').innerHTML = '<div style="text-align: center; padding: 40px 20px;">Loading tasks...</div>';
+            
+            try {
+                // Load plugin details using shared function from plugins-front.js
+                currentPluginConfig = await getPluginDetails(pluginName);
+                
+                // Load plugin tasks using shared function from plugins-front.js
+                currentPluginTasks = await getPluginTasks(pluginName);
+                
+                // Parse JSON fields if they're strings
+                currentPluginTasks = currentPluginTasks.map(task => {
+                    if (typeof task.inputs === 'string') {
+                        task.inputs = JSON.parse(task.inputs);
+                    }
+                    if (typeof task.outputs === 'string') {
+                        task.outputs = JSON.parse(task.outputs);
+                    }
+                    return task;
+                });
+                
+                renderTasksList(currentPluginTasks);
+                taskDropdown.disabled = false;
+            } catch (error) {
+                showStatusBanner(`Failed to load plugin details: ${error.message}`, 'error');
+                console.error(error);
+                taskDropdown.innerHTML = '<option value="">-- Select a Task --</option>';
+                taskDropdown.disabled = true;
+            }
+        }
+
+        function selectTaskFromDropdown(taskIndex) {
+            if (!taskIndex || taskIndex === '') {
+                document.getElementById('taskDetails').innerHTML = '<div style="text-align: center; padding: 40px 20px;">Select a task to view inputs</div>';
+                return;
+            }
+
+            const task = currentPluginTasks[parseInt(taskIndex)];
+            if (task) {
+                selectTask(task.task_id, task.display_name, task);
+            }
+        }
+
+        function selectTask(taskId, taskName, taskData) {
+            selectedTaskId = taskId;
+            renderTaskDetails(taskData);
+        }
+
+        // ============================================================================
+        // TASK EXECUTION
+        // ============================================================================
+
+        async function testTask() {
+            if (!currentTask || !currentPluginConfig) {
+                showStatusBanner('No task selected', 'error');
+                return;
+            }
+            
+            // Clear any existing task results
+            const taskResultsPanel = document.getElementById('taskResults');
+            taskResultsPanel.style.display = 'none';
+            document.getElementById('resultsContent').innerHTML = '';
+            
+            // Ensure sessionToken is set for plugins-front.js executeTask function
+            if (!window.sessionToken) {
+                window.sessionToken = authToken;
+            }
+            
+            const taskDetailsDiv = document.getElementById('taskDetails');
+            const inputs = currentTask.inputs || [];
+            
+            // Collect all input values using the utility function
+            const inputValues = extractTaskInputs();
+            
+            console.log('Executing task:', { 
+                taskId: currentTask.task_id,
+                taskName: currentTask.display_name,
+                plugin: selectedPluginName,
+                inputs: inputValues 
+            });
+            
+            const btn = document.getElementById('testTaskBtn');
+            btn.disabled = true;
+            btn.textContent = 'Testing...';
+            
+            try {
+                // Use the shared executeTask function from plugins-front.js
+                const result = await executeTask(currentTask.task_id, inputValues);
+                
+                // Check if the result indicates failure
+                if (result.success === false) {
+                    showStatusBanner(result.message || 'Task failed', 'error');
+                    console.error('[executeTask] Result:', result);
+                } else {
+                    displayTaskResults(result, currentPluginConfig);
+                    showStatusBanner(result.message || 'Task executed successfully', 'success');
+                }
+            } catch (error) {
+                console.error('Task execution error:', error);
+                showStatusBanner(`Task execution failed: ${error.message}`, 'error');
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Test Task';
+            }
+        }
+
+        function displayTaskResults(result, pluginConfig) {
+            const resultsPanel = document.getElementById('taskResults');
+            const resultsContent = document.getElementById('resultsContent');
+            
+            if (!result.result) {
+                resultsContent.innerHTML = '<div class="description">No results returned</div>';
+                resultsPanel.style.display = 'block';
+                return;
+            }
+            
+            // Always display as formatted JSON
+            const jsonStr = JSON.stringify(result.result, null, 2);
+            const html = `<pre class="panel-level-3" style="word-wrap: break-word; white-space: pre-wrap; overflow: auto; max-height: 400px; max-width: 100%;">${escapeHtml(jsonStr)}</pre>`;
+            resultsContent.innerHTML = html;
+            
+            resultsPanel.style.display = 'block';
+        }
+
+        // ============================================================================
+        // START
+        // ============================================================================
+
+        // Wait for libraries to load
+        setTimeout(() => {
+            init();
+        }, 100);
+    </script>
+</div>

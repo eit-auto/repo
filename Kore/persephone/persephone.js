@@ -1,21 +1,15 @@
 /**
- * Persephone - Automation Engine for Kore
- * 
- * Core workflow execution engine with Nunjucks templating
- * Integrates with Kore's MySQL database and authentication
- * 
- * API Endpoints:
- *   POST   /kore/workflows               - Create new workflow
- *   GET    /kore/workflows/:id           - Get latest active workflow version
- *   GET    /kore/workflows/:id/:version  - Get specific workflow version
- *   DELETE /kore/workflows/:id/:version  - Archive workflow version
- *   
- *   POST   /kore/execute                 - Execute workflow
- *   GET    /kore/executions/:executionId - Get execution status/results
- *   POST   /kore/executions/:executionId/cancel - Cancel running execution
- *   
- *   GET    /kore/executions              - List executions (with filters)
- * 
+ * Persephone - Automation Execution Engine for Kore
+ *
+ * Core workflow execution engine with Nunjucks templating.
+ * Workflow/folder CRUD has moved to resources/resources.js.
+ *
+ * API Endpoints (execution only):
+ *   POST   /kore/execute                          - Execute workflow
+ *   GET    /kore/executions/:executionId          - Get execution status/results
+ *   POST   /kore/executions/:executionId/cancel   - Cancel running execution
+ *   GET    /kore/executions                       - List executions (with filters)
+ *
  * @version 0.500 - [KORE_VERSION_INCREMENT_ON_UPDATE]
  */
 
@@ -27,6 +21,7 @@ const { v4: uuidv4 } = require('uuid');
 const mysql = require('mysql2/promise');
 const registerFilters = require('./filters');
 const transformFilters = require('./filters/transform');
+const Resources = require('../resources/resources');
 
 /**
  * Get current timestamp formatted in configured timezone
@@ -96,7 +91,15 @@ const Persephone = (() => {
         pools.cwa = cwaPool;
         const env = nunjucks.configure({ 
             autoescape: false,
-            throwOnUndefined: true  // Throw on undefined, none/true/false are defined values
+            throwOnUndefined: true,  // Throw on undefined, none/true/false are defined values
+            finalize: function(value) {
+                // If it's an object or array, serialize to JSON (pretty-printed)
+                if (value !== null && typeof value === 'object') {
+                    return JSON.stringify(value, null, 2);
+                }
+                // Otherwise return as-is (strings, numbers, booleans, null, undefined)
+                return value;
+            }
         });
         
         // Register custom filters
@@ -114,373 +117,29 @@ const Persephone = (() => {
             Object.entries(transformFilters).forEach(([name, fn]) => {
                 env.addFilter(name, fn);
             });
+            
+            // Register utility filters
+            const utilFilters = require('./filters/utils');
+            Object.entries(utilFilters).forEach(([name, fn]) => {
+                env.addFilter(name, fn);
+            });
         } catch (error) {
             console.error(`[Persephone] Error registering transform filters: ${error.message}`);
         }
         
-        // Register Persephone API routes
-        // workflow-folders must come BEFORE workflows since it's more specific
-        registerRoute(/^\/kore\/workflow-folders(\/.*)?(\?.*)?$/, handleWorkflowFoldersRequest);
-        registerRoute(/^\/kore\/workflows(\/.*)?(\?.*)?$/, handleWorkflowRequest);
+        // Register global functions
+        try {
+            const datetimeFilters = require('./filters/datetime');
+            env.addGlobal('now', datetimeFilters.now);
+        } catch (error) {
+            console.error(`[Persephone] Error registering global functions: ${error.message}`);
+        }
+        
+        // Register Persephone API routes (execution only)
         registerRoute('/kore/execute', handleExecuteRequest);
         registerRoute('/kore/executions', handleExecutionRequest);
         registerRoute(/^\/kore\/filters(\/.*)?(\?.*)?$/, handleFilterRequest);
         registerRoute('/kore/render-template', handleRenderTemplate);
-    }
-
-    /**
-     * Validate workflow JSON structure and Nunjucks templates
-     */
-    async function validateWorkflow(definition) {
-        const errors = [];
-
-        // Validate critical top-level fields
-        if (!definition.id) {
-            errors.push('Workflow must have an id');
-        }
-        if (!definition.name) {
-            errors.push('Workflow must have a name');
-        }
-        if (!definition.version) {
-            errors.push('Workflow must have a version');
-        }
-
-        // Basic structure validation
-        if (!definition.steps || !Array.isArray(definition.steps)) {
-            errors.push('Workflow must have a steps array');
-        }
-
-        // Validate metadata exists and is an object (but not its sub-elements)
-        if (!definition.metadata || typeof definition.metadata !== 'object') {
-            errors.push('Workflow must have a metadata object');
-        }
-
-        // Validate each step
-        if (Array.isArray(definition.steps)) {
-            for (let i = 0; i < definition.steps.length; i++) {
-                const step = definition.steps[i];
-                if (!step.id) errors.push(`Step ${i} missing id`);
-                if (!step.type) errors.push(`Step ${i} missing type`);
-
-                // Validate Nunjucks templates in step
-                if (step.command && typeof step.command === 'string') {
-                    try {
-                        nunjucks.renderString(step.command, {});
-                    } catch (err) {
-                        errors.push(`Step ${step.id} command template error: ${err.message}`);
-                    }
-                }
-                if (step.query && typeof step.query === 'string') {
-                    try {
-                        nunjucks.renderString(step.query, {});
-                    } catch (err) {
-                        errors.push(`Step ${step.id} query template error: ${err.message}`);
-                    }
-                }
-            }
-        }
-
-        return {
-            isValid: errors.length === 0,
-            errors: errors
-        };
-    }
-
-    /**
-     * Create or update a workflow definition
-     */
-    async function createWorkflow(workflowData) {
-        const { id, name, version, definition, folder_id, createdBy } = workflowData;
-
-        if (!id || !name || !version || !definition) {
-            throw new Error('id, name, version, and definition are required');
-        }
-
-        // Validate workflow structure
-        const validation = await validateWorkflow(definition);
-        if (!validation.isValid) {
-            throw new Error(`Workflow validation failed: ${validation.errors.join(', ')}`);
-        }
-
-        // Add/update metadata, preserve everything else in definition as-is
-        const now = global.getTimestamp();
-        const definitionToStore = {
-            ...definition,
-            metadata: {
-                ...(definition.metadata || {}),
-                created_at: definition.metadata?.created_at || now,
-                created_by: definition.metadata?.created_by || createdBy || 'api',
-                updated_at: now,
-                updated_by: createdBy || 'api'
-            }
-        };
-
-        const conn = await pools.kore_sys.getConnection();
-        try {
-            // Insert into workflows (id, name, version, folder_id, definition)
-            await conn.execute(
-                `INSERT INTO kore_sys.workflows 
-                 (id, name, version, folder_id, definition) 
-                 VALUES (?, ?, ?, ?, ?)`,
-                [id, name, version, folder_id || null, JSON.stringify(definitionToStore)]
-            );
-
-            // Insert into workflows_hist (workflow_id, version, definition)
-            await conn.execute(
-                `INSERT INTO kore_sys.workflows_hist 
-                 (workflow_id, version, definition) 
-                 VALUES (?, ?, ?)`,
-                [id, version, JSON.stringify(definitionToStore)]
-            );
-
-            console.log(`[Persephone] Workflow created: ${id} (${name})@${version}`);
-            return { id, name, version };
-        } finally {
-            conn.release();
-        }
-    }
-
-    /**
-     * List all workflows (current version only)
-     */
-    async function listWorkflows() {
-        const conn = await pools.kore_sys.getConnection();
-        try {
-            const [rows] = await conn.execute(
-                `SELECT w.id, w.name, w.version, w.folder_id, w.definition, 
-                        f.name as folder_name, f.parent_id as folder_parent_id,
-                        GROUP_CONCAT(p.permissionId) as permissionIds
-                 FROM kore_sys.workflows w
-                 LEFT JOIN kore_sys.workflow_folders f ON w.folder_id = f.id
-                 LEFT JOIN kore_sys.permissions p ON p.resource = 'workflow' AND p.scope = w.id
-                 GROUP BY w.id, w.name, w.version, w.folder_id, w.definition, f.name, f.parent_id
-                 ORDER BY w.name ASC`
-            );
-
-            return rows.map(row => {
-                const definition = typeof row.definition === 'string' ? JSON.parse(row.definition) : row.definition;
-                
-                // Determine folder display name
-                let folderName = null;
-                if (row.folder_id && row.folder_name) {
-                    folderName = row.folder_name;
-                }
-                
-                // Parse comma-separated permissionIds into array
-                const permissionIds = row.permissionIds ? row.permissionIds.split(',') : [];
-                
-                return {
-                    id: row.id,
-                    name: row.name,
-                    version: row.version,
-                    folder_id: row.folder_id || null,
-                    folder_name: folderName,
-                    definition: definition,
-                    permissionIds: permissionIds
-                };
-            });
-        } finally {
-            conn.release();
-        }
-    }
-
-    /**
-     * Get all workflow folders
-     */
-    async function getWorkflowFolders() {
-        const conn = await pools.kore_sys.getConnection();
-        try {
-            const [rows] = await conn.execute(
-                `SELECT id, name, parent_id 
-                 FROM kore_sys.workflow_folders 
-                 ORDER BY name ASC`
-            );
-
-            return rows.map(row => ({
-                id: row.id,
-                name: row.name,
-                parent_id: row.parent_id
-            }));
-        } finally {
-            conn.release();
-        }
-    }
-
-    /**
-     * Create a new workflow folder
-     */
-    async function createWorkflowFolder(folderData) {
-        const { id, name, parent_id } = folderData;
-
-        if (!id || !name) {
-            throw new Error('id and name are required');
-        }
-
-        const conn = await pools.kore_sys.getConnection();
-        try {
-            await conn.execute(
-                `INSERT INTO kore_sys.workflow_folders 
-                 (id, name, parent_id) 
-                 VALUES (?, ?, ?)`,
-                [id, name, parent_id || null]
-            );
-
-            return {
-                id,
-                name,
-                parent_id: parent_id || null
-            };
-        } finally {
-            conn.release();
-        }
-    }
-
-    async function updateWorkflowFolder(folderId, updates) {
-        const conn = await pools.kore_sys.getConnection();
-        try {
-            // Build the update query based on what's provided
-            const updateFields = [];
-            const values = [];
-
-            if (updates.name) {
-                updateFields.push('name = ?');
-                values.push(updates.name);
-            }
-
-            if (updates.hasOwnProperty('parent_id')) {
-                updateFields.push('parent_id = ?');
-                values.push(updates.parent_id || null);
-            }
-
-            if (updateFields.length === 0) {
-                throw new Error('No fields to update');
-            }
-
-            values.push(folderId);
-
-            await conn.execute(
-                `UPDATE kore_sys.workflow_folders SET ${updateFields.join(', ')} WHERE id = ?`,
-                values
-            );
-
-            return { success: true };
-        } finally {
-            conn.release();
-        }
-    }
-
-    async function handleUpdateWorkflowFolder(req, res, folderId) {
-        let body = '';
-        req.on('data', chunk => { body += chunk.toString(); });
-        req.on('end', async () => {
-            try {
-                const data = JSON.parse(body);
-                const result = await updateWorkflowFolder(folderId, data);
-                res.writeHead(200, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify(result));
-            } catch (error) {
-                console.error('[Persephone] Update folder error:', error.message);
-                res.writeHead(400, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ error: error.message }));
-            }
-        });
-    }
-
-    async function deleteWorkflowFolder(folderId) {
-        const conn = await pools.kore_sys.getConnection();
-        try {
-            // Get folder info to check for children
-            const [folders] = await conn.execute(
-                `SELECT id, parent_id FROM kore_sys.workflow_folders WHERE id = ?`,
-                [folderId]
-            );
-            
-            if (folders.length === 0) {
-                throw new Error('Folder not found');
-            }
-
-            const folder = folders[0];
-
-            // Check for child folders
-            const [children] = await conn.execute(
-                `SELECT id FROM kore_sys.workflow_folders WHERE parent_id = ?`,
-                [folderId]
-            );
-
-            if (children.length > 0) {
-                // Remove parent_id from child folders (move to root level)
-                await conn.execute(
-                    `UPDATE kore_sys.workflow_folders SET parent_id = NULL WHERE parent_id = ?`,
-                    [folderId]
-                );
-            } else {
-                // No children - set workflows to null folder_id
-                await conn.execute(
-                    `UPDATE kore_sys.workflows SET folder_id = NULL WHERE folder_id = ?`,
-                    [folderId]
-                );
-            }
-
-            // Delete the folder
-            await conn.execute(
-                `DELETE FROM kore_sys.workflow_folders WHERE id = ?`,
-                [folderId]
-            );
-
-            return { success: true };
-        } finally {
-            conn.release();
-        }
-    }
-
-    async function handleDeleteWorkflowFolder(req, res, folderId) {
-        try {
-            const result = await deleteWorkflowFolder(folderId);
-            res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify(result));
-        } catch (error) {
-            console.error('[Persephone] Delete folder error:', error.message);
-            res.writeHead(400, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ error: error.message }));
-        }
-    }
-
-    /**
-     * Get workflow by UUID
-     */
-    async function getWorkflow(workflowId, version = null) {
-        const conn = await pools.kore_sys.getConnection();
-        try {
-            let query, params;
-
-            if (version) {
-                // Get specific version from history
-                query = `SELECT * FROM workflows_hist 
-                        WHERE workflow_id = ? AND version = ?`;
-                params = [workflowId, version];
-            } else {
-                // Get current version from main table
-                query = `SELECT * FROM workflows 
-                        WHERE id = ?`;
-                params = [workflowId];
-            }
-
-            const [rows] = await conn.execute(query, params);
-            if (rows.length === 0) return null;
-
-            const row = rows[0];
-            const definition = typeof row.definition === 'string' ? JSON.parse(row.definition) : row.definition;
-
-            return {
-                id: row.id || row.workflow_id,
-                name: row.name,
-                version: row.version,
-                folder_id: row.folder_id || null,
-                definition
-            };
-        } finally {
-            conn.release();
-        }
     }
 
     /**
@@ -499,8 +158,8 @@ const Persephone = (() => {
         const conn = await pools.kore_sys.getConnection();
 
         try {
-            // Get workflow definition
-            const workflow = await getWorkflow(workflowId, workflowVersion);
+            // Get workflow definition (from Resources module)
+            const workflow = await Resources.getWorkflow(workflowId, workflowVersion);
 
             // Initialize variables with workflow defaults + parameters
             const variables = {
@@ -803,299 +462,6 @@ const Persephone = (() => {
             conn.release();
         }
     }
-
-    async function updateWorkflow(workflowData) {
-        const { id, name, version, definition, folder_id, createdBy } = workflowData;
-
-        if (!id || !name || !version || !definition) {
-            throw new Error('id, name, version, and definition are required');
-        }
-
-        // Validate workflow structure
-        const validation = await validateWorkflow(definition);
-        if (!validation.isValid) {
-            throw new Error(`Workflow validation failed: ${validation.errors.join(', ')}`);
-        }
-
-        // Update metadata timestamps, preserve everything else in definition as-is
-        const now = global.getTimestamp();
-        const definitionToStore = {
-            ...definition,
-            metadata: {
-                ...(definition.metadata || {}),
-                updated_at: now,
-                updated_by: createdBy || 'api'
-            }
-        };
-
-        const conn = await pools.kore_sys.getConnection();
-        try {
-            // First, get the current version to check if it changed
-            const [currentRows] = await conn.execute(
-                `SELECT version FROM workflows WHERE id = ?`,
-                [id]
-            );
-            
-            const currentVersion = currentRows.length > 0 ? currentRows[0].version : null;
-            const versionChanged = currentVersion !== version;
-
-            // Update workflows (id, name, version, folder_id, definition)
-            await conn.execute(
-                `UPDATE workflows 
-                 SET name = ?, version = ?, folder_id = ?, definition = ?
-                 WHERE id = ?`,
-                [name, version, folder_id || null, JSON.stringify(definitionToStore), id]
-            );
-
-            // Only insert into history if version changed
-            if (versionChanged) {
-                await conn.execute(
-                    `INSERT INTO workflows_hist 
-                     (workflow_id, version, definition) 
-                     VALUES (?, ?, ?)`,
-                    [id, version, JSON.stringify(definitionToStore)]
-                );
-            }
-
-            console.log(`[Persephone] Workflow updated: ${id} (${name})@${version}`);
-            return { id, name, version };
-        } finally {
-            conn.release();
-        }
-    }
-
-    async function handleWorkflowRequest(req, res) {
-        const url = require('url');
-        const parsedUrl = url.parse(req.url, true);
-        const pathname = parsedUrl.pathname;
-        const parts = pathname.split('/').filter(p => p);
-
-        if (req.method === 'POST') {
-            handleCreateWorkflow(req, res);
-        } else if (req.method === 'GET') {
-            if (parts.length === 2) {
-                handleListWorkflows(req, res);
-            } else if (parts.length === 3) {
-                handleGetWorkflow(req, res, parts[2], null);
-            } else {
-                res.writeHead(400, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ error: 'Invalid workflow path' }));
-            }
-        } else if (req.method === 'PUT') {
-            if (parts.length === 3) {
-                handleUpdateWorkflow(req, res, parts[2]);
-            } else {
-                res.writeHead(400, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ error: 'PUT requires workflow id' }));
-            }
-        } else if (req.method === 'DELETE') {
-            if (parts.length >= 4) {
-                handleArchiveWorkflow(req, res, parts[2], parts[3]);
-            } else {
-                res.writeHead(400, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ error: 'DELETE requires id and version' }));
-            }
-        } else {
-            res.writeHead(405, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ error: 'Method not allowed' }));
-        }
-    }
-
-    async function handleWorkflowFoldersRequest(req, res) {
-        try {
-            const url = new URL(req.url, `http://${req.headers.host}`);
-            const pathParts = url.pathname.split('/').filter(p => p);
-            const folderId = pathParts[2]; // Extract folder ID from /kore/workflow-folders/:id
-            
-            if (req.method === 'GET') {
-                const folders = await getWorkflowFolders();
-                res.writeHead(200, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ folders }));
-            } else if (req.method === 'POST') {
-                await handleCreateWorkflowFolder(req, res);
-            } else if (req.method === 'PUT') {
-                if (folderId) {
-                    await handleUpdateWorkflowFolder(req, res, folderId);
-                } else {
-                    res.writeHead(400, { 'Content-Type': 'application/json' });
-                    res.end(JSON.stringify({ error: 'Folder ID is required' }));
-                }
-            } else if (req.method === 'DELETE') {
-                if (folderId) {
-                    await handleDeleteWorkflowFolder(req, res, folderId);
-                } else {
-                    res.writeHead(400, { 'Content-Type': 'application/json' });
-                    res.end(JSON.stringify({ error: 'Folder ID is required' }));
-                }
-            } else {
-                res.writeHead(405, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ error: 'Method not allowed' }));
-            }
-        } catch (error) {
-            console.error('[Persephone] Workflow folders error:', error.message);
-            res.writeHead(500, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ error: error.message }));
-        }
-    }
-
-    async function handleCreateWorkflowFolder(req, res) {
-        let body = '';
-        req.on('data', chunk => { body += chunk.toString(); });
-        req.on('end', async () => {
-            try {
-                const folderData = JSON.parse(body);
-                if (!folderData.id || !folderData.name) {
-                    res.writeHead(400, { 'Content-Type': 'application/json' });
-                    res.end(JSON.stringify({ error: 'id and name are required' }));
-                    return;
-                }
-                const result = await createWorkflowFolder({
-                    id: folderData.id,
-                    name: folderData.name,
-                    parent_id: folderData.parent_id || null
-                });
-                res.writeHead(201, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify(result));
-            } catch (error) {
-                console.error('[Persephone] Create workflow folder error:', error.message);
-                res.writeHead(400, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ error: error.message }));
-            }
-        });
-    }
-
-    async function handleCreateWorkflow(req, res) {
-        let body = '';
-        req.on('data', chunk => { body += chunk.toString(); });
-        req.on('end', async () => {
-            try {
-                const workflowData = JSON.parse(body);
-                if (!workflowData.id || !workflowData.version || !workflowData.definition) {
-                    res.writeHead(400, { 'Content-Type': 'application/json' });
-                    res.end(JSON.stringify({ error: 'id, version, and definition are required' }));
-                    return;
-                }
-                const result = await createWorkflow({
-                    id: workflowData.id,
-                    name: workflowData.name || 'Untitled',
-                    version: workflowData.version,
-                    folder_id: workflowData.folder_id || null,
-                    definition: workflowData.definition,
-                    createdBy: req.headers['x-user'] || 'api'
-                });
-                res.writeHead(201, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify(result));
-            } catch (error) {
-                console.error('[Persephone] Create workflow error:', error.message);
-                res.writeHead(400, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ error: error.message }));
-            }
-        });
-    }
-
-    async function handleListWorkflows(req, res) {
-        try {
-            const workflows = await listWorkflows();
-            res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ workflows }));
-        } catch (error) {
-            console.error('[Persephone] List workflows error:', error.message);
-            res.writeHead(500, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ error: error.message }));
-        }
-    }
-
-    async function handleGetWorkflow(req, res, workflowId, version) {
-        try {
-            const workflow = await getWorkflow(workflowId, version);
-            if (!workflow) {
-                res.writeHead(404, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ error: 'Workflow not found' }));
-                return;
-            }
-            res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify(workflow));
-        } catch (error) {
-            console.error('[Persephone] Get workflow error:', error.message);
-            res.writeHead(404, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ error: error.message }));
-        }
-    }
-
-    async function handleUpdateWorkflow(req, res, workflowId) {
-        let body = '';
-        req.on('data', chunk => { body += chunk.toString(); });
-        req.on('end', async () => {
-            try {
-                const workflowData = JSON.parse(body);
-                if (!workflowData.version || !workflowData.definition) {
-                    res.writeHead(400, { 'Content-Type': 'application/json' });
-                    res.end(JSON.stringify({ error: 'version and definition are required' }));
-                    return;
-                }
-                const result = await updateWorkflow({
-                    id: workflowId,
-                    name: workflowData.name,
-                    version: workflowData.version,
-                    definition: workflowData.definition,
-                    folder_id: workflowData.folder_id,
-                    createdBy: req.headers['x-user'] || 'api'
-                });
-                res.writeHead(200, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify(result));
-            } catch (error) {
-                console.error('[Persephone] Update workflow error:', error.message);
-                res.writeHead(400, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ error: error.message }));
-            }
-        });
-    }
-
-    async function handleArchiveWorkflow(req, res, workflowId, version) {
-        try {
-            if (!workflowId || !version) {
-                res.writeHead(400, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ error: 'workflowId and version are required' }));
-                return;
-            }
-
-            const conn = await pools.kore_sys.getConnection();
-            try {
-                // Delete the workflow version from the database
-                const result = await conn.execute(
-                    'DELETE FROM kore_sys.workflows WHERE id = ? AND version = ?',
-                    [workflowId, version]
-                );
-
-                if (result[0].affectedRows === 0) {
-                    res.writeHead(404, { 'Content-Type': 'application/json' });
-                    res.end(JSON.stringify({ error: 'Workflow version not found' }));
-                    return;
-                }
-
-                // Also delete the workflow history
-                await conn.execute(
-                    'DELETE FROM kore_sys.workflows_hist WHERE workflow_id = ? AND version = ?',
-                    [workflowId, version]
-                );
-
-                res.writeHead(200, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ 
-                    workflowId, 
-                    version, 
-                    status: 'deleted', 
-                    message: 'Workflow version and history deleted successfully' 
-                }));
-            } finally {
-                conn.release();
-            }
-        } catch (error) {
-            console.error('[Persephone] Delete workflow error:', error.message);
-            res.writeHead(500, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ error: error.message }));
-        }
-    }
-
     async function handleExecuteRequest(req, res) {
         const url = require('url');
         const parsedUrl = url.parse(req.url, true);
@@ -1221,18 +587,65 @@ const Persephone = (() => {
     }
 
     /**
+     * Automatically apply json filter to object/array outputs
+     */
+    function autoJsonFilter(template, context) {
+        // Regex to find {{ ... }}, {{- ... }}, {{ ... -}}, or {{- ... -}} expressions
+        // This matches {{ VARIABLE }}, {{- VARIABLE }}, {{ VARIABLE -}}, {{- VARIABLE -}}
+        const regex = /\{\{-?\s*([a-zA-Z_][a-zA-Z0-9_.]*)\s*-?\}\}/g;
+        
+        return template.replace(regex, (match, varName) => {
+            // Resolve the variable from context (supports dot notation like CTX.users)
+            const parts = varName.split('.');
+            let value = context;
+            
+            for (const part of parts) {
+                if (value && typeof value === 'object' && part in value) {
+                    value = value[part];
+                } else {
+                    value = undefined;
+                    break;
+                }
+            }
+            
+            // If the value is an object or array, wrap with json filter
+            if (value !== null && typeof value === 'object') {
+                // Preserve the whitespace control characters from the original match
+                const hasLeadingDash = match.includes('{{-');
+                const hasTrailingDash = match.includes('-}}');
+                const leading = hasLeadingDash ? '{{- ' : '{{ ';
+                const trailing = hasTrailingDash ? ' -}}' : ' }}';
+                return `${leading}${varName} | json${trailing}`;
+            }
+            
+            // Otherwise return unchanged
+            return match;
+        });
+    }
+
+    /**
      * Render a Jinja2 template with given context
      */
     async function renderTemplate(template, context) {
         try {
-            // Mark lines that are purely control/comment structures
-            const markedTemplate = markControlLines(template);
+            // Auto-apply json filter to object/array outputs
+            let processedTemplate = autoJsonFilter(template, context);
+            
+            // Skip mark/clean logic if template uses whitespace control on any braces
+            let shouldClean = false;
+            
+            if (!processedTemplate.includes('{{-') && !processedTemplate.includes('-}}') &&
+                !processedTemplate.includes('{%-') && !processedTemplate.includes('-%}')) {
+                // Mark lines that are purely control/comment structures
+                processedTemplate = markControlLines(processedTemplate);
+                shouldClean = true;
+            }
             
             // Render the template
-            const result = nunjucks.renderString(markedTemplate, context);
+            const result = nunjucks.renderString(processedTemplate, context);
             
-            // Clean up by removing marked lines
-            const cleanedResult = cleanRenderOutput(result);
+            // Clean up by removing marked lines (only if we marked them)
+            const cleanedResult = shouldClean ? cleanRenderOutput(result) : result;
             
             return { success: true, result: cleanedResult };
         } catch (error) {
@@ -1356,7 +769,23 @@ const Persephone = (() => {
             }
         }
         
-        // Check if this is a syntax error first
+        // Check if this is a filter error by parsing the message
+        // Filters throw errors like "filter_name: error message"
+        const filterMatch = message.match(/Error:\s*([a-z_]+):\s*(.+?)(?:\n|$)/i);
+        if (filterMatch) {
+            const filterName = filterMatch[1];
+            const filterErrorMsg = filterMatch[2];
+            return {
+                message: `${filterName}: ${filterErrorMsg}`,
+                errorType: 'filter_error',
+                filterName: filterName,
+                variable: 'unknown',
+                lineNumber: lineNumber,
+                column: column
+            };
+        }
+        
+        // Check if this is a syntax error
         if (isSyntaxError(message, template, lineNumber)) {
             const formattedMessage = formatSyntaxError(message, template, lineNumber);
             return {
@@ -1532,17 +961,8 @@ const Persephone = (() => {
     // Public API
     return {
         initialize,
-        validateWorkflow,
-        createWorkflow,
-        updateWorkflow,
-        listWorkflows,
-        getWorkflow,
-        getWorkflowFolders,
-        createWorkflowFolder,
         executeWorkflow,
         getExecutionStatus,
-        handleWorkflowRequest,
-        handleWorkflowFoldersRequest,
         handleExecuteRequest,
         handleExecutionRequest,
         renderTemplate,

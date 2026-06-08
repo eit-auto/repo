@@ -9,7 +9,7 @@
  */
 
         // ============================================================================
-        // Workflow variable state (shared with workflow-edit.js)
+        // Workflow variable state (shared with wf-core.js)
         // ============================================================================
         let currentInputVariables = [];
         let currentOutputVariables = [];
@@ -411,6 +411,11 @@
             const containerElement = document.getElementById(containerId);
             if (containerElement) {
                 renderVariablesInContainer(containerElement, dataArray, variableType, updatePreview);
+                
+                // Resize modal after adding content - allow more time for layout
+                setTimeout(() => {
+                    resizeModalToContent();
+                }, 100);
             }
         }
 
@@ -420,8 +425,8 @@
          */
         function handleVariableFieldChange(variableType, index, fieldName, newValue, containerId) {
             const arrayMap = {
-                'input': currentInputVariables,
-                'output': currentOutputVariables,
+                'input': workingInputVariables !== null ? workingInputVariables : currentInputVariables,
+                'output': workingOutputVariables !== null ? workingOutputVariables : currentOutputVariables,
                 'step': currentStepBeingEdited?.variables || [],
                 'case': currentTransitionBeingEdited?.conditions || []
             };
@@ -456,11 +461,11 @@
             // Create list containers as direct element references (not via innerHTML)
             const inputListContainer = document.createElement('div');
             inputListContainer.id = 'inputVariablesList';
-            inputListContainer.style.cssText = 'display: flex; flex-direction: column; gap: 8px; margin-bottom: 8px;';
+            inputListContainer.style.cssText = 'display: flex; flex-direction: column; gap: 0; margin-bottom: 8px;';
 
             const outputListContainer = document.createElement('div');
             outputListContainer.id = 'outputVariablesList';
-            outputListContainer.style.cssText = 'display: flex; flex-direction: column; gap: 8px; margin-bottom: 8px;';
+            outputListContainer.style.cssText = 'display: flex; flex-direction: column; gap: 0; margin-bottom: 8px;';
 
             // Create Input Variables section (separators handled by caller)
             const inputSection = document.createElement('div');
@@ -521,10 +526,10 @@
                     if (descriptionWrapper) {
                         // Create separators
                         const inputSeparator = document.createElement('div');
-                        inputSeparator.style.cssText = 'border-top: 1px solid var(--border-primary); margin: 20px 0 16px 0;';
+                        inputSeparator.style.cssText = 'border-top: 1px solid var(--border-primary); margin: 10px 0 10px 0;';
                         
                         const outputSeparator = document.createElement('div');
-                        outputSeparator.style.cssText = 'border-top: 1px solid var(--border-primary); margin: 20px 0 16px 0;';
+                        outputSeparator.style.cssText = 'border-top: 1px solid var(--border-primary); margin: 10px 0 10px 0;';
                         
                         // Insert separators and sections
                         descriptionWrapper.parentNode.insertBefore(inputSeparator, descriptionWrapper.nextSibling);

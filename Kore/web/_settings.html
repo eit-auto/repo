@@ -8,6 +8,7 @@
                 <button class="tab-btn" onclick="switchToPermissionsTab(event)">Permissions</button>
                 <button class="tab-btn" onclick="switchToSecurityTab(event)">Security</button>
                 <button class="tab-btn" onclick="switchToPluginsTab(event)">Plugins</button>
+                <button class="tab-btn" onclick="switchToUtilitiesTab(event)">Utilities</button>
             </div>
             <div id="generalTab" class="tab-panel active">
                 <div class="status-message" id="generalStatusMessage"></div>
@@ -526,6 +527,7 @@
                                     <div class="panel-level-3" style="min-width: 0;">
                                         <h3 style="margin: 0 0 8px 0; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Plugin Configuration</h3>
                                         <button type="button" class="btn" data-color="blue" onclick="openCodeModal(originalPluginConfig?.code || '', null)" style="width: 100%; margin-bottom: 8px;">View Code</button>
+                                        <button type="button" class="btn" data-color="blue" onclick="openTasksModal()" style="width: 100%; margin-bottom: 8px;">View Tasks</button>
                                         
                                         <div>
                                             <label style="display: block; color: var(--text-muted); font-size: 11px; margin-bottom: 3px; font-weight: 600;">Rate Limit</label>
@@ -693,6 +695,124 @@
                     </div>
                 </div>
             </div>
+
+            <div id="utilitiesTab" class="tab-panel">
+                <div class="status-message" id="utilitiesStatusMessage"></div>
+                
+                <div class="panel-level-2" style="margin-top: 0">
+                    <h2 style="margin: 0 0 20px 0; font-size: 16px; color: var(--text-primary);">Utilities</h2>
+                    <div class="panel-grid-responsive">
+                        <!-- System Health Pod -->
+                        <div class="panel-level-3">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                                <h3 style="margin: 0; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">System Health</h3>
+                                <button type="button" class="btn" data-color="blue" data-size="sm" onclick="refreshSystemHealth()" style="padding: 3px 8px; height: 24px; min-width: auto; font-size: 0.7rem;">Refresh</button>
+                            </div>
+                            <div style="display: flex; flex-direction: column; gap: 10px; font-size: 12px;">
+                                <div style="display: flex; justify-content: space-between; gap: 10px;">
+                                    <span style="color: var(--text-muted);">Uptime:</span>
+                                    <span id="healthUptime" style="color: var(--text-primary);">Loading...</span>
+                                </div>
+                                <div style="display: flex; justify-content: space-between; gap: 10px;">
+                                    <span style="color: var(--text-muted);">Kore Version:</span>
+                                    <span id="healthKoreVersion" style="color: var(--text-primary);">Loading...</span>
+                                </div>
+                                <div style="display: flex; justify-content: space-between; gap: 10px;">
+                                    <span style="color: var(--text-muted);">Node Version:</span>
+                                    <span id="healthNodeVersion" style="color: var(--text-primary);">Loading...</span>
+                                </div>
+                                <div style="display: flex; justify-content: space-between; gap: 10px;">
+                                    <span style="color: var(--text-muted);">Heap Memory:</span>
+                                    <span id="healthMemory" style="color: var(--text-primary);">Loading...</span>
+                                </div>
+                                <div style="display: flex; justify-content: space-between; gap: 10px;">
+                                    <span style="color: var(--text-muted);">Loaded Modules:</span>
+                                    <div style="display: flex; gap: 8px; align-items: center;">
+                                        <span id="healthModules" style="color: var(--text-primary);">Loading...</span>
+                                        <button type="button" class="btn" data-color="blue" data-size="sm" onclick="showModulesModal()" style="padding: 3px 6px; height: 20px; min-width: auto; font-size: 0.65rem;">Details</button>
+                                    </div>
+                                </div>
+                                <div style="height: 1px; background-color: var(--border-primary); margin: 5px 0;"></div>
+                                <div>
+                                    <div style="color: var(--text-muted); font-size: 11px; margin-bottom: 8px; font-weight: 600;">Subsystems:</div>
+                                    <div style="display: flex; flex-direction: column; gap: 6px;">
+                                        <div style="display: flex; justify-content: space-between; gap: 10px;">
+                                            <span style="color: var(--text-muted);">Resources:</span>
+                                            <span id="healthResources" style="color: var(--text-primary);">Loading...</span>
+                                        </div>
+                                        <div style="display: flex; justify-content: space-between; gap: 10px;">
+                                            <span style="color: var(--text-muted);">Auth:</span>
+                                            <span id="healthAuth" style="color: var(--text-primary);">Loading...</span>
+                                        </div>
+                                        <div style="display: flex; justify-content: space-between; gap: 10px;">
+                                            <span style="color: var(--text-muted);">Web:</span>
+                                            <span id="healthWeb" style="color: var(--text-primary);">Loading...</span>
+                                        </div>
+                                        <div style="display: flex; justify-content: space-between; gap: 10px;">
+                                            <span style="color: var(--text-muted);">Persephone:</span>
+                                            <span id="healthPersephone" style="color: var(--text-primary);">Loading...</span>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div style="height: 1px; background-color: var(--border-primary); margin: 5px 0;"></div>
+                                <div style="display: flex; justify-content: space-between; gap: 10px;">
+                                    <span style="color: var(--text-muted);">Database:</span>
+                                    <span id="healthDatabase" style="color: var(--text-primary);">Loading...</span>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Subsystem Restarts Pod -->
+                        <div class="panel-level-3">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                                <h3 style="margin: 0; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Subsystem Restarts</h3>
+                            </div>
+                            <div style="display: flex; flex-direction: column; gap: 15px;">
+                                <!-- Restart Resources Button -->
+                                <div style="display: flex; flex-direction: column; gap: 6px;">
+                                    <button type="button" class="btn" data-color="blue" data-size="sm" onclick="confirmRestartSubsystem('resources', 'Restart Resources')" style="width: 100%;">Restart Resources</button>
+                                    <p style="color: var(--text-muted); font-size: 11px; margin: 0; line-height: 1.4;">Restart the Resources subsystem, which manages Workflows, Forms, and other managed resources.</p>
+                                </div>
+                                
+                                <!-- Restart Auth Button -->
+                                <div style="display: flex; flex-direction: column; gap: 6px;">
+                                    <button type="button" class="btn" data-color="blue" data-size="sm" onclick="confirmRestartSubsystem('auth', 'Restart Auth')" style="width: 100%;">Restart Auth</button>
+                                    <p style="color: var(--text-muted); font-size: 11px; margin: 0; line-height: 1.4;">Restart the Auth subsystem, which handles user logins and permissions</p>
+                                </div>
+                                
+                                <!-- Restart Web Button -->
+                                <div style="display: flex; flex-direction: column; gap: 6px;">
+                                    <button type="button" class="btn" data-color="blue" data-size="sm" onclick="confirmRestartSubsystem('web', 'Restart Web')" style="width: 100%;">Restart Web</button>
+                                    <p style="color: var(--text-muted); font-size: 11px; margin: 0; line-height: 1.4;">Restart the Web subsystem, which handles serving web pages and related files</p>
+                                </div>
+                                
+                                <!-- Restart Persephone Button -->
+                                <div style="display: flex; flex-direction: column; gap: 6px;">
+                                    <button type="button" class="btn" data-color="blue" data-size="sm" onclick="confirmRestartSubsystem('persephone', 'Restart Persephone')" style="width: 100%;">Restart Persephone</button>
+                                    <p style="color: var(--text-muted); font-size: 11px; margin: 0; line-height: 1.4;">Restart Persephone Workflow Engine, which handles execution of workflows.</p>
+                                </div>
+                                
+                                <!-- Restart All Button -->
+                                <div style="display: flex; flex-direction: column; gap: 6px;">
+                                    <button type="button" class="btn" data-color="green" data-size="sm" onclick="confirmRestartSubsystem('all', 'Restart All Subsystems')" style="width: 100%;">Restart All</button>
+                                    <p style="color: var(--text-muted); font-size: 11px; margin: 0; line-height: 1.4;">Restart all subsystems</p>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Blank Pod -->
+                        <div class="panel-level-3">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                                <h3 style="margin: 0; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Placeholder</h3>
+                            </div>
+                            <div style="display: flex; flex-direction: column; gap: 10px;">
+                                <p style="color: var(--text-muted); font-size: 12px; margin: 0;">No content yet</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
             </section>
 
 <script src="/lib/settings.js"></script>
+<script src="/lib/plugins.js"></script>

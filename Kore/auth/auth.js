@@ -2,6 +2,8 @@
  * Kore Authentication System
  * 
  * Handles user registration, login, MFA, session tokens, and permissions
+ * 
+ * @version 0.500 - [KORE_VERSION_INCREMENT_ON_UPDATE]
  */
 
 const speakeasy = require('speakeasy');
@@ -78,28 +80,22 @@ class Auth {
    */
   generateTOTPSecret(email) {
     const secret = speakeasy.generateSecret({
-      name: `Kore (${email})`,
+      name: `${email}`,
       issuer: 'Kore',
       length: 32
     });
     
     return {
       secret: secret.base32,
-      ascii: secret.ascii
+      ascii: secret.ascii,
+      otpauth_url: secret.otpauth_url
     };
   }
 
   /**
    * Generate QR code as data URL
    */
-  async generateQRCode(secret, email) {
-    const otpauth_url = speakeasy.otpauthURL({
-      secret: secret,
-      encoding: 'base32',
-      label: `Kore (${email})`,
-      issuer: 'Kore'
-    });
-    
+  async generateQRCode(otpauth_url) {
     try {
       const qrCode = await QRCode.toDataURL(otpauth_url);
       return qrCode;
@@ -145,60 +141,207 @@ class Auth {
     };
   }
 
-  // ========== INVITE / SETUP ==========
+  // ========== ENTITY MANAGEMENT (Generic + Backward Compatible) ==========
 
   /**
-   * Create a new user and send invite
+   * Generic entity creation - handles users, groups, organizations, etc.
+   * Schema defines table structure, field mappings, and special logic
    */
-  async createUser(email, fullName, createdBy) {
+  async createEntity(entityType, data, createdBy) {
     try {
-      const inviteToken = crypto.randomBytes(32).toString('hex');
-      const inviteTokenHash = crypto.createHash('sha256').update(inviteToken).digest('hex');
-      const inviteExpiresAt = new Date(Date.now() + this.config.invite.expirationHours * 60 * 60 * 1000);
-      const userId = crypto.randomUUID();
-      
-      const query = `
-        INSERT INTO users 
-        (userId, email, fullName, status, inviteTokenHash, inviteExpiresAt, createdAt, createdBy)
-        VALUES (?, ?, ?, 'invited', ?, ?, NOW(), ?)
-      `;
-      
-      await this.korePool.execute(query, [
-        userId,
-        email,
-        fullName,
-        inviteTokenHash,
-        inviteExpiresAt,
-        createdBy
-      ]);
-      
-      await this.logAudit('user_created', 'user', userId, fullName, createdBy, 
-        { email: email }, null);
-      
-      console.log(`[${global.getTimestamp()}] User created: ${email} (${userId})`);
-      
-      return {
-        userId,
-        inviteToken,
-        inviteExpiresAt
+      const schemas = {
+        user: {
+          table: 'users',
+          idField: 'userId',
+          requiredFields: ['email', 'fullName'],
+          defaults: { status: 'invited' },
+          specialLogic: async (id, data) => {
+            const inviteToken = crypto.randomBytes(32).toString('hex');
+            const inviteTokenHash = crypto.createHash('sha256').update(inviteToken).digest('hex');
+            const inviteExpiresAt = new Date(Date.now() + this.config.invite.expirationHours * 60 * 60 * 1000);
+            return { inviteToken, inviteTokenHash, inviteExpiresAt };
+          }
+        },
+        group: {
+          table: 'user_groups',
+          idField: 'groupId',
+          requiredFields: ['name'],
+          fieldMap: { groupName: 'name' },
+          defaults: { active: 1 }
+        }
       };
+
+      const schema = schemas[entityType];
+      if (!schema) throw new Error(`Unknown entity type: ${entityType}`);
+
+      const id = crypto.randomUUID();
+      let fields = { ...schema.defaults, ...data };
+      
+      // Map field names if needed
+      if (schema.fieldMap) {
+        Object.entries(schema.fieldMap).forEach(([from, to]) => {
+          if (fields[from]) {
+            fields[to] = fields[from];
+            delete fields[from];
+          }
+        });
+      }
+
+      // Validate required fields
+      for (const field of schema.requiredFields) {
+        if (!fields[field]) throw new Error(`${field} is required`);
+      }
+
+      // Handle special logic (e.g., invite tokens)
+      let specialData = {};
+      if (schema.specialLogic) {
+        const allSpecialData = await schema.specialLogic(id, fields);
+        // Only store database-appropriate fields, not transient ones like inviteToken
+        if (entityType === 'user') {
+          specialData = {
+            inviteTokenHash: allSpecialData.inviteTokenHash,
+            inviteExpiresAt: allSpecialData.inviteExpiresAt
+          };
+          // Keep inviteToken for response but not for DB storage
+          specialData._inviteToken = allSpecialData.inviteToken;
+        } else {
+          specialData = allSpecialData;
+        }
+      }
+
+      // Build and execute INSERT query
+      const dbSpecialData = Object.fromEntries(
+        Object.entries(specialData).filter(([k]) => !k.startsWith('_'))
+      );
+      const columns = [schema.idField, ...Object.keys(fields), ...Object.keys(dbSpecialData), 'createdAt', 'createdBy'];
+      const values = [id, ...Object.values(fields), ...Object.values(dbSpecialData), createdBy];
+      const placeholders = columns.map(c => c === 'createdAt' ? 'NOW()' : '?').join(', ');
+      const columnList = columns.map(c => c === 'createdAt' ? 'createdAt' : c).join(', ');
+      
+      const query = `INSERT INTO \`${schema.table}\` (${columnList}) VALUES (${placeholders})`;
+      await this.korePool.execute(query, values);
+
+      await this.logAudit(`${entityType}_created`, entityType, id, fields[schema.requiredFields[0]], createdBy, fields, null);
+      console.log(`[${global.getTimestamp()}] ${entityType.charAt(0).toUpperCase() + entityType.slice(1)} created: ${id}`);
+      
+      // Prepare response: include inviteToken if present, exclude internal fields starting with _
+      const responseSpecialData = {};
+      if (specialData._inviteToken) {
+        responseSpecialData.inviteToken = specialData._inviteToken;
+      }
+      // Include stored fields in response
+      Object.entries(specialData).forEach(([k, v]) => {
+        if (!k.startsWith('_')) {
+          responseSpecialData[k] = v;
+        }
+      });
+      
+      return { [schema.idField]: id, ...data, ...responseSpecialData };
     } catch (err) {
-      console.error(`[${global.getTimestamp()}] ERROR creating user:`, err.message);
+      console.error(`[${global.getTimestamp()}] ERROR creating ${entityType}:`, err.message);
       throw err;
     }
   }
 
   /**
-   * Resend invite to user
+   * Generic entity update - handles users, groups, organizations, etc.
    */
-  async resendInvite(userId) {
+  async updateEntity(entityType, id, data, updatedBy) {
+    try {
+      const schemas = {
+        user: {
+          table: 'users',
+          idField: 'userId',
+          fieldMap: {}
+        },
+        group: {
+          table: 'user_groups',
+          idField: 'groupId',
+          fieldMap: { groupName: 'name' }
+        }
+      };
+
+      const schema = schemas[entityType];
+      if (!schema) throw new Error(`Unknown entity type: ${entityType}`);
+
+      let fields = { ...data };
+
+      // Map field names if needed
+      if (schema.fieldMap) {
+        Object.entries(schema.fieldMap).forEach(([from, to]) => {
+          if (fields[from]) {
+            fields[to] = fields[from];
+            delete fields[from];
+          }
+        });
+      }
+
+      // Handle special serialization
+      if (entityType === 'user' && fields.groupIds) {
+        fields.groupIds = Array.isArray(fields.groupIds) ? JSON.stringify(fields.groupIds) : '[]';
+      }
+
+      // Handle boolean to int conversion
+      if (typeof fields.active === 'boolean') {
+        fields.active = fields.active ? 1 : 0;
+      }
+
+      // Build and execute UPDATE query
+      const setClause = Object.keys(fields).map(k => `${k} = ?`).join(', ');
+      const values = [...Object.values(fields), updatedBy || null, id];
+      const query = `UPDATE \`${schema.table}\` SET ${setClause}, updatedAt = NOW(), updatedBy = ? WHERE ${schema.idField} = ?`;
+      
+      await this.korePool.execute(query, values);
+      await this.logAudit(`${entityType}_updated`, entityType, id, null, null, data, null);
+      console.log(`[${global.getTimestamp()}] ${entityType.charAt(0).toUpperCase() + entityType.slice(1)} updated: ${id}`);
+      
+      return { success: true };
+    } catch (err) {
+      console.error(`[${global.getTimestamp()}] ERROR updating ${entityType}:`, err.message);
+      throw err;
+    }
+  }
+
+  /**
+   * Create user (backward compatibility wrapper)
+   */
+  async createUser(email, fullName, createdBy) {
+    return this.createEntity('user', { email, fullName }, createdBy);
+  }
+
+  /**
+   * Update user (backward compatibility wrapper)
+   */
+  async updateUser(userId, email, fullName, active, groupIds, updatedBy) {
+    return this.updateEntity('user', userId, { email, fullName, active, groupIds }, updatedBy);
+  }
+
+  /**
+   * Create group (backward compatibility wrapper)
+   */
+  async createGroup(groupName, description, createdBy) {
+    return this.createEntity('group', { groupName, description }, createdBy);
+  }
+
+  /**
+   * Update group (backward compatibility wrapper)
+   */
+  async updateGroup(groupId, groupName, description, active, updatedBy) {
+    return this.updateEntity('group', groupId, { groupName, description, active }, updatedBy);
+  }
+
+  /**
+   * Send invite email (generates token, updates DB, sends email)
+   */
+  async sendInviteEmail(userId, email, fullName) {
     try {
       const inviteToken = crypto.randomBytes(32).toString('hex');
       const inviteTokenHash = crypto.createHash('sha256').update(inviteToken).digest('hex');
       const inviteExpiresAt = new Date(Date.now() + this.config.invite.expirationHours * 60 * 60 * 1000);
       
+      // Update database with new token
       const query = `
-        UPDATE users 
+        UPDATE kore_sys.users 
         SET inviteTokenHash = ?, inviteExpiresAt = ?, updatedAt = NOW()
         WHERE userId = ?
       `;
@@ -209,15 +352,112 @@ class Auth {
         userId
       ]);
       
-      await this.logAudit('invite_resent', 'user', userId, null, null, 
-        { action: 'Invite resent' }, null);
+      await this.logAudit('invite_sent', 'user', userId, null, null, 
+        { action: 'Invite email sent' }, null);
       
-      console.log(`[${global.getTimestamp()}] Invite resent for user: ${userId}`);
+      // Send email asynchronously (don't block)
+      (async () => {
+        try {
+          const setupLink = `https://app.equinoxits.com:1139/usersetup?token=${inviteToken}`;
+          const emailHTML = `<!DOCTYPE html>
+<html>
+<head>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 0; padding: 20px; }
+        table { border-collapse: collapse; width: 100%; max-width: 500px; }
+    </style>
+</head>
+<body>
+    <table style="background-color: #1d3250; color: #FFFFFF; border: 1px solid #314a59;">
+        <tr>
+            <td style="background-color: #0c2134; border-bottom: 1px solid #314a59; padding: 15px; text-align: center;">
+                <h1 style="font-size: 25px; margin: 0; color: #FFFFFF;">Welcome to Kore!</h1>
+            </td>
+        </tr>
+        <tr>
+            <td style="padding: 15px;">
+                <p style="margin: 0 0 15px 0; line-height: 1.5; color: #FFFFFF;">Hello <strong>${fullName}</strong>,</p>
+                <p style="margin: 0 0 15px 0; line-height: 1.5; color: #FFFFFF;">Your account has been created. Click below to complete your setup:</p>
+                <p style="text-align: center; margin: 15px 0;">
+                    <a href="${setupLink}" style="display: inline-block; background-color: #0070b9; color: white; padding: 10px 20px; text-decoration: none; font-weight: bold;">Complete Setup</a>
+                </p>
+                <p style="margin: 0 0 10px 0; line-height: 1.5; color: #FFFFFF;">Or copy this link:</p>
+                <p style="background-color: #192740; border: 1px solid #314a59; padding: 12px; word-break: break-all; font-size: 12px; color: #FFFFFF; font-family: monospace; margin: 0 0 15px 0;">${setupLink}</p>
+                <p style="font-size: 12px; color: #999999; margin: 0; text-align: center;">This link expires in ${this.config.invite.expirationHours} hours.</p>
+            </td>
+        </tr>
+    </table>
+</body>
+</html>`;
+
+          const https = require('https');
+          const payload = JSON.stringify({
+            profile: 'default',
+            to: email,
+            subject: 'Welcome to Kore - Complete Your Account Setup',
+            html: emailHTML
+          });
+
+          const options = {
+            hostname: 'localhost',
+            port: 1139,
+            path: '/kore/email/smtp',
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Content-Length': Buffer.byteLength(payload),
+              'Authorization': 'Bearer ' + inviteToken
+            },
+            rejectUnauthorized: false
+          };
+
+          const emailReq = https.request(options, (emailRes) => {
+            let data = '';
+            emailRes.on('data', chunk => data += chunk);
+            emailRes.on('end', () => {
+              if (emailRes.statusCode === 200 || emailRes.statusCode === 201) {
+                console.log(`[${global.getTimestamp()}] Invite email sent to ${email}`);
+              } else {
+                console.error(`[${global.getTimestamp()}] Email send returned status ${emailRes.statusCode}`);
+              }
+            });
+          });
+
+          emailReq.on('error', (err) => {
+            console.error(`[${global.getTimestamp()}] Error sending invite email:`, err.message);
+          });
+
+          emailReq.write(payload);
+          emailReq.end();
+        } catch (err) {
+          console.error(`[${global.getTimestamp()}] Error in sendInviteEmail task:`, err.message);
+        }
+      })();
       
-      return {
-        inviteToken,
-        inviteExpiresAt
-      };
+      return { inviteToken, inviteExpiresAt };
+    } catch (err) {
+      console.error(`[${global.getTimestamp()}] ERROR sending invite email:`, err.message);
+      throw err;
+    }
+  }
+
+  /**
+   * Resend invite to user
+   */
+  async resendInvite(userId) {
+    try {
+      // Get user info
+      const userQuery = `SELECT email, fullName FROM kore_sys.users WHERE userId = ?`;
+      const [userRows] = await this.korePool.execute(userQuery, [userId]);
+      
+      if (!userRows || userRows.length === 0) {
+        throw new Error('User not found');
+      }
+      
+      const { email, fullName } = userRows[0];
+      
+      // Send invite (generates token, updates DB, sends email)
+      return await this.sendInviteEmail(userId, email, fullName);
     } catch (err) {
       console.error(`[${global.getTimestamp()}] ERROR resending invite:`, err.message);
       throw err;
@@ -225,42 +465,50 @@ class Auth {
   }
 
   /**
-   * Update user details (email, fullName, active, groupIds)
+   * Complete account setup (password + MFA)
    */
-  async updateUser(userId, email, fullName, active, groupIds, updatedBy) {
+  /**
+   * Validate invite token (check if it exists and is not expired)
+   * Returns { valid: boolean, message?: string, email?: string }
+   */
+  async validateInviteToken(inviteToken) {
     try {
-      const groupIdsJson = Array.isArray(groupIds) ? JSON.stringify(groupIds) : '[]';
+      const inviteTokenHash = crypto.createHash('sha256').update(inviteToken).digest('hex');
       
-      const query = `
-        UPDATE users 
-        SET email = ?, fullName = ?, active = ?, groupIds = ?, updatedAt = NOW(), updatedBy = ?
-        WHERE userId = ?
-      `;
+      const [userRows] = await this.korePool.execute(
+        'SELECT userId, email, inviteExpiresAt FROM users WHERE inviteTokenHash = ?',
+        [inviteTokenHash]
+      );
       
-      await this.korePool.execute(query, [
-        email,
-        fullName || null,
-        active ? 1 : 0,
-        groupIdsJson,
-        updatedBy || null,
-        userId
-      ]);
+      if (!userRows[0]) {
+        return {
+          valid: false,
+          message: 'Invalid or expired invite token'
+        };
+      }
       
-      await this.logAudit('user_updated', 'user', userId, null, null, 
-        { email, fullName, active, groupIds }, null);
+      const user = userRows[0];
       
-      console.log(`[${global.getTimestamp()}] User updated: ${userId}`);
+      // Check expiration
+      if (new Date() > new Date(user.inviteExpiresAt)) {
+        return {
+          valid: false,
+          message: 'Invite token has expired. Please request a new invitation.'
+        };
+      }
       
-      return { success: true };
+      return {
+        valid: true,
+        email: user.email
+      };
     } catch (err) {
-      console.error(`[${global.getTimestamp()}] ERROR updating user:`, err.message);
-      throw err;
+      return {
+        valid: false,
+        message: 'Error validating invite token'
+      };
     }
   }
 
-  /**
-   * Complete account setup (password + MFA)
-   */
   async completeSetup(inviteToken, password, totpSecret, mfaCode) {
     try {
       // Hash invite token to lookup user
@@ -360,7 +608,7 @@ class Auth {
   /**
    * Login with email, password, and MFA code
    */
-  async login(email, password, mfaCode) {
+  async login(email, password, mfaCode, userAgent = null, ipAddress = null) {
     try {
       // Find user by email
       const [userRows] = await this.korePool.execute(
@@ -451,20 +699,42 @@ class Auth {
       const sessionToken = this.generateSessionToken(user.userId);
       const { token: refreshToken, hash: refreshTokenHash } = this.generateRefreshToken(user.userId);
 
-      // Store refreshTokenHash in database
-      await this.korePool.execute(
-        'UPDATE users SET refreshTokenHash = ? WHERE userId = ?',
-        [refreshTokenHash, user.userId]
+      // Check session limit and manage concurrent sessions
+      const maxSessions = this.config.session?.maxConcurrentSessions || 2;
+      
+      const [sessionRows] = await this.korePool.execute(
+        'SELECT refreshTokenHash, lastUsedAt FROM refresh_tokens WHERE userId = ? ORDER BY lastUsedAt ASC',
+        [user.userId]
       );
 
-      await this.logAudit('login', 'user', user.userId, null, user.userId, { action: 'User logged in' }, null);
+      let activeSessions = sessionRows.length;
+      let willExceedLimit = activeSessions >= maxSessions;
+      let oldestSessionHash = null;
+      
+      // Note which session would be deleted, but don't delete yet
+      if (willExceedLimit && sessionRows.length > 0) {
+        oldestSessionHash = sessionRows[0].refreshTokenHash;
+      }
+
+      // Only insert new refresh token (don't delete yet - wait for client confirmation)
+      const refreshTokenId = crypto.randomUUID();
+      await this.korePool.execute(
+        'INSERT INTO refresh_tokens (refreshTokenId, userId, refreshTokenHash, userAgent, ipAddress, createdAt, lastUsedAt, expiresAt) VALUES (?, ?, ?, ?, ?, NOW(), NOW(), DATE_ADD(NOW(), INTERVAL ? DAY))',
+        [refreshTokenId, user.userId, refreshTokenHash, userAgent || null, ipAddress || null, this.config.session.reloginTokenExpiryDays]
+      );
+
+      await this.logAudit('login', 'user', user.userId, null, user.userId, { action: 'User logged in', ipAddress, userAgent }, null);
 
       console.log(`[${global.getTimestamp()}] User logged in: ${email}`);
 
       return {
         userId: user.userId,
         sessionToken,
-        refreshToken
+        refreshToken,
+        activeSessions,
+        maxSessions,
+        willExceedLimit,
+        oldestSessionHash  // Send hash so client can request deletion if confirmed
       };
     } catch (err) {
       console.error(`[${global.getTimestamp()}] ERROR during login:`, err.message);
@@ -658,35 +928,53 @@ class Auth {
       // Hash the refresh token
       const refreshTokenHash = crypto.createHash('sha256').update(refreshToken).digest('hex');
 
-      // Find user by refresh token hash
-      const query = 'SELECT userId, active, status, lastLoginAt FROM users WHERE refreshTokenHash = ?';
+      // Find refresh token session record
+      const query = 'SELECT userId, expiresAt FROM refresh_tokens WHERE refreshTokenHash = ?';
       const [rows] = await this.korePool.execute(query, [refreshTokenHash]);
 
       if (!rows || rows.length === 0) {
         throw new Error('Invalid refresh token');
       }
 
-      const user = rows[0];
+      const tokenRecord = rows[0];
+      const userId = tokenRecord.userId;
+
+      // Check if token is expired
+      const expiresAt = new Date(tokenRecord.expiresAt);
+      if (Date.now() > expiresAt.getTime()) {
+        // Delete expired token
+        await this.korePool.execute(
+          'DELETE FROM refresh_tokens WHERE refreshTokenHash = ?',
+          [refreshTokenHash]
+        );
+        throw new Error('Refresh token expired');
+      }
+
+      // Get user details
+      const userQuery = 'SELECT userId, status, active FROM users WHERE userId = ?';
+      const [userRows] = await this.korePool.execute(userQuery, [userId]);
+
+      if (!userRows || userRows.length === 0) {
+        throw new Error('User not found');
+      }
+
+      const user = userRows[0];
 
       // Check if user is still active
       if (!user.active || user.status === 'inactive') {
         throw new Error('User account is inactive');
       }
 
-      // Check if last full login is within the relogin threshold
-      const lastLogin = new Date(user.lastLoginAt);
-      const now_ms = Date.now();
-      const daysSinceLogin = (now_ms - lastLogin.getTime()) / (1000 * 60 * 60 * 24);
-      const reloginThresholdDays = this.config.session.reloginTokenExpiryDays;
-
-      if (daysSinceLogin > reloginThresholdDays) {
-        throw new Error('Relogin threshold exceeded. Please log in again.');
-      }
-
       // Generate new session token
-      const newSessionToken = this.generateSessionToken(user.userId);
+      const newSessionToken = this.generateSessionToken(userId);
 
-      console.log(`[${global.getTimestamp()}] Session refreshed with refresh token for user: ${user.userId}`);
+      // Update lastUsedAt timestamp for this refresh token
+      await this.korePool.execute(
+        'UPDATE refresh_tokens SET lastUsedAt = NOW() WHERE refreshTokenHash = ?',
+        [refreshTokenHash]
+      );
+
+      console.log(`[${global.getTimestamp()}] Session refreshed with refresh token for user: ${userId}`);
 
       return {
         sessionToken: newSessionToken
@@ -836,11 +1124,13 @@ class Auth {
 
   /**
    * Get user's permissions (direct + via groups)
+   * @param {string} userId
+   * @param {boolean} includeRevoked - If true, includes revoked permissions (default: false)
    */
-  async getUserPermissions(userId) {
+  async getUserPermissions(userId, includeRevoked = false) {
     try {
       const query = `
-        SELECT DISTINCT resource, action 
+        SELECT resource, action, scope, effect, revokedAt, targetType, targetId
         FROM permissions 
         WHERE (targetType = 'user' AND targetId = ?) 
            OR (targetType = 'group' AND targetId IN (
@@ -850,11 +1140,93 @@ class Auth {
              WHERE users.userId = ?
              AND JSON_EXTRACT(groupIds, CONCAT('$[', idx, ']')) IS NOT NULL
            ))
-        AND revokedAt IS NULL
+        ${includeRevoked ? '' : 'AND revokedAt IS NULL'}
       `;
       
       const [rows] = await this.korePool.execute(query, [userId, userId]);
-      return rows.map(row => ({ resource: row.resource, action: row.action }));
+
+      // Collect scope IDs needing name lookup, grouped by resource type
+      const workflowIds  = [...new Set(rows.filter(r => r.resource === 'workflow'  && r.scope).map(r => r.scope))];
+      const formIds      = [...new Set(rows.filter(r => r.resource === 'form'      && r.scope).map(r => r.scope))];
+      const datatableIds = [...new Set(rows.filter(r => r.resource === 'datatable' && r.scope).map(r => r.scope))];
+      const groupIds     = [...new Set(rows.filter(r => r.targetType === 'group').map(r => r.targetId))];
+
+      const workflowMap  = {};
+      const formMap      = {};
+      const datatableMap = {};
+      const groupMap     = {};
+
+      if (workflowIds.length) {
+        const placeholders = workflowIds.map(() => '?').join(',');
+        const [wRows] = await this.korePool.execute(
+          `SELECT id, name FROM kore_sys.workflows WHERE id IN (${placeholders})`,
+          workflowIds
+        );
+        wRows.forEach(r => { workflowMap[r.id] = r.name; });
+      }
+
+      if (formIds.length) {
+        const placeholders = formIds.map(() => '?').join(',');
+        const [fRows] = await this.korePool.execute(
+          `SELECT id, name FROM kore_sys.forms WHERE id IN (${placeholders})`,
+          formIds
+        );
+        fRows.forEach(r => { formMap[r.id] = r.name; });
+      }
+
+      if (datatableIds.length) {
+        const placeholders = datatableIds.map(() => '?').join(',');
+        const [dRows] = await this.korePool.execute(
+          `SELECT id, name FROM kore_sys.datatables WHERE id IN (${placeholders})`,
+          datatableIds
+        );
+        dRows.forEach(r => { datatableMap[r.id] = r.name; });
+      }
+
+      if (groupIds.length) {
+        const placeholders = groupIds.map(() => '?').join(',');
+        const [gRows] = await this.korePool.execute(
+          `SELECT groupId, name FROM kore_sys.user_groups WHERE groupId IN (${placeholders})`,
+          groupIds
+        );
+        gRows.forEach(r => { groupMap[r.groupId] = r.name; });
+      }
+
+      const mapped = rows.map(row => {
+        let scopeName = null;
+        if (row.resource === 'workflow' && row.scope && workflowMap[row.scope]) {
+          scopeName = workflowMap[row.scope];
+        } else if (row.resource === 'form' && row.scope && formMap[row.scope]) {
+          scopeName = formMap[row.scope];
+        } else if (row.resource === 'datatable' && row.scope && datatableMap[row.scope]) {
+          scopeName = datatableMap[row.scope];
+        }
+
+        const source = row.targetType === 'group'
+          ? { type: 'group', groupId: row.targetId, groupName: groupMap[row.targetId] || row.targetId }
+          : { type: 'user' };
+
+        return {
+          resource: row.resource,
+          action: row.action,
+          scope: row.scope,
+          scope_name: scopeName,
+          effect: row.effect,
+          source,
+          ...(includeRevoked && { revokedAt: row.revokedAt })
+        };
+      });
+
+      // Sort by resource, then scope_name/scope, then action
+      mapped.sort((a, b) => {
+        const r = (a.resource || '').localeCompare(b.resource || '');
+        if (r !== 0) return r;
+        const s = (a.scope_name || a.scope || '').localeCompare(b.scope_name || b.scope || '');
+        if (s !== 0) return s;
+        return (a.action || '').localeCompare(b.action || '');
+      });
+
+      return mapped;
     } catch (err) {
       console.error(`[${global.getTimestamp()}] ERROR getting user permissions:`, err.message);
       return [];
@@ -863,27 +1235,472 @@ class Auth {
 
   /**
    * Check if user has permission
+   * Explicit 'deny' always takes precedence over 'allow'
+   * Scope can be NULL (applies to entire resource) or a JSON object for specific scope
    */
-  async hasPermission(userId, resource, action) {
+  /**
+   * Generic permissions query with flexible filtering
+   * Supports filters with suffixes: None (=), Not (!=), In (IN), NotIn (NOT IN)
+   * 
+   * Example:
+   *   getPermissions({ resource: 'workflow', scope: workflowId, effect: 'deny' })
+   *   getPermissions({ targetType: 'group', actionIn: ['view', 'create'] })
+   *   getPermissions({ permissionId: 'xxx', revokedAtNot: null })
+   */
+  async getPermissions(filters = {}) {
     try {
+      const conditions = [];
+      const params = [];
+      
+      // Valid base field names
+      const validFields = ['permissionId', 'targetType', 'targetId', 'resource', 'scope', 'action', 'effect', 'grantedAt', 'grantedBy', 'revokedAt', 'revokedBy'];
+
+      // Build WHERE conditions from filters
+      for (const [key, value] of Object.entries(filters)) {
+        // Parse field name and suffix
+        let field = null;
+        let operator = '=';
+        
+        for (const validField of validFields) {
+          if (key === validField) {
+            field = validField;
+            operator = '=';
+            break;
+          } else if (key === validField + 'Not') {
+            field = validField;
+            operator = '!=';
+            break;
+          } else if (key === validField + 'In') {
+            field = validField;
+            operator = 'IN';
+            break;
+          } else if (key === validField + 'NotIn') {
+            field = validField;
+            operator = 'NOT IN';
+            break;
+          }
+        }
+
+        if (!field) {
+          throw new Error(`Invalid filter field: ${key}`);
+        }
+
+        // Build condition based on operator
+        if (operator === '=') {
+          conditions.push(`p.${field} = ?`);
+          params.push(value);
+        } else if (operator === '!=') {
+          conditions.push(`p.${field} != ?`);
+          params.push(value);
+        } else if (operator === 'IN') {
+          if (!Array.isArray(value) || value.length === 0) {
+            throw new Error(`${key} must be a non-empty array`);
+          }
+          const placeholders = value.map(() => '?').join(',');
+          conditions.push(`p.${field} IN (${placeholders})`);
+          params.push(...value);
+        } else if (operator === 'NOT IN') {
+          if (!Array.isArray(value) || value.length === 0) {
+            throw new Error(`${key} must be a non-empty array`);
+          }
+          const placeholders = value.map(() => '?').join(',');
+          conditions.push(`p.${field} NOT IN (${placeholders})`);
+          params.push(...value);
+        }
+      }
+
+      // Build WHERE clause
+      const whereClause = conditions.length > 0 ? 'WHERE ' + conditions.join(' AND ') : '';
+
       const query = `
+        SELECT 
+          p.permissionId, p.targetType, p.targetId, p.resource, p.scope, p.action, p.effect, 
+          p.grantedAt, p.grantedBy, p.revokedAt, p.revokedBy,
+          CASE 
+            WHEN p.targetType = 'group' THEN ug.name
+            WHEN p.targetType = 'user' THEN u.fullName
+            ELSE NULL
+          END as targetName
+        FROM kore_sys.permissions p
+        LEFT JOIN kore_sys.user_groups ug ON p.targetType = 'group' AND ug.groupId = p.targetId
+        LEFT JOIN kore_sys.users u ON p.targetType = 'user' AND u.userId = p.targetId
+        ${whereClause}
+        ORDER BY p.grantedAt DESC
+      `;
+
+      const connection = await this.korePool.getConnection();
+      try {
+        const [rows] = await connection.execute(query, params);
+
+        // Resolve scope names for workflow, form, and datatable resource types
+        const workflowIds  = [...new Set(rows.filter(r => r.resource === 'workflow'  && r.scope).map(r => r.scope))];
+        const formIds      = [...new Set(rows.filter(r => r.resource === 'form'      && r.scope).map(r => r.scope))];
+        const datatableIds = [...new Set(rows.filter(r => r.resource === 'datatable' && r.scope).map(r => r.scope))];
+
+        const workflowMap  = {};
+        const formMap      = {};
+        const datatableMap = {};
+
+        if (workflowIds.length) {
+          const placeholders = workflowIds.map(() => '?').join(',');
+          const [wRows] = await connection.execute(
+            `SELECT id, name FROM kore_sys.workflows WHERE id IN (${placeholders})`,
+            workflowIds
+          );
+          wRows.forEach(r => { workflowMap[r.id] = r.name; });
+        }
+
+        if (formIds.length) {
+          const placeholders = formIds.map(() => '?').join(',');
+          const [fRows] = await connection.execute(
+            `SELECT id, name FROM kore_sys.forms WHERE id IN (${placeholders})`,
+            formIds
+          );
+          fRows.forEach(r => { formMap[r.id] = r.name; });
+        }
+
+        if (datatableIds.length) {
+          const placeholders = datatableIds.map(() => '?').join(',');
+          const [dRows] = await connection.execute(
+            `SELECT id, name FROM kore_sys.datatables WHERE id IN (${placeholders})`,
+            datatableIds
+          );
+          dRows.forEach(r => { datatableMap[r.id] = r.name; });
+        }
+
+        return rows.map(row => {
+          let scope_name = null;
+          if (row.resource === 'workflow' && row.scope && workflowMap[row.scope]) {
+            scope_name = workflowMap[row.scope];
+          } else if (row.resource === 'form' && row.scope && formMap[row.scope]) {
+            scope_name = formMap[row.scope];
+          } else if (row.resource === 'datatable' && row.scope && datatableMap[row.scope]) {
+            scope_name = datatableMap[row.scope];
+          }
+          return { ...row, scope_name };
+        });
+
+      } finally {
+        connection.release();
+      }
+
+    } catch (error) {
+      console.error('[Auth] Error getting permissions:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Check if client IP is allowed based on whitelist configuration
+   * allowedIPs: null/empty (allow all), or JSON array of IPs/CIDR/["whitelist.internal", "whitelist.api", etc.]
+   */
+  async isIPAllowed(clientIP, allowedIPs) {
+    try {
+      // If no restrictions, allow
+      if (!allowedIPs) {
+        return true;
+      }
+
+      let ips = [];
+      
+      // Parse allowedIPs if it's a string
+      if (typeof allowedIPs === 'string') {
+        try {
+          ips = JSON.parse(allowedIPs);
+        } catch (e) {
+          console.warn('[Auth] Failed to parse allowedIPs:', e.message);
+          return false;
+        }
+      } else if (Array.isArray(allowedIPs)) {
+        ips = allowedIPs;
+      } else {
+        return false;
+      }
+
+      if (!Array.isArray(ips) || ips.length === 0) {
+        return true;
+      }
+
+      // Expand whitelist references (whitelist.internal, whitelist.api, etc.)
+      let ipsToCheck = [];
+      let cachedWhitelists = null; // Cache to avoid multiple DB fetches
+      let whitelistQueryFailed = false;
+      
+      for (const ip of ips) {
+        if (ip.startsWith('whitelist.')) {
+          // Extract category name (e.g., "whitelist.internal" → "internal")
+          const category = ip.substring('whitelist.'.length);
+          
+          // Fetch whitelists from system_config if not cached
+          if (cachedWhitelists === null && !whitelistQueryFailed) {
+            try {
+              const [configRows] = await this.korePool.execute(
+                'SELECT whitelists FROM kore_sys.system_config LIMIT 1'
+              );
+              
+              if (configRows.length > 0 && configRows[0].whitelists) {
+                cachedWhitelists = typeof configRows[0].whitelists === 'string'
+                  ? JSON.parse(configRows[0].whitelists)
+                  : configRows[0].whitelists;
+              } else {
+                cachedWhitelists = {};
+              }
+            } catch (err) {
+              console.warn('[Auth] Failed to fetch system whitelists:', err.message);
+              console.warn('[Auth] Whitelist references will not be expanded. Treat allowedIPs as direct IP addresses.');
+              whitelistQueryFailed = true;
+              cachedWhitelists = {};
+            }
+          }
+          
+          // Add IPs from the requested category (if found)
+          if (cachedWhitelists && cachedWhitelists[category] && Array.isArray(cachedWhitelists[category])) {
+            ipsToCheck.push(...cachedWhitelists[category]);
+          } else if (whitelistQueryFailed) {
+            // If whitelist query failed, skip this reference and don't block access
+            console.warn(`[Auth] Skipping whitelist reference '${ip}' - system not configured`);
+          }
+        } else {
+          ipsToCheck.push(ip);
+        }
+      }
+
+      // Check if clientIP matches any in the list
+      for (const ipRule of ipsToCheck) {
+        if (this.isIPMatch(clientIP, ipRule)) {
+          return true;
+        }
+      }
+
+      return false;
+
+    } catch (err) {
+      console.error('[Auth] Error checking IP allowance:', err.message);
+      return false;
+    }
+  }
+
+  /**
+   * Check if clientIP matches an IP rule (exact match or CIDR)
+   */
+  isIPMatch(clientIP, ipRule) {
+    // Exact match
+    if (clientIP === ipRule) {
+      return true;
+    }
+
+    // CIDR match (simple implementation)
+    if (ipRule.includes('/')) {
+      try {
+        const [network, maskStr] = ipRule.split('/');
+        const mask = parseInt(maskStr, 10);
+
+        if (this.isIPv4(clientIP) && this.isIPv4(network)) {
+          return this.isIPv4InCIDR(clientIP, network, mask);
+        }
+      } catch (e) {
+        console.warn('[Auth] Invalid CIDR:', ipRule);
+      }
+    }
+
+    return false;
+  }
+
+  /**
+   * Simple IPv4 CIDR check
+   */
+  isIPv4InCIDR(ip, network, mask) {
+    const ipParts = ip.split('.').map(Number);
+    const netParts = network.split('.').map(Number);
+
+    if (ipParts.length !== 4 || netParts.length !== 4) {
+      return false;
+    }
+
+    let maskBits = 32 - mask;
+    for (let i = 0; i < 4; i++) {
+      const shift = Math.max(0, 8 - maskBits);
+      if ((ipParts[i] >> shift) !== (netParts[i] >> shift)) {
+        return false;
+      }
+      maskBits = Math.max(0, maskBits - 8);
+    }
+
+    return true;
+  }
+
+  /**
+   * Check if string is valid IPv4
+   */
+  isIPv4(ip) {
+    const parts = ip.split('.');
+    if (parts.length !== 4) return false;
+    return parts.every(p => {
+      const n = parseInt(p, 10);
+      return n >= 0 && n <= 255;
+    });
+  }
+
+  async hasPermission(userId, resource, action, scope = null) {
+    try {
+      // Build action condition: match specific action OR wildcard if checking specific action
+      const actionCondition = action === '*' 
+        ? `action = ?`
+        : `(action = ? OR action = '*')`;
+      
+      // Precedence: User permissions > Group permissions > Default allow
+      
+      // 1. Check for USER DENY (highest priority)
+      const userDenyQuery = `
         SELECT COUNT(*) as count 
-        FROM permissions 
-        WHERE ((targetType = 'user' AND targetId = ?) 
-           OR (targetType = 'group' AND targetId IN (
-             SELECT JSON_UNQUOTE(JSON_EXTRACT(groupIds, CONCAT('$[', idx, ']')))
-             FROM users, 
-             (SELECT 0 AS idx UNION SELECT 1 UNION SELECT 2 UNION SELECT 3 UNION SELECT 4) AS indices
-             WHERE users.userId = ?
-             AND JSON_EXTRACT(groupIds, CONCAT('$[', idx, ']')) IS NOT NULL
-           )))
+        FROM kore_sys.permissions 
+        WHERE targetType = 'user' AND targetId = ?
         AND resource = ? 
-        AND action = ? 
+        AND ${actionCondition}
+        AND effect = 'deny'
+        AND (scope IS NULL ${scope ? `OR scope = ?` : ''})
         AND revokedAt IS NULL
       `;
       
-      const [rows] = await this.korePool.execute(query, [userId, userId, resource, action]);
-      return rows[0].count > 0;
+      const userDenyParams = [userId, resource, action];
+      if (scope) userDenyParams.push(scope);
+      
+      const [userDenyRows] = await this.korePool.execute(userDenyQuery, userDenyParams);
+      if (userDenyRows[0].count > 0) {
+        return false; // User deny always blocks
+      }
+      
+      // 2. Check for USER ALLOW
+      const userAllowQuery = `
+        SELECT COUNT(*) as count 
+        FROM kore_sys.permissions 
+        WHERE targetType = 'user' AND targetId = ?
+        AND resource = ? 
+        AND ${actionCondition}
+        AND effect = 'allow'
+        AND (scope IS NULL ${scope ? `OR scope = ?` : ''})
+        AND revokedAt IS NULL
+      `;
+      
+      const userAllowParams = [userId, resource, action];
+      if (scope) userAllowParams.push(scope);
+      
+      const [userAllowRows] = await this.korePool.execute(userAllowQuery, userAllowParams);
+      if (userAllowRows[0].count > 0) {
+        return true; // User allow always permits
+      }
+      
+      // 3. Get user's groups
+      const userQuery = `SELECT groupIds FROM kore_sys.users WHERE userId = ?`;
+      const [userRows] = await this.korePool.execute(userQuery, [userId]);
+      
+      if (userRows.length === 0) {
+        // User not found, use default logic
+        const anyAllowQuery = `
+          SELECT COUNT(*) as count 
+          FROM kore_sys.permissions 
+          WHERE resource = ? 
+          AND ${actionCondition}
+          AND effect = 'allow'
+          AND (scope IS NULL ${scope ? `OR scope = ?` : ''})
+          AND revokedAt IS NULL
+        `;
+        
+        const anyAllowParams = [resource, action];
+        if (scope) anyAllowParams.push(scope);
+        
+        const [anyAllowRows] = await this.korePool.execute(anyAllowQuery, anyAllowParams);
+        return anyAllowRows[0].count === 0; // Default allow if no rules exist
+      }
+      
+      let groupIds = [];
+      if (userRows[0].groupIds) {
+        try {
+          groupIds = typeof userRows[0].groupIds === 'string' 
+            ? JSON.parse(userRows[0].groupIds) 
+            : userRows[0].groupIds;
+        } catch (parseErr) {
+          console.warn(`[Auth] Failed to parse groupIds for user ${userId}:`, parseErr.message);
+          groupIds = [];
+        }
+      }
+      
+      if (groupIds.length === 0) {
+        // No groups, check default logic
+        const anyAllowQuery = `
+          SELECT COUNT(*) as count 
+          FROM kore_sys.permissions 
+          WHERE resource = ? 
+          AND ${actionCondition}
+          AND effect = 'allow'
+          AND (scope IS NULL ${scope ? `OR scope = ?` : ''})
+          AND revokedAt IS NULL
+        `;
+        
+        const anyAllowParams = [resource, action];
+        if (scope) anyAllowParams.push(scope);
+        
+        const [anyAllowRows] = await this.korePool.execute(anyAllowQuery, anyAllowParams);
+        return anyAllowRows[0].count === 0; // Default allow if no rules exist
+      }
+      
+      // 4. Check for GROUP DENY
+      const groupDenyQuery = `
+        SELECT COUNT(*) as count 
+        FROM kore_sys.permissions 
+        WHERE targetType = 'group' AND targetId IN (${groupIds.map(() => '?').join(',')})
+        AND resource = ? 
+        AND ${actionCondition}
+        AND effect = 'deny'
+        AND (scope IS NULL ${scope ? `OR scope = ?` : ''})
+        AND revokedAt IS NULL
+      `;
+      
+      const groupDenyParams = [...groupIds, resource, action];
+      if (scope) groupDenyParams.push(scope);
+      
+      const [groupDenyRows] = await this.korePool.execute(groupDenyQuery, groupDenyParams);
+      if (groupDenyRows[0].count > 0) {
+        return false; // Group deny blocks
+      }
+      
+      // 5. Check for GROUP ALLOW
+      const groupAllowQuery = `
+        SELECT COUNT(*) as count 
+        FROM kore_sys.permissions 
+        WHERE targetType = 'group' AND targetId IN (${groupIds.map(() => '?').join(',')})
+        AND resource = ? 
+        AND ${actionCondition}
+        AND effect = 'allow'
+        AND (scope IS NULL ${scope ? `OR scope = ?` : ''})
+        AND revokedAt IS NULL
+      `;
+      
+      const groupAllowParams = [...groupIds, resource, action];
+      if (scope) groupAllowParams.push(scope);
+      
+      const [groupAllowRows] = await this.korePool.execute(groupAllowQuery, groupAllowParams);
+      if (groupAllowRows[0].count > 0) {
+        return true; // Group allow permits
+      }
+      
+      // 6. Check default logic: if ANY allow rules exist, default is deny; otherwise allow
+      const anyAllowQuery = `
+        SELECT COUNT(*) as count 
+        FROM kore_sys.permissions 
+        WHERE resource = ? 
+        AND ${actionCondition}
+        AND effect = 'allow'
+        AND (scope IS NULL ${scope ? `OR scope = ?` : ''})
+        AND revokedAt IS NULL
+      `;
+      
+      const anyAllowParams = [resource, action];
+      if (scope) anyAllowParams.push(scope);
+      
+      const [anyAllowRows] = await this.korePool.execute(anyAllowQuery, anyAllowParams);
+      return anyAllowRows[0].count === 0; // Default allow if no rules exist
+      
     } catch (err) {
       console.error(`[${global.getTimestamp()}] ERROR checking permission:`, err.message);
       return false;
@@ -1082,18 +1899,48 @@ async function handleGenerateTOTP(req, res) {
     res.setHeader('Content-Type', 'application/json');
     
     try {
-        // For now, generate generic TOTP without email
-        const secret = global.auth.generateTOTPSecret('user@kore');
-        const qrCode = await global.auth.generateQRCode(secret.secret, 'user@kore');
+        let userEmail = 'user@kore'; // fallback
+        let body = '';
         
-        res.writeHead(200);
-        res.end(JSON.stringify({
-            success: true,
-            secret: secret.secret,
-            qrCode: qrCode
-        }));
+        req.on('data', chunk => body += chunk);
+        req.on('end', async () => {
+            try {
+                const data = body ? JSON.parse(body) : {};
+                
+                // Case 1: Email provided directly (MFA reset)
+                if (data.email) {
+                    userEmail = data.email;
+                }
+                // Case 2: Token provided (initial setup) - look up email from token
+                else if (data.token) {
+                    const inviteTokenHash = crypto.createHash('sha256').update(data.token).digest('hex');
+                    const [userRows] = await global.auth.korePool.execute(
+                        'SELECT email FROM users WHERE inviteTokenHash = ?',
+                        [inviteTokenHash]
+                    );
+                    if (userRows[0]) {
+                        userEmail = userRows[0].email;
+                    }
+                }
+                
+                // Generate TOTP secret with actual user email
+                const secret = global.auth.generateTOTPSecret(userEmail);
+                const qrCode = await global.auth.generateQRCode(secret.otpauth_url);
+                
+                res.writeHead(200);
+                res.end(JSON.stringify({
+                    success: true,
+                    secret: secret.secret,
+                    qrCode: qrCode
+                }));
+            } catch (err) {
+                console.error(`[${global.getTimestamp()}] ERROR generating TOTP:`, err.message);
+                res.writeHead(500);
+                res.end(JSON.stringify({ error: err.message }));
+            }
+        });
     } catch (err) {
-        console.error(`[${global.getTimestamp()}] ERROR generating TOTP:`, err.message);
+        console.error(`[${global.getTimestamp()}] ERROR in handleGenerateTOTP:`, err.message);
         res.writeHead(500);
         res.end(JSON.stringify({ error: err.message }));
     }
@@ -1105,20 +1952,102 @@ async function handleGenerateTOTP(req, res) {
 
 /**
  * POST /auth/logout
- * Clear session and logout
+ * Clear session and logout - delete refresh token from database
  */
-function handleLogout(req, res) {
+async function handleLogout(req, res) {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Content-Type', 'application/json');
     
-    // Clear both sessionToken and refreshToken cookies
-    res.setHeader('Set-Cookie', [
-        'sessionToken=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0',
-        'refreshToken=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0'
-    ]);
+    try {
+        const refreshToken = getRefreshTokenFromCookies(req.headers.cookie);
+        
+        if (refreshToken) {
+            // Hash and delete the refresh token from the database
+            const refreshTokenHash = crypto.createHash('sha256').update(refreshToken).digest('hex');
+            await global.auth.korePool.execute(
+                'DELETE FROM refresh_tokens WHERE refreshTokenHash = ?',
+                [refreshTokenHash]
+            );
+            console.log(`[${global.getTimestamp()}] Refresh token deleted for user logout`);
+        }
+        
+        // Clear both sessionToken and refreshToken cookies
+        res.setHeader('Set-Cookie', [
+            'sessionToken=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0',
+            'refreshToken=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0'
+        ]);
+        
+        res.writeHead(200);
+        res.end(JSON.stringify({ success: true, message: 'Logged out' }));
+    } catch (err) {
+        console.error(`[${global.getTimestamp()}] ERROR during logout:`, err.message);
+        // Still clear cookies even if DB delete fails
+        res.setHeader('Set-Cookie', [
+            'sessionToken=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0',
+            'refreshToken=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0'
+        ]);
+        res.writeHead(200);
+        res.end(JSON.stringify({ success: true, message: 'Logged out' }));
+    }
+}
+
+/**
+ * POST /auth/delete-oldest-session
+ * Delete a specific old session by hash (called after user confirms login at capacity)
+ */
+async function handleDeleteOldestSession(req, res) {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Content-Type', 'application/json');
     
-    res.writeHead(200);
-    res.end(JSON.stringify({ success: true, message: 'Logged out' }));
+    try {
+        // Validate session token to get userId
+        const sessionToken = getSessionTokenFromCookies(req.headers.cookie);
+        if (!sessionToken) {
+            res.writeHead(401);
+            res.end(JSON.stringify({ error: 'Not authenticated' }));
+            return;
+        }
+        
+        const validation = await global.auth.validateSessionToken(sessionToken);
+        if (!validation.valid) {
+            res.writeHead(401);
+            res.end(JSON.stringify({ error: 'Invalid session' }));
+            return;
+        }
+        
+        let body = '';
+        req.on('data', chunk => body += chunk);
+        req.on('end', async () => {
+            try {
+                const { oldestSessionHash } = JSON.parse(body);
+                
+                if (!oldestSessionHash) {
+                    res.writeHead(400);
+                    res.end(JSON.stringify({ error: 'oldestSessionHash required' }));
+                    return;
+                }
+                
+                // Delete the oldest session
+                await global.auth.korePool.execute(
+                    'DELETE FROM refresh_tokens WHERE userId = ? AND refreshTokenHash = ?',
+                    [validation.userId, oldestSessionHash]
+                );
+                
+                console.log(`[${global.getTimestamp()}] Deleted oldest session for user: ${validation.userId}`);
+                
+                res.writeHead(200);
+                res.end(JSON.stringify({ success: true, message: 'Oldest session deleted' }));
+            } catch (err) {
+                console.error(`[${global.getTimestamp()}] ERROR deleting oldest session:`, err.message);
+                res.writeHead(500);
+                res.end(JSON.stringify({ error: err.message }));
+            }
+        });
+    } catch (err) {
+        console.error(`[${global.getTimestamp()}] ERROR in handleDeleteOldestSession:`, err.message);
+        res.writeHead(500);
+        res.end(JSON.stringify({ error: err.message }));
+    }
 }
 
 /**
@@ -1251,7 +2180,9 @@ function handleLoginForm(req, res) {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Kore Login</title>
+    <link rel="icon" type="image/png" href="/img/favicon.png">
     <script src="/lib/base.css"></script>
+    <script src="/lib/base.js"></script>
     <style>
         :root {
             --brand-dark: #002b59;
@@ -1269,14 +2200,6 @@ function handleLoginForm(req, res) {
             --border-bright: rgba(0, 112, 185, 0.9);
         }
     </style>
-    <script>
-        // Inject base.css component styles
-        if (typeof componentStyles !== 'undefined') {
-            const styleEl = document.createElement('style');
-            styleEl.textContent = componentStyles;
-            document.head.appendChild(styleEl);
-        }
-    </script>
     <style>
         :root {
             --brand-dark: #002b59;
@@ -1296,7 +2219,8 @@ function handleLoginForm(req, res) {
             justify-content: center;
             min-height: 100vh;
             margin: 0;
-            padding: 20px;
+            padding: 20px !important;
+            background-color: var(--bg-primary) !important;
         }
         
         .login-container {
@@ -1553,6 +2477,8 @@ function handleLoginForm(req, res) {
                 
                 const data = await response.json();
                 
+                console.log('Login response:', { ok: response.ok, status: response.status, error: data.error });
+                
                 if (!response.ok) {
                     // If MFA setup is required (account was reset)
                     if (data.error === 'MFA_RESET') {
@@ -1563,23 +2489,48 @@ function handleLoginForm(req, res) {
                         return;
                     }
                     
-                    // If MFA is required, show MFA prompt
-                    if (data.error === 'MFA code required') {
-                        currentEmail = email;
-                        currentPassword = password;
-                        
-                        document.getElementById('loginStep').style.display = 'none';
-                        document.getElementById('mfaStep').classList.add('active');
-                        document.getElementById('mfaCode').focus();
-                        return;
-                    }
-                    
                     errorDiv.textContent = data.error || 'Login failed';
                     return;
                 }
                 
+                // Check if MFA is required
+                if (data.requiresMFA) {
+                    currentEmail = email;
+                    currentPassword = password;
+                    
+                    document.getElementById('loginStep').style.display = 'none';
+                    document.getElementById('mfaStep').classList.add('active');
+                    document.getElementById('mfaCode').focus();
+                    return;
+                }
+                
+
                 // Check if password change is required
                 if (data.requiresPasswordChange) {
+                    // Check if we're about to exceed session limit
+                    if (data.willExceedLimit && data.oldestSessionHash) {
+                        const message = "You currently have " + data.activeSessions + " session(s) active.\\nYour maximum is " + data.maxSessions + ".\\n\\nProceeding will eliminate your oldest session.\\n\\nContinue?";
+                        
+                        if (!confirm(message)) {
+                            errorDiv.textContent = 'Login cancelled. New session was not activated.';
+                            // Logout to delete the tokens we just created
+                            fetch('/auth/logout', { method: 'POST', credentials: 'include' }).catch(() => {});
+                            return;
+                        }
+                        
+                        // User confirmed - delete the oldest session
+                        try {
+                            await fetch('/auth/delete-oldest-session', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ oldestSessionHash: data.oldestSessionHash }),
+                                credentials: 'include'
+                            });
+                        } catch (err) {
+                            console.warn('Error deleting oldest session:', err);
+                        }
+                    }
+                    
                     currentEmail = email;
                     currentPassword = password;
                     document.getElementById('loginStep').style.display = 'none';
@@ -1591,16 +2542,44 @@ function handleLoginForm(req, res) {
                 currentEmail = email;
                 currentPassword = password;
                 
-                // Check if MFA is required (successful response without requiresPasswordChange)
-                // If no MFA, the login is complete
-                if (data.error === 'MFA code required') {
-                    document.getElementById('loginStep').style.display = 'none';
-                    document.getElementById('mfaStep').classList.add('active');
-                    document.getElementById('mfaCode').focus();
-                } else if (data.success) {
-                    // No MFA required, login is complete
-                    if (data.userId) {
-                        localStorage.setItem('kore_userId', data.userId);
+                // No MFA required, login is complete
+                if (data.userId) {
+                    localStorage.setItem('kore_userId', data.userId);
+                }
+                    
+                    // Check if we're about to exceed session limit - prompt BEFORE it happens
+                    if (data.willExceedLimit && data.oldestSessionHash) {
+                        const title = "Session Limit Exceeded";
+                        const message = "You currently have " + data.activeSessions + " session(s) active. Your maximum is " + data.maxSessions + ". Proceeding will eliminate your oldest session.";
+                        
+                        showConfirm(title, message, async () => {
+                            // User confirmed - delete the oldest session
+                            try {
+                                const deleteResponse = await fetch('/auth/delete-oldest-session', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ oldestSessionHash: data.oldestSessionHash }),
+                                    credentials: 'include'
+                                });
+                                
+                                if (!deleteResponse.ok) {
+                                    console.warn('Failed to delete oldest session, but proceeding anyway');
+                                }
+                            } catch (err) {
+                                console.warn('Error deleting oldest session:', err);
+                            }
+                            
+                            // Proceed to redirect
+                            const urlParams = new URLSearchParams(window.location.search);
+                            const redirectUrl = urlParams.get('redirect');
+                            
+                            if (redirectUrl) {
+                                window.location.href = redirectUrl;
+                            } else {
+                                window.location.href = '/';
+                            }
+                        }, "Continue");
+                        return;  // Don't redirect yet - wait for user choice
                     }
                     
                     const urlParams = new URLSearchParams(window.location.search);
@@ -1611,12 +2590,6 @@ function handleLoginForm(req, res) {
                     } else {
                         window.location.href = '/';
                     }
-                } else {
-                    // MFA required
-                    document.getElementById('loginStep').style.display = 'none';
-                    document.getElementById('mfaStep').classList.add('active');
-                    document.getElementById('mfaCode').focus();
-                }
                 
             } catch (err) {
                 errorDiv.textContent = 'Network error: ' + err.message;
@@ -1663,6 +2636,41 @@ function handleLoginForm(req, res) {
                 // Store userId in localStorage
                 if (data.userId) {
                     localStorage.setItem('kore_userId', data.userId);
+                }
+                
+                // Check if we're about to exceed session limit - prompt BEFORE redirecting
+                if (data.willExceedLimit && data.oldestSessionHash) {
+                    const title = "Session Limit Exceeded";
+                    const message = "You currently have " + data.activeSessions + " session(s) active. Your maximum is " + data.maxSessions + ". Proceeding will eliminate your oldest session.";
+                    
+                    showConfirm(title, message, async () => {
+                        // User confirmed - delete the oldest session
+                        try {
+                            const deleteResponse = await fetch('/auth/delete-oldest-session', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ oldestSessionHash: data.oldestSessionHash }),
+                                credentials: 'include'
+                            });
+                            
+                            if (!deleteResponse.ok) {
+                                console.warn('Failed to delete oldest session, but proceeding anyway');
+                            }
+                        } catch (err) {
+                            console.warn('Error deleting oldest session:', err);
+                        }
+                        
+                        // Proceed to redirect
+                        const urlParams = new URLSearchParams(window.location.search);
+                        const redirectUrl = urlParams.get('redirect');
+                        
+                        if (redirectUrl) {
+                            window.location.href = redirectUrl;
+                        } else {
+                            window.location.href = '/';
+                        }
+                    }, "Continue");
+                    return;  // Don't redirect yet - wait for user choice
                 }
                 
                 // Get redirect URL from query params if provided
@@ -1787,7 +2795,22 @@ async function handleValidateSessionToken(req, res) {
         req.on('data', chunk => body += chunk);
         req.on('end', async () => {
             try {
-                const { sessionToken } = JSON.parse(body);
+                let sessionToken = null;
+                
+                // Try to get token from request body first
+                if (body) {
+                    try {
+                        const parsed = JSON.parse(body);
+                        sessionToken = parsed.sessionToken;
+                    } catch (parseErr) {
+                        // Body parsing failed, will try cookies
+                    }
+                }
+                
+                // If no token in body, try to get from cookies
+                if (!sessionToken) {
+                    sessionToken = getSessionTokenFromCookies(req.headers.cookie);
+                }
                 
                 if (!sessionToken) {
                     res.writeHead(400);
@@ -1897,6 +2920,13 @@ async function handleLogin(req, res) {
     res.setHeader('Content-Type', 'application/json');
     
     try {
+        // Extract client information
+        const userAgent = req.headers['user-agent'] || null;
+        const ipAddress = req.headers['x-forwarded-for']?.split(',')[0].trim() || 
+                         req.socket?.remoteAddress || 
+                         req.connection?.remoteAddress || 
+                         null;
+        
         let body = '';
         req.on('data', chunk => body += chunk);
         req.on('end', async () => {
@@ -1909,7 +2939,7 @@ async function handleLogin(req, res) {
                     return;
                 }
                 
-                const result = await global.auth.login(email, password, mfaCode);
+                const result = await global.auth.login(email, password, mfaCode, userAgent, ipAddress);
                 
                 // Check if password has expired
                 const [userRows] = await global.auth.korePool.execute(
@@ -1959,6 +2989,10 @@ async function handleLogin(req, res) {
                           userId: result.userId,
                           sessionToken: result.sessionToken,
                           refreshToken: result.refreshToken,
+                          activeSessions: result.activeSessions,
+                          maxSessions: result.maxSessions,
+                          willExceedLimit: result.willExceedLimit,
+                          oldestSessionHash: result.oldestSessionHash,
                           message: 'Password has expired and must be changed'
                       }));
                       return;
@@ -1997,10 +3031,25 @@ async function handleLogin(req, res) {
                     success: true,
                     userId: result.userId,
                     sessionToken: result.sessionToken,
-                    refreshToken: result.refreshToken
+                    refreshToken: result.refreshToken,
+                    activeSessions: result.activeSessions,
+                    maxSessions: result.maxSessions,
+                    willExceedLimit: result.willExceedLimit,
+                    oldestSessionHash: result.oldestSessionHash
                 }));
             } catch (err) {
                 console.error(`[${global.getTimestamp()}] ERROR in login:`, err.message);
+                
+                // Special case: MFA is required - return 200 with requiresMFA flag
+                if (err.message === 'MFA code required') {
+                    res.writeHead(200);
+                    res.end(JSON.stringify({ 
+                        requiresMFA: true,
+                        message: 'MFA code required'
+                    }));
+                    return;
+                }
+                
                 res.writeHead(401);
                 res.end(JSON.stringify({ error: err.message }));
             }
@@ -2021,6 +3070,15 @@ async function handleCreateUser(req, res) {
     res.setHeader('Content-Type', 'application/json');
     
     try {
+        const sessionToken = getSessionTokenFromCookies(req.headers.cookie);
+        const validation = validateUserSessionToken(sessionToken);
+
+        if (!validation.valid) {
+            res.writeHead(401);
+            res.end(JSON.stringify({ error: 'Unauthorized' }));
+            return;
+        }
+
         let body = '';
         req.on('data', chunk => body += chunk);
         req.on('end', async () => {
@@ -2033,94 +3091,16 @@ async function handleCreateUser(req, res) {
                     return;
                 }
                 
-                const result = await global.auth.createUser(email, fullName, '00000000-0000-0000-0000-000000000001');
+                const result = await global.auth.createUser(email, fullName, validation.userId);
                 
                 // Send invite email
-                const setupLink = `https://app.equinoxits.com:1139/usersetup?token=${result.inviteToken}`;
-                const emailHTML = `<!DOCTYPE html>
-<html>
-<head>
-    <style>
-        body { font-family: Arial, sans-serif; margin: 0; padding: 20px; }
-        table { border-collapse: collapse; width: 100%; max-width: 500px; }
-    </style>
-</head>
-<body>
-    <table style="background-color: #1d3250; color: #FFFFFF; border: 1px solid #314a59;">
-        <tr>
-            <td style="background-color: #0c2134; border-bottom: 1px solid #314a59; padding: 15px; text-align: center;">
-                <h1 style="font-size: 25px; margin: 0; color: #FFFFFF;">Welcome to Kore!</h1>
-            </td>
-        </tr>
-        <tr>
-            <td style="padding: 15px;">
-                <p style="margin: 0 0 15px 0; line-height: 1.5; color: #FFFFFF;">Hello <strong>${fullName}</strong>,</p>
-                <p style="margin: 0 0 15px 0; line-height: 1.5; color: #FFFFFF;">Your account has been created. Click below to complete your setup:</p>
-                <p style="text-align: center; margin: 15px 0;">
-                    <a href="${setupLink}" style="display: inline-block; background-color: #0070b9; color: white; padding: 10px 20px; text-decoration: none; font-weight: bold;">Complete Setup</a>
-                </p>
-                <p style="margin: 0 0 10px 0; line-height: 1.5; color: #FFFFFF;">Or copy this link:</p>
-                <p style="background-color: #192740; border: 1px solid #314a59; padding: 12px; word-break: break-all; font-size: 12px; color: #FFFFFF; font-family: monospace; margin: 0 0 15px 0;">${setupLink}</p>
-                <p style="font-size: 12px; color: #999999; margin: 0; text-align: center;">This link expires in 24 hours.</p>
-            </td>
-        </tr>
-    </table>
-</body>
-</html>`;
-
-                // Send email asynchronously (don't block response)
-                (async () => {
-                  try {
-                    const https = require('https');
-                    const payload = JSON.stringify({
-                      profile: 'default',
-                      to: email,
-                      subject: 'Welcome to Kore - Complete Your Account Setup',
-                      html: emailHTML
-                    });
-
-                    const options = {
-                      hostname: 'localhost',
-                      port: 1139,
-                      path: '/kore/email/smtp',
-                      method: 'POST',
-                      headers: {
-                        'Content-Type': 'application/json',
-                        'Content-Length': Buffer.byteLength(payload),
-                        'Authorization': 'Bearer ' + result.inviteToken
-                      },
-                      rejectUnauthorized: false
-                    };
-
-                    const emailReq = https.request(options, (emailRes) => {
-                      let data = '';
-                      emailRes.on('data', chunk => data += chunk);
-                      emailRes.on('end', () => {
-                        if (emailRes.statusCode === 200 || emailRes.statusCode === 201) {
-                          console.log(`[${global.getTimestamp()}] Invite email sent to ${email}`);
-                        } else {
-                          console.error(`[${global.getTimestamp()}] Email send returned status ${emailRes.statusCode}`);
-                        }
-                      });
-                    });
-
-                    emailReq.on('error', (err) => {
-                      console.error(`[${global.getTimestamp()}] Error sending invite email:`, err.message);
-                    });
-
-                    emailReq.write(payload);
-                    emailReq.end();
-                  } catch (err) {
-                    console.error(`[${global.getTimestamp()}] Error in email task:`, err.message);
-                  }
-                })();
+                await global.auth.sendInviteEmail(result.userId, email, fullName);
                 
                 res.writeHead(201);
                 res.end(JSON.stringify({
                     success: true,
                     userId: result.userId,
-                    inviteToken: result.inviteToken,
-                    inviteExpiresAt: result.inviteExpiresAt
+                    message: 'User created and invite sent'
                 }));
             } catch (err) {
                 console.error(`[${global.getTimestamp()}] ERROR creating user:`, err.message);
@@ -2145,10 +3125,10 @@ async function handleCreateUser(req, res) {
 }
 
 /**
- * POST /users/:id/resend-invite
- * Admin resends invite to user
+ * POST /users/:id/send-invite
+ * Admin sends/resends invite to user
  */
-async function handleResendInvite(req, res) {
+async function handleSendInvite(req, res) {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Content-Type', 'application/json');
     
@@ -2161,11 +3141,11 @@ async function handleResendInvite(req, res) {
         res.writeHead(200);
         res.end(JSON.stringify({
             success: true,
-            inviteToken: result.inviteToken,
+            message: 'Invite sent successfully',
             inviteExpiresAt: result.inviteExpiresAt
         }));
     } catch (err) {
-        console.error(`[${global.getTimestamp()}] ERROR resending invite:`, err.message);
+        console.error(`[${global.getTimestamp()}] ERROR sending invite:`, err.message);
         res.writeHead(500);
         res.end(JSON.stringify({ error: err.message }));
     }
@@ -2217,6 +3197,103 @@ async function handleUpdateUser(req, res, userId) {
 }
 
 /**
+ * POST /groups
+ * Create a new group
+ */
+async function handleCreateGroup(req, res) {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Content-Type', 'application/json');
+    
+    try {
+        const sessionToken = getSessionTokenFromCookies(req.headers.cookie);
+        const validation = validateUserSessionToken(sessionToken);
+
+        if (!validation.valid) {
+            res.writeHead(401);
+            res.end(JSON.stringify({ error: 'Unauthorized' }));
+            return;
+        }
+
+        let body = '';
+        req.on('data', chunk => body += chunk);
+        req.on('end', async () => {
+            try {
+                const { groupName, description } = JSON.parse(body);
+                
+                if (!groupName) {
+                    res.writeHead(400);
+                    res.end(JSON.stringify({ error: 'Group name required' }));
+                    return;
+                }
+                
+                const result = await global.auth.createGroup(groupName, description, validation.userId);
+                
+                res.writeHead(201);
+                res.end(JSON.stringify({
+                    success: true,
+                    groupId: result.groupId,
+                    groupName: result.groupName,
+                    description: result.description
+                }));
+            } catch (err) {
+                console.error(`[${global.getTimestamp()}] ERROR creating group:`, err.message);
+                res.writeHead(500);
+                res.end(JSON.stringify({ error: err.message }));
+            }
+        });
+    } catch (err) {
+        console.error(`[${global.getTimestamp()}] ERROR in handleCreateGroup:`, err.message);
+        res.writeHead(500);
+        res.end(JSON.stringify({ error: err.message }));
+    }
+}
+
+/**
+ * PUT /groups/:id
+ * Update group details (groupName, description, active)
+ */
+async function handleUpdateGroup(req, res, groupId) {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Content-Type', 'application/json');
+    
+    try {
+        let body = '';
+        req.on('data', chunk => {
+            body += chunk.toString();
+        });
+        
+        req.on('end', async () => {
+            try {
+                const data = JSON.parse(body);
+                const { groupName, description, active } = data;
+                
+                if (!groupName) {
+                    res.writeHead(400);
+                    res.end(JSON.stringify({ error: 'Group name is required' }));
+                    return;
+                }
+                
+                const result = await global.auth.updateGroup(groupId, groupName, description, active, null);
+                
+                res.writeHead(200);
+                res.end(JSON.stringify({
+                    success: true,
+                    message: 'Group updated successfully'
+                }));
+            } catch (err) {
+                console.error(`[${global.getTimestamp()}] ERROR updating group:`, err.message);
+                res.writeHead(500);
+                res.end(JSON.stringify({ error: err.message }));
+            }
+        });
+    } catch (err) {
+        console.error(`[${global.getTimestamp()}] ERROR in handleUpdateGroup:`, err.message);
+        res.writeHead(500);
+        res.end(JSON.stringify({ error: err.message }));
+    }
+}
+
+/**
  * GET /usersetup?token=xxx
  * Render account setup form
  */
@@ -2232,6 +3309,196 @@ async function handleUserSetupForm(req, res) {
             res.writeHead(400);
             res.end('<h1>Invalid request: token or email required</h1>');
             return;
+        }
+        
+        // If it's a new invite (has token), validate the token upfront
+        if (token) {
+            const validation = await global.auth.validateInviteToken(token);
+            if (!validation.valid) {
+                res.writeHead(400);
+                res.end(`
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kore Setup</title>
+    <link rel="icon" type="image/png" href="/img/favicon.png">
+    <script src="/lib/base.css"></script>
+    <style>
+        :root {
+            --brand-dark: #002b59;
+            --brand-light: #0070b9;
+            --brand-lighter: #4cb5ff;
+            --bg-primary: #191A24;
+            --bg-input: #152030;
+            --bg-panel1: #1d3250;
+            --text-primary: #ffffff;
+            --text-muted: #82acd7;
+            --border-primary: #314a59;
+        }
+        
+        body {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+            padding: 20px;
+        }
+        
+        .setup-container {
+            width: 100%;
+            max-width: 400px;
+        }
+        
+        .logo-header {
+            background-color: white;
+            border-radius: 100px;
+            border: 2px solid #0070b9;
+            padding: 15px 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin: 8px 0 -65px 0;
+            width: 100%;
+            box-sizing: border-box;
+            position: relative;
+            z-index: 10;
+        }
+        
+        .logo-header img {
+            height: 100px;
+            width: auto;
+        }
+        
+        .setup-panel {
+            padding: 50px 30px 30px 30px;
+            border: 2px solid #0070b9 !important;
+            border-top-left-radius: 0;
+            border-top-right-radius: 0;
+        }
+        
+        .setup-panel h1 {
+            margin: 30px 0 15px 0;
+            font-size: 24px;
+            color: var(--text-primary);
+            text-align: center;
+            display: none;
+        }
+        
+        .setup-panel h2 {
+            font-size: 14px;
+            margin-top: 60px;
+        }
+        
+        .form-group {
+            margin-bottom: 15px;
+        }
+        
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-size: 12px;
+            color: var(--text-muted);
+            font-weight: 500;
+        }
+        
+        .form-group input {
+            width: 100%;
+            padding: 8px;
+            background-color: var(--bg-input);
+            border: 1px solid var(--border-primary);
+            border-radius: 4px;
+            color: var(--text-primary);
+            font-size: 12px;
+            box-sizing: border-box;
+        }
+        
+        .form-group input:focus {
+            outline: none;
+            background-color: #132035;
+            border-color: var(--brand-light);
+        }
+        
+        .step {
+            display: none;
+        }
+        
+        .step.active {
+            display: block;
+        }
+        
+        .error {
+            color: #dc3545;
+            font-size: 12px;
+            margin-top: 5px;
+        }
+        
+        .button-group {
+            display: flex;
+            gap: 10px;
+            margin-top: 20px;
+        }
+        
+        .btn {
+            flex: 1;
+            padding: 8px 12px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+            color: white;
+            background-color: var(--brand-light);
+            transition: opacity 0.2s ease;
+        }
+        
+        .btn:hover {
+            opacity: 0.9;
+        }
+        
+        .btn-secondary {
+            background-color: var(--border-primary);
+        }
+        
+        .error-heading {
+            text-align: center;
+            color: #dc3545;
+        }
+    </style>
+    <script>
+        // Inject base.css component styles
+        if (typeof componentStyles !== 'undefined') {
+            const styleEl = document.createElement('style');
+            styleEl.textContent = componentStyles;
+            document.head.appendChild(styleEl);
+        }
+    </script>
+</head>
+<body>
+    <div class="setup-container">
+        <div class="logo-header">
+            <img src="/img/kore-logo.png" alt="Kore Logo">
+        </div>
+        
+        <div class="panel-level-1 setup-panel">
+            <h1>Setup</h1>
+            
+            <div class="step active">
+                <h2 class="error-heading">Invite Expired</h2>
+                <div class="form-group">
+                    <p style="color: var(--text-muted); font-size: 12px; line-height: 1.5; margin: 15px 0;">
+                        Invite token has expired. Please contact your administrator for a new invitation.
+                    </p>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
+                `);
+                return;
+            }
         }
         
         res.writeHead(200);
@@ -2372,6 +3639,7 @@ function getSetupFormHTML(token, email = '') {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Kore Setup</title>
+    <link rel="icon" type="image/png" href="/img/favicon.png">
     <script src="/lib/base.css"></script>
     <style>
         :root {
@@ -2545,7 +3813,11 @@ function getSetupFormHTML(token, email = '') {
             
             <div id="step2" class="step">
                 <h2>Step 2: Setup MFA</h2>
-                <label style="display: block; margin-bottom: 10px; font-size: 12px; color: var(--text-muted); font-weight: 500;">Secret Key</label>
+                <label style="display: block; margin-bottom: 10px; font-size: 12px; color: var(--text-muted); font-weight: 500;">Scan QR Code</label>
+                <div id="qrCodeContainer" style="display: flex; justify-content: center; margin-bottom: 15px;">
+                    <img id="qrCode" src="" alt="QR Code" style="width: 200px; height: 200px; border: 1px solid #314a59; border-radius: 6px; background-color: #172035;">
+                </div>
+                <label style="display: block; margin-bottom: 10px; font-size: 12px; color: var(--text-muted); font-weight: 500;">Or enter Secret Key manually</label>
                 <div class="panel-level-3" id="secretCode" style="word-break: break-all; padding: 12px; font-family: monospace; font-size: 12px; background-color: #172035; border: 1px solid #314a59; border-radius: 6px; margin-bottom: 15px;"></div>
                 <div class="form-group">
                     <label>6-digit code from authenticator</label>
@@ -2562,6 +3834,11 @@ function getSetupFormHTML(token, email = '') {
                 <h2>Setup Complete!</h2>
                 <p><strong>Save these backup codes:</strong></p>
                 <div class="panel-level-3" id="backupCodes" style="padding: 12px; font-family: monospace; font-size: 11px; background-color: #172035; border: 1px solid #314a59; border-radius: 6px; white-space: pre-wrap;"></div>
+                <div style="display: flex; justify-content: center; margin-top: 25px;">
+                    <div style="background-color: white; border-radius: 100px; border: 2px solid var(--brand-light); padding: 10px 25px; display: flex; justify-content: center; align-items: center;">
+                        <a href="#" onclick="showBackupCodesConfirmation(); return false;" style="color: var(--brand-light); text-decoration: none; font-size: 13px; font-weight: 900;">Proceed to Kore</a>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -2610,10 +3887,32 @@ function getSetupFormHTML(token, email = '') {
         }
         
         async function generateMFASecret() {
-            const response = await fetch('/auth/generate-totp', { method: 'POST' });
+            const payload = {};
+            
+            // For MFA reset, we have the email
+            if (isMFAReset && email) {
+                payload.email = email;
+            }
+            // For initial setup, we have the token
+            else if (token) {
+                payload.token = token;
+            }
+            
+            const response = await fetch('/auth/generate-totp', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
             const data = await response.json();
             totpSecret = data.secret;
+            
+            // Display secret key
             document.getElementById('secretCode').textContent = totpSecret;
+            
+            // Display QR code if available
+            if (data.qrCode) {
+                document.getElementById('qrCode').src = data.qrCode;
+            }
         }
         
         function previousStep() {
@@ -2654,6 +3953,14 @@ function getSetupFormHTML(token, email = '') {
             }
         }
         
+        function showBackupCodesConfirmation() {
+            const confirmed = confirm('Please confirm you have copied your backup codes to a safe location');
+            if (confirmed) {
+                // Redirect to main app
+                window.location.href = '/';
+            }
+        }
+        
         function showStep(n) {
             ['step1', 'step2', 'step3'].forEach(id => {
                 document.getElementById(id).classList.remove('active');
@@ -2669,6 +3976,649 @@ function getSetupFormHTML(token, email = '') {
  * Route auth requests
  * Returns true if handled, false if not an auth route
  */
+/**
+ * Handle GET /kore/page-permissions - retrieve all page permissions
+ */
+async function handleGetPagePermissions(req, res) {
+  try {
+    // Verify user is authenticated and has permission
+    const sessionToken = getSessionTokenFromCookies(req.headers.cookie);
+    const validation = validateUserSessionToken(sessionToken);
+    
+    if (!validation.valid) {
+      res.writeHead(401, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Unauthorized' }));
+      return;
+    }
+
+    // Check if user has permission to view page permissions
+    const hasPermission = await global.auth.hasPermission(validation.userId, 'permissions', 'view', 'all');
+    
+    if (!hasPermission) {
+      res.writeHead(403, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Forbidden' }));
+      return;
+    }
+
+    // Query page permissions
+    const query = `
+      SELECT 
+        wp.id, wp.title, wp.path,
+        p.permissionId, p.targetType, p.targetId, p.action, p.effect, p.scope, p.grantedAt, p.grantedBy,
+        CASE 
+          WHEN p.targetType = 'group' THEN ug.name
+          WHEN p.targetType = 'user' THEN u.fullName
+          ELSE NULL
+        END as targetName
+      FROM kore_sys.web_pages wp
+      LEFT JOIN kore_sys.permissions p ON p.resource = 'page' AND p.scope = wp.path
+      LEFT JOIN kore_sys.user_groups ug ON p.targetType = 'group' AND ug.groupId = p.targetId
+      LEFT JOIN kore_sys.users u ON p.targetType = 'user' AND u.userId = p.targetId
+      WHERE wp.path NOT IN ('BASE', '/notfound', '/forbidden')
+        AND wp.active = TRUE
+      ORDER BY wp.path, p.grantedAt DESC
+    `;
+
+    const connection = await global.auth.korePool.getConnection();
+    try {
+      const [rows] = await connection.execute(query);
+
+      // Transform flat results into nested structure
+      const pagePermissions = {};
+
+      for (const row of rows) {
+        const pagePath = row.path;
+
+        // Initialize page if not exists
+        if (!pagePermissions[pagePath]) {
+          pagePermissions[pagePath] = {
+            id: row.id,
+            title: row.title,
+            path: row.path,
+            permissions: []
+          };
+        }
+
+        // Add permission if it exists
+        if (row.permissionId) {
+          pagePermissions[pagePath].permissions.push({
+            permissionId: row.permissionId,
+            targetType: row.targetType,
+            targetId: row.targetId,
+            targetName: row.targetName,
+            action: row.action,
+            effect: row.effect,
+            scope: row.scope,
+            grantedAt: row.grantedAt,
+            grantedBy: row.grantedBy
+          });
+        }
+      }
+
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(pagePermissions, null, 2));
+
+    } finally {
+      connection.release();
+    }
+
+  } catch (error) {
+    console.error('[Auth] Error getting page permissions:', error);
+    res.writeHead(500, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Internal server error' }));
+  }
+}
+
+/**
+ * Handle PUT /kore/permissions - batch update permissions (generic for any resource)
+ */
+async function handleUpdatePermissions(req, res) {
+  console.log('[Auth] handleUpdatePermissions called for:', req.url);
+  try {
+    // Verify user is authenticated
+    const sessionToken = getSessionTokenFromCookies(req.headers.cookie);
+    const validation = validateUserSessionToken(sessionToken);
+    
+    console.log('[Auth] Token validation:', validation.valid ? 'valid' : 'invalid');
+    
+    if (!validation.valid) {
+      res.writeHead(401, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Unauthorized' }));
+      return;
+    }
+
+    // Check permission
+    const hasPermission = await global.auth.hasPermission(validation.userId, 'permissions', 'view', 'all');
+    console.log('[Auth] Permission check:', hasPermission);
+    
+    if (!hasPermission) {
+      res.writeHead(403, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Forbidden' }));
+      return;
+    }
+
+    // Parse request body
+    let payload = '';
+    req.on('data', chunk => {
+      payload += chunk.toString();
+    });
+
+    req.on('end', async () => {
+      try {
+        console.log('[Auth] Raw payload:', payload);
+        const { resource, inserts, updates, deletes } = JSON.parse(payload);
+        console.log('[Auth] Parsed request - resource:', resource, 'inserts:', inserts?.length, 'updates:', updates?.length, 'deletes:', deletes?.length);
+
+        if (!resource) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Missing resource type' }));
+          return;
+        }
+
+        const connection = await global.auth.korePool.getConnection();
+        try {
+          await connection.beginTransaction();
+
+          // Process deletes/revokes
+          if (deletes && deletes.length > 0) {
+            console.log('[Auth] Processing', deletes.length, 'deletes');
+            for (const permissionId of deletes) {
+              await connection.execute(
+                'UPDATE kore_sys.permissions SET revokedAt = NOW(), revokedBy = ? WHERE permissionId = ?',
+                [validation.userId, permissionId]
+              );
+            }
+          }
+
+          // Process inserts and updates
+          if (inserts && inserts.length > 0) {
+            console.log('[Auth] Processing', inserts.length, 'inserts');
+            for (const perm of inserts) {
+              await connection.execute(
+                'INSERT INTO kore_sys.permissions (targetType, targetId, resource, action, effect, scope, grantedAt, grantedBy) VALUES (?, ?, ?, ?, ?, ?, NOW(), ?)',
+                [perm.targetType, perm.targetId, resource, perm.action || 'view', perm.effect, perm.scope, validation.userId]
+              );
+            }
+          }
+
+          if (updates && updates.length > 0) {
+            console.log('[Auth] Processing', updates.length, 'updates');
+            for (const perm of updates) {
+              // Build dynamic UPDATE query based on what fields are being changed
+              const updateFields = [];
+              const updateParams = [];
+              
+              // Check which fields are present and add them to the update
+              if (perm.targetType !== undefined) {
+                updateFields.push('targetType = ?');
+                updateParams.push(perm.targetType);
+              }
+              if (perm.targetId !== undefined) {
+                updateFields.push('targetId = ?');
+                updateParams.push(perm.targetId);
+              }
+              if (perm.resource !== undefined) {
+                updateFields.push('resource = ?');
+                updateParams.push(perm.resource);
+              }
+              if (perm.scope !== undefined) {
+                updateFields.push('scope = ?');
+                updateParams.push(perm.scope);
+              }
+              if (perm.action !== undefined) {
+                updateFields.push('action = ?');
+                updateParams.push(perm.action);
+              }
+              if (perm.effect !== undefined) {
+                updateFields.push('effect = ?');
+                updateParams.push(perm.effect);
+              }
+              if (perm.revokedBy !== undefined) {
+                updateFields.push('revokedBy = ?');
+                updateParams.push(perm.revokedBy);
+                // If revoking, also set revokedAt
+                if (perm.revokedBy && !perm.revokedAt) {
+                  updateFields.push('revokedAt = NOW()');
+                }
+              }
+              
+              if (updateFields.length === 0) {
+                console.log('[Auth] No fields to update for permission:', perm.permissionId);
+                continue;
+              }
+
+              // Add the WHERE clause parameters
+              updateParams.push(perm.permissionId);
+              updateParams.push(resource);
+
+              const updateQuery = `UPDATE kore_sys.permissions SET ${updateFields.join(', ')} WHERE permissionId = ? AND resource = ?`;
+              console.log('[Auth] Updating permission:', perm.permissionId, 'with query:', updateQuery);
+              
+              const result = await connection.execute(updateQuery, updateParams);
+              console.log('[Auth] Update result:', result[0]);
+            }
+          }
+
+          await connection.commit();
+          console.log('[Auth] Transaction committed successfully');
+
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ success: true, message: 'Permissions updated' }));
+
+        } catch (error) {
+          await connection.rollback();
+          throw error;
+        } finally {
+          connection.release();
+        }
+
+      } catch (error) {
+        console.error('[Auth] Error updating permissions:', error);
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: error.message }));
+      }
+    });
+
+  } catch (error) {
+    console.error('[Auth] Error handling permissions update:', error);
+    res.writeHead(500, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Internal server error' }));
+  }
+}
+
+/**
+ * Handle GET /kore/users/:userId/permissions - get all permissions for a user (direct + group)
+ */
+async function handleGetUserPermissions(req, res) {
+  try {
+    const sessionToken = getSessionTokenFromCookies(req.headers.cookie);
+    const validation = validateUserSessionToken(sessionToken);
+
+    if (!validation.valid) {
+      res.writeHead(401, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Unauthorized' }));
+      return;
+    }
+
+    const hasPermission = await global.auth.hasPermission(validation.userId, 'permissions', 'view', 'all');
+    if (!hasPermission) {
+      res.writeHead(403, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Forbidden' }));
+      return;
+    }
+
+    const userId = req.url.split('/')[3];
+    const urlObj = new URL(req.url, 'http://localhost');
+    const includeRevoked = urlObj.searchParams.get('includeRevoked') === 'true';
+
+    const permissions = await global.auth.getUserPermissions(userId, includeRevoked);
+
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(permissions));
+
+  } catch (error) {
+    console.error('[Auth] Error handling get user permissions:', error);
+    res.writeHead(500, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Internal server error' }));
+  }
+}
+
+/**
+ * Handle POST /kore/permissions - query permissions with flexible filters
+ */
+async function handleGetPermissionsQuery(req, res) {
+  try {
+    // Verify user is authenticated
+    const sessionToken = getSessionTokenFromCookies(req.headers.cookie);
+    const validation = validateUserSessionToken(sessionToken);
+    
+    if (!validation.valid) {
+      res.writeHead(401, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Unauthorized' }));
+      return;
+    }
+
+    // Check permission to view permissions
+    const hasPermission = await global.auth.hasPermission(validation.userId, 'permissions', 'view', 'all');
+    
+    if (!hasPermission) {
+      res.writeHead(403, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Forbidden' }));
+      return;
+    }
+
+    // Parse request body
+    let payload = '';
+    req.on('data', chunk => {
+      payload += chunk.toString();
+    });
+
+    req.on('end', async () => {
+      try {
+        const filters = JSON.parse(payload || '{}');
+
+        // Query permissions with the provided filters
+        const permissions = await global.auth.getPermissions(filters);
+
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(permissions, null, 2));
+
+      } catch (error) {
+        console.error('[Auth] Error querying permissions:', error);
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: error.message }));
+      }
+    });
+
+  } catch (error) {
+    console.error('[Auth] Error handling permissions query:', error);
+    res.writeHead(500, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Internal server error' }));
+  }
+}
+
+/**
+ * Handle GET /kore/whitelists - Get available whitelist categories
+ */
+async function handleGetWhitelists(req, res) {
+  try {
+    const query = `SELECT whitelists FROM kore_sys.system_config LIMIT 1`;
+    const [rows] = await global.auth.korePool.execute(query);
+
+    let categories = [];
+    if (rows.length > 0 && rows[0].whitelists) {
+      try {
+        const whitelists = typeof rows[0].whitelists === 'string' 
+          ? JSON.parse(rows[0].whitelists) 
+          : rows[0].whitelists;
+        
+        // Extract the category names from the whitelist object
+        if (typeof whitelists === 'object' && whitelists !== null) {
+          categories = Object.keys(whitelists);
+        }
+      } catch (parseErr) {
+        console.warn('[Auth] Failed to parse whitelists:', parseErr.message);
+      }
+    }
+
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ whitelists: categories }));
+
+  } catch (error) {
+    console.error('[Auth] Error getting whitelists:', error);
+    res.writeHead(500, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Internal server error' }));
+  }
+}
+
+/**
+ * Handle GET /kore/allowed-ips - Get allowedIPs for a resource
+ * Query params: table, idColumn, id
+ * Example: /kore/allowed-ips?table=web_pages&idColumn=path&id=/workflows
+ */
+async function handleGetAllowedIPs(req, res) {
+  try {
+    const url = new URL(req.url, `http://${req.headers.host}`);
+    const table = url.searchParams.get('table');
+    const idColumn = url.searchParams.get('idColumn');
+    const id = url.searchParams.get('id');
+
+    // Validate required parameters
+    if (!table || !idColumn || !id) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'table, idColumn, and id are required' }));
+      return;
+    }
+
+    // Whitelist allowed tables to prevent SQL injection
+    const allowedTables = {
+      'web_pages': ['path', 'id'],
+      'workflows': ['workflowId', 'id'],
+      'forms': ['formId', 'id'],
+      // Add more as needed
+    };
+
+    if (!allowedTables[table]) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: `Table '${table}' is not allowed` }));
+      return;
+    }
+
+    if (!allowedTables[table].includes(idColumn)) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: `Column '${idColumn}' is not allowed for table '${table}'` }));
+      return;
+    }
+
+    // Query the table for allowedIPs
+    const query = `SELECT allowedIPs FROM kore_sys.${table} WHERE ${idColumn} = ?`;
+    const [rows] = await global.auth.korePool.execute(query, [id]);
+
+    if (rows.length === 0) {
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: `Resource not found in ${table}` }));
+      return;
+    }
+
+    const allowedIPs = rows[0].allowedIPs;
+    let parsedIPs = [];
+    
+    if (allowedIPs) {
+      try {
+        parsedIPs = typeof allowedIPs === 'string' ? JSON.parse(allowedIPs) : allowedIPs;
+      } catch (e) {
+        parsedIPs = allowedIPs; // Return as-is if not JSON
+      }
+    }
+
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ allowedIPs: parsedIPs }));
+
+  } catch (error) {
+    console.error('[Auth] Error getting allowed IPs:', error);
+    res.writeHead(500, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Internal server error' }));
+  }
+}
+
+/**
+ * Handle PUT /kore/allowed-ips - Update allowedIPs for a resource
+ * Body: {table, idColumn, id, allowedIPs}
+ */
+async function handleSaveAllowedIPs(req, res) {
+  try {
+    let payload = '';
+    req.on('data', chunk => {
+      payload += chunk.toString();
+    });
+
+    req.on('end', async () => {
+      try {
+        const { table, idColumn, id, allowedIPs } = JSON.parse(payload);
+
+        // Validate required parameters
+        if (!table || !idColumn || !id) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'table, idColumn, and id are required' }));
+          return;
+        }
+
+        // Whitelist allowed tables to prevent SQL injection
+        const allowedTables = {
+          'web_pages': ['path', 'id'],
+          'workflows': ['workflowId', 'id'],
+          'forms': ['formId', 'id'],
+          // Add more as needed
+        };
+
+        if (!allowedTables[table]) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: `Table '${table}' is not allowed` }));
+          return;
+        }
+
+        if (!allowedTables[table].includes(idColumn)) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: `Column '${idColumn}' is not allowed for table '${table}'` }));
+          return;
+        }
+
+        // Serialize allowedIPs if it's an array
+        const serializedIPs = Array.isArray(allowedIPs) ? JSON.stringify(allowedIPs) : allowedIPs;
+
+        // Update the table
+        const query = `UPDATE kore_sys.${table} SET allowedIPs = ? WHERE ${idColumn} = ?`;
+        const [result] = await global.auth.korePool.execute(query, [serializedIPs, id]);
+
+        if (result.affectedRows === 0) {
+          res.writeHead(404, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: `Resource not found in ${table}` }));
+          return;
+        }
+
+        console.log(`[Auth] Updated allowedIPs for ${table}.${idColumn} = ${id}`);
+
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: true, message: 'allowedIPs updated successfully' }));
+
+      } catch (error) {
+        console.error('[Auth] Error saving allowed IPs:', error);
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: error.message }));
+      }
+    });
+
+  } catch (error) {
+    console.error('[Auth] Error handling save allowed-ips request:', error);
+    res.writeHead(500, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Internal server error' }));
+  }
+}
+
+/**
+ * Handle POST /kore/has-permission - check if user has permission
+ * Required: userId
+ * One-of required: permissionId OR resource
+ * If resource: action is required, scope is optional
+ * If permissionId: all other inputs are ignored
+ */
+async function handleHasPermission(req, res) {
+  try {
+    let payload = '';
+    req.on('data', chunk => {
+      payload += chunk.toString();
+    });
+
+    req.on('end', async () => {
+      try {
+        const { userId, permissionId, resource, action, scope } = JSON.parse(payload);
+
+        // Validate required userId
+        if (!userId) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'userId is required' }));
+          return;
+        }
+
+        let hasPermission = false;
+
+        // If permissionId provided, check if it exists and belongs to user
+        if (permissionId) {
+          console.log('[Auth] Checking permissionId:', permissionId, 'for user:', userId);
+          const permissions = await global.auth.getPermissions({ permissionId });
+          
+          if (permissions.length > 0) {
+            const perm = permissions[0];
+            // Check if permission applies to user (directly or via group)
+            if (perm.targetType === 'user' && perm.targetId === userId) {
+              hasPermission = perm.effect === 'allow';
+            } else if (perm.targetType === 'group') {
+              // Check if user is in the group
+              const userGroups = await global.auth.getUserGroups(userId);
+              hasPermission = userGroups.includes(perm.targetId) && perm.effect === 'allow';
+            }
+          }
+        } 
+        // If resource provided, check permission
+        else if (resource) {
+          if (!action) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'action is required when resource is provided' }));
+            return;
+          }
+
+          // Convert scope "*" to null (matches permissions with NULL scope = applies to all)
+          const checkScope = (scope === '*') ? null : (scope || null);
+          
+          // Convert action "*" to check for full control (action="*" in database)
+          const checkAction = action;
+          
+          console.log('[Auth] Checking permission for user:', userId, 'resource:', resource, 'action:', checkAction, 'scope:', checkScope);
+          
+          // For page resources, check IP whitelist first (hard gate)
+          if (resource === 'page' && checkScope) {
+            try {
+              const clientIP = req.headers['x-forwarded-for']?.split(',')[0].trim() || 
+                               req.socket?.remoteAddress || 
+                               req.connection?.remoteAddress || 
+                               'unknown';
+              
+              console.log('[Auth] Page resource detected, checking IP whitelist for:', clientIP, 'on page:', checkScope);
+              
+              // Query the web_pages table for allowedIPs
+              const pageQuery = `SELECT allowedIPs FROM kore_sys.web_pages WHERE path = ? AND active = TRUE`;
+              const [pageRows] = await global.auth.korePool.execute(pageQuery, [checkScope]);
+              
+              if (pageRows.length > 0 && pageRows[0].allowedIPs) {
+                const ipAllowed = await global.auth.isIPAllowed(clientIP, pageRows[0].allowedIPs);
+                console.log('[Auth] IP check result for', clientIP, ':', ipAllowed);
+                
+                if (!ipAllowed) {
+                  console.log('[Auth] IP check failed for', clientIP, 'on page:', checkScope);
+                  hasPermission = false;
+                  // Return early since IP check is a hard gate
+                  res.writeHead(200, { 'Content-Type': 'application/json' });
+                  res.end(JSON.stringify({ hasPermission }));
+                  return;
+                }
+              }
+            } catch (ipCheckError) {
+              console.error('[Auth] Error during IP check for page:', ipCheckError);
+              // If IP check fails unexpectedly, deny access
+              hasPermission = false;
+              res.writeHead(200, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ hasPermission }));
+              return;
+            }
+          }
+          
+          // IP check passed (or not applicable), proceed with user/group permission check
+          hasPermission = await global.auth.hasPermission(userId, resource, checkAction, checkScope);
+        }
+        // Missing both permissionId and resource
+        else {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Either permissionId or resource is required' }));
+          return;
+        }
+
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ hasPermission }));
+
+      } catch (error) {
+        console.error('[Auth] Error checking permission:', error);
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: error.message }));
+      }
+    });
+
+  } catch (error) {
+    console.error('[Auth] Error handling has-permission request:', error);
+    res.writeHead(500, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Internal server error' }));
+  }
+}
+
 function routeAuthRequest(req, res) {
     if (req.method === 'GET' && (req.url === '/login' || req.url.startsWith('/login?'))) {
         handleLoginForm(req, res);
@@ -2679,6 +4629,9 @@ function routeAuthRequest(req, res) {
     } else if (req.method === 'POST' && req.url === '/auth/logout') {
         handleLogout(req, res);
         return true;
+    } else if (req.method === 'POST' && req.url === '/auth/delete-oldest-session') {
+        handleDeleteOldestSession(req, res);
+        return true;
     } else if (req.method === 'POST' && req.url === '/auth/refresh') {
         handleRefreshToken(req, res);
         return true;
@@ -2688,23 +4641,30 @@ function routeAuthRequest(req, res) {
     } else if (req.method === 'POST' && req.url === '/auth/validate-token') {
         handleValidateSessionToken(req, res);
         return true;
-    } else if (req.method === 'POST' && req.url.match(/^\/admin\/users\/[a-f0-9-]+\/reset-mfa$/)) {
+    } else if (req.method === 'POST' && req.url.match(/^\/admin\/users\/[a-fA-F0-9-]+\/reset-mfa$/)) {
         const userId = req.url.split('/')[3];
         handleAdminResetMFA(req, res, userId);
         return true;
-    } else if (req.method === 'POST' && req.url.match(/^\/admin\/users\/[a-f0-9-]+\/unlock$/)) {
+    } else if (req.method === 'POST' && req.url.match(/^\/admin\/users\/[a-fA-F0-9-]+\/unlock$/)) {
         const userId = req.url.split('/')[3];
         handleAdminUnlockUser(req, res, userId);
         return true;
     } else if (req.method === 'POST' && req.url === '/users') {
         handleCreateUser(req, res);
         return true;
-    } else if (req.method === 'POST' && req.url.match(/^\/users\/[a-f0-9-]+\/resend-invite$/)) {
-        handleResendInvite(req, res);
+    } else if (req.method === 'POST' && req.url.match(/^\/users\/[a-fA-F0-9-]+\/send-invite$/)) {
+        handleSendInvite(req, res);
         return true;
-    } else if (req.method === 'PUT' && req.url.match(/^\/users\/[a-f0-9-]+$/)) {
+    } else if (req.method === 'PUT' && req.url.match(/^\/users\/[a-fA-F0-9-]+$/)) {
         const userId = req.url.split('/')[2];
         handleUpdateUser(req, res, userId);
+        return true;
+    } else if (req.method === 'POST' && req.url === '/groups') {
+        handleCreateGroup(req, res);
+        return true;
+    } else if (req.method === 'PUT' && req.url.match(/^\/groups\/[a-fA-F0-9-]+$/)) {
+        const groupId = req.url.split('/')[2];
+        handleUpdateGroup(req, res, groupId);
         return true;
     } else if (req.method === 'POST' && req.url === '/auth/generate-totp') {
         handleGenerateTOTP(req, res);
@@ -2717,6 +4677,30 @@ function routeAuthRequest(req, res) {
         return true;
     } else if (req.method === 'POST' && req.url === '/usersetup/complete') {
         handleCompleteSetup(req, res);
+        return true;
+    } else if (req.method === 'GET' && req.url === '/kore/page-permissions') {
+        handleGetPagePermissions(req, res);
+        return true;
+    } else if (req.method === 'PUT' && req.url === '/kore/permissions') {
+        handleUpdatePermissions(req, res);
+        return true;
+    } else if (req.method === 'GET' && req.url.match(/^\/kore\/users\/[a-fA-F0-9-]+\/permissions(\?.*)?$/)) {
+        handleGetUserPermissions(req, res);
+        return true;
+    } else if (req.method === 'POST' && req.url === '/kore/permissions') {
+        handleGetPermissionsQuery(req, res);
+        return true;
+    } else if (req.method === 'POST' && req.url === '/kore/has-permission') {
+        handleHasPermission(req, res);
+        return true;
+    } else if (req.method === 'GET' && req.url === '/kore/whitelists') {
+        handleGetWhitelists(req, res);
+        return true;
+    } else if (req.method === 'GET' && req.url.startsWith('/kore/allowed-ips')) {
+        handleGetAllowedIPs(req, res);
+        return true;
+    } else if (req.method === 'PUT' && req.url === '/kore/allowed-ips') {
+        handleSaveAllowedIPs(req, res);
         return true;
     }
     

@@ -22,6 +22,8 @@
  *   POST   /kore/execute                 - Execute workflow
  *   GET    /kore/executions/:executionId - Get execution status
  *   POST   /kore/executions/:executionId/cancel - Cancel execution
+ * 
+ * @version 0.500 - [KORE_VERSION_INCREMENT_ON_UPDATE]
  */
 
 const https = require('https');
@@ -33,8 +35,8 @@ const { spawn } = require('child_process');
 const WebSocket = require('ws');
 const mysql = require('mysql2/promise');
 const Persephone = require('./persephone/persephone');
-const { handleWorkflowRequest, handleExecuteRequest, handleExecutionRequest } = require('./persephone/persephone');
 const Web = require('./web/web');
+const Plugins = require('./plugins/plugins');
 const CryptoUtils = require('./crypto-utils');
 const Auth = require('./auth/auth');
 const { validateUserSessionToken, isProtectedStaticFile, getSessionTokenFromCookies, getRefreshTokenFromCookies } = require('./auth/auth');
@@ -622,353 +624,7 @@ function getApiMember(key, origin, domain) {
 }
 
 // ========== MODULE SYSTEM ==========
-// In-memory cache of loaded plugins
-let loadedPlugins = {};
 
-/**
- * Load all enabled plugins from the database
- */
-async function loadPluginsFromDatabase() {
-    try {
-        if (!korePool) {
-            console.warn(`[${getTimestamp()}] WARNING: Kore pool not available, cannot load plugins`);
-            return;
-        }
-        
-        const connection = await korePool.getConnection();
-        try {
-            const [rows] = await connection.query('SELECT id, name, display_name, code, routes, rate_limit, config FROM `plugins` WHERE enabled = true');
-            
-            let loadedCount = 0;
-            for (const pluginRow of rows) {
-                try {
-                    // Create a plugin object with utilities it can use
-                    const pluginObj = { exports: {} };
-                    
-                    // Execute the plugin code in a context with access to utilities
-                    const pluginCode = pluginRow.code;
-                    
-                    try {
-                        const pluginFunction = new Function('module', 'exports', 'require', 'console', 'global', pluginCode);
-                        pluginFunction(
-                            pluginObj,
-                            pluginObj.exports,
-                            require,
-                            console,
-                            global
-                        );
-                    } catch (execError) {
-                        throw new Error(`Failed to execute plugin code: ${execError.message}`);
-                    }
-                    
-                    // Get the actual exports (could be set via module.exports or exports)
-                    const pluginExports = pluginObj.exports;
-                    
-                    // Parse config
-                    let pluginConfig = {};
-                    if (pluginRow.config) {
-                        try {
-                            pluginConfig = typeof pluginRow.config === 'string' ? JSON.parse(pluginRow.config) : pluginRow.config;
-                        } catch (e) {
-                            console.warn(`[${getTimestamp()}] WARNING: Could not parse config for plugin ${pluginRow.name}`);
-                        }
-                    }
-                    
-                    // Get routes from config (migrated from separate column)
-                    let routes = [];
-                    if (pluginConfig.routes) {
-                        routes = Array.isArray(pluginConfig.routes) ? pluginConfig.routes : [];
-                    } else if (pluginConfig.configRoutes) {
-                        // Support legacy configRoutes format
-                        routes = Array.isArray(pluginConfig.configRoutes) ? pluginConfig.configRoutes : [];
-                    }
-                    
-                    // Store loaded plugin
-                    loadedPlugins[pluginRow.name] = {
-                        id: pluginRow.id,
-                        name: pluginRow.name,
-                        display_name: pluginRow.display_name,
-                        routes: routes,
-                        handlers: pluginExports.handlers || {},
-                        config: pluginConfig,
-                        rateLimit: pluginConfig.rateLimit || pluginConfig.configRateLimit || 100,
-                        exported: pluginExports
-                    };
-                    
-                    console.log(`[${getTimestamp()}] Plugin loaded: ${pluginRow.name} (routes: ${routes.join(', ')})`);
-                    loadedCount++;
-                    
-                } catch (pluginError) {
-                    console.error(`[${getTimestamp()}] ERROR loading plugin ${pluginRow.name}:`, pluginError.message);
-                }
-            }
-            
-            console.log(`[${getTimestamp()}] Plugins loaded: ${loadedCount}/${rows.length} plugins`);
-            
-        } finally {
-            connection.release();
-        }
-    } catch (error) {
-        console.error(`[${getTimestamp()}] ERROR loading plugins from database:`, error.message);
-    }
-}
-
-// ========== PLUGIN OPERATION MANAGER ==========
-// Manages parallel operations with safe reload queueing
-
-class PluginOperationManager {
-  constructor(pluginName) {
-    this.pluginName = pluginName;
-    this.activeOperations = new Set();
-    this.reloadQueued = null;
-    this.isReloading = false;
-  }
-
-  // Start a normal operation (parallel, no blocking)
-  startOperation(opId) {
-    this.activeOperations.add(opId);
-    console.log(`[${getTimestamp()}] [${this.pluginName}] Operation ${opId} started. Active: ${this.activeOperations.size}`);
-  }
-
-  // End a normal operation
-  async endOperation(opId) {
-    this.activeOperations.delete(opId);
-    console.log(`[${getTimestamp()}] [${this.pluginName}] Operation ${opId} ended. Active: ${this.activeOperations.size}`);
-    
-    // If there's a reload queued AND no more operations, do the reload
-    if (this.reloadQueued && this.activeOperations.size === 0) {
-      await this.processQueuedReload();
-    }
-  }
-
-  // Queue a reload (or force immediate)
-  async enqueueReload(force = false) {
-    const reloadId = `reload-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-    
-    if (force && this.activeOperations.size > 0) {
-      console.log(`[${getTimestamp()}] [${this.pluginName}] Force reload queued. Waiting for ${this.activeOperations.size} operations to finish...`);
-    }
-
-    this.reloadQueued = {
-      id: reloadId,
-      force: force,
-      queuedAt: Date.now()
-    };
-
-    // If no operations active, start reload immediately
-    if (this.activeOperations.size === 0) {
-      await this.processQueuedReload();
-    }
-
-    return reloadId;
-  }
-
-  // Process the queued reload
-  async processQueuedReload() {
-    if (!this.reloadQueued || this.isReloading) return;
-
-    const reload = this.reloadQueued;
-    this.isReloading = true;
-
-    try {
-      console.log(`[${getTimestamp()}] [${this.pluginName}] Starting reload (${reload.force ? 'force' : 'normal'})...`);
-      await reloadPluginFromDatabase(this.pluginName);
-      console.log(`[${getTimestamp()}] [${this.pluginName}] Reload complete`);
-    } catch (error) {
-      console.error(`[${getTimestamp()}] [${this.pluginName}] Reload failed:`, error);
-    } finally {
-      this.isReloading = false;
-      this.reloadQueued = null;
-    }
-  }
-
-  getStatus() {
-    return {
-      activeOperations: this.activeOperations.size,
-      operationIds: Array.from(this.activeOperations),
-      reloadQueued: this.reloadQueued ? {
-        id: this.reloadQueued.id,
-        force: this.reloadQueued.force,
-        waitingFor: this.activeOperations.size,
-        queuedAt: this.reloadQueued.queuedAt
-      } : null,
-      isReloading: this.isReloading
-    };
-  }
-}
-
-// Operation managers for each plugin
-let operationManagers = {};
-
-/**
- * Initialize operation managers for all loaded plugins
- */
-function initializeOperationManagers() {
-  for (const pluginName in loadedPlugins) {
-    if (!operationManagers[pluginName]) {
-      operationManagers[pluginName] = new PluginOperationManager(pluginName);
-    }
-  }
-}
-
-// ========== END PLUGIN OPERATION MANAGER ==========
-
-/**
- * Get a handler for a specific route from loaded plugins
- */
-function getPluginHandler(route) {
-    for (const pluginName in loadedPlugins) {
-        const plugin = loadedPlugins[pluginName];
-        if (plugin.routes.includes(route) && plugin.handlers[route]) {
-            return {
-                plugin: plugin,
-                handler: plugin.handlers[route]
-            };
-        }
-    }
-    return null;
-}
-
-/**
- * Load or reload a specific plugin by name (handles new and existing plugins)
- */
-async function loadPlugin(pluginName) {
-    try {
-        if (!korePool) {
-            throw new Error('Kore pool not available');
-        }
-        
-        const connection = await korePool.getConnection();
-        try {
-            const [rows] = await connection.query('SELECT id, name, display_name, code, routes, rate_limit, config FROM `plugins` WHERE name = ? AND enabled = true', [pluginName]);
-            
-            if (rows.length === 0) {
-                throw new Error(`Plugin ${pluginName} not found or not enabled`);
-            }
-            
-            const pluginRow = rows[0];
-            
-            // Create a plugin object with utilities it can use
-            const pluginObj = { exports: {} };
-            
-            // Execute the plugin code in a context with access to utilities
-            const pluginCode = pluginRow.code;
-            let pluginExports = {};
-            
-            try {
-                const pluginFunction = new Function('module', 'exports', 'require', 'console', 'global', pluginCode);
-                
-                pluginFunction(
-                    pluginObj,
-                    pluginObj.exports,
-                    require,
-                    console,
-                    global
-                );
-                
-                // Get the actual exports (could be set via module.exports or exports)
-                pluginExports = pluginObj.exports;
-                
-            } catch (execError) {
-                throw new Error(`Failed to execute plugin code: ${execError.message}`);
-            }
-            
-            // Parse config
-            let pluginConfig = {};
-            if (pluginRow.config) {
-                try {
-                    pluginConfig = typeof pluginRow.config === 'string' ? JSON.parse(pluginRow.config) : pluginRow.config;
-                } catch (e) {
-                    console.warn(`[${getTimestamp()}] WARNING: Could not parse config for plugin ${pluginRow.name}`);
-                }
-            }
-            
-            // Get routes from config (migrated from separate column)
-            let routes = [];
-            if (pluginConfig.routes) {
-                routes = Array.isArray(pluginConfig.routes) ? pluginConfig.routes : [];
-            } else if (pluginConfig.configRoutes) {
-                // Support legacy configRoutes format
-                routes = Array.isArray(pluginConfig.configRoutes) ? pluginConfig.configRoutes : [];
-            }
-            
-            // Update loaded plugin
-            loadedPlugins[pluginName] = {
-                id: pluginRow.id,
-                name: pluginRow.name,
-                display_name: pluginRow.display_name,
-                routes: routes,
-                handlers: pluginExports.handlers || {},
-                config: pluginConfig,
-                rateLimit: pluginConfig.rateLimit || pluginConfig.configRateLimit || 100,
-                exported: pluginExports
-            };
-            
-            console.log(`[${getTimestamp()}] Plugin loaded: ${pluginName}`);
-            return {
-                success: true,
-                plugin: {
-                    name: pluginName,
-                    routes: routes,
-                    rateLimit: pluginRow.rate_limit
-                }
-            };
-            
-        } finally {
-            connection.release();
-        }
-    } catch (error) {
-        console.error(`[${getTimestamp()}] ERROR loading plugin ${pluginName}:`, error.message);
-        throw error;
-    }
-}
-
-/**
- * Reload a specific plugin from the database
- */
-async function reloadPluginFromDatabase(pluginName) {
-    try {
-        // Reload the plugin using the existing loadPlugin function
-        await loadPlugin(pluginName);
-        
-        // Reinitialize the operation manager for this plugin
-        operationManagers[pluginName] = new PluginOperationManager(pluginName);
-        
-        console.log(`[${getTimestamp()}] Plugin reloaded: ${pluginName}`);
-        return {
-            success: true,
-            message: `Plugin ${pluginName} reloaded successfully`
-        };
-    } catch (error) {
-        console.error(`[${getTimestamp()}] ERROR reloading plugin ${pluginName}:`, error.message);
-        throw error;
-    }
-}
-
-/**
- * Reload all plugins from the database
- */
-async function reloadAllPlugins() {
-    try {
-        console.log(`[${getTimestamp()}] Reloading all plugins...`);
-        loadedPlugins = {}; // Clear cache
-        operationManagers = {}; // Clear operation managers
-        await loadPluginsFromDatabase();
-        initializeOperationManagers();
-        
-        const pluginCount = Object.keys(loadedPlugins).length;
-        console.log(`[${getTimestamp()}] All plugins reloaded: ${pluginCount} plugins`);
-        
-        return {
-            success: true,
-            pluginsLoaded: pluginCount,
-            plugins: Object.keys(loadedPlugins)
-        };
-    } catch (error) {
-        console.error(`[${getTimestamp()}] ERROR reloading all plugins:`, error.message);
-        throw error;
-    }
-}
 
 /**
  * Strip Windows banner and command echo from runcommands output
@@ -1679,31 +1335,337 @@ function handleValidateSession(req, res) {
  * POST /kore/admin/reload-auth
  * Reload Auth module with fresh security config
  */
-async function handleReloadAuth(req, res) {
+async function handleReloadSubsystem(req, res) {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Content-Type', 'application/json');
     
     try {
-        console.log(`[${getTimestamp()}] Reloading Auth module...`);
+        // Get subsystem from query parameter
+        const url = require('url');
+        const parsedUrl = url.parse(req.url, true);
+        const subsystem = parsedUrl.query.subsystem || 'auth'; // Default to auth for backwards compatibility
         
-        // Load fresh security config
-        const [configRows] = await korePool.query('SELECT security_config FROM system_config WHERE id = 1');
-        const securityConfig = configRows[0]?.security_config || {};
+        // Validate subsystem
+        const validSubsystems = ['resources', 'auth', 'web', 'persephone', 'plugins', 'all'];
+        if (!validSubsystems.includes(subsystem)) {
+            res.writeHead(400);
+            res.end(JSON.stringify({ 
+                status: 'error',
+                message: `Invalid subsystem: ${subsystem}. Valid options are: ${validSubsystems.join(', ')}`
+            }));
+            return;
+        }
         
-        // Reinitialize Auth
-        delete require.cache[require.resolve('./auth/auth')];
-        const Auth = require('./auth/auth');
-        global.auth = new Auth(korePool, global.cryptoUtils, securityConfig, logAudit, process.env.JWT_SIGNING_KEY);
+        const reloadedSubsystems = [];
+        
+        // Helper function to reload individual subsystem
+        const reloadSingleSubsystem = async (name) => {
+            console.log(`[${getTimestamp()}] Reloading ${name} subsystem...`);
+            
+            if (name === 'auth') {
+                // Load fresh security config
+                const [configRows] = await korePool.query('SELECT security_config FROM system_config WHERE id = 1');
+                const securityConfig = configRows[0]?.security_config || {};
+                
+                // Reinitialize Auth
+                delete require.cache[require.resolve('./auth/auth')];
+                const Auth = require('./auth/auth');
+                global.auth = new Auth(korePool, global.cryptoUtils, securityConfig, logAudit, process.env.JWT_SIGNING_KEY);
+                reloadedSubsystems.push('auth');
+                
+            } else if (name === 'web') {
+                // Reinitialize Web module
+                delete require.cache[require.resolve('./web/web')];
+                const Web = require('./web/web');
+                global.Web = Web;
+                await Web.initialize(korePool);
+                reloadedSubsystems.push('web');
+
+            } else if (name === 'resources') {
+                delete require.cache[require.resolve('./resources/resources')];
+                global.Resources = require('./resources/resources');
+                reloadedSubsystems.push('resources');
+                
+            } else if (name === 'persephone') {
+                // Reinitialize Persephone automation engine
+                delete require.cache[require.resolve('./persephone/persephone')];
+                const Persephone = require('./persephone/persephone');
+                global.Persephone = Persephone;
+                await Persephone.initialize(korePool, mysqlPool, cwaPool);
+                global.Persephone.initialized = true;
+                reloadedSubsystems.push('persephone');
+                
+            } else if (name === 'plugins') {
+                // Reinitialize Plugins module
+                delete require.cache[require.resolve('./plugins/plugins')];
+                const Plugins = require('./plugins/plugins');
+                global.Plugins = Plugins;
+                await Plugins.initialize(korePool, getTimestamp, isIPWhitelisted, checkRateLimit);
+                await Plugins.loadAllPlugins();
+                reloadedSubsystems.push('plugins');
+            }
+        };
+        
+        // Reload subsystem(s) in startup order: Resources -> Auth -> Web -> Persephone -> Plugins
+        if (subsystem === 'all') {
+            await reloadSingleSubsystem('resources');
+            await reloadSingleSubsystem('auth');
+            await reloadSingleSubsystem('web');
+            await reloadSingleSubsystem('persephone');
+            await reloadSingleSubsystem('plugins');
+        } else {
+            await reloadSingleSubsystem(subsystem);
+        }
         
         res.writeHead(200);
         res.end(JSON.stringify({ 
             status: 'success',
-            message: 'Auth module reloaded'
+            message: `${reloadedSubsystems.length} subsystem(s) reloaded: ${reloadedSubsystems.join(', ')}`,
+            reloadedSubsystems: reloadedSubsystems
         }));
+        
     } catch (error) {
-        console.error(`[${getTimestamp()}] ERROR reloading Auth:`, error.message);
+        console.error(`[${getTimestamp()}] ERROR reloading subsystem:`, error.message);
         res.writeHead(500);
         res.end(JSON.stringify({ 
+            status: 'error',
+            message: error.message
+        }));
+    }
+}
+
+/**
+ * GET /kore/admin/system-health/modules
+ * Returns detailed list of base modules with their full paths
+ */
+async function handleSystemHealthModules(req, res) {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Content-Type', 'application/json');
+    
+    try {
+        const allModules = Object.keys(require.cache);
+        const baseModulesMap = new Map(); // Map of baseName -> fullPath
+        
+        allModules.forEach(modulePath => {
+            // Normalize path separators
+            const normalizedPath = modulePath.replace(/\\/g, '/');
+            
+            // Extract base module name and path
+            let baseName = '';
+            let basePath = '';
+            
+            // Check if it's a node_modules package
+            if (normalizedPath.includes('node_modules/')) {
+                const match = normalizedPath.match(/node_modules\/(@[^\/]+\/[^\/]+|[^\/]+)/);
+                if (match) {
+                    baseName = match[1];
+                    // Get the full path up to and including the package name
+                    const pathMatch = normalizedPath.match(/(.*node_modules\/(?:@[^\/]+\/)?[^\/]+)/);
+                    if (pathMatch) {
+                        basePath = pathMatch[1];
+                    }
+                }
+            }
+            // Otherwise use the filename or directory
+            else {
+                // Get just the filename or last meaningful path component
+                const parts = normalizedPath.split('/');
+                if (parts.length > 0) {
+                    baseName = parts[parts.length - 1];
+                    basePath = normalizedPath;
+                }
+            }
+            
+            // Store the first occurrence of each base module (to avoid duplicates)
+            if (baseName && !baseModulesMap.has(baseName)) {
+                baseModulesMap.set(baseName, basePath);
+            }
+        });
+        
+        // Convert to array of objects with name and path
+        const modulesArray = Array.from(baseModulesMap.entries())
+            .map(([name, path]) => ({ name, path }));
+        
+        // Custom sort: kore.js first, then subsystems, then everything else alphabetically
+        const sortedModules = modulesArray.sort((a, b) => {
+            const aName = a.name.toLowerCase();
+            const bName = b.name.toLowerCase();
+            
+            // Priority 1: kore.js comes first
+            if (aName === 'kore.js') return -1;
+            if (bName === 'kore.js') return 1;
+            
+            // Priority 2: subsystems in order (resources, auth, web, persephone, plugins)
+            const subsystemOrder = { 'resources.js': 0, 'auth.js': 1, 'web.js': 2, 'persephone.js': 3, 'plugins.js': 4 };
+            const aSubsystemPriority = subsystemOrder[aName];
+            const bSubsystemPriority = subsystemOrder[bName];
+            
+            if (aSubsystemPriority !== undefined && bSubsystemPriority !== undefined) {
+                return aSubsystemPriority - bSubsystemPriority;
+            }
+            if (aSubsystemPriority !== undefined) return -1;
+            if (bSubsystemPriority !== undefined) return 1;
+            
+            // Priority 3: everything else alphabetically
+            return aName.localeCompare(bName);
+        });
+        
+        res.writeHead(200);
+        res.end(JSON.stringify({
+            status: 'success',
+            totalBaseModules: sortedModules.length,
+            totalLoadedFiles: allModules.length,
+            modules: sortedModules
+        }));
+        
+    } catch (error) {
+        console.error(`[${getTimestamp()}] ERROR getting module list:`, error.message);
+        res.writeHead(500);
+        res.end(JSON.stringify({
+            status: 'error',
+            message: error.message
+        }));
+    }
+}
+
+/**
+ * GET /kore/admin/system-health
+ * Returns system health information
+ */
+async function handleSystemHealth(req, res) {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Content-Type', 'application/json');
+    
+    try {
+        // Calculate uptime in seconds
+        const uptimeSeconds = Math.floor(process.uptime());
+        const days = Math.floor(uptimeSeconds / 86400);
+        const hours = Math.floor((uptimeSeconds % 86400) / 3600);
+        const minutes = Math.floor((uptimeSeconds % 3600) / 60);
+        const seconds = uptimeSeconds % 60;
+        
+        let uptimeString = '';
+        if (days > 0) uptimeString += `${days}d `;
+        if (hours > 0) uptimeString += `${hours}h `;
+        if (minutes > 0) uptimeString += `${minutes}m `;
+        uptimeString += `${seconds}s`;
+        
+        // Get memory usage
+        const memUsage = process.memoryUsage();
+        const memoryHeapUsedMB = (memUsage.heapUsed / 1024 / 1024).toFixed(2);
+        const memoryHeapTotalMB = (memUsage.heapTotal / 1024 / 1024).toFixed(2);
+        const memoryExternalMB = (memUsage.external / 1024 / 1024).toFixed(2);
+        
+        // Get Node.js version
+        const nodeVersion = process.version;
+        
+        // Get Kore version
+        const koreVersionContent = fs.readFileSync('./kore.js', 'utf8');
+        const koreVersionMatch = koreVersionContent.match(/@version\s+([\d.]+)/);
+        const koreVersion = koreVersionMatch ? koreVersionMatch[1] : '0.500';
+        
+        // Get base module count (not individual files)
+        const allModules = Object.keys(require.cache);
+        const baseModulesSet = new Set();
+        
+        allModules.forEach(modulePath => {
+            const normalizedPath = modulePath.replace(/\\/g, '/');
+            let baseName = '';
+            
+            if (normalizedPath.includes('node_modules/')) {
+                const match = normalizedPath.match(/node_modules\/(@[^\/]+\/[^\/]+|[^\/]+)/);
+                if (match) baseName = match[1];
+            } else {
+                const parts = normalizedPath.split('/');
+                if (parts.length > 0) baseName = parts[parts.length - 1];
+            }
+            
+            if (baseName) baseModulesSet.add(baseName);
+        });
+        
+        const baseModuleCount = baseModulesSet.size;
+        
+        // Check subsystem status and versions
+        // Auth: Check if instance exists
+        // Web: Check if pool is initialized (IIFE singleton)
+        // Persephone: Check if initialized flag is set (IIFE singleton)
+        
+        // Helper function to extract version from module
+        const getModuleVersion = (modulePath) => {
+            try {
+                const moduleContent = require('fs').readFileSync(modulePath, 'utf8');
+                const versionMatch = moduleContent.match(/@version\s+([\d.]+)/);
+                return versionMatch ? versionMatch[1] : '1.0';
+            } catch (error) {
+                return '1.0';
+            }
+        };
+        
+        const authVersion = getModuleVersion('./auth/auth.js');
+        const webVersion = getModuleVersion('./web/web.js');
+        const persephoneVersion = getModuleVersion('./persephone/persephone.js');
+        const resourcesVersion = getModuleVersion('./resources/resources.js');
+        
+        const subsystemStatus = {
+            resources: {
+                status: global.Resources ? 'Initialized' : 'Not Initialized',
+                version: resourcesVersion
+            },
+            auth: {
+                status: global.auth ? 'Initialized' : 'Not Initialized',
+                version: authVersion
+            },
+            web: {
+                status: (global.Web && global.Web.pool) ? 'Initialized' : 'Not Initialized',
+                version: webVersion
+            },
+            persephone: {
+                status: (global.Persephone && global.Persephone.initialized) ? 'Initialized' : 'Not Initialized',
+                version: persephoneVersion
+            }
+        };
+        
+        // Test korePool connection
+        let korePoolStatus = 'Unknown';
+        if (korePool) {
+            try {
+                const [result] = await korePool.query('SELECT 1');
+                korePoolStatus = 'Connected';
+            } catch (error) {
+                korePoolStatus = 'Disconnected';
+            }
+        } else {
+            korePoolStatus = 'Not Initialized';
+        }
+        
+        res.writeHead(200);
+        res.end(JSON.stringify({
+            status: 'success',
+            timestamp: new Date().toISOString(),
+            uptime: {
+                seconds: uptimeSeconds,
+                formatted: uptimeString
+            },
+            koreVersion: koreVersion,
+            nodeVersion: nodeVersion,
+            memory: {
+                heapUsedMB: parseFloat(memoryHeapUsedMB),
+                heapTotalMB: parseFloat(memoryHeapTotalMB),
+                externalMB: parseFloat(memoryExternalMB)
+            },
+            modules: {
+                count: baseModuleCount
+            },
+            subsystems: subsystemStatus,
+            database: {
+                korePool: korePoolStatus
+            }
+        }));
+        
+    } catch (error) {
+        console.error(`[${getTimestamp()}] ERROR getting system health:`, error.message);
+        res.writeHead(500);
+        res.end(JSON.stringify({
             status: 'error',
             message: error.message
         }));
@@ -1759,7 +1721,7 @@ async function handleLoadPlugin(req, res) {
         }
         
         console.log(`[${getTimestamp()}] Loading plugin: ${pluginName}`);
-        const result = await loadPlugin(pluginName);
+        const result = await global.Plugins.loadPlugin(pluginName);
         
         res.writeHead(200);
         res.end(JSON.stringify(result));
@@ -1783,7 +1745,7 @@ async function handleReloadAllPlugins(req, res) {
     
     try {
         console.log(`[${getTimestamp()}] Reloading all plugins...`);
-        const result = await reloadAllPlugins();
+        const result = await global.Plugins.reloadAllPlugins();
         
         res.writeHead(200);
         res.end(JSON.stringify(result));
@@ -1989,7 +1951,7 @@ async function handleAddPlugin(req, res) {
 
             // Load the plugin into memory
             try {
-                await loadPlugin(name);
+                await global.Plugins.loadPlugin(name);
                 console.log(`[${getTimestamp()}] New plugin created and loaded: ${name} (ID: ${pluginId})`);
             } catch (loadError) {
                 console.warn(`[${getTimestamp()}] Plugin created but failed to load: ${name} - ${loadError.message}`);
@@ -2233,15 +2195,7 @@ function handleListPlugins(req, res) {
     res.setHeader('Content-Type', 'application/json');
     
     try {
-        const plugins = [];
-        for (const pluginName in loadedPlugins) {
-            const plugin = loadedPlugins[pluginName];
-            plugins.push({
-                name: pluginName,
-                display_name: plugin.display_name || pluginName,
-                config: plugin.config
-            });
-        }
+        const plugins = global.Plugins.listPlugins();
         
         res.writeHead(200);
         res.end(JSON.stringify({
@@ -2555,7 +2509,7 @@ async function handlePluginRequest(req, res) {
     console.log(`[${getTimestamp()}] Route: ${route}`);
     
     // Get the plugin handler for this route
-    const pluginHandler = getPluginHandler(route);
+    const pluginHandler = global.Plugins.getHandler(route);
     
     if (!pluginHandler) {
         console.log(`[${getTimestamp()}] No plugin handler found for ${route}`);
@@ -2585,7 +2539,7 @@ async function handlePluginRequest(req, res) {
     }
     
     // Get operation manager for this plugin
-    const manager = operationManagers[plugin.name];
+    const manager = global.Plugins.getOperationManager(plugin.name);
     if (!manager) {
         console.error(`[${getTimestamp()}] No operation manager for plugin ${plugin.name}`);
         res.writeHead(500, { 'Content-Type': 'application/json' });
@@ -2664,8 +2618,11 @@ function handlePluginsStatusRequest(req, res) {
     res.setHeader('Access-Control-Allow-Origin', '*');
     
     const status = {};
-    for (const [name, manager] of Object.entries(operationManagers)) {
-        status[name] = manager.getStatus();
+    for (const plugin of global.Plugins.listPlugins()) {
+        const manager = global.Plugins.getOperationManager(plugin.name);
+        if (manager) {
+            status[plugin.name] = manager.getStatus();
+        }
     }
     
     res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -2679,13 +2636,13 @@ function handlePluginsStatusRequest(req, res) {
 async function handleReloadPluginRequest(req, res, pluginName) {
     res.setHeader('Access-Control-Allow-Origin', '*');
     
-    if (!operationManagers[pluginName]) {
+    const manager = global.Plugins.getOperationManager(pluginName);
+    if (!manager) {
         res.writeHead(404, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: 'Plugin not found' }));
         return;
     }
 
-    const manager = operationManagers[pluginName];
     const urlParams = new URL(req.url, 'http://localhost').searchParams;
     const force = urlParams.get('force') === 'true';
 
@@ -2707,7 +2664,7 @@ async function handleReloadPluginRequest(req, res, pluginName) {
 function handleReloadStatusRequest(req, res, pluginName, reloadId) {
     res.setHeader('Access-Control-Allow-Origin', '*');
     
-    const manager = operationManagers[pluginName];
+    const manager = global.Plugins.getOperationManager(pluginName);
 
     if (!manager) {
         res.writeHead(404, { 'Content-Type': 'application/json' });
@@ -2750,8 +2707,11 @@ async function handleReloadAllPluginsRequest(req, res) {
     const force = urlParams.get('force') === 'true';
 
     const results = {};
-    for (const [name, manager] of Object.entries(operationManagers)) {
-        results[name] = await manager.enqueueReload(force);
+    for (const plugin of global.Plugins.listPlugins()) {
+        const manager = global.Plugins.getOperationManager(plugin.name);
+        if (manager) {
+            results[plugin.name] = await manager.enqueueReload(force);
+        }
     }
 
     res.writeHead(202, { 'Content-Type': 'application/json' });
@@ -3550,10 +3510,14 @@ const requestHandler = async (req, res) => {
             res.writeHead(404, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ error: 'Endpoint not found' }));
         }
-    } else if (req.url === '/kore/admin/reload-auth') {
-        handleReloadAuth(req, res);
+    } else if (req.url === '/kore/admin/reload-auth' || req.url.startsWith('/kore/admin/reload-subsystem')) {
+        handleReloadSubsystem(req, res);
     } else if (req.url === '/kore/admin/reload-api-members') {
         handleReloadApiMembers(req, res);
+    } else if (req.url === '/kore/admin/system-health/modules') {
+        handleSystemHealthModules(req, res);
+    } else if (req.url === '/kore/admin/system-health') {
+        handleSystemHealth(req, res);
     } else if (req.url.startsWith('/kore/email/smtp')) {
         handleSendEmail(req, res);
     } else if (req.url === '/kore/plugins/list') {
@@ -3574,9 +3538,13 @@ const requestHandler = async (req, res) => {
     } else if (req.url.startsWith('/node_modules/')) {
         // Node modules handled by web.js
         await Web.handleRoute(req, res);
-    } else if (getPluginHandler(req.url.split('?')[0])) {
+    } else if (await global.Plugins.handleRoute(req, res)) {
+        // Route handled by Plugins module
+    } else if (global.Plugins.getHandler(req.url.split('?')[0])) {
         // Route to loaded plugins (check before Persephone)
         handlePluginRequest(req, res);
+    } else if (global.Resources.handleRoute(req, res)) {
+        // Route handled by Resources module (workflows, forms, etc.)
     } else if (Persephone.handleRegisteredRoute(req, res)) {
         // Route was handled by Persephone registry
     } else if (await Web.handleRoute(req, res)) {
@@ -3684,13 +3652,29 @@ server.listen(PROXY_PORT, '0.0.0.0', async () => {
     // Load API members cache from database
     await loadApiMembersCache();
     
-    // Load plugins from database
-    await loadPluginsFromDatabase();
-    initializeOperationManagers();
-    
+    // Initialize Plugins module
+    try {
+        global.Plugins = Plugins;
+        await Plugins.initialize(korePool, getTimestamp, isIPWhitelisted, checkRateLimit);
+        await Plugins.loadAllPlugins();
+        console.log(`[${getTimestamp()}] Plugins module initialized`);
+    } catch (err) {
+        console.error(`[${getTimestamp()}] ERROR initializing Plugins:`, err.message);
+    }
+
+    // Initialize Resources module (stateless, no async init needed)
+    try {
+        global.Resources = require('./resources/resources');
+        console.log(`[${getTimestamp()}] Resources module initialized`);
+    } catch (err) {
+        console.error(`[${getTimestamp()}] ERROR initializing Resources module:`, err.message);
+    }
+
     // Initialize Persephone automation engine
     try {
+        global.Persephone = Persephone;
         await Persephone.initialize(korePool, mysqlPool, cwaPool);
+        global.Persephone.initialized = true;
         console.log(`[${getTimestamp()}] Persephone automation engine initialized`);
     } catch (err) {
         console.error(`[${getTimestamp()}] ERROR initializing Persephone:`, err.message);
@@ -3698,6 +3682,7 @@ server.listen(PROXY_PORT, '0.0.0.0', async () => {
     
     // Initialize Web module (dynamic page generation)
     try {
+        global.Web = Web;
         await Web.initialize(korePool);
         console.log(`[${getTimestamp()}] Web module initialized`);
     } catch (err) {

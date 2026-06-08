@@ -1297,7 +1297,7 @@ async function createJsonEditor(containerId, jsonData, renderCommands = []) {
         jsonText = jsonData;
     } else if (Object.keys(jsonData).length === 0) {
         // For empty objects, show { on first line and } on second
-        jsonText = '{\n}';
+        jsonText = '{\n  "var1": "value1"\n}';
     } else {
         jsonText = JSON.stringify(jsonData, null, 2);
     }
@@ -1913,24 +1913,23 @@ async function createOutputEditor(containerId, outputText, performRender = null)
         parent: container
     });
 
-    // Add global Ctrl+Enter handler if performRender is provided (only once)
-    if (performRender && !window._jinja_render_handler_attached) {
-        const globalKeydownHandler = (e) => {
-            if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
-                e.preventDefault();
-                if (window._performRender) {
-                    window._performRender();
-                }
-            }
-        };
-        document.addEventListener('keydown', globalKeydownHandler);
-        window._jinja_render_handler_attached = true;
-    }
-    
-    // Store current performRender function globally so the single handler can call it
-    if (performRender) {
-        window._performRender = performRender;
-    }
+// Add global Ctrl+Enter handler if performRender is provided (only once) DEPRECATED
+//    if (performRender && !window._jinja_render_handler_attached) {
+//        const globalKeydownHandler = (e) => {
+//            if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+//                e.preventDefault();
+//                if (window._performRender) {
+//                    window._performRender();
+//                }
+//            }
+//        };
+//        document.addEventListener('keydown', globalKeydownHandler);
+//        window._jinja_render_handler_attached = true;
+//    }  
+// Store current performRender function globally so the single handler can call it
+//    if (performRender) {
+//        window._performRender = performRender;
+//    }
 
     return editor;
 }
@@ -1979,29 +1978,6 @@ async function renderTemplateWithPersephone(template, context) {
     }
 }
 
-// Legacy stub for backwards compatibility (deprecated)
-function renderTemplate(template, context) {
-    let output = template;
-    
-    // Replace variables: {{ key }}
-    Object.entries(context).forEach(([key, value]) => {
-        const pattern = new RegExp(`\\{\\{\\s*${key}\\s*\\}\\}`, 'g');
-        const valueStr = typeof value === 'object' ? JSON.stringify(value) : String(value);
-        output = output.replace(pattern, valueStr);
-    });
-    
-    // Remove Jinja comments: {# ... #}
-    output = output.replace(/\{#[\s\S]*?#\}/g, '');
-    
-    // Basic for loop handling (simplified)
-    output = output.replace(/\{%\s*for\s+\w+\s+in\s+\w+\s*%\}[\s\S]*?\{%\s*endfor\s*%\}/g, '');
-    
-    // Basic if handling (simplified)
-    output = output.replace(/\{%\s*if\s+[\s\S]*?%\}[\s\S]*?\{%\s*endif\s*%\}/g, '');
-    output = output.replace(/\{%[\s\S]*?%\}/g, '');
-    
-    return output.trim();
-}
 
 // ============================================================================
 // Initialize all editors with sample data

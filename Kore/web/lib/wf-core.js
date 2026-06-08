@@ -2580,35 +2580,6 @@ document.body.appendChild(nodePreview);
                     modalOutputVariables = JSON.parse(JSON.stringify(currentOutputVariables));
                     
                     renderWorkflowVariablesSection(modal, modalInputVariables, modalOutputVariables, updatePreview);
-                    
-                    // Resize modal to fit content or 95% of viewport, whichever is smaller
-                    setTimeout(() => {
-                        const modalBody = document.querySelector('.modal-body');
-                        const modalBodyContent = document.querySelector('#modal-body-content');
-                        
-                        if (modal && modalBody && modalBodyContent) {
-                            // Calculate 95% of viewport height
-                            const viewportHeight = window.innerHeight;
-                            const maxModalHeight = viewportHeight * 0.95;
-                            
-                            // Get the actual content height
-                            const contentHeight = modalBodyContent.scrollHeight;
-                            
-                            // Account for modal header, footer, and padding
-                            const newHeight = Math.min(contentHeight + 80, maxModalHeight);
-                            
-                            // Set modal height
-                            modal.style.height = newHeight + 'px';
-                            modal.style.minHeight = 'auto';
-                            
-                            // Enable scrolling in modal-body-content if content is too tall
-                            if (contentHeight + 80 > maxModalHeight) {
-                                const maxContentHeight = maxModalHeight - 80;
-                                modalBodyContent.style.overflowY = 'auto';
-                                modalBodyContent.style.maxHeight = maxContentHeight + 'px';
-                            }
-                        }
-                    }, 100);
                 }
             }, 150);
         }

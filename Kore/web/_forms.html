@@ -12,12 +12,12 @@
                             <span style="color: var(--text-muted); font-size: 0.9rem;">Hide Inactive</span>
                         </label>
                     </div>
-                    <h2 style="margin: 0; flex: 1; text-align: center; font-size: 16px; color: var(--text-primary);">Workflows</h2>
-                    <button class="btn" data-color="green" onclick="openCreateModal()">Create New Workflow</button>
+                    <h2 style="margin: 0; flex: 1; text-align: center; font-size: 16px; color: var(--text-primary);">Forms</h2>
+                    <button class="btn" data-color="green" onclick="openCreateModal()">Create New Form</button>
                 </div>
                 <div style="display: flex; flex-direction: column; gap: 10px;">
-                    <div class="loading show" id="loadingSpinner">Loading workflows...</div>
-                    <div id="workflowsList" class="panel-level-3" style="padding: 0;"></div>
+                    <div class="loading show" id="loadingSpinner">Loading forms...</div>
+                    <div id="formsList" class="panel-level-3" style="padding: 0;"></div>
                 </div>
         </div>
         </div>
@@ -31,10 +31,10 @@
         display: block;
     }
 </style>
-<script src="/lib/workflows.js"></script>
-<script> // UTILITY FUNCTIONS
+<script src="/lib/forms.js"></script>
+<script> // PAGE INITIALIZATION
 window.addEventListener('DOMContentLoaded', async () => {
-await loadWorkflows(); // Load workflows data
-await buildWorkflowFoldersPanel('foldersPanelContainer', 'workflow-folders', 'workflows', 'renderFilteredWorkflows'); // Build and populate the folder sidebar
+await loadForms(); // Load forms data
+await buildWorkflowFoldersPanel('foldersPanelContainer', 'form-folders', 'forms', 'renderFilteredForms'); // Build and populate the folder sidebar
 });
 </script>

@@ -136,6 +136,9 @@ async function loadWorkflows() {
         window.workflows = workflows; // Make globally accessible
         console.log('Workflows loaded:', workflows.map(w => ({ id: w.id, name: w.name, folder_id: w.folder_id })));
         
+        // Load users and groups for name resolution in tables
+        await loadAllUsersAndGroupsForModal();
+        
         if (loadingSpinner) {
             loadingSpinner.classList.remove('show');
             loadingSpinner.style.display = 'none';
@@ -202,7 +205,8 @@ function ensureKoreLibLoaded() {
 /**
  * Show workflow context menu
  */
-function showWorkflowMenu(event, workflowId) {
+async function showWorkflowMenu(event, workflowId) {
+    console.log('showWorkflowMenu called with workflowId:', workflowId);
     event.stopPropagation();
     
     // Remove any existing menus
@@ -211,7 +215,44 @@ function showWorkflowMenu(event, workflowId) {
         existingMenu.remove();
     }
     
-    // Create menu
+    const workflow = workflows.find(w => w.id === workflowId);
+    const activeValue = workflow?.definition?.active;
+    const toggleButtonText = activeValue === false ? 'Enable' : 'Disable';
+    
+    // Check if user has edit or * permission for Settings
+    let canAccessSettings = true;
+    try {
+        const currentUser = getUser();
+        console.log('Current user:', currentUser);
+        if (currentUser) {
+            // Check if user has edit permission
+            const hasEditPermission = await checkUserPermission({
+                userId: currentUser,
+                resource: 'workflow',
+                action: 'edit',
+                scope: workflowId
+            });
+            console.log('Edit permission check:', { userId: currentUser, hasEditPermission });
+            
+            // Check if user has * (full) permission
+            const hasFullPermission = await checkUserPermission({
+                userId: currentUser,
+                resource: 'workflow',
+                action: '*',
+                scope: workflowId
+            });
+            console.log('Full permission check:', { userId: currentUser, hasFullPermission });
+            
+            canAccessSettings = hasEditPermission || hasFullPermission;
+            console.log('Can access settings:', canAccessSettings);
+        }
+    } catch (error) {
+        console.error('Error checking workflow settings permission:', error);
+        // Default to allowing access if permission check fails
+        canAccessSettings = true;
+    }
+    
+    // Now create menu with proper button state
     const menu = document.createElement('div');
     menu.id = 'workflowContextMenu';
     menu.style.cssText = `
@@ -224,17 +265,13 @@ function showWorkflowMenu(event, workflowId) {
         min-width: 180px;
     `;
     
-    const workflow = workflows.find(w => w.id === workflowId);
-    const activeValue = workflow?.definition?.active;
-    const toggleButtonText = activeValue === false ? 'Enable' : 'Disable';
-    
     menu.innerHTML = `
         <div style="padding: 4px;">
             <button onclick="toggleWorkflowActive('${workflowId}'); document.getElementById('workflowContextMenu').remove();" style="display: block; width: 100%; text-align: left; padding: 8px; border: none; background: transparent; color: #c0c0c0; cursor: pointer; font-size: 0.9rem;">
                 ${toggleButtonText}
             </button>
-            <button onclick="moveWorkflowToFolder('${workflowId}'); document.getElementById('workflowContextMenu').remove();" style="display: block; width: 100%; text-align: left; padding: 8px; border: none; background: transparent; color: #c0c0c0; cursor: pointer; font-size: 0.9rem;">
-                Move to Folder
+            <button onclick="moveWorkflowToFolder('${workflowId}'); document.getElementById('workflowContextMenu').remove();" style="display: block; width: 100%; text-align: left; padding: 8px; border: none; background: transparent; color: ${canAccessSettings ? '#c0c0c0' : '#666'}; cursor: ${canAccessSettings ? 'pointer' : 'not-allowed'}; font-size: 0.9rem;" ${canAccessSettings ? '' : 'disabled'}>
+                Settings
             </button>
             <button onclick="deleteWorkflow('${workflowId}'); document.getElementById('workflowContextMenu').remove();" style="display: block; width: 100%; text-align: left; padding: 8px; border: none; background: transparent; color: #ff6b6b; cursor: pointer; font-size: 0.9rem;">
                 Delete
@@ -267,34 +304,452 @@ function showWorkflowMenu(event, workflowId) {
 /**
  * Move workflow to folder (show modal for folder selection)
  */
-function moveWorkflowToFolder(workflowId) {
+/**
+ * Fetch workflow permissions from backend
+ */
+async function getWorkflowPermissions(workflowId) {
+    try {
+        const config = {
+            resource: 'workflow',
+            endpoint: 'https://app.equinoxits.com:1139/kore/permissions',
+            method: 'POST',
+            body: {
+                resource: 'workflow',
+                scope: workflowId
+            }
+        };
+        const permissions = await loadPermissionsForResource(config);
+        // Filter out revoked permissions
+        const activePermissions = permissions.filter(p => p.revokedAt === null);
+        console.log('Retrieved workflow permissions:', activePermissions);
+        return activePermissions;
+    } catch (error) {
+        console.error('Error fetching workflow permissions:', error);
+        return [];
+    }
+}
+
+/**
+ * Format target for display (e.g., "User: John Doe" or "Group: Admins")
+ */
+function formatPermissionTarget(permission) {
+    const typeCapitalized = permission.targetType.charAt(0).toUpperCase() + permission.targetType.slice(1);
+    return `${typeCapitalized}: ${permission.targetName}`;
+}
+
+/**
+ * Get effect badge HTML (green for allow, red for deny)
+ */
+function getEffectBadge(effect) {
+    const color = effect === 'allow' ? '#4caf50' : '#f44336';
+    const bgColor = effect === 'allow' ? 'rgba(76, 175, 80, 0.1)' : 'rgba(244, 67, 54, 0.1)';
+    return `<span style="background: ${bgColor}; color: ${color}; padding: 2px 8px; border-radius: 3px; font-size: 0.8rem; font-weight: 500; display: inline-block;">${effect === 'allow' ? '✓ Allow' : '✗ Deny'}</span>`;
+}
+
+/**
+ * Save workflow permissions (batch update: inserts, updates, deletes)
+ */
+async function saveWorkflowPermissions(workflowId) {
+    try {
+        const config = {
+            resource: 'workflow',
+            endpoint: 'https://app.equinoxits.com:1139/kore/permissions'
+        };
+        
+        await savePermissionsForResource(config, workflowId);
+        return { success: true };
+    } catch (error) {
+        console.error('Error saving workflow permissions:', error);
+        return { success: false, error: error.message };
+    }
+}
+
+/**
+ * Load all users and groups for permission management dropdowns
+ */
+/**
+ * Show Workflow Properties Modal with Folder, Permissions, and About tabs
+ */
+async function showWorkflowPropertiesModal(workflowId) {
     const workflow = workflows.find(w => w.id === workflowId);
-    if (!workflow) return;
+    if (!workflow) {
+        alert('Workflow not found');
+        return;
+    }
+
+    // Load users and groups for name resolution
+    await loadAllUsersAndGroupsForModal();
+
+    // Fetch permissions
+    const permissions = await getWorkflowPermissions(workflowId);
+
+    // Format metadata
+    const metadata = workflow.definition?.metadata || {};
+    const createdAt = metadata.created_at ? new Date(metadata.created_at).toLocaleString() : 'N/A';
+    const updatedAt = metadata.updated_at ? new Date(metadata.updated_at).toLocaleString() : 'N/A';
+    const createdBy = resolveIdToName(metadata.created_by) || 'N/A';
+    const updatedBy = resolveIdToName(metadata.updated_by) || 'N/A';
+
+    // Create modal content with tabs
+    const modalContent = document.createElement('div');
+    modalContent.innerHTML = `
+        <style>
+            .settings-tabs {
+                display: flex;
+                gap: 0;
+                margin-bottom: 10px;
+                border-bottom: 1px solid var(--border-primary);
+            }
+            .settings-tab-btn {
+                padding: 0 16px 5px 16px;
+                background: transparent;
+                border: none;
+                color: var(--text-secondary);
+                font-size: 0.9rem;
+                cursor: pointer;
+                border-bottom: 2px solid transparent;
+                transition: all 0.2s;
+            }
+            .settings-tab-btn:hover {
+                color: var(--text-primary);
+            }
+            .settings-tab-btn.active {
+                color: var(--text-primary);
+                border-bottom-color: var(--primary-color, #7ec8ff);
+            }
+            .settings-tab-panel {
+                display: none;
+            }
+            .settings-tab-panel.active {
+                display: block;
+            }
+            .folder-select {
+                width: 100%;
+                padding: 8px 12px;
+                border: 1px solid var(--border-primary);
+                border-radius: 4px;
+                background: var(--bg-input);
+                color: var(--text-primary);
+                font-size: 0.9rem;
+            }
+            .permissions-table {
+                width: 100%;
+                border-collapse: collapse;
+                margin-top: 12px;
+            }
+            .permissions-table tr {
+                border-bottom: 1px solid var(--border-primary);
+            }
+            .permissions-table td {
+                padding: 12px;
+                font-size: 0.9rem;
+            }
+            .permissions-table td:first-child {
+                width: 35%;
+            }
+            .permissions-table td:nth-child(2) {
+                width: 25%;
+                color: var(--text-secondary);
+            }
+            .permissions-table td:nth-child(3) {
+                text-align: right;
+            }
+            .metadata-grid {
+                display: grid;
+                grid-template-columns: 60% 40%;
+                gap: 20px;
+                margin-top: 12px;
+            }
+            .metadata-item {
+                display: flex;
+                flex-direction: row;
+                gap: 4px;
+            }
+            .metadata-label {
+                font-size: 0.75rem;
+                color: var(--text-secondary);
+                font-weight: 500;
+            }
+            .metadata-label::after {
+                content: ':';
+            }
+            .metadata-value {
+                font-size: 0.75rem;
+                color: var(--text-primary);
+                word-break: break-all;
+            }
+            .empty-state {
+                text-align: center;
+                padding: 20px;
+                color: var(--text-secondary);
+            }
+        </style>
+
+        <div class="panel-level-2">
+        <div class="settings-tabs">
+            <button class="settings-tab-btn active" data-tab="tab-folder">Folder</button>
+            <button class="settings-tab-btn" data-tab="tab-permissions">Permissions</button>
+            <button class="settings-tab-btn" data-tab="tab-about">About</button>
+        </div>
+
+        <!-- Folder Tab -->
+        <div class="settings-tab-panel active" id="tab-folder">
+            <div id="settingsFolderTree" style="border: 1px solid var(--border-primary); border-radius: 4px; max-height: 300px; overflow-y: auto; background: var(--bg-input); padding: 8px;">
+            </div>
+        </div>
+
+        <!-- Permissions Tab -->
+        <div class="settings-tab-panel" id="tab-permissions">
+            <div id="permissionsFormContainer"></div>
+        </div>
+
+        <!-- About Tab -->
+        <div class="settings-tab-panel" id="tab-about">
+            <div class="metadata-grid">
+                <div class="metadata-item">
+                    <div class="metadata-label">Workflow ID</div>
+                    <div class="metadata-value">${workflow.id}</div>
+                </div>
+                <div class="metadata-item">
+                    <div class="metadata-label">Version</div>
+                    <div class="metadata-value">${workflow.version}</div>
+                </div>
+                <div class="metadata-item">
+                    <div class="metadata-label">Created By</div>
+                    <div class="metadata-value">${createdBy}</div>
+                </div>
+                <div class="metadata-item">
+                    <div class="metadata-label">Created At</div>
+                    <div class="metadata-value">${createdAt}</div>
+                </div>
+                <div class="metadata-item">
+                    <div class="metadata-label">Updated By</div>
+                    <div class="metadata-value">${updatedBy}</div>
+                </div>
+                <div class="metadata-item">
+                    <div class="metadata-label">Updated At</div>
+                    <div class="metadata-value">${updatedAt}</div>
+                </div>
+            </div>
+        </div>
+        </div>
+    `;
+
+    showModal({
+        title: `${workflow.name} - Settings`,
+        content: modalContent,
+        resizable: true,
+        closeOnBackdrop: false,
+        buttons: [
+            {
+                label: 'Save',
+                type: 'success',
+                onClick: async () => {
+                    let folderChanged = false;
+                    if (window.pendingFolderChange !== undefined && window.pendingFolderChange !== workflow.folder_id) {
+                        folderChanged = true;
+                        const selectedFolderId = window.pendingFolderChange || null;
+                        workflow.folder_id = selectedFolderId;
+                        if (workflow.definition) {
+                            workflow.definition.folder_id = selectedFolderId;
+                        }
+                        await saveWorkflow(workflow.id, workflow, { updateMetadata: false });
+                        await loadWorkflows();
+                        if (window.currentSelectedFolder) {
+                            renderFilteredWorkflows(workflows.filter(w => 
+                                window.currentSelectedFolder.id === 'all' ? true :
+                                window.currentSelectedFolder.id === 'no_folder' ? !w.folder_id :
+                                w.folder_id === window.currentSelectedFolder.id
+                            ));
+                        } else {
+                            renderWorkflowsList();
+                        }
+                    }
+                    
+                    // Save permissions if they've changed
+                    let permissionSaveResult = { success: true };
+                    const permissionRows = document.querySelectorAll('.permission-row');
+                    if (permissionRows.length > 0) {
+                        permissionSaveResult = await saveWorkflowPermissions(workflow.id);
+                    }
+                    
+                    delete window.pendingFolderChange;
+                    
+                    // Close the Settings modal
+                    closeModal();
+                    
+                    // Show feedback on the status banner
+                    if (permissionSaveResult.success) {
+                        showStatusBanner('Workflow settings saved successfully', 'success');
+                    } else {
+                        showStatusBanner(`Failed to save permissions: ${permissionSaveResult.error}`, 'error');
+                    }
+                }
+            },
+            {
+                label: 'Close',
+                type: 'secondary',
+                onClick: () => {
+                    delete window.pendingFolderChange;
+                }
+            }
+        ]
+    });
+
+    // Setup tab switching on the modalContent element
+    const tabButtons = modalContent.querySelectorAll('.settings-tab-btn');
+    const tabPanels = modalContent.querySelectorAll('.settings-tab-panel');
     
-    showItemMoveModal({
-        itemId: workflowId,
-        itemName: workflow.name,
-        headerText: 'Move Workflow to Folder',
-        folders: window.workflows_folders || [],
-        currentFolderId: workflow.folder_id || null,
-        noParentLabel: 'No Folder',
-        onConfirm: (id, selectedFolderId) => {
-            const wf = workflows.find(w => w.id === id);
-            if (!wf) return;
+    // Function to adjust modal height based on tallest tab content
+    const adjustModalHeightToTab = () => {
+        const modal = document.querySelector('.modal-container');
+        const modalBodyContent = document.querySelector('#modal-body-content');
+        
+        if (modal && modalBodyContent) {
+            const tabsContainer = modalContent.querySelector('.settings-tabs');
             
-            // Update the workflow object and definition
-            wf.folder_id = selectedFolderId;
-            if (wf.definition) {
-                wf.definition.folder_id = selectedFolderId;
+            if (tabsContainer) {
+                // Find the height of the tallest panel
+                let maxPanelHeight = 0;
+                tabPanels.forEach(panel => {
+                    const panelHeight = panel.scrollHeight;
+                    if (panelHeight > maxPanelHeight) {
+                        maxPanelHeight = panelHeight;
+                    }
+                });
+                
+                const tabsHeight = tabsContainer.offsetHeight;
+                const contentHeight = tabsHeight + maxPanelHeight;
+                const totalHeight = contentHeight + 80; // +80 for header/footer/margins
+                
+                // Base height is 300px, expand if content is taller
+                const viewportHeight = window.innerHeight;
+                const maxModalHeight = viewportHeight * 0.95;
+                const newHeight = Math.min(Math.max(totalHeight, 300), maxModalHeight);
+                
+                modal.style.cssText = `height: ${newHeight}px !important; min-height: auto !important;`;
+                
+                const maxContentHeight = maxModalHeight - 100;
+                modalBodyContent.style.cssText = `overflow-y: auto !important; max-height: ${maxContentHeight}px !important;`;
+            }
+        }
+    };
+    
+    tabButtons.forEach(button => {
+        button.addEventListener('click', () => {
+            const targetTab = button.getAttribute('data-tab');
+            
+            // Deactivate all tabs and panels within this modal
+            tabButtons.forEach(btn => btn.classList.remove('active'));
+            tabPanels.forEach(panel => panel.classList.remove('active'));
+            
+            // Activate selected tab and panel
+            button.classList.add('active');
+            modalContent.querySelector(`#${targetTab}`).classList.add('active');
+            
+            // Adjust height when tab changes
+            setTimeout(adjustModalHeightToTab, 50);
+        });
+    });
+    
+    // Watch for content changes and adjust height (for when permissions are added)
+    const resizeObserver = new ResizeObserver(() => {
+        adjustModalHeightToTab();
+    });
+    
+    tabPanels.forEach(panel => {
+        resizeObserver.observe(panel);
+    });
+
+    // Populate folder tree and permissions in the modal
+    setTimeout(() => {
+        // Load folder tree
+        const folders = window.workflows_folders || [];
+        const treeContainer = modalContent.querySelector('#settingsFolderTree');
+        
+        if (treeContainer && folders.length > 0) {
+            // Create No Folder option
+            const noFolderDiv = document.createElement('div');
+            noFolderDiv.style.cssText = 'padding: 8px; cursor: pointer; border-radius: 3px; margin-bottom: 4px; height: 20px; font-size: 0.8rem;';
+            noFolderDiv.textContent = 'No Folder';
+            noFolderDiv.onclick = () => {
+                window.pendingFolderChange = null;
+                document.querySelectorAll('#settingsFolderTree > *').forEach(el => {
+                    el.style.background = 'transparent';
+                });
+                noFolderDiv.style.background = 'rgba(126, 200, 255, 0.2)';
+            };
+            if (!workflow.folder_id) {
+                noFolderDiv.style.background = 'rgba(126, 200, 255, 0.2)';
+                window.pendingFolderChange = null;
+            }
+            noFolderDiv.onmouseover = () => {
+                if (!noFolderDiv.style.background.includes('0.2')) {
+                    noFolderDiv.style.background = 'rgba(126, 200, 255, 0.1)';
+                }
+            };
+            noFolderDiv.onmouseout = () => {
+                if (!workflow.folder_id && window.pendingFolderChange === null) {
+                    noFolderDiv.style.background = 'rgba(126, 200, 255, 0.2)';
+                } else {
+                    noFolderDiv.style.background = 'transparent';
+                }
+            };
+            treeContainer.appendChild(noFolderDiv);
+            
+            // Render folder tree
+            const treeContainerForRender = document.createElement('div');
+            renderTree(folders, treeContainerForRender, {
+                onItemClick: (folder) => {
+                    window.pendingFolderChange = folder.id;
+                    document.querySelectorAll('#settingsFolderTree > *').forEach(el => {
+                        el.style.background = 'transparent';
+                    });
+                    noFolderDiv.style.background = 'transparent';
+                }
+            });
+            treeContainer.appendChild(treeContainerForRender);
+        }
+
+        // Load permissions
+        loadAllUsersAndGroupsForModal().then(() => {
+            const permissionsFormContainer = modalContent.querySelector('#permissionsFormContainer');
+            
+            if (permissionsFormContainer) {
+                // Use generic permissions form builder from base.js
+                displayPermissionsForm(permissionsFormContainer, permissions, {
+                    addButtonLabel: 'Add Permission',
+                    showSaveButton: false,  // Save is handled by the modal's Save button
+                    actions: ['view', 'edit', 'delete']  // Workflow action types
+                });
             }
             
-            // Save the workflow
-            saveWorkflow(wf.id, wf, { updateMetadata: false });
-            
-            // Reload and re-render
-            loadWorkflows();
-        }
-    });
+            // Adjust modal height after all content is loaded
+            setTimeout(() => {
+                const modal = document.querySelector('.modal');
+                const modalBodyContent = document.querySelector('.modal-body');
+                
+                if (modal && modalBodyContent) {
+                    const totalHeight = modalContent.scrollHeight;
+                    const viewportHeight = window.innerHeight;
+                    const maxModalHeight = viewportHeight * 0.95;
+                    const newHeight = Math.min(totalHeight + 100, maxModalHeight);
+                    
+                    modal.style.cssText = `height: ${newHeight}px !important; min-height: auto !important;`;
+                    
+                    const maxContentHeight = maxModalHeight - 100;
+                    modalBodyContent.style.cssText = `overflow-y: auto !important; max-height: ${maxContentHeight}px !important;`;
+                }
+            }, 100);
+        });
+    }, 50);
+}
+
+/**
+ * Legacy move to folder - now calls the Properties modal
+ */
+function moveWorkflowToFolder(workflowId) {
+    showWorkflowPropertiesModal(workflowId);
 }
 
 /**
@@ -2260,6 +2715,312 @@ function openCreateModal() {
                             label: 'OK',
                             className: 'btn-blue',
                             callback: ({ close }) => close()
+                        }
+                    ]
+                });
+            }
+        }
+    );
+}
+
+/**
+ * Render filtered workflows list
+ */
+function renderFilteredWorkflows(filteredWorkflows) {
+    const container = document.getElementById('workflowsList');
+    if (!container) return;
+    container.innerHTML = '';
+    if (filteredWorkflows.length === 0) {
+        container.innerHTML = `
+            <div class="empty-state">
+                <h3>No workflows in this folder</h3>
+                <p>Select another folder or create a new workflow</p>
+            </div>
+        `;
+        return;
+    }
+    let html = `
+        <table class="workflows-table" style="table-layout: fixed; padding: 0 4px; width: 100%;">
+            <thead style="background: transparent;">
+                <tr style="pointer-events: none; background: transparent !important; background-color: transparent !important;">
+                    <th style="padding: 0; background: transparent;"><input type="text" id="filterName" placeholder="Filter..." style="width: 100%; height: 100%; box-sizing: border-box; pointer-events: auto; padding: 4px; border-radius: 0; font-size: 0.8rem;" onkeyup="filterWorkflows()"></th>
+                    <th style="padding: 0; background: transparent;"><input type="text" id="filterFolder" placeholder="Filter..." style="width: 100%; height: 100%; box-sizing: border-box; pointer-events: auto; padding: 4px; border-radius: 0; font-size: 0.8rem;" onkeyup="filterWorkflows()"></th>
+                    <th style="padding: 0; background: transparent;"><input type="text" id="filterLastModified" placeholder="Filter..." style="width: 100%; height: 100%; box-sizing: border-box; pointer-events: auto; padding: 4px; border-radius: 0; font-size: 0.8rem;" onkeyup="filterWorkflows()"></th>
+                    <th style="padding: 0; background: transparent;"><input type="text" id="filterModifiedBy" placeholder="Filter..." style="width: 100%; height: 100%; box-sizing: border-box; pointer-events: auto; padding: 4px; border-radius: 0; font-size: 0.8rem;" onkeyup="filterWorkflows()"></th>
+                    <th style="display: none; padding: 0; background: transparent;"><input type="text" id="filterCreatedDate" placeholder="Filter..." style="width: 100%; height: 100%; box-sizing: border-box; pointer-events: auto; padding: 4px; border-radius: 0; font-size: 0.8rem;" onkeyup="filterWorkflows()"></th>
+                    <th style="width: 70px; min-width: 70px; max-width: 70px; padding: 0; background: transparent;"><select id="filterActive" style="width: 100%; height: 100%; box-sizing: border-box; cursor: pointer; pointer-events: auto; padding: 4px; border-radius: 0; font-size: 0.8rem;" onchange="filterWorkflows()"><option style="" value="">All</option><option style="" value="True">True</option><option style="" value="False">False</option></select></th>
+                    <th style="width: 80px; min-width: 80px; max-width: 80px; background: transparent;"></th>
+                    <th style="width: 70px; min-width: 70px; max-width: 70px; position: relative; background: transparent; padding: 0;"><div style="display: flex; justify-content: flex-end; align-items: center; height: 100%; padding: 0; width: 100%;"><button class="btn" data-color="blue" data-size="sm" onclick="loadWorkflows().then(() => renderFilteredWorkflows(workflows))" style="pointer-events: auto; cursor: pointer;">Refresh</button></div></th>
+                </tr>
+                <tr style="background: var(--bg-panel2);">
+                    <th style="font-weight: bold; font-size: 0.8rem; text-align: left;">Name</th>
+                    <th style="font-weight: bold; font-size: 0.8rem; text-align: left;">Folder</th>
+                    <th style="font-weight: bold; font-size: 0.8rem; text-align: left;">Last Modified</th>
+                    <th style="font-weight: bold; font-size: 0.8rem; text-align: left;">Modified By</th>
+                    <th style="display: none; font-weight: bold; font-size: 0.8rem; text-align: left;">Created Date</th>
+                    <th style="width: 70px; min-width: 70px; max-width: 70px; font-weight: bold; font-size: 0.8rem; text-align: left;">Active</th>
+                    <th style="width: 80px; min-width: 80px; max-width: 80px; font-weight: bold; font-size: 0.8rem; text-align: left;">Version</th>
+                    <th style="width: 70px; min-width: 70px; max-width: 70px; font-weight: bold; font-size: 0.8rem; text-align: right; padding: 6px; box-sizing: border-box;">Actions</th>
+                </tr>
+            </thead>
+            <tbody id="workflowsTableBody" style="background: transparent !important;">
+    `;
+    filteredWorkflows.forEach(workflow => {
+        const activeValue = workflow.definition?.active;
+        const activeDisplay = activeValue === undefined ? 'Undefined' : (activeValue ? 'True' : 'False');
+        const lastModified = workflow.definition?.metadata?.updated_at ? new Date(workflow.definition.metadata.updated_at).toLocaleString() : 'N/A';
+        const createdDate = workflow.definition?.metadata?.created_at ? new Date(workflow.definition.metadata.created_at).toLocaleString() : 'N/A';
+        const modifiedBy = resolveIdToName(workflow.definition?.metadata?.updated_by) || 'N/A';
+        
+        // Lookup folder name from folder_id
+        let folderName = '';
+        if (workflow.folder_id) {
+            const folders = window.workflows_folders || [];
+            const folder = folders.find(f => f.id === workflow.folder_id);
+            folderName = folder ? folder.name : workflow.folder_id;
+        }
+        
+        html += `
+            <tr data-workflow-id="${workflow.id}" style="font-size: 0.8rem; font-weight: normal;">
+                <td class="workflow-name"><a href="workflow-edit.html?id=${workflow.id}" style="color: inherit; text-decoration: none; font-weight: normal;">${workflow.name}</a></td>
+                <td style="font-weight: normal;">${folderName}</td>
+                <td style="white-space: nowrap; font-size: 0.8rem; font-weight: normal;">${lastModified}</td>
+                <td style="font-weight: normal;">${modifiedBy}</td>
+                <td style="display: none; white-space: nowrap; font-size: 0.8rem; font-weight: normal;">${createdDate}</td>
+                <td style="width: 70px; min-width: 70px; max-width: 70px; text-align: center; font-weight: normal;">${activeDisplay}</td>
+                <td class="version" style="width: 80px; min-width: 80px; max-width: 80px; font-weight: normal;">v${workflow.version}</td>
+                <td class="actions" style="width: 70px; min-width: 70px; max-width: 70px; text-align: right; overflow: hidden; padding: 2px; box-sizing: border-box; display: flex; gap: 2px; justify-content: flex-end; align-items: center; text-align: right;">
+                    <button class="btn btn-blue btn-small" onclick="editWorkflow('${workflow.id}')" style="flex: 0 0 24px; padding: 1px 2px; font-size: 0.7rem; height: 20px; display: flex; align-items: center; justify-content: center;" title="Edit">✎</button>
+                    <button class="btn btn-small" onclick="showWorkflowMenu(event, '${workflow.id}').catch(e => console.error('Menu error:', e))" style="flex: 0 0 24px; padding: 1px 2px; font-size: 0.7rem; height: 20px; background: var(--secondary-slate); border: 1px solid var(--secondary-slate); cursor: pointer; display: flex; align-items: center; justify-content: center;" title="More">⋯</button>
+                </td>
+            </tr>
+        `;
+    });
+    html += `
+            </tbody>
+        </table>
+    `;
+    container.innerHTML = html;
+}
+
+/**
+ * Render workflows list (alternative rendering function)
+ */
+function renderWorkflowsList() {
+    const container = document.getElementById('workflowsList');
+    const loadingSpinner = document.getElementById('loadingSpinner');
+    if (!container) return;
+    if (loadingSpinner) {
+        loadingSpinner.classList.remove('show');
+    }
+    container.innerHTML = '';
+    if (workflows.length === 0) {
+        container.innerHTML = `
+            <div class="empty-state">
+                <h3>No workflows yet</h3>
+                <p>Create your first workflow to get started</p>
+            </div>
+        `;
+        return;
+    }
+    let html = `
+        <table class="workflows-table" style="table-layout: fixed; padding: 0 4px; width: 100%;">
+            <thead style="background: transparent;">
+                <tr style="pointer-events: none; background: transparent !important; background-color: transparent !important;">
+                    <th style="padding: 0; background: transparent;"><input type="text" id="filterName" placeholder="Filter..." style="width: 100%; height: 100%; box-sizing: border-box; pointer-events: auto; padding: 4px; border-radius: 0; font-size: 0.8rem;" onkeyup="filterWorkflows()"></th>
+                    <th style="padding: 0; background: transparent;"><input type="text" id="filterLastModified" placeholder="Filter..." style="width: 100%; height: 100%; box-sizing: border-box; pointer-events: auto; padding: 4px; border-radius: 0; font-size: 0.8rem;" onkeyup="filterWorkflows()"></th>
+                    <th style="padding: 0; background: transparent;"><input type="text" id="filterModifiedBy" placeholder="Filter..." style="width: 100%; height: 100%; box-sizing: border-box; pointer-events: auto; padding: 4px; border-radius: 0; font-size: 0.8rem;" onkeyup="filterWorkflows()"></th>
+                    <th style="display: none; padding: 0; background: transparent;"><input type="text" id="filterCreatedDate" placeholder="Filter..." style="width: 100%; height: 100%; box-sizing: border-box; pointer-events: auto; padding: 4px; border-radius: 0; font-size: 0.8rem;" onkeyup="filterWorkflows()"></th>
+                    <th style="width: 70px; min-width: 70px; max-width: 70px; padding: 0; background: transparent;"><select id="filterActive" style="width: 100%; height: 100%; box-sizing: border-box; cursor: pointer; pointer-events: auto; padding: 4px; border-radius: 0; font-size: 0.8rem;" onchange="filterWorkflows()"><option style="" value="">All</option><option style="" value="True">True</option><option style="" value="False">False</option></select></th>
+                    <th style="width: 80px; min-width: 80px; max-width: 80px; background: transparent;"></th>
+                    <th style="width: 70px; min-width: 70px; max-width: 70px; position: relative; background: transparent; padding: 0;"><div style="display: flex; justify-content: flex-end; align-items: center; height: 100%; padding: 0; width: 100%;"><button class="btn" data-color="blue" data-size="sm" onclick="loadWorkflows().then(() => renderFilteredWorkflows(workflows))" style="pointer-events: auto; cursor: pointer;">Refresh</button></div></th>
+                </tr>
+                <tr style="background: var(--bg-panel2);">
+                    <th style="font-weight: bold; font-size: 0.8rem; text-align: left;">Name</th>
+                    <th style="font-weight: bold; font-size: 0.8rem; text-align: left;">Last Modified</th>
+                    <th style="font-weight: bold; font-size: 0.8rem; text-align: left;">Modified By</th>
+                    <th style="display: none; font-weight: bold; font-size: 0.8rem; text-align: left;">Created Date</th>
+                    <th style="width: 70px; min-width: 70px; max-width: 70px; font-weight: bold; font-size: 0.8rem; text-align: left;">Active</th>
+                    <th style="width: 80px; min-width: 80px; max-width: 80px; font-weight: bold; font-size: 0.8rem; text-align: left;">Version</th>
+                    <th style="width: 70px; min-width: 70px; max-width: 70px; font-weight: bold; font-size: 0.8rem; text-align: right; padding: 6px; box-sizing: border-box;">Actions</th>
+                </tr>
+            </thead>
+            <tbody id="workflowsTableBody" style="background: transparent !important;">
+    `;
+    workflows.forEach(workflow => {
+        const activeValue = workflow.definition?.active;
+        const activeDisplay = activeValue === undefined ? 'Undefined' : (activeValue ? 'True' : 'False');
+        const lastModified = workflow.definition?.metadata?.updated_at ? new Date(workflow.definition.metadata.updated_at).toLocaleString() : 'N/A';
+        const createdDate = workflow.definition?.metadata?.created_at ? new Date(workflow.definition.metadata.created_at).toLocaleString() : 'N/A';
+        const modifiedBy = resolveIdToName(workflow.definition?.metadata?.updated_by) || 'N/A';
+        html += `
+            <tr data-workflow-id="${workflow.id}" style="font-size: 0.8rem; font-weight: normal;">
+                <td class="workflow-name"><a href="workflow-edit.html?id=${workflow.id}" style="color: inherit; text-decoration: none; font-weight: normal;">${workflow.name}</a></td>
+                <td style="white-space: nowrap; font-size: 0.8rem; font-weight: normal;">${lastModified}</td>
+                <td style="font-weight: normal;">${modifiedBy}</td>
+                <td style="display: none; white-space: nowrap; font-size: 0.8rem; font-weight: normal;">${createdDate}</td>
+                <td style="width: 70px; min-width: 70px; max-width: 70px; text-align: center; font-weight: normal;">${activeDisplay}</td>
+                <td class="version" style="width: 80px; min-width: 80px; max-width: 80px; font-weight: normal;">v${workflow.version}</td>
+                <td class="actions" style="width: 70px; min-width: 70px; max-width: 70px; text-align: right; overflow: hidden; padding: 2px; box-sizing: border-box; display: flex; gap: 2px; justify-content: flex-end; align-items: center; text-align: right;">
+                    <button class="btn btn-blue btn-small" onclick="editWorkflow('${workflow.id}')" style="flex: 0 0 24px; padding: 1px 2px; font-size: 0.7rem; height: 20px; display: flex; align-items: center; justify-content: center;" title="Edit">✎</button>
+                    <button class="btn btn-small" onclick="showWorkflowMenu(event, '${workflow.id}').catch(e => console.error('Menu error:', e))" style="flex: 0 0 24px; padding: 1px 2px; font-size: 0.7rem; height: 20px; background: var(--secondary-slate); border: 1px solid var(--secondary-slate); cursor: pointer; display: flex; align-items: center; justify-content: center;" title="More">⋯</button>
+                </td>
+            </tr>
+        `;
+    });
+    html += `
+            </tbody>
+        </table>
+    `;
+    container.innerHTML = html;
+    applyHideInactive();
+}
+
+/**
+ * Show modal for moving an item to a folder
+ */
+function showItemMoveModal(options) {
+    const { itemId, itemName, headerText, folders, currentFolderId, noParentLabel, onConfirm } = options;
+    showModal({
+        type: 'custom',
+        title: headerText,
+        content: `<div id="moveItemFolderTree" style="background: var(--bg-input); border: 1px solid var(--border-primary); border-radius: 4px; padding: 8px; height: 250px; overflow-y: auto;"></div>`,
+        buttons: [
+            { label: 'Cancel', type: 'secondary' },
+            {
+                label: 'Move',
+                type: 'success',
+                onClick: () => {
+                    const folderId = window.moveItemSelectedFolder;
+                    if (onConfirm) {
+                        onConfirm(itemId, folderId);
+                    }
+                }
+            }
+        ],
+        customWidth: '500px',
+        customMinWidth: '300px'
+    });
+    const treeContainer = document.getElementById('moveItemFolderTree');
+    if (treeContainer) {
+        treeContainer.innerHTML = '';
+        const noParentItem = document.createElement('div');
+        noParentItem.style.cssText = 'border-radius: 4px; transition: background-color 0.2s; cursor: pointer; display: flex; align-items: center; padding-left: 10px; height: 20px; font-size: 0.8rem;';
+        noParentItem.setAttribute('data-folder-id', 'no_parent');
+        const noParentText = document.createElement('span');
+        noParentText.textContent = noParentLabel;
+        noParentText.style.fontStyle = 'italic';
+        noParentText.style.color = 'var(--text-primary)';
+        noParentItem.appendChild(noParentText);
+        noParentItem.onmouseenter = () => {
+            if (!noParentItem.classList.contains('selected')) {
+                noParentItem.style.backgroundColor = 'rgba(90, 159, 184, 0.15)';
+            }
+        };
+        noParentItem.onmouseleave = () => {
+            if (!noParentItem.classList.contains('selected')) {
+                noParentItem.style.backgroundColor = '';
+            }
+        };
+        noParentItem.onclick = () => {
+            treeDiv.querySelectorAll('[data-item-id]').forEach(el => {
+                el.classList.remove('selected');
+                el.style.backgroundColor = '';
+            });
+            noParentItem.classList.add('selected');
+            noParentItem.style.backgroundColor = 'rgba(90, 159, 184, 0.3)';
+            window.moveItemSelectedFolder = null;
+        };
+        treeContainer.appendChild(noParentItem);
+        if (!currentFolderId) {
+            noParentItem.classList.add('selected');
+            noParentItem.style.backgroundColor = 'rgba(90, 159, 184, 0.3)';
+            window.moveItemSelectedFolder = null;
+        }
+        const treeDiv = document.createElement('div');
+        renderTree(folders || [], treeDiv, {
+            onItemClick: (folder) => {
+                window.moveItemSelectedFolder = folder.id;
+                noParentItem.classList.remove('selected');
+                noParentItem.style.backgroundColor = '';
+                treeDiv.querySelectorAll('[data-item-id]').forEach(el => {
+                    el.classList.remove('selected');
+                    el.style.backgroundColor = '';
+                });
+                const selectedEl = treeDiv.querySelector(`[data-item-id="${folder.id}"]`);
+                if (selectedEl) {
+                    selectedEl.classList.add('selected');
+                    selectedEl.style.backgroundColor = 'rgba(90, 159, 184, 0.3)';
+                }
+            }
+        });
+        treeContainer.appendChild(treeDiv);
+        if (currentFolderId) {
+            const currentEl = treeDiv.querySelector(`[data-item-id="${currentFolderId}"]`);
+            if (currentEl) {
+                currentEl.classList.add('selected');
+                currentEl.style.backgroundColor = 'rgba(90, 159, 184, 0.3)';
+                window.moveItemSelectedFolder = currentFolderId;
+            }
+        }
+    }
+}
+
+/**
+ * Delete a workflow with confirmation
+ */
+function deleteWorkflow(workflowId) {
+    const workflow = workflows.find(w => w.id === workflowId);
+    if (!workflow) {
+        alert('Workflow not found');
+        return;
+    }
+    const workflowName = workflow.name;
+    const workflowVersion = workflow.version;
+    showDeleteConfirm(
+        `Are you sure you want to delete <strong>${workflowName}</strong>? This action cannot be undone.`,
+        async () => {
+            try {
+                const response = await fetch(`https://app.equinoxits.com:1139/kore/workflows/${workflowId}/${workflowVersion}`, {
+                    method: 'DELETE',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+                if (!response.ok) {
+                    const data = await response.json().catch(() => ({}));
+                    throw new Error(data.error || `HTTP ${response.status}: ${response.statusText}`);
+                }
+                // Close the delete confirmation modal
+                closeModal();
+                
+                showModal({
+                    type: 'success',
+                    title: 'Workflow Deleted',
+                    content: `<strong>${workflowName}</strong> has been successfully deleted.`,
+                    buttons: [
+                        {
+                            label: 'OK',
+                            type: 'success',
+                            onClick: () => {
+                                setTimeout(() => {
+                                    loadWorkflows().then(() => renderFilteredWorkflows(workflows));
+                                }, 500);
+                            }
+                        }
+                    ]
+                });
+            } catch (error) {
+                console.error('Error deleting workflow:', error);
+                showModal({
+                    type: 'error',
+                    title: 'Error Deleting Workflow',
+                    content: error.message,
+                    buttons: [
+                        {
+                            label: 'OK',
+                            type: 'secondary',
+                            onClick: () => {}
                         }
                     ]
                 });

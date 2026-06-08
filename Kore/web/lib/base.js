@@ -15,7 +15,7 @@ window.fetch = async function(url, options = {}) {
     let response = await originalFetch(url, options);
     
     // If 401 and not already a refresh request, try to refresh
-    if (response.status === 401 && url !== '/auth/refresh' && refreshAttemptCount < 1) {
+    if (response.status === 401 && url !== '/auth/refresh' && url !== '/auth/login' && refreshAttemptCount < 1) {
         // Prevent multiple simultaneous refresh attempts
         if (!isRefreshing) {
             isRefreshing = true;
@@ -68,6 +68,17 @@ async function attemptTokenRefresh() {
         console.error('Token refresh error:', err);
         throw err;
     }
+}
+
+/**
+ * Utility: Generate a random UUID v4
+ */
+function generateUUID() {
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+        const r = Math.random() * 16 | 0;
+        const v = c === 'x' ? r : (r & 0x3 | 0x8);
+        return v.toString(16);
+    });
 }
 
 /**
@@ -151,10 +162,140 @@ function injectComponentStyles() {
 }
 
 /**
+ * Cache for the built navigation menu
+ */
+let cachedNavigationMenuHTML = null;
+
+/**
+ * Menu items configuration: path, icon, label, resource (for permission check)
+ */
+const MENU_ITEMS = [
+    { path: '/', icon: 'i-dashboard', label: 'Dashboard', resource: 'page' },
+    { path: '/workflows', icon: 'i-workflows', label: 'Workflows', resource: 'page' },
+    { path: '/forms', icon: 'i-form', label: 'Forms', resource: 'page' },
+    { path: '/datatables', icon: 'i-datatable', label: 'Datatables', resource: 'page' },
+    { path: '/code-test', icon: 'i-code', label: 'Code Test', resource: 'page' },
+];
+
+const MENU_ITEMS_BOTTOM = [
+    { path: '/settings', icon: 'i-settings', label: 'Settings', resource: 'page' },
+    { path: '/userprefs', icon: 'i-user', label: 'User Preferences', resource: 'page' },
+];
+
+/**
+ * Build navigation menu with permission checks
+ * Caches the result so permission checks only happen once
+ * @returns {Promise<string>} - HTML for the nav-drawer content
+ */
+async function buildNavigationMenu() {
+    // Return cached menu if available
+    if (cachedNavigationMenuHTML) {
+        console.log('[Header] Using cached navigation menu');
+        return cachedNavigationMenuHTML;
+    }
+
+    console.log('[Header] Building navigation menu with permission checks');
+    
+    try {
+        // Get current user ID by validating the session token
+        let userId = null;
+        try {
+            const tokenResponse = await fetch('/auth/validate-token', { 
+                method: 'POST', 
+                credentials: 'include',
+                headers: { 'Content-Type': 'application/json' }
+            });
+            console.log('[Header] Token validation response status:', tokenResponse.status);
+            
+            if (tokenResponse.ok) {
+                const tokenData = await tokenResponse.json();
+                console.log('[Header] Token validation response data:', tokenData);
+                userId = tokenData.userId;
+                console.log('[Header] Extracted userId:', userId);
+            } else {
+                const errorText = await tokenResponse.text();
+                console.warn('[Header] Token validation failed with status', tokenResponse.status, ':', errorText);
+            }
+        } catch (tokenErr) {
+            console.warn('[Header] Could not validate session token:', tokenErr);
+        }
+
+        if (!userId) {
+            console.warn('[Header] Could not determine user ID for permission checks');
+        }
+
+        // Build top menu items with permission checks
+        let topMenuHTML = '';
+        for (const item of MENU_ITEMS) {
+            let hasAccess = true;
+            
+            if (userId) {
+                try {
+                    hasAccess = await checkUserPermission({
+                        userId: userId,
+                        resource: item.resource,
+                        action: 'view',
+                        scope: item.path
+                    });
+                } catch (err) {
+                    console.error(`[Header] Error checking permission for ${item.path}:`, err);
+                    hasAccess = false;
+                }
+            }
+
+            if (hasAccess) {
+                topMenuHTML += `<a href="${item.path}" style="color: #7ec8ff; font-size: 0.9rem; text-decoration: none; display: flex; align-items: center; padding: 6px 0; transition: opacity 0.2s; gap: 6px;" onmouseover="this.style.opacity='0.7'" onmouseout="this.style.opacity='1'"><svg width="26" height="26" style="flex-shrink: 0;"><use href="#${item.icon}"/></svg><span>${item.label}</span></a>`;
+            }
+        }
+
+        // Build bottom menu items with permission checks
+        let bottomMenuHTML = '';
+        for (const item of MENU_ITEMS_BOTTOM) {
+            let hasAccess = true;
+            
+            if (userId) {
+                try {
+                    hasAccess = await checkUserPermission({
+                        userId: userId,
+                        resource: item.resource,
+                        action: 'view',
+                        scope: item.path
+                    });
+                } catch (err) {
+                    console.error(`[Header] Error checking permission for ${item.path}:`, err);
+                    hasAccess = false;
+                }
+            }
+
+            if (hasAccess) {
+                bottomMenuHTML += `<a href="${item.path}" style="color: #7ec8ff; font-size: 0.9rem; text-decoration: none; display: flex; align-items: center; padding: 6px 0; transition: opacity 0.2s; gap: 6px;" onmouseover="this.style.opacity='0.7'" onmouseout="this.style.opacity='1'"><svg width="26" height="26" style="flex-shrink: 0;"><use href="#${item.icon}"/></svg><span>${item.label}</span></a>`;
+            }
+        }
+
+        // Assemble final menu HTML
+        cachedNavigationMenuHTML = topMenuHTML + 
+            `<div style="margin-top: auto;">` + 
+            bottomMenuHTML +
+            `<div style="color: #7ec8ff; font-size: 0.9rem; padding: 6px 0; cursor: pointer; transition: opacity 0.2s; display: flex; align-items: center; gap: 6px;" onclick="logout()" onmouseover="this.style.opacity='0.7'" onmouseout="this.style.opacity='1'"><svg width="26" height="26" style="flex-shrink: 0;"><use href="#i-logout"/></svg><span>Logout</span></div>` +
+            `</div>`;
+
+        console.log('[Header] Navigation menu cached');
+        return cachedNavigationMenuHTML;
+    } catch (error) {
+        console.error('[Header] Error building navigation menu:', error);
+        // Fallback to basic menu if permission checks fail
+        return `<a href="/" style="color: #7ec8ff; font-size: 0.9rem; text-decoration: none; display: flex; align-items: center; padding: 6px 0; transition: opacity 0.2s; gap: 6px;"><svg width="26" height="26" style="flex-shrink: 0;"><use href="#i-dashboard"/></svg><span>Dashboard</span></a>
+                <div style="margin-top: auto;">
+                    <div style="color: #7ec8ff; font-size: 0.9rem; padding: 6px 0; cursor: pointer; transition: opacity 0.2s; display: flex; align-items: center; gap: 6px;" onclick="logout()"><svg width="26" height="26" style="flex-shrink: 0;"><use href="#i-logout"/></svg><span>Logout</span></div>
+                </div>`;
+    }
+}
+
+/**
  * Builds and styles the Equinox Kore header and navigation.
  * @param {string} pageTitle - The text to display in the center of the header.
  */
-function buildKoreHeader(pageTitle = "Kore System") {
+async function buildKoreHeader(pageTitle = "Kore System") {
     const style = document.createElement('style');
     style.textContent = `
         :root {
@@ -299,7 +440,7 @@ function buildKoreHeader(pageTitle = "Kore System") {
         .variable-title { 
             color: var(--text-header); 
             font-size: 1rem;
-            font-weight: 500; 
+            font-weight: 750; 
             text-transform: uppercase; 
             letter-spacing: 3px; 
             white-space: nowrap;
@@ -379,17 +520,16 @@ function buildKoreHeader(pageTitle = "Kore System") {
         <div class="title-pod"><div class="variable-title">${pageTitle}</div></div>
         <div class="menu-circle" id="hamburger"><div class="hamburger-lines"></div></div>
     </div>
-    <nav class="nav-drawer" id="drawer">
-        <a href="/" style="color: #7ec8ff; font-size: 0.9rem; text-decoration: none; display: flex; align-items: center; padding: 6px 0; transition: opacity 0.2s; gap: 6px;" onmouseover="this.style.opacity='0.7'" onmouseout="this.style.opacity='1'"><svg width="20" height="20" style="flex-shrink: 0;"><use href="#i-dashboard"/></svg><span>Dashboard</span></a>
-        <a href="/workflows" style="color: #7ec8ff; font-size: 0.9rem; text-decoration: none; display: flex; align-items: center; padding: 6px 0; transition: opacity 0.2s; gap: 6px;" onmouseover="this.style.opacity='0.7'" onmouseout="this.style.opacity='1'"><svg width="20" height="20" style="flex-shrink: 0;"><use href="#i-workflows"/></svg><span>Workflows</span></a>
-        <div style="margin-top: auto;">
-            <a href="/settings" style="color: #7ec8ff; font-size: 0.9rem; text-decoration: none; display: flex; align-items: center; padding: 6px 0; transition: opacity 0.2s; gap: 6px;" onmouseover="this.style.opacity='0.7'" onmouseout="this.style.opacity='1'"><svg width="20" height="20" style="flex-shrink: 0;"><use href="#i-settings"/></svg><span>Settings</span></a>
-            <a href="/userprefs" style="color: #7ec8ff; font-size: 0.9rem; text-decoration: none; display: flex; align-items: center; padding: 6px 0; transition: opacity 0.2s; gap: 6px;" onmouseover="this.style.opacity='0.7'" onmouseout="this.style.opacity='1'"><svg width="20" height="20" style="flex-shrink: 0;"><use href="#i-user"/></svg><span>User Preferences</span></a>
-            <div style="color: #7ec8ff; font-size: 0.9rem; padding: 6px 0; cursor: pointer; transition: opacity 0.2s; display: flex; align-items: center; gap: 6px;" onclick="logout()" onmouseover="this.style.opacity='0.7'" onmouseout="this.style.opacity='1'"><svg width="20" height="20" style="flex-shrink: 0;"><use href="#i-logout"/></svg><span>Logout</span></div>
-        </div>
-    </nav>`;
+    <nav class="nav-drawer" id="drawer"></nav>`;
 
     document.body.insertAdjacentHTML('afterbegin', headerHTML);
+    
+    // Build and populate the navigation menu (with permission checks and caching)
+    const navDrawer = document.getElementById('drawer');
+    if (navDrawer) {
+        const menuHTML = await buildNavigationMenu();
+        navDrawer.innerHTML = menuHTML;
+    }
     
     // Load icon definitions from external file if not already present
     if (!document.getElementById('kore-icons')) {
@@ -501,7 +641,9 @@ function showModal(options = {}) {
         onClose = null,
         closeOnBackdrop = true,
         resizable = false,
-        suppressBodyScroll = false
+        suppressBodyScroll = false,
+        width = null,
+        height = null
     } = options;
 
     // Create backdrop if it doesn't exist
@@ -520,7 +662,7 @@ function showModal(options = {}) {
         <div class="modal-header">
             <h2>${title}</h2>
         </div>
-        <div class="modal-body${suppressBodyScroll ? ' modal-body-no-scroll' : ''}" id="modal-body-content">
+        <div class="modal-body${suppressBodyScroll ? ' modal-body-no-scroll' : ''}" id="modal-body-content" style="height:0px">
             ${typeof content === 'string' ? content : ''}
         </div>
         <div class="modal-footer" id="modal-footer">
@@ -565,8 +707,13 @@ function showModal(options = {}) {
                     if (result instanceof Promise) {
                         await result;
                     }
+                    // Only close modal if onClick didn't return false (allowing onClick to handle closing)
+                    if (result !== false) {
+                        closeModal();
+                    }
+                } else {
+                    closeModal();
                 }
-                closeModal();
             });
             footer.appendChild(button);
         });
@@ -600,6 +747,11 @@ function showModal(options = {}) {
     modal.style.zIndex = zIndex;
     // Wide drop shadow extending in all directions
     modal.style.boxShadow = '0 0 180px 90px rgba(0, 0, 0, 0.75)';
+    
+    if (width) modal.style.width = width;
+    if (height) modal.style.height = height;
+    if (width === 'auto') { modal.style.maxWidth = '95vw'; }
+    if (height === 'auto') { modal.style.maxHeight = '90vh'; modal.style.overflowY = 'auto'; }
     
     if (stackDepth > 0) {
         const offsetX = stackDepth * 30;
@@ -650,13 +802,17 @@ function showModal(options = {}) {
         }
     }
 
-    // Backdrop click to close (only add listener once per backdrop)
-    if (closeOnBackdrop && !backdrop.hasBackdropListener) {
-        backdrop.addEventListener('click', (e) => {
-            if (e.target === backdrop) closeModal();
-        });
-        backdrop.hasBackdropListener = true;
+    // Backdrop click to close - handle listener based on closeOnBackdrop setting
+    if (!backdrop.backdropClickHandler) {
+        backdrop.backdropClickHandler = (e) => {
+            if (e.target === backdrop && backdrop.closeOnBackdrop !== false) {
+                closeModal();
+            }
+        };
+        backdrop.addEventListener('click', backdrop.backdropClickHandler);
     }
+    // Update the current closeOnBackdrop setting on the backdrop
+    backdrop.closeOnBackdrop = closeOnBackdrop;
 
     // ESC key to close
     const escapeHandler = (e) => {
@@ -854,7 +1010,7 @@ async function getUsers(sessionToken, user) {
             sessionToken,
             user,
             'kore_sys',
-            'SELECT userId, email, fullName, status, active, mfaEnabled, lockedUntil, createdAt, lastLoginAt, groupIds FROM users ORDER BY fullName, email'
+            'SELECT userId, fullName, email, active, status, mfaEnabled, createdAt, lastLoginAt, lockedUntil, groupIds FROM users ORDER BY fullName'
         );
         return result.result || [];
     } catch (error) {
@@ -869,7 +1025,7 @@ async function getGroups(sessionToken, user) {
             sessionToken,
             user,
             'kore_sys',
-            'SELECT groupId, name, active, description FROM user_groups ORDER BY name'
+            'SELECT groupId, name, description, active, createdAt, createdBy FROM user_groups ORDER BY name'
         );
         return result.result || [];
     } catch (error) {
@@ -900,10 +1056,10 @@ async function getSecurityConfig(sessionToken, user) {
 /**
  * Execute SQL query
  */
-async function executeSqlQuery(sessionToken, user, database, query, options = {}) {
+async function executeSqlQuery(sessionToken, user, datasource, query, options = {}) {
     try {
-        if (!sessionToken || !user || !database || !query) {
-            throw new Error('sessionToken, user, database, and query are required');
+        if (!sessionToken || !user || !datasource || !query) {
+            throw new Error('sessionToken, user, datasource, and query are required');
         }
         
         const response = await fetch(`https://app.equinoxits.com:1139/sqlquery`, {
@@ -913,7 +1069,7 @@ async function executeSqlQuery(sessionToken, user, database, query, options = {}
                 'X-Session-Token': sessionToken
             },
             body: JSON.stringify({
-                database: database,
+                datasource: datasource,
                 query: query
             })
         });
@@ -1199,6 +1355,24 @@ function showFormModal(title, fields, onSave, readOnly = false, resizable = fals
             formHtml += `</div>`;
             return;
         }
+
+        // Handle dynamic dictionary (key-value pairs)
+        if (field.type === 'custom:dynamic-dict') {
+            formHtml += `<label style="display: block; color: var(--text-muted); font-size: 11px; margin-bottom: 8px; font-weight: 600;">${field.label}</label>`;
+            formHtml += `<button type="button" class="btn" data-color="green" data-size="sm" style="margin-bottom: 10px; width: 100%;" onclick="addDictEntry('field_${field.name}')">Add Parameter</button>`;
+            formHtml += `<div id="field_${field.name}" style="display: flex; flex-direction: column; gap: 8px;"></div>`;
+            formHtml += `</div>`;
+            return;
+        }
+
+        // Handle dynamic list (array of objects)
+        if (field.type === 'custom:dynamic-list') {
+            formHtml += `<label style="display: block; color: var(--text-muted); font-size: 11px; margin-bottom: 8px; font-weight: 600;">${field.label}</label>`;
+            formHtml += `<button type="button" class="btn" data-color="green" data-size="sm" style="margin-bottom: 10px; width: 100%;" onclick="addListEntry('field_${field.name}')">Add Item</button>`;
+            formHtml += `<div id="field_${field.name}" style="display: flex; flex-direction: column; gap: 8px;"></div>`;
+            formHtml += `</div>`;
+            return;
+        }
         
         // Handle Jinja editor
         if (field.type === 'custom:jinja-editor') {
@@ -1424,6 +1598,14 @@ function escapeHtml(text) {
     return text.replace(/[&<>"']/g, m => map[m]);
 }
 
+function escapeSql(value) {
+    if (value === null || value === undefined) return '';
+
+    return String(value)
+        .replace(/\\/g, '\\\\')
+        .replace(/'/g, "''");
+}
+
 /**
  * Get organization stack (system integrations) from kore database
  * @param {string} sessionToken - Session token
@@ -1453,41 +1635,13 @@ async function getOrgStack(sessionToken, user, orgId) {
  * @param {function} onDiscardCallback - Function to call when user chooses to discard
  */
 function setupPageUnsavedChangesProtection(onSaveCallback, onDiscardCallback) {
-    let allowNavigation = false;
-    let showingModal = false;
-    
+    // For out-of-page navigation (refresh, close tab, etc.), just let the browser
+    // show its native dialog. The modal is handled by in-page navigation instead.
     window.addEventListener('beforeunload', (event) => {
-        if (window.hasUnsavedChanges() && !allowNavigation && !showingModal) {
+        if (window.hasUnsavedChanges()) {
+            // Let the browser show its native dialog for out-of-page navigation
             event.preventDefault();
             event.returnValue = '';
-            showingModal = true;
-            
-            // Show custom unsaved modal instead of browser dialog
-            window.showUnsaved(
-                async () => {
-                    // Save changes
-                    if (onSaveCallback) {
-                        await onSaveCallback();
-                    }
-                    
-                    // Allow navigation to proceed
-                    allowNavigation = true;
-                    showingModal = false;
-                    window.location.reload();
-                },
-                () => {
-                    // Discard changes and proceed
-                    if (onDiscardCallback) {
-                        onDiscardCallback();
-                    }
-                    
-                    allowNavigation = true;
-                    showingModal = false;
-                    window.location.reload();
-                }
-            );
-            
-            return false;
         }
     });
 }
@@ -1852,5 +2006,1498 @@ async function updateUserNotificationPreferences(sessionToken, userId, preferenc
     } catch (error) {
         console.error('Error updating notification preferences:', error);
         throw error;
+    }
+}
+
+/**
+ * Resize a modal container to fit its content, up to 95% of viewport height
+ * Enables scrolling on modal-body-content if content exceeds available space
+ * @param {string} modalSelector - CSS selector for the modal container (default: '.modal-container')
+ * @param {string} contentSelector - CSS selector for the content div (default: '#modal-body-content')
+ */
+function resizeModalToContent(modalSelector = '.modal-container', contentSelector = '#modal-body-content') {
+    const modal = document.querySelector(modalSelector);
+    const modalBody = document.querySelector('.modal-body');
+    const modalBodyContent = document.querySelector(contentSelector);
+    
+    if (modal && modalBodyContent) {
+        const viewportHeight = window.innerHeight;
+        const maxModalHeight = viewportHeight * 0.90;
+        
+        // Temporarily remove scrolling to get true content height
+        if (modalBody) {
+            modalBody.style.overflowY = 'visible';
+            modalBody.style.maxHeight = 'none';
+        }
+        
+        // Measure true content height
+        const contentHeight = modalBodyContent.scrollHeight;
+        
+        // Calculate modal header/footer overhead - add extra buffer
+        const overhead = 130;
+        const desiredHeight = contentHeight + overhead;
+        
+        // Set modal height - capped at 90vh
+        const finalHeight = Math.min(desiredHeight, maxModalHeight);
+        modal.style.height = `${finalHeight}px`;
+        modal.style.minHeight = 'auto';
+        
+        // Now check if scrolling is needed based on actual content vs max allowed
+        if (desiredHeight > maxModalHeight) {
+            const maxContentHeight = maxModalHeight - overhead;
+            if (modalBody) {
+                modalBody.style.overflowY = 'auto';
+                modalBody.style.maxHeight = `${maxContentHeight}px`;
+            }
+        }
+    }
+}
+
+/**
+ * Render a hierarchical tree structure
+ * @param {Array} items - Array of items with id, name, parent_id, and optional children
+ * @param {HTMLElement} container - Container element to render the tree into
+ * @param {Object} options - Configuration options
+ * @param {Function} options.onItemClick - Callback when an item is clicked
+ * @param {String} options.containerClass - CSS class of the container for deselecting siblings (default: '.panel-level-3')
+ */
+function renderTree(items, container, options = {}) {
+    if (!items || items.length === 0) {
+        container.innerHTML = '<div style="display: flex; align-items: center; padding: 0; color: var(--text-secondary); font-size: 0.9rem; height: 20px; margin: 0;"><span style="width: 20px;"></span><span>No items</span></div>';
+        return;
+    }
+    const itemMap = {};
+    items.forEach(item => {
+        itemMap[item.id] = { ...item, children: [] };
+    });
+    const rootItems = [];
+    items.forEach(item => {
+        if (item.parent_id && itemMap[item.parent_id]) {
+            itemMap[item.parent_id].children.push(itemMap[item.id]);
+        } else {
+            rootItems.push(itemMap[item.id]);
+        }
+    });
+    const sortItems = (arr) => arr.sort((a, b) => a.name.localeCompare(b.name));
+    sortItems(rootItems);
+    items.forEach(item => {
+        if (itemMap[item.id].children) {
+            sortItems(itemMap[item.id].children);
+        }
+    });
+    container.innerHTML = '';
+    const treeContainer = document.createElement('div');
+    rootItems.forEach((item, index) => {
+        const isLast = index === rootItems.length - 1;
+        treeContainer.appendChild(createTreeNode(item, 0, isLast, [], options));
+    });
+    container.appendChild(treeContainer);
+}
+
+/**
+ * Create a tree node element recursively
+ * @param {Object} item - Item to create node for
+ * @param {Number} level - Depth level in the tree
+ * @param {Boolean} isLastChild - Whether this is the last child of its parent
+ * @param {Array} ancestorSiblingInfo - Info about ancestor siblings for tree lines
+ * @param {Object} options - Configuration options (same as renderTree)
+ * @returns {HTMLElement} The created node element
+ */
+function createTreeNode(item, level = 0, isLastChild = true, ancestorSiblingInfo = [], options = {}) {
+    const nodeContainer = document.createElement('div');
+    nodeContainer.style.cssText = 'margin-bottom: 0px;';
+    const folderRow = document.createElement('div');
+    folderRow.style.cssText = `
+        display: flex;
+        align-items: center;
+        padding: 0;
+        color: var(--text-dim);
+        font-size: 0.9rem;
+        user-select: none;
+        box-sizing: border-box;
+        height: 20px;
+    `;
+    const hasChildren = item.children && item.children.length > 0;
+    const toggleBtn = document.createElement('span');
+    toggleBtn.style.cssText = `
+        display: flex;
+        align-items: flex-start;
+        justify-content: center;
+        width: 20px;
+        height: 20px;
+        flex-shrink: 0;
+        font-size: 1.1rem;
+        color: var(--text-dim);
+        line-height: 1;
+        padding: 0;
+        margin: 0;
+        margin-top: 0;
+        cursor: ${hasChildren ? 'pointer' : 'default'};
+    `;
+    toggleBtn.innerHTML = hasChildren ? '&#43;' : '';
+    folderRow.appendChild(toggleBtn);
+    const childrenContainer = document.createElement('div');
+    childrenContainer.style.cssText = 'display: none;';
+    const isExpanded = { state: false };
+    const toggleChildren = () => {
+        isExpanded.state = !isExpanded.state;
+        if (isExpanded.state) {
+            childrenContainer.style.display = 'block';
+            toggleBtn.innerHTML = '&#45;';
+        } else {
+            childrenContainer.style.display = 'none';
+            toggleBtn.innerHTML = '&#43;';
+        }
+    };
+    const itemName = document.createElement('span');
+    itemName.style.cssText = `flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.8rem; margin: 0; display: flex; align-items: center; color: var(--text-primary); cursor: pointer;`;
+    if (level > 1) {
+        for (let i = 1; i < level; i++) {
+            const ancestorBox = document.createElement('span');
+            ancestorBox.style.cssText = `width: 16px; display: inline-flex; align-items: flex-start; justify-content: center; flex-shrink: 0; font-size: 1rem; line-height: 1.2; margin: 0; padding: 0 0 0 1px; border: 0; color: var(--text-dim); pointer-events: none; transform: scaleX(0.7) scaleY(1.1) translateX(-1px);`;
+            const ancestorHasSiblings = ancestorSiblingInfo[i - 1] || false;
+            const char = ancestorHasSiblings ? String.fromCharCode(9474) : ' ';
+            ancestorBox.appendChild(document.createTextNode(char));
+            itemName.appendChild(ancestorBox);
+        }
+    }
+    if (level > 0) {
+        const connectorBox = document.createElement('span');
+        connectorBox.style.cssText = `width: 16px; display: inline-flex; align-items: flex-start; justify-content: center; flex-shrink: 0; font-size: 1rem; line-height: 1.2; margin: 0; padding: 0; border: 0; color: var(--text-dim); pointer-events: none;`;
+        const treeChar = isLastChild ? String.fromCharCode(9492) : String.fromCharCode(9500);
+        connectorBox.appendChild(document.createTextNode(treeChar));
+        itemName.appendChild(connectorBox);
+    }
+    const nameText = document.createElement('span');
+    nameText.textContent = item.name;
+    if (item.id === 'none') {
+        nameText.style.fontStyle = 'italic';
+    }
+    itemName.appendChild(nameText);
+    folderRow.appendChild(itemName);
+    folderRow.setAttribute('data-item-id', item.id);
+    folderRow.style.cssText += '; border-radius: 4px; transition: background-color 0.2s; margin: 0 4px;';
+    folderRow.onmouseenter = () => {
+        if (!folderRow.classList.contains('selected')) {
+            folderRow.style.backgroundColor = 'rgba(90, 159, 184, 0.15)';
+        }
+    };
+    folderRow.onmouseleave = () => {
+        if (!folderRow.classList.contains('selected')) {
+            folderRow.style.backgroundColor = '';
+        }
+    };
+    if (hasChildren) {
+        toggleBtn.style.cursor = 'pointer';
+        toggleBtn.onclick = (e) => {
+            e.stopPropagation();
+            toggleChildren();
+        };
+    }
+    itemName.onclick = (e) => {
+        e.stopPropagation();
+        if (options.onItemClick) {
+            options.onItemClick(item);
+        }
+        const containerSelector = options.containerClass || '.panel-level-3';
+        const listContainer = folderRow.closest(containerSelector);
+        if (listContainer) {
+            listContainer.querySelectorAll('[data-item-id]').forEach(el => {
+                el.classList.remove('selected');
+                el.style.backgroundColor = '';
+            });
+        }
+        folderRow.classList.add('selected');
+        folderRow.style.backgroundColor = 'rgba(90, 159, 184, 0.3)';
+    };
+    nodeContainer.appendChild(folderRow);
+    if (hasChildren) {
+        item.children.forEach((child, index) => {
+            const childIsLast = index === item.children.length - 1;
+            const newAncestorInfo = [...ancestorSiblingInfo];
+            newAncestorInfo[level - 1] = !isLastChild;
+            childrenContainer.appendChild(createTreeNode(child, level + 1, childIsLast, newAncestorInfo, options));
+        });
+        nodeContainer.appendChild(childrenContainer);
+    }
+    return nodeContainer;
+}
+
+/**
+ * Load allowedIPs for a resource from any table
+ * @param {string} table - Table name (e.g., 'web_pages')
+ * @param {string} idColumn - ID column name (e.g., 'path')
+ * @param {string} idValue - The ID value (e.g., '/workflows')
+ * @returns {Promise<Array>} - Array of allowed IPs
+ */
+async function loadAllowedIPs(table, idColumn, idValue) {
+    try {
+        const params = new URLSearchParams({
+            table: table,
+            idColumn: idColumn,
+            id: idValue
+        });
+
+        const response = await fetch(`/kore/allowed-ips?${params}`, {
+            method: 'GET',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json' }
+        });
+
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.error || `Failed to load allowed IPs: ${response.status}`);
+        }
+
+        const data = await response.json();
+        return data.allowedIPs || [];
+    } catch (error) {
+        console.error('Error loading allowed IPs:', error);
+        throw error;
+    }
+}
+
+/**
+ * Fetch available whitelist categories from system
+ * @returns {Promise<Array>} - Array of whitelist category names
+ */
+async function getAvailableWhitelists() {
+    try {
+        const response = await fetch('/kore/whitelists', {
+            method: 'GET',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json' }
+        });
+
+        if (!response.ok) {
+            console.warn('Failed to fetch whitelists:', response.status);
+            return [];
+        }
+
+        const data = await response.json();
+        return data.whitelists || [];
+    } catch (error) {
+        console.error('Error fetching whitelists:', error);
+        return [];
+    }
+}
+
+/**
+ * Humanize whitelist category name (e.g., "internal" → "Internal")
+ */
+function humanizeWhitelistName(category) {
+    return category.charAt(0).toUpperCase() + category.slice(1);
+}
+
+/**
+ * Helper function to add an IP input field
+ */
+function addIPField(container, ipValue = '') {
+    const fieldDiv = document.createElement('div');
+    fieldDiv.style.cssText = 'display: flex; gap: 6px; align-items: center;';
+
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'ip-input';
+    input.value = ipValue;
+    input.placeholder = 'e.g., 192.168.1.0/24 or 10.0.0.5';
+    input.style.cssText = `
+        flex: 1;
+        padding: 6px 8px;
+        border: 1px solid var(--border-primary);
+        border-radius: 4px;
+        background-color: var(--bg-input);
+        color: var(--text-primary);
+        font-family: monospace;
+        font-size: 12px;
+        box-sizing: border-box;
+    `;
+
+    const deleteBtn = document.createElement('button');
+    deleteBtn.textContent = 'Delete';
+    deleteBtn.className = 'btn';
+    deleteBtn.setAttribute('data-color', 'red');
+    deleteBtn.setAttribute('data-size', 'sm');
+    deleteBtn.style.cssText = 'flex: 0 0 auto; width: 60px;';
+    deleteBtn.onclick = () => fieldDiv.remove();
+
+    fieldDiv.appendChild(input);
+    fieldDiv.appendChild(deleteBtn);
+    container.appendChild(fieldDiv);
+}
+
+/**
+ * Display allowedIPs form for editing IP restrictions
+ * @param {HTMLElement} container - Container to populate with the form
+ * @param {string} table - Table name (e.g., 'web_pages')
+ * @param {string} idColumn - ID column name (e.g., 'path')
+ * @param {string} idValue - The ID value (e.g., '/workflows')
+ * @param {Object} options - Configuration options
+ * @param {Function} options.onSave - Callback function when save button is clicked
+ * @param {Boolean} options.showButtons - Whether to show Save/Cancel buttons (default: true)
+ * @param {Boolean} options.showSeparator - Whether to show separator at top (default: false)
+ */
+async function displayAllowedIPsForm(container, table, idColumn, idValue, options = {}) {
+    // Clear container
+    container.innerHTML = '';
+
+    try {
+        // Load current allowedIPs
+        let currentIPs = [];
+        try {
+            currentIPs = await loadAllowedIPs(table, idColumn, idValue);
+        } catch (err) {
+            console.warn('Could not load current allowedIPs:', err);
+        }
+
+        // Separate whitelists from direct IPs
+        const whitelistRefs = [];
+        const directIPs = [];
+        
+        for (const item of currentIPs) {
+            if (typeof item === 'string' && item.startsWith('whitelist.')) {
+                whitelistRefs.push(item);
+            } else {
+                directIPs.push(item);
+            }
+        }
+
+        // Get available whitelists
+        const availableWhitelists = await getAvailableWhitelists();
+
+        // Create form container
+        const formWrapper = document.createElement('div');
+        formWrapper.style.cssText = 'display: flex; flex-direction: column; gap: 16px;';
+
+        // Add separator at top if requested
+        const showSeparator = options.showSeparator === true;
+        if (showSeparator) {
+            const separator = document.createElement('div');
+            separator.style.cssText = 'height: 1px; background-color: var(--border-primary);';
+            formWrapper.appendChild(separator);
+        }
+
+        // ===== WHITELISTS SECTION =====
+        if (availableWhitelists.length > 0) {
+            const whitelistSection = document.createElement('div');
+            whitelistSection.style.cssText = 'display: flex; flex-direction: column; gap: 8px;';
+
+            const whitelistLabel = document.createElement('label');
+            whitelistLabel.style.cssText = 'color: var(--text-muted); font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;';
+            whitelistLabel.textContent = 'IP Whitelists';
+            whitelistSection.appendChild(whitelistLabel);
+
+            const whitelistsContainer = document.createElement('div');
+            whitelistsContainer.style.cssText = 'display: flex; flex-direction: column; gap: 6px; padding-left: 8px;';
+
+            for (const category of availableWhitelists) {
+                const whitelistKey = `whitelist.${category}`;
+                const isChecked = whitelistRefs.includes(whitelistKey);
+
+                const checkboxDiv = document.createElement('div');
+                checkboxDiv.style.cssText = 'display: flex; align-items: center; gap: 8px;';
+
+                const checkbox = document.createElement('input');
+                checkbox.type = 'checkbox';
+                checkbox.id = `whitelist_${category}`;
+                checkbox.checked = isChecked;
+                checkbox.className = 'whitelist-checkbox';
+                checkbox.dataset.category = category;
+                checkbox.style.cssText = 'width: 16px; height: 16px; cursor: pointer;';
+
+                const label = document.createElement('label');
+                label.htmlFor = `whitelist_${category}`;
+                label.textContent = `${humanizeWhitelistName(category)} Whitelist`;
+                label.style.cssText = 'color: var(--text-primary); font-size: 12px; cursor: pointer; margin: 0;';
+
+                checkboxDiv.appendChild(checkbox);
+                checkboxDiv.appendChild(label);
+                whitelistsContainer.appendChild(checkboxDiv);
+            }
+
+            whitelistSection.appendChild(whitelistsContainer);
+            formWrapper.appendChild(whitelistSection);
+        }
+
+        // ===== IP ADDRESSES SECTION =====
+        const ipSection = document.createElement('div');
+        ipSection.style.cssText = 'display: flex; flex-direction: column; gap: 12px;';
+
+        // Create header row with label and Add button
+        const ipHeaderRow = document.createElement('div');
+        ipHeaderRow.style.cssText = 'display: flex; justify-content: space-between; align-items: center; gap: 12px;';
+
+        const ipLabel = document.createElement('label');
+        ipLabel.style.cssText = 'color: var(--text-muted); font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; margin: 0;';
+        ipLabel.textContent = 'Allowed IPs / CIDR Ranges';
+        ipHeaderRow.appendChild(ipLabel);
+
+        // Add button
+        const addBtn = document.createElement('button');
+        addBtn.textContent = 'Add IP Address';
+        addBtn.className = 'btn';
+        addBtn.setAttribute('data-color', 'blue');
+        addBtn.setAttribute('data-size', 'sm');
+        ipHeaderRow.appendChild(addBtn);
+        
+        ipSection.appendChild(ipHeaderRow);
+
+        const ipsContainer = document.createElement('div');
+        ipsContainer.id = 'ipsContainer';
+        ipsContainer.style.cssText = 'display: flex; flex-direction: column; gap: 6px;';
+
+        // Add existing IPs
+        for (const ip of directIPs) {
+            addIPField(ipsContainer, ip);
+        }
+
+        // Add button click handler
+        addBtn.onclick = () => addIPField(ipsContainer, '');
+
+        ipSection.appendChild(ipsContainer);
+        formWrapper.appendChild(ipSection);
+
+        // ===== BUTTONS SECTION (Optional) =====
+        const showButtons = options.showButtons !== false; // Default to true
+        
+        if (showButtons) {
+            const buttonWrapper = document.createElement('div');
+            buttonWrapper.style.cssText = 'display: flex; gap: 8px; margin-top: 8px;';
+
+            // Save button
+            const saveBtn = document.createElement('button');
+            saveBtn.textContent = 'Save';
+            saveBtn.className = 'btn';
+            saveBtn.setAttribute('data-color', 'green');
+            saveBtn.setAttribute('data-size', 'sm');
+            saveBtn.style.cssText = 'flex: 1;';
+            saveBtn.onclick = async () => {
+                try {
+                    // Collect whitelists
+                    const selectedWhitelists = Array.from(document.querySelectorAll('.whitelist-checkbox:checked'))
+                        .map(cb => `whitelist.${cb.dataset.category}`);
+
+                    // Collect IPs
+                    const ips = Array.from(ipsContainer.querySelectorAll('.ip-input'))
+                        .map(input => input.value.trim())
+                        .filter(ip => ip.length > 0);
+
+                    // Combine
+                    const allIPs = [...selectedWhitelists, ...ips];
+
+                    // Save to backend
+                    await saveAllowedIPs(table, idColumn, idValue, allIPs);
+
+                    if (options.onSave) {
+                        options.onSave();
+                    }
+                } catch (err) {
+                    console.error('Error saving allowed IPs:', err);
+                    alert('Error saving allowed IPs: ' + err.message);
+                }
+            };
+            buttonWrapper.appendChild(saveBtn);
+
+            // Cancel button
+            const cancelBtn = document.createElement('button');
+            cancelBtn.textContent = 'Cancel';
+            cancelBtn.className = 'btn';
+            cancelBtn.setAttribute('data-color', 'gray');
+            cancelBtn.setAttribute('data-size', 'sm');
+            cancelBtn.style.cssText = 'flex: 1;';
+            cancelBtn.onclick = () => {
+                // Reload the form
+                displayAllowedIPsForm(container, table, idColumn, idValue, options);
+            };
+            buttonWrapper.appendChild(cancelBtn);
+
+            formWrapper.appendChild(buttonWrapper);
+        }
+
+        container.appendChild(formWrapper);
+
+    } catch (error) {
+        console.error('Error displaying allowedIPs form:', error);
+        container.innerHTML = `<p style="color: var(--text-error); font-size: 12px;">Error loading form: ${error.message}</p>`;
+    }
+}
+
+/**
+ * Save allowedIPs for a resource to any table
+ * @param {string} table - Table name (e.g., 'web_pages')
+ * @param {string} idColumn - ID column name (e.g., 'path')
+ * @param {string} idValue - The ID value (e.g., '/workflows')
+ * @param {Array} allowedIPs - Array of IP addresses/whitelist references
+ * @returns {Promise<Object>} - Response from server
+ */
+async function saveAllowedIPs(table, idColumn, idValue, allowedIPs) {
+    try {
+        const response = await fetch('/kore/allowed-ips', {
+            method: 'PUT',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                table: table,
+                idColumn: idColumn,
+                id: idValue,
+                allowedIPs: allowedIPs
+            })
+        });
+
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.error || `Failed to save allowed IPs: ${response.status}`);
+        }
+
+        return await response.json();
+    } catch (error) {
+        console.error('Error saving allowed IPs:', error);
+        throw error;
+    }
+}
+
+/**
+ * Check if a user has a specific permission
+ * Supports checking by: permissionId, or resource+action, or resource+action+scope
+ * @param {Object} checkParams - Parameters for the permission check
+ * @param {String} checkParams.userId - The user ID to check
+ * @param {String} [checkParams.permissionId] - Permission ID (alternative to resource+action)
+ * @param {String} [checkParams.resource] - Resource type (e.g., 'workflow', 'page')
+ * @param {String} [checkParams.action] - Action type (e.g., 'view', 'edit', 'delete', '*')
+ * @param {String} [checkParams.scope] - Resource scope/ID (optional, for resource+action checks)
+ * @returns {Promise<Boolean>} - True if user has permission, false otherwise
+ */
+async function checkUserPermission(checkParams) {
+    try {
+        const payload = { userId: checkParams.userId };
+        
+        // Support either permissionId or resource+action
+        if (checkParams.permissionId) {
+            payload.permissionId = checkParams.permissionId;
+        } else if (checkParams.resource && checkParams.action) {
+            payload.resource = checkParams.resource;
+            payload.action = checkParams.action;
+            if (checkParams.scope) {
+                payload.scope = checkParams.scope;
+            }
+        } else {
+            throw new Error('Must provide either permissionId or resource+action');
+        }
+        
+        const response = await fetch('/kore/has-permission', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        
+        if (!response.ok) {
+            console.error('Permission check failed:', response.status);
+            return false;
+        }
+        
+        const result = await response.json();
+        return result.hasPermission === true;
+    } catch (error) {
+        console.error('Error checking permission:', error);
+        return false;
+    }
+}
+
+/**
+ * Create a permission form row with target/effect selects and delete/revoke button
+ * Reusable for any resource that needs permission management
+ * @param {HTMLElement} container - Container to append the row to
+ * @param {Boolean} isNew - True for new permissions (show delete button), false for existing (show revoke button)
+ * @param {Object} permissionData - Existing permission data {permissionId, targetType, targetId, targetName, effect}
+ */
+function createPermissionRow(container, isNew, permissionData = null, actions = null) {
+    const row = document.createElement('div');
+    row.className = 'permission-row';
+    row.style.cssText = 'display: flex; gap: 8px; align-items: center; flex-wrap: nowrap;';
+
+    const { users, groups } = window.allUsersAndGroups || { users: [], groups: [] };
+    
+    if (permissionData) {
+        console.log('Creating permission row with data:', permissionData);
+        console.log('Available users:', users);
+        console.log('Available groups:', groups);
+    }
+
+    // Target dropdown
+    const targetSelect = document.createElement('select');
+    targetSelect.className = 'permission-target';
+    targetSelect.style.cssText = 'flex: 1; min-width: 150px;';
+    targetSelect.innerHTML = '<option value="">Select Group or User...</option>';
+
+    groups.forEach(group => {
+        const option = document.createElement('option');
+        option.value = `group:${group.groupId}`;
+        option.textContent = `Group: ${group.name}`;
+        if (permissionData && permissionData.targetType === 'group' && permissionData.targetId === group.groupId) {
+            option.selected = true;
+        }
+        targetSelect.appendChild(option);
+    });
+
+    users.forEach(user => {
+        const option = document.createElement('option');
+        option.value = `user:${user.userId}`;
+        option.textContent = `User: ${user.fullName}`;
+        if (permissionData && permissionData.targetType === 'user' && permissionData.targetId === user.userId) {
+            option.selected = true;
+        }
+        targetSelect.appendChild(option);
+    });
+
+    // Action dropdown (if actions are specified)
+    let actionSelect = null;
+    if (actions && Array.isArray(actions) && actions.length > 0) {
+        actionSelect = document.createElement('select');
+        actionSelect.className = 'permission-action';
+        actionSelect.style.cssText = 'flex: 0 0 auto; width: 100px;';
+        actionSelect.innerHTML = '';
+        
+        // Add Full option
+        const fullOption = document.createElement('option');
+        fullOption.value = '*';
+        fullOption.textContent = 'Full';
+        actionSelect.appendChild(fullOption);
+        
+        // Add individual actions
+        actions.forEach(action => {
+            const option = document.createElement('option');
+            option.value = action;
+            option.textContent = action.charAt(0).toUpperCase() + action.slice(1);
+            actionSelect.appendChild(option);
+        });
+        
+        if (permissionData && permissionData.action) {
+            actionSelect.value = permissionData.action;
+        } else if (actions.length > 0) {
+            actionSelect.value = actions[0];
+        }
+    }
+
+    // Effect dropdown
+    const effectSelect = document.createElement('select');
+    effectSelect.className = 'permission-effect';
+    effectSelect.style.cssText = 'flex: 0 0 auto; width: 100px;';
+    effectSelect.innerHTML = '<option value="allow">Allow</option><option value="deny">Deny</option>';
+    if (permissionData) {
+        effectSelect.value = permissionData.effect;
+    }
+
+    // Delete/Revoke button
+    let actionBtn = null;
+    if (isNew) {
+        // Delete button for new permissions
+        actionBtn = document.createElement('button');
+        actionBtn.textContent = 'Delete';
+        actionBtn.className = 'btn';
+        actionBtn.setAttribute('data-color', 'red');
+        actionBtn.setAttribute('data-size', 'sm');
+        actionBtn.style.cssText = 'flex: 0 0 auto; width: 48px;';
+        actionBtn.onclick = () => {
+            row.remove();
+        };
+    } else if (permissionData) {
+        // Revoke button for existing permissions
+        actionBtn = document.createElement('button');
+        actionBtn.textContent = 'Revoke';
+        actionBtn.className = 'btn';
+        actionBtn.setAttribute('data-color', 'red');
+        actionBtn.setAttribute('data-size', 'sm');
+        actionBtn.style.cssText = 'flex: 0 0 auto; width: 48px;';
+        actionBtn.onclick = () => {
+            row.dataset.revoke = 'true';
+            row.style.opacity = '0.5';
+            row.style.textDecoration = 'line-through';
+            actionBtn.disabled = true;
+        };
+    }
+
+    // Store permission ID if editing
+    if (permissionData) {
+        row.dataset.permissionId = permissionData.permissionId;
+        row.dataset.isNew = 'false';
+    } else {
+        row.dataset.isNew = 'true';
+    }
+
+    row.appendChild(targetSelect);
+    if (actionSelect) row.appendChild(actionSelect);
+    row.appendChild(effectSelect);
+    if (actionBtn) row.appendChild(actionBtn);
+
+    container.appendChild(row);
+}
+
+/**
+ * Load permissions for a resource from the backend
+ * @param {Object} config - Configuration object
+ * @param {String} config.resource - Resource type (e.g., 'page', 'workflow')
+ * @param {String} config.endpoint - API endpoint (e.g., '/kore/permissions')
+ * @param {String} [config.method] - HTTP method (default: 'GET')
+ * @param {Object} [config.body] - Request body for POST/PUT requests (optional, used for scoped queries)
+ * @returns {Promise<Object>} - Permissions data from the API
+ */
+async function loadPermissionsForResource(config) {
+    try {
+        const method = config.method || 'GET';
+        
+        const options = {
+            method: method,
+            headers: { 'Content-Type': 'application/json' }
+        };
+        
+        // Add body if provided (for POST requests with scope)
+        if (config.body) {
+            options.body = JSON.stringify(config.body);
+        }
+        
+        console.log('loadPermissionsForResource:', {
+            endpoint: config.endpoint,
+            method: method,
+            body: config.body
+        });
+        
+        const response = await fetch(config.endpoint, options);
+
+        if (!response.ok) {
+            throw new Error(`Failed to load ${config.resource} permissions: ${response.status}`);
+        }
+
+        return await response.json();
+    } catch (error) {
+        console.error(`Error loading ${config.resource} permissions:`, error);
+        throw error;
+    }
+}
+
+/**
+ * Display a permissions management form in a container
+ * Assumes window.allUsersAndGroups is already loaded with users and groups
+ * @param {HTMLElement} container - Container element to populate with the form
+ * @param {Array} existingPermissions - Array of existing permission objects
+ * @param {Object} options - Configuration options
+ * @param {String} options.addButtonLabel - Label for the "Add" button
+ * @param {String} options.saveButtonLabel - Label for the "Save" button
+ * @param {Boolean} options.showSaveButton - Whether to show the Save button (default: true)
+ * @param {Function} options.onSave - Callback function when save button is clicked
+ */
+function displayPermissionsForm(container, existingPermissions, options = {}) {
+    // Clear container
+    container.innerHTML = '';
+
+    // Create Add button
+    const addBtn = document.createElement('button');
+    addBtn.textContent = options.addButtonLabel || 'Add Permission';
+    addBtn.className = 'btn';
+    addBtn.setAttribute('data-color', 'blue');
+    addBtn.setAttribute('data-size', 'sm');
+    addBtn.style.cssText = 'align-self: flex-end;';
+
+    // Create wrapper for buttons if needed
+    const buttonWrapper = document.createElement('div');
+    buttonWrapper.style.cssText = 'display: flex; justify-content: flex-end; margin-bottom: 10px;';
+    buttonWrapper.appendChild(addBtn);
+
+    // Create permissions rows container
+    const permissionsContainer = document.createElement('div');
+    permissionsContainer.style.cssText = 'display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px;';
+
+    // Wire up Add button - pass actions if specified
+    addBtn.onclick = () => createPermissionRow(permissionsContainer, true, null, options.actions);
+
+    // Add existing permission rows
+    existingPermissions.forEach(perm => {
+        createPermissionRow(permissionsContainer, false, perm, options.actions);
+    });
+
+    // Create Save button only if requested
+    let saveBtn = null;
+    if (options.showSaveButton !== false) {
+        saveBtn = document.createElement('button');
+        saveBtn.textContent = options.saveButtonLabel || 'Save Permissions';
+        saveBtn.className = 'btn';
+        saveBtn.setAttribute('data-color', 'green');
+        saveBtn.setAttribute('data-size', 'sm');
+
+        if (options.onSave) {
+            saveBtn.onclick = options.onSave;
+        }
+    }
+
+    // Assemble the form
+    container.appendChild(buttonWrapper);
+    container.appendChild(permissionsContainer);
+    if (saveBtn) container.appendChild(saveBtn);
+}
+
+/**
+ * Save permissions for a resource (batch insert/update/delete)
+ * Collects permission rows from the DOM, batches changes, and sends to API
+ * @param {Object} config - Configuration object
+ * @param {String} config.resource - Resource type (e.g., 'page', 'workflow')
+ * @param {String} config.endpoint - API endpoint (e.g., '/kore/permissions')
+ * @param {String|Number} itemId - The scope/item ID being modified
+ * @returns {Promise<Object>} - Response from the API
+ */
+async function savePermissionsForResource(config, itemId) {
+    try {
+        const sessionToken = await getSessionToken();
+        const permissionRows = document.querySelectorAll('.permission-row');
+        const inserts = [];
+        const updates = [];
+        const deletes = [];
+
+        // Collect permission changes from form rows
+        permissionRows.forEach(row => {
+            const targetValue = row.querySelector('.permission-target').value;
+            const effect = row.querySelector('.permission-effect').value;
+            const actionElement = row.querySelector('.permission-action');
+            const action = actionElement ? actionElement.value : null;
+            const [targetType, targetId] = targetValue.split(':');
+
+            if (!targetValue) return; // Skip empty rows
+
+            const permData = {
+                targetType,
+                targetId,
+                effect,
+                scope: itemId
+            };
+            
+            // Add action if it exists
+            if (action) {
+                permData.action = action;
+            }
+
+            if (row.dataset.revoke === 'true') {
+                // Permission marked for revocation
+                deletes.push(row.dataset.permissionId);
+            } else if (row.dataset.isNew === 'true') {
+                // New permission to insert
+                inserts.push(permData);
+            } else {
+                // Existing permission to update
+                permData.permissionId = row.dataset.permissionId;
+                updates.push(permData);
+            }
+        });
+
+        // Build payload
+        const payload = {
+            resource: config.resource,
+            inserts,
+            updates,
+            deletes
+        };
+
+        // Send to API
+        const response = await fetch(config.endpoint, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${sessionToken}`
+            },
+            body: JSON.stringify(payload)
+        });
+
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.error || `Failed to save ${config.resource} permissions: ${response.status}`);
+        }
+
+        return await response.json();
+    } catch (error) {
+        console.error(`Error saving ${config.resource} permissions:`, error);
+        throw error;
+    }
+}
+
+/**
+ * Resolve a user or group ID to its display name
+ */
+function resolveIdToName(id) {
+    if (!id) return 'Unknown';
+    
+    if (!window.allUsersAndGroups) {
+        return id; // Return ID if data not loaded
+    }
+    
+    // Try to find in users
+    const user = window.allUsersAndGroups.users?.find(u => u.userId === id);
+    if (user) return user.fullName;
+    
+    // Try to find in groups
+    const group = window.allUsersAndGroups.groups?.find(g => g.groupId === id);
+    if (group) return group.name;
+    
+    return id; // Return ID if not found
+}
+
+/**
+ * Load all users and groups for mapping IDs to names
+ */
+async function loadAllUsersAndGroupsForModal() {
+    try {
+        const sessionToken = await getSessionToken();
+        const currentUser = getUser(); // Get current user ID from localStorage
+        
+        const [users, groups] = await Promise.all([
+            getUsers(sessionToken, currentUser),
+            getGroups(sessionToken, currentUser)
+        ]);
+
+        window.allUsersAndGroups = {
+            users: users || [],
+            groups: groups || []
+        };
+        return true;
+    } catch (error) {
+        console.error('Error loading users and groups:', error);
+        window.allUsersAndGroups = { users: [], groups: [] };
+        return false;
+    }
+}
+
+/**
+ * Build folder panel and load folders from API
+ */
+function buildWorkflowFoldersPanel(containerId, folderTableName, itemsTableName, renderFunctionName) {
+    const apiUrl = `https://app.equinoxits.com:1139/kore/${folderTableName}`;
+    if (!renderFunctionName) {
+        renderFunctionName = `renderFiltered${itemsTableName.charAt(0).toUpperCase() + itemsTableName.slice(1)}`;
+    }
+    return fetch(apiUrl, {
+        method: 'GET',
+        headers: { 
+            'Content-Type': 'application/json'
+        },
+        credentials: 'include'  // Send cookies for session authentication
+    })
+    .then(response => {
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        return response.json();
+    })
+    .then(data => {
+        const folders = data.folders || [];
+        window[`${itemsTableName}_folders`] = folders;
+        buildFoldersPanel(
+            containerId,
+            folders,
+            (folder) => onFolderSelectedGeneric(folder, itemsTableName, renderFunctionName),
+            (folderId, updates, onReload) => performEditFolderGeneric(folderTableName, folderId, updates, onReload),
+            (folderId, onReload) => performDeleteFolderGeneric(folderTableName, folderId, itemsTableName, onReload),
+            () => openCreateFolderModalGeneric(folderTableName, folders, (folder) => onFolderSelectedGeneric(folder, itemsTableName, renderFunctionName), () => buildWorkflowFoldersPanel(containerId, folderTableName, itemsTableName, renderFunctionName)),
+            () => buildWorkflowFoldersPanel(containerId, folderTableName, itemsTableName, renderFunctionName)
+        );
+    })
+    .catch(error => console.error('Error loading folders:', error));
+}
+
+/**
+ * Handle folder selection
+ */
+function onFolderSelectedGeneric(folder, itemsTableName, renderFunctionName) {
+    window.currentSelectedFolder = folder;
+    const items = window[itemsTableName] || [];
+    console.log(`onFolderSelectedGeneric: folder=${folder.id}, itemsTableName=${itemsTableName}, items.length=${items.length}`);
+    console.log(`window[${itemsTableName}]:`, window[itemsTableName]);
+    let filteredItems = [];
+    if (folder.id === 'all') {
+        filteredItems = items;
+    } else if (folder.id === 'no_folder') {
+        filteredItems = items.filter(item => !item.folder_id);
+    } else {
+        filteredItems = items.filter(item => item.folder_id === folder.id);
+    }
+    console.log(`Filtered items for folder ${folder.id}:`, filteredItems);
+    if (typeof window[renderFunctionName] === 'function') {
+        console.log(`Calling ${renderFunctionName} with ${filteredItems.length} items`);
+        window[renderFunctionName](filteredItems);
+    } else {
+        console.error(`Render function ${renderFunctionName} not found`);
+    }
+}
+
+/**
+ * Edit a folder
+ */
+async function performEditFolderGeneric(folderTableName, folderId, updates, onReload) {
+    try {
+        const response = await fetch(`https://app.equinoxits.com:1139/kore/${folderTableName}/${folderId}`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(updates)
+        });
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        showStatusBanner('Folder updated successfully', 'success');
+        if (onReload) onReload();
+    } catch (error) {
+        showModal({
+            type: 'error',
+            title: 'Error',
+            content: `Failed to update folder: ${error.message}`
+        });
+    }
+}
+
+/**
+ * Delete a folder
+ */
+async function performDeleteFolderGeneric(folderTableName, folderId, itemsTableName, onReload) {
+    try {
+        const response = await fetch(`https://app.equinoxits.com:1139/kore/${folderTableName}/${folderId}`, {
+            method: 'DELETE',
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        });
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        showStatusBanner('Folder deleted successfully', 'success');
+        if (onReload) onReload();
+        const reloadFunction = `load${itemsTableName.charAt(0).toUpperCase() + itemsTableName.slice(1)}`;
+        if (typeof window[reloadFunction] === 'function') {
+            window[reloadFunction]();
+        }
+    } catch (error) {
+        showModal({
+            type: 'error',
+            title: 'Error',
+            content: `Failed to delete folder: ${error.message}`
+        });
+    }
+}
+
+/**
+ * Build the folder sidebar panel UI
+ */
+function buildFoldersPanel(containerId, folders, onFolderSelect, onEditFolder, onDeleteFolder, onCreateFolder, onReloadFolders) {
+    const container = document.getElementById(containerId);
+    if (!container) {
+        console.error(`buildFoldersPanel: Container "${containerId}" not found`);
+        return;
+    }
+    container.innerHTML = '';
+    container.style.cssText = 'display: flex; flex-direction: column; gap: 10px; height: 100%;';
+    const headerBar = document.createElement('div');
+    headerBar.style.cssText = 'display: flex; justify-content: space-between; align-items: center; gap: 10px;';
+    const title = document.createElement('h3');
+    title.textContent = 'Folders';
+    title.style.cssText = 'margin: 0; color: var(--text-primary); font-size: 0.95rem; flex: 1;';
+    headerBar.appendChild(title);
+    const actionsBar = document.createElement('div');
+    actionsBar.style.cssText = 'display: flex; gap: 4px;';
+    const editBtn = document.createElement('button');
+    editBtn.id = 'editFolderBtn';
+    editBtn.className = 'btn btn-small btn-grey';
+    editBtn.innerHTML = '&#9998;';
+    editBtn.disabled = true;
+    editBtn.style.cssText = 'width: 22px; height: 22px; padding: 0; margin: 0; display: flex; align-items: flex-start; justify-content: center; padding-top: 2px;';
+    editBtn.onclick = () => {
+        const folder = window.folderPanelCurrentSelected;
+        if (folder && folder.id !== 'all' && folder.id !== 'no_folder') {
+            showFolderEditModal(folder, folders, onEditFolder, onDeleteFolder, onReloadFolders);
+        }
+    };
+    actionsBar.appendChild(editBtn);
+    const createBtn = document.createElement('button');
+    createBtn.id = 'createFolderBtn';
+    createBtn.className = 'btn btn-small';
+    createBtn.setAttribute('data-color', 'green');
+    createBtn.innerHTML = '<strong style="font-size: 1.1rem; position: relative; top: 1px;">+</strong>';
+    createBtn.style.cssText = 'width: 22px; height: 22px; padding: 0; margin: 0 0 0 0; display: flex; align-items: center; justify-content: center; line-height: 0;';
+    createBtn.onclick = () => onCreateFolder();
+    actionsBar.appendChild(createBtn);
+    headerBar.appendChild(actionsBar);
+    container.appendChild(headerBar);
+    const listContainer = document.createElement('div');
+    listContainer.className = 'panel-level-3';
+    listContainer.style.cssText = 'flex: 1; overflow-y: auto; padding: 0;';
+    window.folderManagementEditBtn = editBtn;
+    const allItem = document.createElement('div');
+    allItem.style.cssText = 'border-radius: 4px; transition: background-color 0.2s; cursor: pointer; display: flex; align-items: center; padding-left: 10px; height: 20px; font-size: 0.8rem; margin: 4px 4px 0 4px;';
+    allItem.setAttribute('data-item-id', 'all');
+    const allText = document.createElement('span');
+    allText.textContent = 'All';
+    allText.style.cssText = 'font-style: italic; color: var(--text-primary); font-weight: bold;';
+    allItem.appendChild(allText);
+    allItem.onmouseenter = () => {
+        if (!allItem.classList.contains('selected')) {
+            allItem.style.backgroundColor = 'rgba(90, 159, 184, 0.15)';
+        }
+    };
+    allItem.onmouseleave = () => {
+        if (!allItem.classList.contains('selected')) {
+            allItem.style.backgroundColor = '';
+        }
+    };
+    allItem.onclick = () => {
+        selectFolderInList(listContainer, allItem, { id: 'all', name: 'All' }, onFolderSelect);
+    };
+    listContainer.appendChild(allItem);
+    const divider1 = document.createElement('div');
+    divider1.style.cssText = 'height: 1px; background: var(--border-primary); margin: 4px 0;';
+    listContainer.appendChild(divider1);
+    const treeContainer = document.createElement('div');
+    renderTree(folders, treeContainer, {
+        onItemClick: (folder) => {
+            listContainer.querySelectorAll('[data-item-id]').forEach(el => {
+                el.classList.remove('selected');
+                el.style.backgroundColor = '';
+            });
+            window.folderPanelCurrentSelected = folder;
+            const editBtn = window.folderManagementEditBtn;
+            if (editBtn) {
+                const canEdit = folder.id !== 'all' && folder.id !== 'no_folder';
+                editBtn.disabled = !canEdit;
+                editBtn.style.opacity = canEdit ? '1' : '0.5';
+                editBtn.style.cursor = canEdit ? 'pointer' : 'not-allowed';
+            }
+            onFolderSelect(folder);
+        }
+    });
+    listContainer.appendChild(treeContainer);
+    const divider2 = document.createElement('div');
+    divider2.style.cssText = 'height: 1px; background: var(--border-primary); margin: 4px 0;';
+    listContainer.appendChild(divider2);
+    const noFolderItem = document.createElement('div');
+    noFolderItem.style.cssText = 'border-radius: 4px; transition: background-color 0.2s; cursor: pointer; display: flex; align-items: center; padding-left: 10px; height: 20px; font-size: 0.8rem; margin: 0 4px 4px 4px;';
+    noFolderItem.setAttribute('data-item-id', 'no_folder');
+    const noFolderText = document.createElement('span');
+    noFolderText.textContent = 'No Folder';
+    noFolderText.style.cssText = 'font-style: italic; color: var(--text-primary); font-weight: bold;';
+    noFolderItem.appendChild(noFolderText);
+    noFolderItem.onmouseenter = () => {
+        if (!noFolderItem.classList.contains('selected')) {
+            noFolderItem.style.backgroundColor = 'rgba(90, 159, 184, 0.15)';
+        }
+    };
+    noFolderItem.onmouseleave = () => {
+        if (!noFolderItem.classList.contains('selected')) {
+            noFolderItem.style.backgroundColor = '';
+        }
+    };
+    noFolderItem.onclick = () => {
+        selectFolderInList(listContainer, noFolderItem, { id: 'no_folder', name: 'No Folder' }, onFolderSelect);
+    };
+    listContainer.appendChild(noFolderItem);
+    container.appendChild(listContainer);
+    const allFolder = { id: 'all', name: 'All' };
+    selectFolderInList(listContainer, allItem, allFolder, onFolderSelect);
+}
+
+/**
+ * Select a folder in the list
+ */
+function selectFolderInList(listContainer, itemElement, folder, onFolderSelect) {
+    listContainer.querySelectorAll('[data-item-id]').forEach(el => {
+        el.classList.remove('selected');
+        el.style.backgroundColor = '';
+    });
+    if (itemElement) {
+        itemElement.classList.add('selected');
+        itemElement.style.backgroundColor = 'rgba(90, 159, 184, 0.3)';
+    }
+    window.folderPanelCurrentSelected = folder;
+    const editBtn = window.folderManagementEditBtn;
+    if (editBtn) {
+        const canEdit = folder.id !== 'all' && folder.id !== 'no_folder';
+        editBtn.disabled = !canEdit;
+        editBtn.style.opacity = canEdit ? '1' : '0.5';
+        editBtn.style.cursor = canEdit ? 'pointer' : 'not-allowed';
+    }
+    if (onFolderSelect) {
+        onFolderSelect(folder);
+    }
+}
+
+/**
+ * Show modal for editing a folder
+ */
+function showFolderEditModal(folder, folders, onSave, onDelete, onReload) {
+    if (!folder || folder.id === 'all' || folder.id === 'no_folder') {
+        return;
+    }
+    const folderId = folder.id;
+    const folderName = folder.name;
+    const currentParentId = folder.parent_id || null;
+    showModal({
+        type: 'custom',
+        title: `Edit Folder`,
+        content: `
+            <div style="display: flex; flex-direction: column; gap: 15px;">
+                <div>
+                    <label style="display: block; margin-bottom: 5px; color: var(--text-muted); font-size: 0.9rem;">Folder Name</label>
+                    <input type="text" id="editFolderNameInput" value="${folderName}" style="width: 100%; padding: 8px; background: var(--bg-input); border: 1px solid var(--border-primary); border-radius: 4px; color: var(--text-primary); box-sizing: border-box;">
+                </div>
+                <div>
+                    <label style="display: block; margin-bottom: 5px; color: var(--text-muted); font-size: 0.9rem;">Parent Folder</label>
+                    <div id="editFolderParentTree" style="background: var(--bg-input); border: 1px solid var(--border-primary); border-radius: 4px; padding: 8px; height: 200px; overflow-y: auto;"></div>
+                </div>
+            </div>
+        `,
+        buttons: [
+            {
+                label: 'Cancel',
+                type: 'secondary',
+                onClick: () => {}
+            },
+            {
+                label: 'Save',
+                type: 'success',
+                onClick: () => {
+                    const newName = document.getElementById('editFolderNameInput').value.trim();
+                    const newParentId = window.editFolderSelectedParent;
+                    if (!newName) {
+                        showModal({
+                            title: 'Error',
+                            content: 'Folder name cannot be empty'
+                        });
+                        return;
+                    }
+                    const updates = { name: newName };
+                    if (newParentId !== undefined) {
+                        updates.parent_id = newParentId;
+                    }
+                    onSave(folderId, updates, onReload);
+                }
+            }
+        ],
+        customWidth: '500px',
+        customMinWidth: '300px'
+    });
+    const modalHeader = document.querySelector('.modal-header');
+    if (modalHeader) {
+        const deleteBtn = document.createElement('button');
+        deleteBtn.className = 'btn';
+        deleteBtn.setAttribute('data-color', 'red');
+        deleteBtn.textContent = 'Delete';
+        deleteBtn.style.cssText = 'position: absolute; right: 16px; top: 50%; transform: translateY(-50%); padding: 6px 12px;';
+        deleteBtn.onclick = () => {
+            window.editFolderDeleteCallback && window.editFolderDeleteCallback();
+        };
+        modalHeader.style.position = 'relative';
+        modalHeader.appendChild(deleteBtn);
+    }
+    window.editFolderDeleteCallback = () => {
+        showDeleteConfirm(
+            `Are you sure you want to delete "${folder.name}"?${folder.children && folder.children.length > 0 ? ' Its subfolders will be moved to the root level.' : ' Workflows in this folder will be moved to "No Folder".'}`,
+            () => {
+                onDelete(folderId, onReload);
+                closeModal(); // Close confirm modal
+                closeModal(); // Close Edit Folder modal
+            }
+        );
+    };
+    const treeContainer = document.getElementById('editFolderParentTree');
+    if (treeContainer) {
+        treeContainer.innerHTML = '';
+        const noParentItem = document.createElement('div');
+        noParentItem.style.cssText = 'border-radius: 4px; transition: background-color 0.2s; cursor: pointer; display: flex; align-items: center; padding-left: 10px; height: 20px; font-size: 0.8rem;';
+        noParentItem.setAttribute('data-folder-id', 'no_parent');
+        const noParentText = document.createElement('span');
+        noParentText.textContent = 'No Parent (Root Level)';
+        noParentText.style.fontStyle = 'italic';
+        noParentText.style.color = 'var(--text-primary)';
+        noParentItem.appendChild(noParentText);
+        noParentItem.onmouseenter = () => {
+            if (!noParentItem.classList.contains('selected')) {
+                noParentItem.style.backgroundColor = 'rgba(90, 159, 184, 0.15)';
+            }
+        };
+        noParentItem.onmouseleave = () => {
+            if (!noParentItem.classList.contains('selected')) {
+                noParentItem.style.backgroundColor = '';
+            }
+        };
+        noParentItem.onclick = () => {
+            treeDiv.querySelectorAll('[data-item-id]').forEach(el => {
+                el.classList.remove('selected');
+                el.style.backgroundColor = '';
+            });
+            noParentItem.classList.add('selected');
+            noParentItem.style.backgroundColor = 'rgba(90, 159, 184, 0.3)';
+            window.editFolderSelectedParent = null;
+        };
+        treeContainer.appendChild(noParentItem);
+        const treeDiv = document.createElement('div');
+        treeDiv.style.cssText = 'margin: 0 4px;';
+        const getDescendantIds = (folderId, foldersList) => {
+            const descendants = new Set([folderId]);
+            let toProcess = foldersList.filter(f => f.parent_id === folderId);
+            while (toProcess.length > 0) {
+                const current = toProcess.shift();
+                descendants.add(current.id);
+                toProcess.push(...foldersList.filter(f => f.parent_id === current.id));
+            }
+            return descendants;
+        };
+        const excludeIds = getDescendantIds(folderId, folders || []);
+        const filterableFolders = (folders || []).filter(f => !excludeIds.has(f.id));
+        renderTree(filterableFolders, treeDiv, {
+            onItemClick: (folderItem) => {
+                if (excludeIds.has(folderItem.id)) {
+                    return;
+                }
+                window.editFolderSelectedParent = folderItem.id;
+                noParentItem.classList.remove('selected');
+                noParentItem.style.backgroundColor = '';
+                treeDiv.querySelectorAll('[data-item-id]').forEach(el => {
+                    el.classList.remove('selected');
+                    el.style.backgroundColor = '';
+                });
+                const selectedEl = treeDiv.querySelector(`[data-item-id="${folderItem.id}"]`);
+                if (selectedEl) {
+                    selectedEl.classList.add('selected');
+                    selectedEl.style.backgroundColor = 'rgba(90, 159, 184, 0.3)';
+                }
+            }
+        });
+        treeContainer.appendChild(treeDiv);
+        if (currentParentId) {
+            const parentEl = treeDiv.querySelector(`[data-item-id="${currentParentId}"]`);
+            if (parentEl) {
+                parentEl.classList.add('selected');
+                parentEl.style.backgroundColor = 'rgba(90, 159, 184, 0.3)';
+                window.editFolderSelectedParent = currentParentId;
+            }
+        } else {
+            noParentItem.classList.add('selected');
+            noParentItem.style.backgroundColor = 'rgba(90, 159, 184, 0.3)';
+            window.editFolderSelectedParent = null;
+        }
+    }
+}
+
+/**
+ * Show modal for creating a new folder
+ */
+function openCreateFolderModalGeneric(folderTableName, folders, onCreated, onReload) {
+    showModal({
+        type: 'custom',
+        title: 'Create New Folder',
+        content: `
+            <div style="display: flex; flex-direction: column; gap: 15px;">
+                <div>
+                    <label style="display: block; margin-bottom: 5px; color: var(--text-muted); font-size: 0.9rem;">Folder Name</label>
+                    <input type="text" id="createFolderNameInput" placeholder="Enter folder name" style="width: 100%; padding: 8px; background: var(--bg-input); border: 1px solid var(--border-primary); border-radius: 4px; color: var(--text-primary); box-sizing: border-box;">
+                </div>
+                <div>
+                    <label style="display: block; margin-bottom: 5px; color: var(--text-muted); font-size: 0.9rem;">Parent Folder</label>
+                    <div id="createFolderParentTree" style="background: var(--bg-input); border: 1px solid var(--border-primary); border-radius: 4px; padding: 8px; height: 200px; overflow-y: auto;"></div>
+                </div>
+            </div>
+        `,
+        buttons: [
+            {
+                label: 'Cancel',
+                type: 'secondary',
+                onClick: () => {}
+            },
+            {
+                label: 'Create',
+                type: 'success',
+                onClick: () => {
+                    const folderName = document.getElementById('createFolderNameInput').value.trim();
+                    if (!folderName) {
+                        showModal({
+                            title: 'Error',
+                            content: 'Folder name cannot be empty'
+                        });
+                        return;
+                    }
+                    performCreateFolderGeneric(folderTableName, folderName, window.createFolderSelectedParent || null, null, onReload);
+                }
+            }
+        ],
+        customWidth: '500px',
+        customMinWidth: '300px'
+    });
+    const treeContainer = document.getElementById('createFolderParentTree');
+    if (treeContainer) {
+        treeContainer.innerHTML = '';
+        const noParentItem = document.createElement('div');
+        noParentItem.style.cssText = 'border-radius: 4px; transition: background-color 0.2s; cursor: pointer; display: flex; align-items: center; padding-left: 10px; height: 20px; font-size: 0.8rem;';
+        noParentItem.setAttribute('data-folder-id', 'no_parent');
+        const noParentText = document.createElement('span');
+        noParentText.textContent = 'No Parent (Root Level)';
+        noParentText.style.fontStyle = 'italic';
+        noParentText.style.color = 'var(--text-primary)';
+        noParentItem.appendChild(noParentText);
+        noParentItem.onmouseenter = () => {
+            if (!noParentItem.classList.contains('selected')) {
+                noParentItem.style.backgroundColor = 'rgba(90, 159, 184, 0.15)';
+            }
+        };
+        noParentItem.onmouseleave = () => {
+            if (!noParentItem.classList.contains('selected')) {
+                noParentItem.style.backgroundColor = '';
+            }
+        };
+        noParentItem.onclick = () => {
+            treeDiv.querySelectorAll('[data-item-id]').forEach(el => {
+                el.classList.remove('selected');
+                el.style.backgroundColor = '';
+            });
+            noParentItem.classList.add('selected');
+            noParentItem.style.backgroundColor = 'rgba(90, 159, 184, 0.3)';
+            window.createFolderSelectedParent = null;
+        };
+        treeContainer.appendChild(noParentItem);
+        noParentItem.classList.add('selected');
+        noParentItem.style.backgroundColor = 'rgba(90, 159, 184, 0.3)';
+        window.createFolderSelectedParent = null;
+        const treeDiv = document.createElement('div');
+        treeDiv.style.cssText = 'margin: 0 4px;';
+        renderTree(folders || [], treeDiv, {
+            onItemClick: (folder) => {
+                window.createFolderSelectedParent = folder.id;
+                noParentItem.classList.remove('selected');
+                noParentItem.style.backgroundColor = '';
+                treeDiv.querySelectorAll('[data-item-id]').forEach(el => {
+                    el.classList.remove('selected');
+                    el.style.backgroundColor = '';
+                });
+                const selectedEl = treeDiv.querySelector(`[data-item-id="${folder.id}"]`);
+                if (selectedEl) {
+                    selectedEl.classList.add('selected');
+                    selectedEl.style.backgroundColor = 'rgba(90, 159, 184, 0.3)';
+                }
+            }
+        });
+        treeContainer.appendChild(treeDiv);
+    }
+}
+
+/**
+ * Create a new folder
+ */
+async function performCreateFolderGeneric(folderTableName, folderName, parentId, closeModal, onReload) {
+    try {
+        const response = await fetch(`https://app.equinoxits.com:1139/kore/${folderTableName}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                id: generateUUID(),
+                name: folderName,
+                parent_id: parentId || null
+            })
+        });
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        showStatusBanner('Folder created successfully', 'success');
+        if (onReload) onReload();
+    } catch (error) {
+        showModal({
+            type: 'error',
+            title: 'Error',
+            content: `Failed to create folder: ${error.message}`
+        });
     }
 }
