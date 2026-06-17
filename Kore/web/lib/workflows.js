@@ -1,3 +1,5 @@
+import '/lib/base.js';
+
 // ============================================================================
 // Workflow Library - Workflow CRUD operations and UI management
 // ============================================================================
@@ -113,6 +115,7 @@ async function saveWorkflow(id, workflowData, options = {}) {
  * Load all workflows from backend
  */
 async function loadWorkflows() {
+    console.log('loadWorkflows() called');
     try {
         const loadingSpinner = document.getElementById('loadingSpinner');
         if (loadingSpinner) {
@@ -2601,7 +2604,6 @@ function openCreateModal() {
                 return;
             }
             
-            const newId = generateUUID();
             let userEmail = getUser(); // Fallback to user ID
             
             try {
@@ -2615,12 +2617,10 @@ function openCreateModal() {
             }
             
             const newWorkflow = {
-                id: newId,
                 name: workflowName,
                 version: '1.0.0',
                 folder_id: null,
                 definition: {
-                    id: newId,
                     name: workflowName,
                     folder_id: null,
                     view: { pan: '0,0', zoom: 1 },
@@ -2664,7 +2664,6 @@ function openCreateModal() {
             
             try {
                 const payload = {
-                    id: newId,
                     name: newWorkflow.name,
                     version: newWorkflow.version,
                     folder_id: newWorkflow.folder_id,
@@ -2703,8 +2702,9 @@ function openCreateModal() {
                     renderWorkflowsList();
                 }
                 
-                // Redirect to editor
-                window.location.href = `/workflow-edit?id=${newId}`;
+                // Redirect to editor using the backend-generated ID
+                const workflowId = result.id;
+                window.location.href = `/workflow-edit?id=${workflowId}`;
             } catch (error) {
                 console.error('Error creating workflow:', error);
                 showModal({
@@ -2782,7 +2782,7 @@ function renderFilteredWorkflows(filteredWorkflows) {
         
         html += `
             <tr data-workflow-id="${workflow.id}" style="font-size: 0.8rem; font-weight: normal;">
-                <td class="workflow-name"><a href="workflow-edit.html?id=${workflow.id}" style="color: inherit; text-decoration: none; font-weight: normal;">${workflow.name}</a></td>
+                <td class="workflow-name"><a href="workflow-edit?id=${workflow.id}" style="color: inherit; text-decoration: none; font-weight: normal;">${workflow.name}</a></td>
                 <td style="font-weight: normal;">${folderName}</td>
                 <td style="white-space: nowrap; font-size: 0.8rem; font-weight: normal;">${lastModified}</td>
                 <td style="font-weight: normal;">${modifiedBy}</td>
@@ -2855,7 +2855,7 @@ function renderWorkflowsList() {
         const modifiedBy = resolveIdToName(workflow.definition?.metadata?.updated_by) || 'N/A';
         html += `
             <tr data-workflow-id="${workflow.id}" style="font-size: 0.8rem; font-weight: normal;">
-                <td class="workflow-name"><a href="workflow-edit.html?id=${workflow.id}" style="color: inherit; text-decoration: none; font-weight: normal;">${workflow.name}</a></td>
+                <td class="workflow-name"><a href="workflow-edit?id=${workflow.id}" style="color: inherit; text-decoration: none; font-weight: normal;">${workflow.name}</a></td>
                 <td style="white-space: nowrap; font-size: 0.8rem; font-weight: normal;">${lastModified}</td>
                 <td style="font-weight: normal;">${modifiedBy}</td>
                 <td style="display: none; white-space: nowrap; font-size: 0.8rem; font-weight: normal;">${createdDate}</td>
@@ -2991,6 +2991,21 @@ function deleteWorkflow(workflowId) {
                     const data = await response.json().catch(() => ({}));
                     throw new Error(data.error || `HTTP ${response.status}: ${response.statusText}`);
                 }
+                
+                // Refresh the workflow list immediately
+                await loadWorkflows();
+                
+                // Re-render the current view (if a folder is selected, show filtered; otherwise show all)
+                if (window.currentSelectedFolder) {
+                    renderFilteredWorkflows(workflows.filter(w => 
+                        window.currentSelectedFolder.id === 'all' ? true :
+                        window.currentSelectedFolder.id === 'no_folder' ? !w.folder_id :
+                        w.folder_id === window.currentSelectedFolder.id
+                    ));
+                } else {
+                    renderWorkflowsList();
+                }
+                
                 // Close the delete confirmation modal
                 closeModal();
                 
@@ -3002,11 +3017,7 @@ function deleteWorkflow(workflowId) {
                         {
                             label: 'OK',
                             type: 'success',
-                            onClick: () => {
-                                setTimeout(() => {
-                                    loadWorkflows().then(() => renderFilteredWorkflows(workflows));
-                                }, 500);
-                            }
+                            onClick: () => {}
                         }
                     ]
                 });
@@ -3028,3 +3039,20 @@ function deleteWorkflow(workflowId) {
         }
     );
 }
+
+// ============================================================================
+// Export all functions to window for global access
+// ============================================================================
+window.saveWorkflow = saveWorkflow;
+window.loadWorkflows = loadWorkflows;
+window.ensureKoreLibLoaded = ensureKoreLibLoaded;
+window.renderFilteredWorkflows = renderFilteredWorkflows;
+window.applyHideInactive = applyHideInactive;
+window.editWorkflow = editWorkflow;
+window.showWorkflowMenu = showWorkflowMenu;
+window.openCreateModal = openCreateModal;
+window.deleteWorkflow = deleteWorkflow;
+window.showItemMoveModal = showItemMoveModal;
+window.renderWorkflowsList = renderWorkflowsList;
+window.filterWorkflows = filterWorkflows;
+window.moveWorkflowToFolder = moveWorkflowToFolder;

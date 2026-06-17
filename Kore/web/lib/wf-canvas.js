@@ -9,6 +9,17 @@
  * - Connection detection and visibility
  */
 
+import '/lib/base.js';
+
+// ============================================================================
+// GLOBAL PAN AND ZOOM STATE
+// ============================================================================
+let panX = 0;
+let panY = 0;
+let zoomLevel = 1;
+const GRID_SIZE = 5000; // Must match HTML canvas dimensions
+const MIN_DRAG_DISTANCE = 20; // Minimum pixels to drag before considering it a drag operation
+
 // ============================================================================
 // PHASE 1: PURE UTILITY FUNCTIONS - No dependencies
 // ============================================================================
@@ -939,249 +950,580 @@ function makeElementDraggable(element, elementId, elementType, onDragMove, onDra
 // Changes here can affect multiple user interactions simultaneously.
 // ============================================================================
 
-        function setupCanvasDragDrop() {
-            const stepTypeItems = document.querySelectorAll('.step-type-item');
+function setupCanvasDragDrop() {
+    const stepTypeItems = document.querySelectorAll('.step-type-item');
+    const canvas = document.getElementById('workflowCanvas');
+    let dragOffsetX = 0;
+    let dragOffsetY = 0;
+    
+    // Setup draggable step types
+    stepTypeItems.forEach(item => {
+        item.addEventListener('dragstart', (e) => {
+            e.dataTransfer.effectAllowed = 'copy';
+            e.dataTransfer.setData('stepType', item.getAttribute('data-type'));
+            // Capture offset from item's top-left to mouse cursor
+            const rect = item.getBoundingClientRect();
+            dragOffsetX = e.clientX - rect.left;
+            dragOffsetY = e.clientY - rect.top;
+        });
+    });
+
+    // Setup canvas to accept drops
+    canvas.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'copy';
+    });
+
+    canvas.addEventListener('dragleave', (e) => {
+        if (e.target === canvas) {
+            // Keep canvas transparent with grid
+        }
+    });
+
+    canvas.addEventListener('drop', (e) => {
+        e.preventDefault();
+        
+        const stepType = e.dataTransfer.getData('stepType');
+        const rect = canvas.getBoundingClientRect();
+        // Convert screen coordinates to grid coordinates accounting for zoom
+        // Note: pan is handled by canvas transform, not by adjusting coordinates
+        let x = (e.clientX - rect.left - dragOffsetX) / zoomLevel;
+        let y = (e.clientY - rect.top - dragOffsetY) / zoomLevel;
+        
+        // Snap to 30px grid
+        x = Math.round(x / 30) * 30;
+        y = Math.round(y / 30) * 30;
+        
+        createStepOnCanvas(stepType, x, y);
+    });
+    
+    // Zoom and Pan functionality
+    let isPanning = false;
+    let panStartX = 0;
+    let panStartY = 0;
+    
+    function clampPan() {
+        const containerRect = container.getBoundingClientRect();
+        const containerWidth = containerRect.width;
+        const containerHeight = containerRect.height;
+        
+        // Calculate visible grid area at current zoom
+        const visibleWidth = containerWidth / zoomLevel;
+        const visibleHeight = containerHeight / zoomLevel;
+        
+        // Clamp pan so viewport stays within 0,0 to GRID_SIZE,GRID_SIZE
+        // panX/panY represent the top-left corner of the viewport in grid space
+        panX = Math.max(0, Math.min(panX, GRID_SIZE - visibleWidth));
+        panY = Math.max(0, Math.min(panY, GRID_SIZE - visibleHeight));
+    }
+    
+    function updateTransform() {
+        canvas.style.transform = `scale(${zoomLevel}) translate(${-panX}px, ${-panY}px)`;
+        canvas.style.transformOrigin = '0 0';
+    }
+    
+    // Mouse wheel zoom
+    canvas.addEventListener('wheel', (e) => {
+        e.preventDefault();
+        
+        const zoomIncrement = e.deltaY > 0 ? -0.05 : 0.05;
+        const newZoom = Math.max(0.55, Math.min(2, zoomLevel + zoomIncrement));
+        
+        // Adjust pan to zoom toward mouse cursor
+        const rect = container.getBoundingClientRect();
+        const mouseX = e.clientX - rect.left;
+        const mouseY = e.clientY - rect.top;
+        
+        panX = mouseX / newZoom + (panX * zoomLevel / newZoom) - mouseX / newZoom;
+        panY = mouseY / newZoom + (panY * zoomLevel / newZoom) - mouseY / newZoom;
+        
+        zoomLevel = newZoom;
+        clampPan();
+        updateTransform();
+        updateZoomDisplay();
+    }, { passive: false });
+    
+    // Pan with left mouse button (on empty canvas only)
+    const container = document.getElementById('canvasContainer');
+    container.addEventListener('mousedown', (e) => {
+        if (e.button === 0 && (e.target === canvas || e.target.closest('[data-transition-connection-line]'))) {
+            // Don't pan if clicking on steps, frames, or hitboxes
+            if (e.target.closest('[data-step-uuid]') || 
+                e.target.closest('[data-transition-frame]') ||
+                e.target.closest('[data-case-arrow-hitbox]')) {
+                return;
+            }
+            isPanning = true;
+            panStartX = e.clientX + panX;
+            panStartY = e.clientY + panY;
+            container.style.cursor = 'grabbing';
+            e.preventDefault();
+        }
+    });
+    
+    document.addEventListener('mousemove', (e) => {
+        if (isPanning && !draggedConnectionHitbox) {
+            panX = panStartX - e.clientX;
+            panY = panStartY - e.clientY;
+            clampPan();
+            updateTransform();
+        }
+    });
+    
+    document.addEventListener('mouseup', () => {
+        if (isPanning) {
+            isPanning = false;
+            container.style.cursor = 'auto';
+        }
+    });
+    
+    // Drag from transition triangles to create lines to steps
+    let isDrawingFromTransition = false;
+    let fromTransitionId = null;
+    let transitionStartX = 0;
+    let transitionStartY = 0;
+    
+    // Drag case line end arrows to move or delete connections
+    let draggedCaseConditionId = null;
+    let draggedCaseTargetStepId = null;
+    let draggedCaseTargetNodeId = null;
+    let caseArrowStartX = 0;
+    let caseArrowStartY = 0;
+    
+    // Track dragged connection hitbox
+    let draggedConnectionHitbox = null;
+    let draggedConnectionLineElement = null;
+    let draggedConnectionSourceType = null;
+    let draggedConnectionSourceId = null;
+    let draggedConnectionTargetType = null;
+    let draggedConnectionTargetId = null;
+    let draggedConnectionStartPoint = { x: 0, y: 0 };
+    
+    document.addEventListener('mousedown', (e) => {
+        // Check if clicking on a universal connection hitbox
+        const hitbox = e.target.closest('[data-connection-hitbox]');
+        if (hitbox) {
             const canvas = document.getElementById('workflowCanvas');
-            let dragOffsetX = 0;
-            let dragOffsetY = 0;
+            if (!canvas) return;
             
-            // Setup draggable step types
-            stepTypeItems.forEach(item => {
-                item.addEventListener('dragstart', (e) => {
-                    e.dataTransfer.effectAllowed = 'copy';
-                    e.dataTransfer.setData('stepType', item.getAttribute('data-type'));
-                    // Capture offset from item's top-left to mouse cursor
-                    const rect = item.getBoundingClientRect();
-                    dragOffsetX = e.clientX - rect.left;
-                    dragOffsetY = e.clientY - rect.top;
-                });
-            });
-
-            // Setup canvas to accept drops
-            canvas.addEventListener('dragover', (e) => {
-                e.preventDefault();
-                e.dataTransfer.dropEffect = 'copy';
-            });
-
-            canvas.addEventListener('dragleave', (e) => {
-                if (e.target === canvas) {
-                    // Keep canvas transparent with grid
-                }
-            });
-
-            canvas.addEventListener('drop', (e) => {
-                e.preventDefault();
-                
-                const stepType = e.dataTransfer.getData('stepType');
-                const rect = canvas.getBoundingClientRect();
-                // Convert screen coordinates to grid coordinates accounting for zoom
-                // Note: pan is handled by canvas transform, not by adjusting coordinates
-                let x = (e.clientX - rect.left - dragOffsetX) / zoomLevel;
-                let y = (e.clientY - rect.top - dragOffsetY) / zoomLevel;
-                
-                // Snap to 30px grid
-                x = Math.round(x / 30) * 30;
-                y = Math.round(y / 30) * 30;
-                
-                createStepOnCanvas(stepType, x, y);
-            });
+            e.stopPropagation();
+            e.preventDefault();
             
-            // Zoom and Pan functionality
-            let isPanning = false;
-            let panStartX = 0;
-            let panStartY = 0;
+            draggedConnectionHitbox = hitbox;
+            draggedConnectionSourceType = hitbox.getAttribute('data-line-source-type');
+            draggedConnectionSourceId = hitbox.getAttribute('data-line-source-id');
+            draggedConnectionTargetType = hitbox.getAttribute('data-line-target-type');
+            draggedConnectionTargetId = hitbox.getAttribute('data-line-target-id');
             
-            function clampPan() {
-                const containerRect = container.getBoundingClientRect();
-                const containerWidth = containerRect.width;
-                const containerHeight = containerRect.height;
-                
-                // Calculate visible grid area at current zoom
-                const visibleWidth = containerWidth / zoomLevel;
-                const visibleHeight = containerHeight / zoomLevel;
-                
-                // Clamp pan so viewport stays within 0,0 to GRID_SIZE,GRID_SIZE
-                // panX/panY represent the top-left corner of the viewport in grid space
-                panX = Math.max(0, Math.min(panX, GRID_SIZE - visibleWidth));
-                panY = Math.max(0, Math.min(panY, GRID_SIZE - visibleHeight));
+            // Find the line element
+            let lineElement = null;
+            if (draggedConnectionSourceType === 'case') {
+                lineElement = canvas.querySelector(`[data-transition-connection-line][data-from-transition="${draggedConnectionSourceId}"][data-to-${draggedConnectionTargetType}="${draggedConnectionTargetId}"]`);
+            } else if (draggedConnectionSourceType === 'node') {
+                lineElement = canvas.querySelector(`[data-node-connection-line][data-from-node="${draggedConnectionSourceId}"][data-to-${draggedConnectionTargetType}="${draggedConnectionTargetId}"]`);
+            } else if (draggedConnectionSourceType === 'step') {
+                lineElement = canvas.querySelector(`[data-connection-line][data-from-step="${draggedConnectionSourceId}"][data-to-frame="${draggedConnectionTargetId}"]`);
             }
             
-            function updateTransform() {
-                canvas.style.transform = `scale(${zoomLevel}) translate(${-panX}px, ${-panY}px)`;
-                canvas.style.transformOrigin = '0 0';
-            }
+            draggedConnectionLineElement = lineElement;
             
-            // Mouse wheel zoom
-            canvas.addEventListener('wheel', (e) => {
-                e.preventDefault();
-                
-                const zoomIncrement = e.deltaY > 0 ? -0.05 : 0.05;
-                const newZoom = Math.max(0.55, Math.min(2, zoomLevel + zoomIncrement));
-                
-                // Adjust pan to zoom toward mouse cursor
-                const rect = container.getBoundingClientRect();
-                const mouseX = e.clientX - rect.left;
-                const mouseY = e.clientY - rect.top;
-                
-                panX = mouseX / newZoom + (panX * zoomLevel / newZoom) - mouseX / newZoom;
-                panY = mouseY / newZoom + (panY * zoomLevel / newZoom) - mouseY / newZoom;
-                
-                zoomLevel = newZoom;
-                clampPan();
-                updateTransform();
-                updateZoomDisplay();
-            }, { passive: false });
-            
-            // Pan with left mouse button (on empty canvas only)
-            const container = document.getElementById('canvasContainer');
-            container.addEventListener('mousedown', (e) => {
-                if (e.button === 0 && (e.target === canvas || e.target.closest('[data-transition-connection-line]'))) {
-                    // Don't pan if clicking on steps, frames, or hitboxes
-                    if (e.target.closest('[data-step-uuid]') || 
-                        e.target.closest('[data-transition-frame]') ||
-                        e.target.closest('[data-case-arrow-hitbox]')) {
-                        return;
-                    }
-                    isPanning = true;
-                    panStartX = e.clientX + panX;
-                    panStartY = e.clientY + panY;
-                    container.style.cursor = 'grabbing';
-                    e.preventDefault();
-                }
-            });
-            
-            document.addEventListener('mousemove', (e) => {
-                if (isPanning && !draggedConnectionHitbox) {
-                    panX = panStartX - e.clientX;
-                    panY = panStartY - e.clientY;
-                    clampPan();
-                    updateTransform();
-                }
-            });
-            
-            document.addEventListener('mouseup', () => {
-                if (isPanning) {
-                    isPanning = false;
-                    container.style.cursor = 'auto';
-                }
-            });
-            
-            // Drag from transition triangles to create lines to steps
-            let isDrawingFromTransition = false;
-            let fromTransitionId = null;
-            let transitionStartX = 0;
-            let transitionStartY = 0;
-            
-            // Drag case line end arrows to move or delete connections
-            let draggedCaseConditionId = null;
-            let draggedCaseTargetStepId = null;
-            let draggedCaseTargetNodeId = null;
-            let caseArrowStartX = 0;
-            let caseArrowStartY = 0;
-            
-            // Track dragged connection hitbox
-            let draggedConnectionHitbox = null;
-            let draggedConnectionLineElement = null;
-            let draggedConnectionSourceType = null;
-            let draggedConnectionSourceId = null;
-            let draggedConnectionTargetType = null;
-            let draggedConnectionTargetId = null;
-            let draggedConnectionStartPoint = { x: 0, y: 0 };
-            
-            document.addEventListener('mousedown', (e) => {
-                // Check if clicking on a universal connection hitbox
-                const hitbox = e.target.closest('[data-connection-hitbox]');
-                if (hitbox) {
-                    const canvas = document.getElementById('workflowCanvas');
-                    if (!canvas) return;
-                    
-                    e.stopPropagation();
-                    e.preventDefault();
-                    
-                    draggedConnectionHitbox = hitbox;
-                    draggedConnectionSourceType = hitbox.getAttribute('data-line-source-type');
-                    draggedConnectionSourceId = hitbox.getAttribute('data-line-source-id');
-                    draggedConnectionTargetType = hitbox.getAttribute('data-line-target-type');
-                    draggedConnectionTargetId = hitbox.getAttribute('data-line-target-id');
-                    
-                    // Find the line element
-                    let lineElement = null;
-                    if (draggedConnectionSourceType === 'case') {
-                        lineElement = canvas.querySelector(`[data-transition-connection-line][data-from-transition="${draggedConnectionSourceId}"][data-to-${draggedConnectionTargetType}="${draggedConnectionTargetId}"]`);
-                    } else if (draggedConnectionSourceType === 'node') {
-                        lineElement = canvas.querySelector(`[data-node-connection-line][data-from-node="${draggedConnectionSourceId}"][data-to-${draggedConnectionTargetType}="${draggedConnectionTargetId}"]`);
-                    } else if (draggedConnectionSourceType === 'step') {
-                        lineElement = canvas.querySelector(`[data-connection-line][data-from-step="${draggedConnectionSourceId}"][data-to-frame="${draggedConnectionTargetId}"]`);
-                    }
-                    
-                    draggedConnectionLineElement = lineElement;
-                    
-                    // Store the start point - we need the actual source point of the connection
-                    // For case lines, start from the transition condition box
-                    // For node lines, start from the source node
-                    if (draggedConnectionSourceType === 'case') {
-                        const transition = currentTransitions.find(t => t.id === draggedConnectionSourceId);
-                        const frame = currentTransitionFrames.find(f => f.conditions.includes(draggedConnectionSourceId));
-                        if (transition && frame) {
-                            const frameElement = canvas.querySelector(`[data-transition-frame="${frame.id}"]`);
-                            const conditionBox = frameElement.querySelector(`[data-condition-id="${draggedConnectionSourceId}"]`);
-                            if (frameElement && conditionBox) {
-                                const frameX = parseInt(frameElement.style.left);
-                                const frameY = parseInt(frameElement.style.top);
-                                const offsetX = conditionBox.offsetLeft;
-                                const offsetY = conditionBox.offsetTop;
-                                const width = conditionBox.offsetWidth;
-                                const height = conditionBox.offsetHeight;
-                                
-                                if (frame.verticalLayout) {
-                                    draggedConnectionStartPoint = { x: frameX + offsetX + width, y: frameY + offsetY + height / 2 + 3 };
-                                } else {
-                                    draggedConnectionStartPoint = { x: frameX + offsetX + width / 2 + 2, y: frameY + offsetY + height + 40 };
-                                }
-                            }
+            // Store the start point - we need the actual source point of the connection
+            // For case lines, start from the transition condition box
+            // For node lines, start from the source node
+            if (draggedConnectionSourceType === 'case') {
+                const transition = currentTransitions.find(t => t.id === draggedConnectionSourceId);
+                const frame = currentTransitionFrames.find(f => f.conditions.includes(draggedConnectionSourceId));
+                if (transition && frame) {
+                    const frameElement = canvas.querySelector(`[data-transition-frame="${frame.id}"]`);
+                    const conditionBox = frameElement.querySelector(`[data-condition-id="${draggedConnectionSourceId}"]`);
+                    if (frameElement && conditionBox) {
+                        const frameX = parseInt(frameElement.style.left);
+                        const frameY = parseInt(frameElement.style.top);
+                        const offsetX = conditionBox.offsetLeft;
+                        const offsetY = conditionBox.offsetTop;
+                        const width = conditionBox.offsetWidth;
+                        const height = conditionBox.offsetHeight;
+                        
+                        if (frame.verticalLayout) {
+                            draggedConnectionStartPoint = { x: frameX + offsetX + width, y: frameY + offsetY + height / 2 + 3 };
+                        } else {
+                            draggedConnectionStartPoint = { x: frameX + offsetX + width / 2 + 2, y: frameY + offsetY + height + 40 };
                         }
-                    } else if (draggedConnectionSourceType === 'node') {
-                        const sourceNode = currentNodes.find(n => n.id === draggedConnectionSourceId);
-                        if (sourceNode) {
-                            const nodeElement = canvas.querySelector(`[data-node-id="${draggedConnectionSourceId}"]`);
-                            if (nodeElement) {
-                                const nodeX = parseInt(nodeElement.style.left);
-                                const nodeY = parseInt(nodeElement.style.top);
-                                const nodeWidth = parseInt(nodeElement.style.width);
-                                const nodeHeight = parseInt(nodeElement.style.height);
-                                draggedConnectionStartPoint = {
-                                    x: nodeX + nodeWidth / 2,
-                                    y: nodeY + nodeHeight / 2
-                                };
-                            }
+                    }
+                }
+            } else if (draggedConnectionSourceType === 'node') {
+                const sourceNode = currentNodes.find(n => n.id === draggedConnectionSourceId);
+                if (sourceNode) {
+                    const nodeElement = canvas.querySelector(`[data-node-id="${draggedConnectionSourceId}"]`);
+                    if (nodeElement) {
+                        const nodeX = parseInt(nodeElement.style.left);
+                        const nodeY = parseInt(nodeElement.style.top);
+                        const nodeWidth = parseInt(nodeElement.style.width);
+                        const nodeHeight = parseInt(nodeElement.style.height);
+                        draggedConnectionStartPoint = {
+                            x: nodeX + nodeWidth / 2,
+                            y: nodeY + nodeHeight / 2
+                        };
+                    }
+                }
+            }
+            
+            // Hide the current line
+            if (lineElement) {
+                lineElement.style.display = 'none';
+            }
+            
+            // Will be handled by mousemove and mouseup
+        }
+    });
+    
+    // Handle connection hitbox dragging (move or delete lines)
+    document.addEventListener('mousemove', (e) => {
+        if (!draggedConnectionHitbox) return;
+        
+        const canvasRect = document.getElementById('workflowCanvas').getBoundingClientRect();
+        const screenX = e.clientX - canvasRect.left;
+        const screenY = e.clientY - canvasRect.top;
+        const currentX = (screenX / zoomLevel) + panX;
+        const currentY = (screenY / zoomLevel) + panY;
+        
+        // Create or update preview line
+        let previewLine = document.getElementById('workflowCanvas').querySelector('[data-connection-preview-line]');
+        if (!previewLine) {
+            previewLine = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+            previewLine.setAttribute('data-connection-preview-line', 'true');
+            previewLine.style.cssText = `
+                position: absolute;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                pointer-events: none;
+                z-index: 1;
+            `;
+            document.getElementById('workflowCanvas').appendChild(previewLine);
+        }
+        
+        const path = createCurvedPath(draggedConnectionStartPoint.x, draggedConnectionStartPoint.y, 'bottom', currentX, currentY, 'bottom');
+        previewLine.innerHTML = `<path d="${path}" stroke="#707070" stroke-width="2" fill="none" stroke-dasharray="5,5"/>`;
+    });
+    
+    document.addEventListener('mouseup', (e) => {
+        if (!draggedConnectionHitbox) return;
+        
+        draggedConnectionHitbox = null;
+        const canvas = document.getElementById('workflowCanvas');
+        
+        // Remove preview line
+        const previewLine = canvas.querySelector('[data-connection-preview-line]');
+        if (previewLine) previewLine.remove();
+        
+        // Check what we dropped on
+        const canvasRect = canvas.getBoundingClientRect();
+        const dropX = e.clientX;
+        const dropY = e.clientY;
+        
+        const dropTarget = detectDropTarget(canvas, dropX, dropY);
+        const droppedOnStep = dropTarget.droppedOnStep;
+        const droppedOnNode = dropTarget.droppedOnNode;
+        
+        // If dropped on valid target, reattach; otherwise delete the line
+        if (droppedOnStep || droppedOnNode) {
+            // Reattach to new target
+            if (draggedConnectionSourceType === 'case') {
+                const transition = currentTransitions.find(t => t.id === draggedConnectionSourceId);
+                if (transition) {
+                    // Remove old target from transition
+                    if (draggedConnectionTargetType === 'step') {
+                        transition.targetSteps = transition.targetSteps.filter(s => s !== draggedConnectionTargetId);
+                    } else if (draggedConnectionTargetType === 'node') {
+                        transition.targetNodes = transition.targetNodes.filter(n => n !== draggedConnectionTargetId);
+                    }
+                    
+                    // Add new target
+                    if (droppedOnStep) {
+                        if (!transition.targetSteps.includes(droppedOnStep)) {
+                            transition.targetSteps.push(droppedOnStep);
+                        }
+                    } else if (droppedOnNode) {
+                        if (!transition.targetNodes) transition.targetNodes = [];
+                        if (!transition.targetNodes.includes(droppedOnNode)) {
+                            transition.targetNodes.push(droppedOnNode);
                         }
                     }
                     
-                    // Hide the current line
-                    if (lineElement) {
-                        lineElement.style.display = 'none';
+                    // Remove old line element
+                    if (draggedConnectionLineElement) {
+                        draggedConnectionLineElement.remove();
                     }
                     
-                    // Will be handled by mousemove and mouseup
+                    // Create new line
+                    const lineUUID = String(Date.now()) + '-' + Math.random().toString(36).substr(2, 9);
+                    const newLine = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+                    newLine.setAttribute('data-transition-connection-line', lineUUID);
+                    newLine.setAttribute('data-from-transition', draggedConnectionSourceId);
+                    if (droppedOnStep) {
+                        newLine.setAttribute('data-to-step', droppedOnStep);
+                    } else {
+                        newLine.setAttribute('data-to-node', droppedOnNode);
+                    }
+                    newLine.style.cssText = `position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 1;`;
+                    canvas.appendChild(newLine);
+                    
+                    const frame = currentTransitionFrames.find(f => f.conditions.includes(draggedConnectionSourceId));
+                    const caseColor = transition ? getTransitionTheme(transition.type).color : getTransitionTheme('Success').color;
+                    drawConnectionLine(newLine, draggedConnectionSourceId, 'case', droppedOnStep || droppedOnNode, droppedOnStep ? 'step' : 'node', canvas, caseColor, false, frame);
+                    
+                    syncTransitionCasesToStep();
+                    recheckFlaggedSteps();
+                    updatePreview();
                 }
-            });
+            } else if (draggedConnectionSourceType === 'node') {
+                const sourceNode = currentNodes.find(n => n.id === draggedConnectionSourceId);
+                if (sourceNode) {
+                    // Remove old target
+                    if (draggedConnectionTargetType === 'step') {
+                        sourceNode.targetSteps = sourceNode.targetSteps.filter(s => s !== draggedConnectionTargetId);
+                    } else if (draggedConnectionTargetType === 'node') {
+                        sourceNode.targetNodes = sourceNode.targetNodes.filter(n => n !== draggedConnectionTargetId);
+                    }
+                    
+                    // Add new target
+                    if (droppedOnStep) {
+                        if (!sourceNode.targetSteps.includes(droppedOnStep)) {
+                            sourceNode.targetSteps.push(droppedOnStep);
+                        }
+                    } else if (droppedOnNode) {
+                        if (!sourceNode.targetNodes.includes(droppedOnNode)) {
+                            sourceNode.targetNodes.push(droppedOnNode);
+                        }
+                    }
+                    
+                    // Remove old line
+                    if (draggedConnectionLineElement) {
+                        draggedConnectionLineElement.remove();
+                    }
+                    
+                    // Create new line
+                    const lineUUID = String(Date.now()) + '-' + Math.random().toString(36).substr(2, 9);
+                    const newLine = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+                    newLine.setAttribute('data-node-connection-line', lineUUID);
+                    newLine.setAttribute('data-from-node', draggedConnectionSourceId);
+                    if (droppedOnStep) {
+                        newLine.setAttribute('data-to-step', droppedOnStep);
+                    } else {
+                        newLine.setAttribute('data-to-node', droppedOnNode);
+                    }
+                    newLine.style.cssText = `position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 1;`;
+                    canvas.appendChild(newLine);
+                    
+                    drawConnectionLine(newLine, draggedConnectionSourceId, 'node', droppedOnStep || droppedOnNode, droppedOnStep ? 'step' : 'node', canvas, '#707070', true);
+                    
+                    recheckFlaggedSteps();
+                    updatePreview();
+                }
+            }
+        } else {
+            // Dropped in empty space - delete the line
+            if (draggedConnectionSourceType === 'case') {
+                const transition = currentTransitions.find(t => t.id === draggedConnectionSourceId);
+                if (transition) {
+                    if (draggedConnectionTargetType === 'step') {
+                        transition.targetSteps = transition.targetSteps.filter(s => s !== draggedConnectionTargetId);
+                    } else if (draggedConnectionTargetType === 'node') {
+                        transition.targetNodes = transition.targetNodes.filter(n => n !== draggedConnectionTargetId);
+                    }
+                    syncTransitionCasesToStep();
+                    recheckFlaggedSteps();
+                    updatePreview();
+                }
+            } else if (draggedConnectionSourceType === 'node') {
+                const sourceNode = currentNodes.find(n => n.id === draggedConnectionSourceId);
+                if (sourceNode) {
+                    if (draggedConnectionTargetType === 'step') {
+                        sourceNode.targetSteps = sourceNode.targetSteps.filter(s => s !== draggedConnectionTargetId);
+                    } else if (draggedConnectionTargetType === 'node') {
+                        sourceNode.targetNodes = sourceNode.targetNodes.filter(n => n !== draggedConnectionTargetId);
+                    }
+                    recheckFlaggedSteps();
+                    updatePreview();
+                }
+            }
             
-            // Handle connection hitbox dragging (move or delete lines)
-            document.addEventListener('mousemove', (e) => {
-                if (!draggedConnectionHitbox) return;
+            // Remove the line element
+            if (draggedConnectionLineElement) {
+                draggedConnectionLineElement.remove();
+            }
+        }
+        
+        draggedConnectionLineElement = null;
+        draggedConnectionSourceType = null;
+        draggedConnectionSourceId = null;
+        draggedConnectionTargetType = null;
+        draggedConnectionTargetId = null;
+    });
+    
+    document.addEventListener('mousedown', (e) => {
+        // Original transition arrow handler
+        // Check if clicking on a triangle
+        const triangle = e.target.closest('[data-transition-arrow]');
+        if (!triangle) return;
+        
+        const canvas = document.getElementById('workflowCanvas');
+        if (!canvas) {
+            return;
+        }
+        
+        e.stopPropagation();
+        isDrawingFromTransition = true;
+        fromTransitionId = triangle.getAttribute('data-transition-arrow');
+        
+        const canvasRect = canvas.getBoundingClientRect();
+        
+        // Get the condition box element to calculate start point consistently with finished line
+        const conditionId = triangle.getAttribute('data-transition-arrow');
+        const conditionBox = canvas.querySelector(`[data-condition-id="${conditionId}"]`);
+        if (!conditionBox) return;
+        
+        // Find the frame and wrapper to calculate absolute position
+        const wrapper = conditionBox.parentElement;
+        const frame = wrapper?.closest('[data-transition-frame]');
+        if (!frame) return;
+        
+        const frameX = parseInt(frame.style.left);
+        const frameY = parseInt(frame.style.top);
+        const wrapperOffsetX = wrapper ? wrapper.offsetLeft : 0;
+        const wrapperOffsetY = wrapper ? wrapper.offsetTop : 0;
+        const conditionOffsetX = conditionBox.offsetLeft;
+        const conditionOffsetY = conditionBox.offsetTop;
+        const conditionWidth = conditionBox.offsetWidth;
+        const conditionHeight = conditionBox.offsetHeight;
+        
+        // Calculate start point using same logic as finished line
+        const frameData = currentTransitionFrames.find(f => f.id === frame.getAttribute('data-transition-frame'));
+        let screenStartX, screenStartY;
+        
+        // Use same calculation for both layouts: always include wrapperOffsetX
+        const conditionAbsX = frameX + wrapperOffsetX + conditionOffsetX;
+        
+        if (frameData && frameData.verticalLayout) {
+            const conditionAbsY = frameY + wrapperOffsetY + conditionOffsetY;
+            screenStartX = conditionAbsX + conditionWidth + 10;
+            screenStartY = conditionAbsY + 13;
+        } else {
+            const conditionAbsY = frameY + conditionOffsetY;
+            screenStartX = conditionAbsX + conditionWidth / 2 + 2;
+            screenStartY = conditionAbsY + conditionHeight + 40;
+        }
+        
+        // Use canvas space coordinates directly (same as finished line), no zoom/pan conversion
+        transitionStartX = screenStartX;
+        transitionStartY = screenStartY;
+        
+        const handleTransitionMouseMove = (e) => {
+            if (!isDrawingFromTransition) return;
+            
+            const canvasRect = canvas.getBoundingClientRect();
+            const screenCurrentX = e.clientX - canvasRect.left;
+            const screenCurrentY = e.clientY - canvasRect.top;
+            // Convert to canvas space by dividing by zoom (SVG is scaled by zoomLevel)
+            const currentX = screenCurrentX / zoomLevel;
+            const currentY = screenCurrentY / zoomLevel;
+            
+            let line = canvas.querySelector('[data-transition-preview-line]');
+            if (!line) {
+                line = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+                line.setAttribute('data-transition-preview-line', 'true');
+                line.style.cssText = `
+                    position: absolute;
+                    top: 0;
+                    left: 0;
+                    width: 100%;
+                    height: 100%;
+                    pointer-events: none;
+                    z-index: 1;
+                `;
+                canvas.appendChild(line);
+            }
+            
+            line.innerHTML = `<line x1="${transitionStartX}" y1="${transitionStartY}" x2="${currentX}" y2="${currentY}" stroke="#707070" stroke-width="2"/>`;
+        };
+        
+        const handleTransitionMouseUp = (e) => {
+            if (!isDrawingFromTransition) return;
+            
+            const savedTransitionId = fromTransitionId; // Save before resetting
+            isDrawingFromTransition = false;
+            fromTransitionId = null;
+            document.removeEventListener('mousemove', handleTransitionMouseMove);
+            document.removeEventListener('mouseup', handleTransitionMouseUp);
+            
+            const previewLine = canvas.querySelector('[data-transition-preview-line]');
+            if (previewLine) previewLine.remove();
+            
+            const canvasRect = canvas.getBoundingClientRect();
+            const screenEndX = e.clientX - canvasRect.left;
+            const screenEndY = e.clientY - canvasRect.top;
+            // Use canvas space coordinates (same as start point) for distance check
+            const canvasEndX = screenEndX;
+            const canvasEndY = screenEndY;
+            const gridEndX = (screenEndX / zoomLevel) + panX;
+            const gridEndY = (screenEndY / zoomLevel) + panY;
+            
+            // Check if we dropped on a step
+            const targetStep = document.elementFromPoint(e.clientX, e.clientY);
+            let stepElement = targetStep?.closest('[data-step-id]');
+            let nodeElement = null;
+            
+            // If not found directly, use universal drop detection with 50px margin
+            if (!stepElement) {
+                const dropTarget = detectDropTarget(canvas, e.clientX, e.clientY);
+                if (dropTarget.droppedOnStep) {
+                    stepElement = canvas.querySelector(`[data-step-uuid="${dropTarget.droppedOnStep}"]`);
+                }
+                if (dropTarget.droppedOnNode) {
+                    nodeElement = canvas.querySelector(`[data-node-id="${dropTarget.droppedOnNode}"]`);
+                }
+            }
+            
+            // If not on a step directly, check if we're on an attached transition frame
+            if (!stepElement) {
+                const frameElement = targetStep?.closest('[data-transition-frame]');
+                if (frameElement) {
+                    const frameId = frameElement.getAttribute('data-transition-frame');
+                    const attachedFrame = currentTransitionFrames.find(f => f.id === frameId);
+                    if (attachedFrame && attachedFrame.attachedToStepId) {
+                        stepElement = canvas.querySelector(`[data-step-id][data-step-uuid="${attachedFrame.attachedToStepId}"]`);
+                    }
+                }
+            }
+            
+            const transition = currentTransitions.find(t => t.id === savedTransitionId);
+            
+            const dragDistance = Math.hypot(canvasEndX - transitionStartX, canvasEndY - transitionStartY);
+            
+            if (stepElement && dragDistance >= MIN_DRAG_DISTANCE) {
+                const targetStepId = stepElement.getAttribute('data-step-uuid');
+                const targetStep = currentSteps.find(s => s.id === targetStepId);
                 
-                const canvasRect = document.getElementById('workflowCanvas').getBoundingClientRect();
-                const screenX = e.clientX - canvasRect.left;
-                const screenY = e.clientY - canvasRect.top;
-                const currentX = (screenX / zoomLevel) + panX;
-                const currentY = (screenY / zoomLevel) + panY;
+                // Don't allow connections to BEGIN step
+                if (targetStep && targetStep.type === 'Begin') {
+                    return;
+                }
                 
-                // Create or update preview line
-                let previewLine = document.getElementById('workflowCanvas').querySelector('[data-connection-preview-line]');
-                if (!previewLine) {
-                    previewLine = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-                    previewLine.setAttribute('data-connection-preview-line', 'true');
-                    previewLine.style.cssText = `
+                if (transition && targetStepId) {
+                    // Add target step to the transition
+                    if (!transition.targetSteps.includes(targetStepId)) {
+                        transition.targetSteps.push(targetStepId);
+                    }
+                    
+                    // Create green connection line
+                    const lineUUID = String(Date.now()) + '-' + Math.random().toString(36).substr(2, 9);
+                    const connectionLine = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+                    connectionLine.setAttribute('data-transition-connection-line', lineUUID);
+                    connectionLine.setAttribute('data-from-transition', savedTransitionId);
+                    connectionLine.setAttribute('data-to-step', targetStepId);
+                    connectionLine.style.cssText = `
                         position: absolute;
                         top: 0;
                         left: 0;
@@ -1190,610 +1532,303 @@ function makeElementDraggable(element, elementId, elementType, onDragMove, onDra
                         pointer-events: none;
                         z-index: 1;
                     `;
-                    document.getElementById('workflowCanvas').appendChild(previewLine);
+                    canvas.appendChild(connectionLine);
+                    
+                    // Use standard case line rendering
+                    const frame = currentTransitionFrames.find(f => f.conditions.includes(savedTransitionId));
+                    const caseColor = transition ? getTransitionTheme(transition.type).color : getTransitionTheme('Success').color;
+                    drawConnectionLine(connectionLine, savedTransitionId, 'case', targetStepId, 'step', canvas, caseColor, false, frame);
+                    
+                    syncTransitionCasesToStep();
+                    recheckFlaggedSteps();
+                    updatePreview();
                 }
+            } else if (nodeElement && Math.hypot(canvasEndX - transitionStartX, canvasEndY - transitionStartY) >= MIN_DRAG_DISTANCE) {
+                // Dropped on a node - create connection to it
+                const targetNodeId = nodeElement.getAttribute('data-node-id');
                 
-                const path = createCurvedPath(draggedConnectionStartPoint.x, draggedConnectionStartPoint.y, 'bottom', currentX, currentY, 'bottom');
-                previewLine.innerHTML = `<path d="${path}" stroke="#707070" stroke-width="2" fill="none" stroke-dasharray="5,5"/>`;
-            });
-            
-            document.addEventListener('mouseup', (e) => {
-                if (!draggedConnectionHitbox) return;
-                
-                draggedConnectionHitbox = null;
-                const canvas = document.getElementById('workflowCanvas');
-                
-                // Remove preview line
-                const previewLine = canvas.querySelector('[data-connection-preview-line]');
-                if (previewLine) previewLine.remove();
-                
-                // Check what we dropped on
-                const canvasRect = canvas.getBoundingClientRect();
-                const dropX = e.clientX;
-                const dropY = e.clientY;
-                
-                const dropTarget = detectDropTarget(canvas, dropX, dropY);
-                const droppedOnStep = dropTarget.droppedOnStep;
-                const droppedOnNode = dropTarget.droppedOnNode;
-                
-                // If dropped on valid target, reattach; otherwise delete the line
-                if (droppedOnStep || droppedOnNode) {
-                    // Reattach to new target
-                    if (draggedConnectionSourceType === 'case') {
-                        const transition = currentTransitions.find(t => t.id === draggedConnectionSourceId);
-                        if (transition) {
-                            // Remove old target from transition
-                            if (draggedConnectionTargetType === 'step') {
-                                transition.targetSteps = transition.targetSteps.filter(s => s !== draggedConnectionTargetId);
-                            } else if (draggedConnectionTargetType === 'node') {
-                                transition.targetNodes = transition.targetNodes.filter(n => n !== draggedConnectionTargetId);
-                            }
-                            
-                            // Add new target
-                            if (droppedOnStep) {
-                                if (!transition.targetSteps.includes(droppedOnStep)) {
-                                    transition.targetSteps.push(droppedOnStep);
-                                }
-                            } else if (droppedOnNode) {
-                                if (!transition.targetNodes) transition.targetNodes = [];
-                                if (!transition.targetNodes.includes(droppedOnNode)) {
-                                    transition.targetNodes.push(droppedOnNode);
-                                }
-                            }
-                            
-                            // Remove old line element
-                            if (draggedConnectionLineElement) {
-                                draggedConnectionLineElement.remove();
-                            }
-                            
-                            // Create new line
-                            const lineUUID = String(Date.now()) + '-' + Math.random().toString(36).substr(2, 9);
-                            const newLine = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-                            newLine.setAttribute('data-transition-connection-line', lineUUID);
-                            newLine.setAttribute('data-from-transition', draggedConnectionSourceId);
-                            if (droppedOnStep) {
-                                newLine.setAttribute('data-to-step', droppedOnStep);
-                            } else {
-                                newLine.setAttribute('data-to-node', droppedOnNode);
-                            }
-                            newLine.style.cssText = `position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 1;`;
-                            canvas.appendChild(newLine);
-                            
-                            const frame = currentTransitionFrames.find(f => f.conditions.includes(draggedConnectionSourceId));
-                            const caseColor = transition ? getTransitionTheme(transition.type).color : getTransitionTheme('Success').color;
-                            drawConnectionLine(newLine, draggedConnectionSourceId, 'case', droppedOnStep || droppedOnNode, droppedOnStep ? 'step' : 'node', canvas, caseColor, false, frame);
-                            
-                            syncTransitionCasesToStep();
-                            recheckFlaggedSteps();
-                            updatePreview();
-                        }
-                    } else if (draggedConnectionSourceType === 'node') {
-                        const sourceNode = currentNodes.find(n => n.id === draggedConnectionSourceId);
-                        if (sourceNode) {
-                            // Remove old target
-                            if (draggedConnectionTargetType === 'step') {
-                                sourceNode.targetSteps = sourceNode.targetSteps.filter(s => s !== draggedConnectionTargetId);
-                            } else if (draggedConnectionTargetType === 'node') {
-                                sourceNode.targetNodes = sourceNode.targetNodes.filter(n => n !== draggedConnectionTargetId);
-                            }
-                            
-                            // Add new target
-                            if (droppedOnStep) {
-                                if (!sourceNode.targetSteps.includes(droppedOnStep)) {
-                                    sourceNode.targetSteps.push(droppedOnStep);
-                                }
-                            } else if (droppedOnNode) {
-                                if (!sourceNode.targetNodes.includes(droppedOnNode)) {
-                                    sourceNode.targetNodes.push(droppedOnNode);
-                                }
-                            }
-                            
-                            // Remove old line
-                            if (draggedConnectionLineElement) {
-                                draggedConnectionLineElement.remove();
-                            }
-                            
-                            // Create new line
-                            const lineUUID = String(Date.now()) + '-' + Math.random().toString(36).substr(2, 9);
-                            const newLine = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-                            newLine.setAttribute('data-node-connection-line', lineUUID);
-                            newLine.setAttribute('data-from-node', draggedConnectionSourceId);
-                            if (droppedOnStep) {
-                                newLine.setAttribute('data-to-step', droppedOnStep);
-                            } else {
-                                newLine.setAttribute('data-to-node', droppedOnNode);
-                            }
-                            newLine.style.cssText = `position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 1;`;
-                            canvas.appendChild(newLine);
-                            
-                            drawConnectionLine(newLine, draggedConnectionSourceId, 'node', droppedOnStep || droppedOnNode, droppedOnStep ? 'step' : 'node', canvas, '#707070', true);
-                            
-                            recheckFlaggedSteps();
-                            updatePreview();
-                        }
+                if (transition && targetNodeId) {
+                    // Add target node to the transition
+                    if (!transition.targetNodes) {
+                        transition.targetNodes = [];
                     }
-                } else {
-                    // Dropped in empty space - delete the line
-                    if (draggedConnectionSourceType === 'case') {
-                        const transition = currentTransitions.find(t => t.id === draggedConnectionSourceId);
-                        if (transition) {
-                            if (draggedConnectionTargetType === 'step') {
-                                transition.targetSteps = transition.targetSteps.filter(s => s !== draggedConnectionTargetId);
-                            } else if (draggedConnectionTargetType === 'node') {
-                                transition.targetNodes = transition.targetNodes.filter(n => n !== draggedConnectionTargetId);
-                            }
-                            syncTransitionCasesToStep();
-                            recheckFlaggedSteps();
-                            updatePreview();
-                        }
-                    } else if (draggedConnectionSourceType === 'node') {
-                        const sourceNode = currentNodes.find(n => n.id === draggedConnectionSourceId);
-                        if (sourceNode) {
-                            if (draggedConnectionTargetType === 'step') {
-                                sourceNode.targetSteps = sourceNode.targetSteps.filter(s => s !== draggedConnectionTargetId);
-                            } else if (draggedConnectionTargetType === 'node') {
-                                sourceNode.targetNodes = sourceNode.targetNodes.filter(n => n !== draggedConnectionTargetId);
-                            }
-                            recheckFlaggedSteps();
-                            updatePreview();
-                        }
+                    if (!transition.targetNodes.includes(targetNodeId)) {
+                        transition.targetNodes.push(targetNodeId);
                     }
                     
-                    // Remove the line element
-                    if (draggedConnectionLineElement) {
-                        draggedConnectionLineElement.remove();
-                    }
+                    // Create connection line to node
+                    const lineUUID = String(Date.now()) + '-' + Math.random().toString(36).substr(2, 9);
+                    const connectionLine = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+                    connectionLine.setAttribute('data-transition-connection-line', lineUUID);
+                    connectionLine.setAttribute('data-from-transition', savedTransitionId);
+                    connectionLine.setAttribute('data-to-node', targetNodeId);
+                    connectionLine.style.cssText = `
+                        position: absolute;
+                        top: 0;
+                        left: 0;
+                        width: 100%;
+                        height: 100%;
+                        pointer-events: none;
+                        z-index: 1;
+                    `;
+                    canvas.appendChild(connectionLine);
+                    
+                    // Use standard case line rendering
+                    const frame = currentTransitionFrames.find(f => f.conditions.includes(savedTransitionId));
+                    const caseColor = transition ? getTransitionTheme(transition.type).color : getTransitionTheme('Success').color;
+                    drawConnectionLine(connectionLine, savedTransitionId, 'case', targetNodeId, 'node', canvas, caseColor, false, frame);
+                    
+                    syncTransitionCasesToStep();
+                    recheckFlaggedSteps();
+                    updatePreview();
                 }
-                
-                draggedConnectionLineElement = null;
-                draggedConnectionSourceType = null;
-                draggedConnectionSourceId = null;
-                draggedConnectionTargetType = null;
-                draggedConnectionTargetId = null;
-            });
-            
-            document.addEventListener('mousedown', (e) => {
-                // Original transition arrow handler
-                // Check if clicking on a triangle
-                const triangle = e.target.closest('[data-transition-arrow]');
-                if (!triangle) return;
-                
-                const canvas = document.getElementById('workflowCanvas');
-                if (!canvas) {
-                    return;
-                }
-                
-                e.stopPropagation();
-                isDrawingFromTransition = true;
-                fromTransitionId = triangle.getAttribute('data-transition-arrow');
-                
-                const canvasRect = canvas.getBoundingClientRect();
-                
-                // Get the condition box element to calculate start point consistently with finished line
-                const conditionId = triangle.getAttribute('data-transition-arrow');
-                const conditionBox = canvas.querySelector(`[data-condition-id="${conditionId}"]`);
-                if (!conditionBox) return;
-                
-                // Find the frame and wrapper to calculate absolute position
-                const wrapper = conditionBox.parentElement;
-                const frame = wrapper?.closest('[data-transition-frame]');
-                if (!frame) return;
-                
-                const frameX = parseInt(frame.style.left);
-                const frameY = parseInt(frame.style.top);
-                const wrapperOffsetX = wrapper ? wrapper.offsetLeft : 0;
-                const wrapperOffsetY = wrapper ? wrapper.offsetTop : 0;
-                const conditionOffsetX = conditionBox.offsetLeft;
-                const conditionOffsetY = conditionBox.offsetTop;
-                const conditionWidth = conditionBox.offsetWidth;
-                const conditionHeight = conditionBox.offsetHeight;
-                
-                // Calculate start point using same logic as finished line
-                const frameData = currentTransitionFrames.find(f => f.id === frame.getAttribute('data-transition-frame'));
-                let screenStartX, screenStartY;
-                
-                // Use same calculation for both layouts: always include wrapperOffsetX
-                const conditionAbsX = frameX + wrapperOffsetX + conditionOffsetX;
-                
-                if (frameData && frameData.verticalLayout) {
-                    const conditionAbsY = frameY + wrapperOffsetY + conditionOffsetY;
-                    screenStartX = conditionAbsX + conditionWidth + 10;
-                    screenStartY = conditionAbsY + 13;
-                } else {
-                    const conditionAbsY = frameY + conditionOffsetY;
-                    screenStartX = conditionAbsX + conditionWidth / 2 + 2;
-                    screenStartY = conditionAbsY + conditionHeight + 40;
-                }
-                
-                // Use canvas space coordinates directly (same as finished line), no zoom/pan conversion
-                transitionStartX = screenStartX;
-                transitionStartY = screenStartY;
-                
-                const handleTransitionMouseMove = (e) => {
-                    if (!isDrawingFromTransition) return;
+            } else if (Math.hypot(canvasEndX - transitionStartX, canvasEndY - transitionStartY) >= MIN_DRAG_DISTANCE) {
+                // Dropped on empty space - create a new node
+                if (transition) {
+                    const newNodeId = generateNodeId();
                     
-                    const canvasRect = canvas.getBoundingClientRect();
-                    const screenCurrentX = e.clientX - canvasRect.left;
-                    const screenCurrentY = e.clientY - canvasRect.top;
-                    // Convert to canvas space by dividing by zoom (SVG is scaled by zoomLevel)
-                    const currentX = screenCurrentX / zoomLevel;
-                    const currentY = screenCurrentY / zoomLevel;
+                    // Snap to 15px grid in canvas space
+                    const snappedX = Math.round((canvasEndX / zoomLevel) / 15) * 15;
+                    const snappedY = Math.round((canvasEndY / zoomLevel) / 15) * 15;
                     
-                    let line = canvas.querySelector('[data-transition-preview-line]');
-                    if (!line) {
-                        line = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-                        line.setAttribute('data-transition-preview-line', 'true');
-                        line.style.cssText = `
-                            position: absolute;
-                            top: 0;
-                            left: 0;
-                            width: 100%;
-                            height: 100%;
-                            pointer-events: none;
-                            z-index: 1;
-                        `;
-                        canvas.appendChild(line);
+                    // Convert to grid units (30px per unit)
+                    const gridUnitX = snappedX / 30;
+                    const gridUnitY = snappedY / 30;
+                    
+                    // Create node data
+                    const newNodeData = {
+                        id: newNodeId,
+                        position: `${gridUnitX},${gridUnitY}`,
+                        targetSteps: [],
+                        targetNodes: []
+                    };
+                    currentNodes.push(newNodeData);
+                    
+                    // Verify we're adding to the correct transition by checking savedTransitionId
+                    const trans1 = currentTransitions.find(t => t.id === '1');
+                    const trans2 = currentTransitions.find(t => t.id === '2');
+                    if (savedTransitionId !== transition.id) {
+                        console.error('ERROR: Transition ID mismatch! savedTransitionId:', savedTransitionId, 'transition.id:', transition.id);
                     }
                     
-                    line.innerHTML = `<line x1="${transitionStartX}" y1="${transitionStartY}" x2="${currentX}" y2="${currentY}" stroke="#707070" stroke-width="2"/>`;
-                };
-                
-                const handleTransitionMouseUp = (e) => {
-                    if (!isDrawingFromTransition) return;
-                    
-                    const savedTransitionId = fromTransitionId; // Save before resetting
-                    isDrawingFromTransition = false;
-                    fromTransitionId = null;
-                    document.removeEventListener('mousemove', handleTransitionMouseMove);
-                    document.removeEventListener('mouseup', handleTransitionMouseUp);
-                    
-                    const previewLine = canvas.querySelector('[data-transition-preview-line]');
-                    if (previewLine) previewLine.remove();
-                    
-                    const canvasRect = canvas.getBoundingClientRect();
-                    const screenEndX = e.clientX - canvasRect.left;
-                    const screenEndY = e.clientY - canvasRect.top;
-                    // Use canvas space coordinates (same as start point) for distance check
-                    const canvasEndX = screenEndX;
-                    const canvasEndY = screenEndY;
-                    const gridEndX = (screenEndX / zoomLevel) + panX;
-                    const gridEndY = (screenEndY / zoomLevel) + panY;
-                    
-                    // Check if we dropped on a step
-                    const targetStep = document.elementFromPoint(e.clientX, e.clientY);
-                    let stepElement = targetStep?.closest('[data-step-id]');
-                    let nodeElement = null;
-                    
-                    // If not found directly, use universal drop detection with 50px margin
-                    if (!stepElement) {
-                        const dropTarget = detectDropTarget(canvas, e.clientX, e.clientY);
-                        if (dropTarget.droppedOnStep) {
-                            stepElement = canvas.querySelector(`[data-step-uuid="${dropTarget.droppedOnStep}"]`);
-                        }
-                        if (dropTarget.droppedOnNode) {
-                            nodeElement = canvas.querySelector(`[data-node-id="${dropTarget.droppedOnNode}"]`);
-                        }
+                    // Add connection from transition to new node - ONLY to the specific transition being dragged from
+                    if (!transition.targetNodes) transition.targetNodes = [];
+                    if (!transition.targetNodes.includes(newNodeId)) {
+                        transition.targetNodes.push(newNodeId);
                     }
+                    syncTransitionCasesToStep();
+                    updateSaveButtonState();
+                    updatePreview();
                     
-                    // If not on a step directly, check if we're on an attached transition frame
-                    if (!stepElement) {
-                        const frameElement = targetStep?.closest('[data-transition-frame]');
-                        if (frameElement) {
-                            const frameId = frameElement.getAttribute('data-transition-frame');
-                            const attachedFrame = currentTransitionFrames.find(f => f.id === frameId);
-                            if (attachedFrame && attachedFrame.attachedToStepId) {
-                                stepElement = canvas.querySelector(`[data-step-id][data-step-uuid="${attachedFrame.attachedToStepId}"]`);
-                            }
-                        }
-                    }
+                    // Render the new node
+                    renderNode(newNodeData);
                     
-                    const transition = currentTransitions.find(t => t.id === savedTransitionId);
+                    // Create case line to new node
+                    const newLine = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+                    newLine.setAttribute('data-transition-connection-line', 'true');
+                    newLine.setAttribute('data-from-transition', savedTransitionId);
+                    newLine.setAttribute('data-to-node', newNodeId);
+                    newLine.style.cssText = `position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 5;`;
+                    canvas.appendChild(newLine);
                     
-                    const dragDistance = Math.hypot(canvasEndX - transitionStartX, canvasEndY - transitionStartY);
-                    
-                    if (stepElement && dragDistance >= MIN_DRAG_DISTANCE) {
-                        const targetStepId = stepElement.getAttribute('data-step-uuid');
-                        const targetStep = currentSteps.find(s => s.id === targetStepId);
-                        
-                        // Don't allow connections to BEGIN step
-                        if (targetStep && targetStep.type === 'Begin') {
-                            return;
+                    // Add mousedown listener
+                    newLine.addEventListener('mousedown', (e) => {
+                        if (e.target.closest('[data-case-arrow-hitbox]')) {
+                            e.stopPropagation();
                         }
-                        
-                        if (transition && targetStepId) {
-                            // Add target step to the transition
-                            if (!transition.targetSteps.includes(targetStepId)) {
-                                transition.targetSteps.push(targetStepId);
-                            }
-                            
-                            // Create green connection line
-                            const lineUUID = String(Date.now()) + '-' + Math.random().toString(36).substr(2, 9);
-                            const connectionLine = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-                            connectionLine.setAttribute('data-transition-connection-line', lineUUID);
-                            connectionLine.setAttribute('data-from-transition', savedTransitionId);
-                            connectionLine.setAttribute('data-to-step', targetStepId);
-                            connectionLine.style.cssText = `
-                                position: absolute;
-                                top: 0;
-                                left: 0;
-                                width: 100%;
-                                height: 100%;
-                                pointer-events: none;
-                                z-index: 1;
-                            `;
-                            canvas.appendChild(connectionLine);
-                            
-                            // Use standard case line rendering
-                            const frame = currentTransitionFrames.find(f => f.conditions.includes(savedTransitionId));
-                            const caseColor = transition ? getTransitionTheme(transition.type).color : getTransitionTheme('Success').color;
-                            drawConnectionLine(connectionLine, savedTransitionId, 'case', targetStepId, 'step', canvas, caseColor, false, frame);
-                            
-                            syncTransitionCasesToStep();
-                            recheckFlaggedSteps();
-                            updatePreview();
-                        }
-                    } else if (nodeElement && Math.hypot(canvasEndX - transitionStartX, canvasEndY - transitionStartY) >= MIN_DRAG_DISTANCE) {
-                        // Dropped on a node - create connection to it
-                        const targetNodeId = nodeElement.getAttribute('data-node-id');
-                        
-                        if (transition && targetNodeId) {
-                            // Add target node to the transition
-                            if (!transition.targetNodes) {
-                                transition.targetNodes = [];
-                            }
-                            if (!transition.targetNodes.includes(targetNodeId)) {
-                                transition.targetNodes.push(targetNodeId);
-                            }
-                            
-                            // Create connection line to node
-                            const lineUUID = String(Date.now()) + '-' + Math.random().toString(36).substr(2, 9);
-                            const connectionLine = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-                            connectionLine.setAttribute('data-transition-connection-line', lineUUID);
-                            connectionLine.setAttribute('data-from-transition', savedTransitionId);
-                            connectionLine.setAttribute('data-to-node', targetNodeId);
-                            connectionLine.style.cssText = `
-                                position: absolute;
-                                top: 0;
-                                left: 0;
-                                width: 100%;
-                                height: 100%;
-                                pointer-events: none;
-                                z-index: 1;
-                            `;
-                            canvas.appendChild(connectionLine);
-                            
-                            // Use standard case line rendering
-                            const frame = currentTransitionFrames.find(f => f.conditions.includes(savedTransitionId));
-                            const caseColor = transition ? getTransitionTheme(transition.type).color : getTransitionTheme('Success').color;
-                            drawConnectionLine(connectionLine, savedTransitionId, 'case', targetNodeId, 'node', canvas, caseColor, false, frame);
-                            
-                            syncTransitionCasesToStep();
-                            recheckFlaggedSteps();
-                            updatePreview();
-                        }
-                    } else if (Math.hypot(canvasEndX - transitionStartX, canvasEndY - transitionStartY) >= MIN_DRAG_DISTANCE) {
-                        // Dropped on empty space - create a new node
-                        if (transition) {
-                            const newNodeId = generateNodeId();
-                            
-                            // Snap to 15px grid in canvas space
-                            const snappedX = Math.round((canvasEndX / zoomLevel) / 15) * 15;
-                            const snappedY = Math.round((canvasEndY / zoomLevel) / 15) * 15;
-                            
-                            // Convert to grid units (30px per unit)
-                            const gridUnitX = snappedX / 30;
-                            const gridUnitY = snappedY / 30;
-                            
-                            // Create node data
-                            const newNodeData = {
-                                id: newNodeId,
-                                position: `${gridUnitX},${gridUnitY}`,
-                                targetSteps: [],
-                                targetNodes: []
-                            };
-                            currentNodes.push(newNodeData);
-                            
-                            // Verify we're adding to the correct transition by checking savedTransitionId
-                            const trans1 = currentTransitions.find(t => t.id === '1');
-                            const trans2 = currentTransitions.find(t => t.id === '2');
-                            if (savedTransitionId !== transition.id) {
-                                console.error('ERROR: Transition ID mismatch! savedTransitionId:', savedTransitionId, 'transition.id:', transition.id);
-                            }
-                            
-                            // Add connection from transition to new node - ONLY to the specific transition being dragged from
-                            if (!transition.targetNodes) transition.targetNodes = [];
-                            if (!transition.targetNodes.includes(newNodeId)) {
-                                transition.targetNodes.push(newNodeId);
-                            }
-                            syncTransitionCasesToStep();
-                            updateSaveButtonState();
-                            updatePreview();
-                            
-                            // Render the new node
-                            renderNode(newNodeData);
-                            
-                            // Create case line to new node
-                            const newLine = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-                            newLine.setAttribute('data-transition-connection-line', 'true');
-                            newLine.setAttribute('data-from-transition', savedTransitionId);
-                            newLine.setAttribute('data-to-node', newNodeId);
-                            newLine.style.cssText = `position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 5;`;
-                            canvas.appendChild(newLine);
-                            
-                            // Add mousedown listener
-                            newLine.addEventListener('mousedown', (e) => {
-                                if (e.target.closest('[data-case-arrow-hitbox]')) {
-                                    e.stopPropagation();
-                                }
-                            });
-                            
-                            // Render the case line to the new node
-                            const frame = currentTransitionFrames.find(f => f.conditions.includes(savedTransitionId));
-                            const caseColor = transition ? getTransitionTheme(transition.type).color : getTransitionTheme('Success').color;
-                            drawConnectionLine(newLine, savedTransitionId, 'case', newNodeId, 'node', canvas, caseColor, false, frame);
-                            
-                            updatePreview();
-                        }
-                    }
-                };
-                
-                document.addEventListener('mousemove', handleTransitionMouseMove);
-                document.addEventListener('mouseup', handleTransitionMouseUp);
-            });
-            
-            // Click on empty canvas to deselect steps and transitions
-            canvas.addEventListener('click', (e) => {
-                if (e.target === canvas) {
-                    document.querySelectorAll('[data-step-id]').forEach(el => {
-                        const stepUUID = el.getAttribute('data-step-uuid');
-                        const step = currentSteps.find(s => s.id === stepUUID);
-                        el.classList.remove('selected');
                     });
-                    document.querySelectorAll('[data-transition-uuid]').forEach(el => {
-                        const transId = el.getAttribute('data-transition-uuid');
-                        const transObj = currentTransitions.find(t => t.id === transId);
-                        const transColors = getTransitionTheme(transObj ? transObj.type : 'Success');
-                        el.style.borderColor = transColors.border;
-                    });
-                    document.querySelectorAll('[data-transition-frame]').forEach(el => {
-                        el.style.borderColor = '#d4af37';
-                    });
-                    hidePropertiesPanel();
-                    document.getElementById('propertiesContent').innerHTML = '<div style="color: #b0b0b0; font-size: 0.85rem;">Select a step or transition to edit properties</div>';
+                    
+                    // Render the case line to the new node
+                    const frame = currentTransitionFrames.find(f => f.conditions.includes(savedTransitionId));
+                    const caseColor = transition ? getTransitionTheme(transition.type).color : getTransitionTheme('Success').color;
+                    drawConnectionLine(newLine, savedTransitionId, 'case', newNodeId, 'node', canvas, caseColor, false, frame);
+                    
+                    updatePreview();
                 }
+            }
+        };
+        
+        document.addEventListener('mousemove', handleTransitionMouseMove);
+        document.addEventListener('mouseup', handleTransitionMouseUp);
+    });
+    
+    // Click on empty canvas to deselect steps and transitions
+    canvas.addEventListener('click', (e) => {
+        if (e.target === canvas) {
+            document.querySelectorAll('[data-step-id]').forEach(el => {
+                const stepUUID = el.getAttribute('data-step-uuid');
+                const step = currentSteps.find(s => s.id === stepUUID);
+                el.classList.remove('selected');
             });
+            document.querySelectorAll('[data-transition-uuid]').forEach(el => {
+                const transId = el.getAttribute('data-transition-uuid');
+                const transObj = currentTransitions.find(t => t.id === transId);
+                const transColors = getTransitionTheme(transObj ? transObj.type : 'Success');
+                el.style.borderColor = transColors.border;
+            });
+            document.querySelectorAll('[data-transition-frame]').forEach(el => {
+                el.style.borderColor = '#d4af37';
+            });
+            hidePropertiesPanel();
+            document.getElementById('propertiesContent').innerHTML = '<div style="color: #b0b0b0; font-size: 0.85rem;">Select a step or transition to edit properties</div>';
         }
+    });
+}
 
         // ============================================================================
         // CANVAS UI CONTROLS - Zoom, Panel Toggle
         // ============================================================================
 
-        function toggleToolsPanel() {
-          const container = document.getElementById('toolsButtonsContainer');
-          const btn = document.getElementById('toolsCollapseBtn');
-          const panel = document.getElementById('toolsPanel');
-          
-          toolsPanelCollapsed = !toolsPanelCollapsed;
-          
-          if (toolsPanelCollapsed) {
-            // Collapse
-            container.style.display = 'none';
-            btn.textContent = '▼';
-            panel.style.width = '90px';
-          } else {
-            // Expand
-            container.style.display = 'flex';
-            btn.textContent = '▲';
-            panel.style.width = '90px';
-          }
-        }
+function toggleToolsPanel() {
+  const container = document.getElementById('toolsButtonsContainer');
+  const btn = document.getElementById('toolsCollapseBtn');
+  const panel = document.getElementById('toolsPanel');
+  
+  toolsPanelCollapsed = !toolsPanelCollapsed;
+  
+  if (toolsPanelCollapsed) {
+    // Collapse
+    container.style.display = 'none';
+    btn.textContent = '▼';
+    panel.style.width = '90px';
+  } else {
+    // Expand
+    container.style.display = 'flex';
+    btn.textContent = '▲';
+    panel.style.width = '90px';
+  }
+}
 
-        function updateZoomDisplay() {
-            const zoomDisplay = document.getElementById('zoomDisplay');
-            if (zoomDisplay) {
-                zoomDisplay.textContent = Math.round(zoomLevel * 100) + '%';
-            }
-        }
+function updateZoomDisplay() {
+    const zoomDisplay = document.getElementById('zoomDisplay');
+    if (zoomDisplay) {
+        zoomDisplay.textContent = Math.round(zoomLevel * 100) + '%';
+    }
+}
 
-        function toggleStepTypesPanel() {
-            const panel = document.getElementById('stepTypesPanel');
-            const list = document.getElementById('stepTypesList');
-            const button = document.getElementById('stepTypesToggle');
-            const title = document.getElementById('stepTypesTitle');
-            const header = document.getElementById('stepTypeHeader');
-            
-            if (panel.style.width === '20px') {
-                // Expand
-                panel.style.width = '150px';
-                list.style.display = 'flex';
-                button.textContent = '◀';
-                button.style.marginBottom = '0';
-                title.style.writingMode = 'horizontal-tb';
-                title.style.transform = 'none';
-                header.style.flexDirection = 'row';
-            } else {
-                // Collapse
-                panel.style.width = '20px';
-                list.style.display = 'none';
-                button.textContent = '▶';
-                button.style.marginBottom = '8px';
-                title.style.writingMode = 'vertical-lr';
-                title.style.transform = 'none';
-                header.style.flexDirection = 'column-reverse';
-            }
-        }
+function toggleStepTypesPanel() {
+    const panel = document.getElementById('stepTypesPanel');
+    const list = document.getElementById('stepTypesList');
+    const button = document.getElementById('stepTypesToggle');
+    const title = document.getElementById('stepTypesTitle');
+    const header = document.getElementById('stepTypeHeader');
+    
+    if (panel.style.width === '20px') {
+        // Expand
+        panel.style.width = '150px';
+        list.style.display = 'flex';
+        button.textContent = '◀';
+        button.style.marginBottom = '0';
+        title.style.writingMode = 'horizontal-tb';
+        title.style.transform = 'none';
+        header.style.flexDirection = 'row';
+    } else {
+        // Collapse
+        panel.style.width = '20px';
+        list.style.display = 'none';
+        button.textContent = '▶';
+        button.style.marginBottom = '8px';
+        title.style.writingMode = 'vertical-lr';
+        title.style.transform = 'none';
+        header.style.flexDirection = 'column-reverse';
+    }
+}
 
-        function zoomIn() {
-            const canvas = document.getElementById('workflowCanvas');
-            const container = document.getElementById('canvasContainer');
-            if (!canvas || !container) return;
-            
-            const rect = container.getBoundingClientRect();
-            const centerX = rect.width / 2;
-            const centerY = rect.height / 2;
-            
-            const newZoom = Math.min(2, zoomLevel + 0.05);
-            
-            // Adjust pan to zoom toward center
-            panX = centerX / newZoom + (panX * zoomLevel / newZoom) - centerX / newZoom;
-            panY = centerY / newZoom + (panY * zoomLevel / newZoom) - centerY / newZoom;
-            
-            zoomLevel = newZoom;
-            
-            // Clamp pan
-            const containerWidth = rect.width;
-            const containerHeight = rect.height;
-            const GRID_SIZE_PX = 5000;
-            const maxPanX = GRID_SIZE_PX - (containerWidth / zoomLevel);
-            const maxPanY = GRID_SIZE_PX - (containerHeight / zoomLevel);
-            panX = Math.min(panX, maxPanX);
-            panY = Math.min(panY, maxPanY);
-            
-            canvas.style.transform = `scale(${zoomLevel}) translate(${-panX}px, ${-panY}px)`;
-            updateZoomDisplay();
-            updatePreview();
-        }
+function zoomIn() {
+    const canvas = document.getElementById('workflowCanvas');
+    const container = document.getElementById('canvasContainer');
+    if (!canvas || !container) return;
+    
+    const rect = container.getBoundingClientRect();
+    const centerX = rect.width / 2;
+    const centerY = rect.height / 2;
+    
+    const newZoom = Math.min(2, zoomLevel + 0.05);
+    
+    // Adjust pan to zoom toward center
+    panX = centerX / newZoom + (panX * zoomLevel / newZoom) - centerX / newZoom;
+    panY = centerY / newZoom + (panY * zoomLevel / newZoom) - centerY / newZoom;
+    
+    zoomLevel = newZoom;
+    
+    // Clamp pan
+    const containerWidth = rect.width;
+    const containerHeight = rect.height;
+    const GRID_SIZE_PX = 5000;
+    const maxPanX = GRID_SIZE_PX - (containerWidth / zoomLevel);
+    const maxPanY = GRID_SIZE_PX - (containerHeight / zoomLevel);
+    panX = Math.min(panX, maxPanX);
+    panY = Math.min(panY, maxPanY);
+    
+    canvas.style.transform = `scale(${zoomLevel}) translate(${-panX}px, ${-panY}px)`;
+    updateZoomDisplay();
+    updatePreview();
+}
 
-        function zoomOut() {
-            const canvas = document.getElementById('workflowCanvas');
-            const container = document.getElementById('canvasContainer');
-            if (!canvas || !container) return;
-            
-            const rect = container.getBoundingClientRect();
-            const centerX = rect.width / 2;
-            const centerY = rect.height / 2;
-            
-            const newZoom = Math.max(0.55, zoomLevel - 0.05);
-            
-            // Adjust pan to zoom toward center
-            panX = centerX / newZoom + (panX * zoomLevel / newZoom) - centerX / newZoom;
-            panY = centerY / newZoom + (panY * zoomLevel / newZoom) - centerY / newZoom;
-            
-            zoomLevel = newZoom;
-            
-            // Clamp pan
-            const containerWidth = rect.width;
-            const containerHeight = rect.height;
-            const GRID_SIZE_PX = 5000;
-            const maxPanX = GRID_SIZE_PX - (containerWidth / zoomLevel);
-            const maxPanY = GRID_SIZE_PX - (containerHeight / zoomLevel);
-            panX = Math.min(panX, maxPanX);
-            panY = Math.min(panY, maxPanY);
-            
-            canvas.style.transform = `scale(${zoomLevel}) translate(${-panX}px, ${-panY}px)`;
-            updateZoomDisplay();
-            updatePreview();
-        }
+function zoomOut() {
+    const canvas = document.getElementById('workflowCanvas');
+    const container = document.getElementById('canvasContainer');
+    if (!canvas || !container) return;
+    
+    const rect = container.getBoundingClientRect();
+    const centerX = rect.width / 2;
+    const centerY = rect.height / 2;
+    
+    const newZoom = Math.max(0.55, zoomLevel - 0.05);
+    
+    // Adjust pan to zoom toward center
+    panX = centerX / newZoom + (panX * zoomLevel / newZoom) - centerX / newZoom;
+    panY = centerY / newZoom + (panY * zoomLevel / newZoom) - centerY / newZoom;
+    
+    zoomLevel = newZoom;
+    
+    // Clamp pan
+    const containerWidth = rect.width;
+    const containerHeight = rect.height;
+    const GRID_SIZE_PX = 5000;
+    const maxPanX = GRID_SIZE_PX - (containerWidth / zoomLevel);
+    const maxPanY = GRID_SIZE_PX - (containerHeight / zoomLevel);
+    panX = Math.min(panX, maxPanX);
+    panY = Math.min(panY, maxPanY);
+    
+    canvas.style.transform = `scale(${zoomLevel}) translate(${-panX}px, ${-panY}px)`;
+    updateZoomDisplay();
+    updatePreview();
+}
 
-        function resetZoom() {
-            const canvas = document.getElementById('workflowCanvas');
-            if (!canvas) return;
-            
-            zoomLevel = 1;
-            panX = 0;
-            panY = 0;
-            
-            canvas.style.transform = `scale(1) translate(0px, 0px)`;
-            updateZoomDisplay();
-            updatePreview();
-        }
+function resetZoom() {
+    const canvas = document.getElementById('workflowCanvas');
+    if (!canvas) return;
+    
+    zoomLevel = 1;
+    panX = 0;
+    panY = 0;
+    
+    canvas.style.transform = `scale(1) translate(0px, 0px)`;
+    updateZoomDisplay();
+    updatePreview();
+}
+// ============================================================================
+// EXPORTS TO WINDOW
+// ============================================================================
+window.createCurvedPath = createCurvedPath;
+window.createStepOnCanvas = createStepOnCanvas;
+window.detectDropTarget = detectDropTarget;
+window.drawConnectionLine = drawConnectionLine;
+window.getClosestSideToFrame = getClosestSideToFrame;
+window.makeElementDraggable = makeElementDraggable;
+window.offsetPointFromEdge = offsetPointFromEdge;
+window.panX = panX;
+window.panY = panY;
+window.placeNode = placeNode;
+window.resetZoom = resetZoom;
+window.setupCanvasDragDrop = setupCanvasDragDrop;
+window.toggleStepTypesPanel = toggleStepTypesPanel;
+window.toggleToolsPanel = toggleToolsPanel;
+window.updateConnectedLines = updateConnectedLines;
+window.updateConnectionPointVisibility = updateConnectionPointVisibility;
+window.updateTransitionLine = updateTransitionLine;
+window.updateZoomDisplay = updateZoomDisplay;
+window.zoomIn = zoomIn;
+window.zoomLevel = zoomLevel;
+window.zoomOut = zoomOut;

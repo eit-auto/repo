@@ -29,14 +29,81 @@ class KorePlugins {
 
     /**
      * Initialize plugins module with dependencies
+     * On first call: Sets up dependencies
+     * On re-initialization: Drains active operations, then resets and reloads
      */
     async initialize(korePool, getTimestamp, isIPWhitelisted, checkRateLimit) {
+        this.getTimestamp = getTimestamp;
+        
+        // If reinitializing (pool already set), drain active operations first
+        if (this.pool) {
+            global.consoleLog('Plugins', 'Draining active plugin operations before reload...', 4);
+            await this._drainActiveOperations();
+        }
+        
+        // Setup dependencies
         this.pool = korePool;
         this.getTimestamp = getTimestamp;
         this.isIPWhitelisted = isIPWhitelisted;
         this.checkRateLimit = checkRateLimit;
         
-        console.log(`[${this.getTimestamp()}] [KorePlugins] Initialized`);
+        // Clear existing plugins and operation managers for complete reload
+        this.loadedPlugins = {};
+        this.operationManagers = {};
+        
+        global.consoleLog('Plugins', 'Initialized', 3);
+    }
+
+    /**
+     * Drain active operations across all loaded plugins before reload
+     * Waits for operations to complete with timeout
+     */
+    async _drainActiveOperations() {
+        const operationTimeout = 30000; // 30 second timeout per plugin
+        const plugins = Object.keys(this.loadedPlugins);
+        
+        if (plugins.length === 0) {
+            return;
+        }
+        
+        const drainDeadline = Date.now() + (operationTimeout * plugins.length);
+        const drainedPlugins = [];
+        const timedOutPlugins = [];
+        
+        for (const pluginName of plugins) {
+            const opManager = this.operationManagers[pluginName];
+            if (!opManager || !opManager.activeOperations || opManager.activeOperations.size === 0) {
+                continue;
+            }
+            
+            global.consoleLog('Plugins', `Draining ${opManager.activeOperations.size} active operations for plugin ${pluginName}...`, 4);
+            
+            // Wait for this plugin's active operations to complete
+            let waitTime = 0;
+            while (opManager.activeOperations.size > 0 && Date.now() < drainDeadline) {
+                await new Promise(resolve => setTimeout(resolve, 100));
+                waitTime += 100;
+            }
+            
+            if (opManager.activeOperations.size > 0) {
+                // Timeout reached with operations still active
+                const activeCount = opManager.activeOperations.size;
+                timedOutPlugins.push({
+                    plugin: pluginName,
+                    activeOperations: activeCount,
+                    timeoutMs: waitTime
+                });
+                global.consoleLog('Plugins', `Plugin ${pluginName} had ${activeCount} operations that did not complete (timeout after ${waitTime}ms)`, 2);
+            } else {
+                drainedPlugins.push(pluginName);
+            }
+        }
+        
+        if (timedOutPlugins.length > 0) {
+            global.consoleLog('Plugins', `WARNING: ${timedOutPlugins.length} plugin(s) had active operations that did not complete - forcing reload`, 2);
+        } else if (drainedPlugins.length > 0) {
+            global.consoleLog('Plugins', `Successfully drained operations for ${drainedPlugins.length} plugin(s)`, 3);
+        }
     }
 
     /**
@@ -45,13 +112,13 @@ class KorePlugins {
     async loadAllPlugins() {
         try {
             if (!this.pool) {
-                console.warn(`[${this.getTimestamp()}] [KorePlugins] WARNING: Pool not available, cannot load plugins`);
+                global.consoleLog('Plugins', 'WARNING: Pool not available, cannot load plugins', 2);
                 return;
             }
             
             const connection = await this.pool.getConnection();
             try {
-                const [rows] = await connection.query('SELECT id, name, display_name, code, routes, rate_limit, config FROM `plugins` WHERE enabled = true');
+                const [rows] = await connection.query('SELECT id, name, display_name, code, rate_limit, config FROM `plugins` WHERE enabled = true ORDER BY display_name');
                 
                 let loadedCount = 0;
                 for (const pluginRow of rows) {
@@ -59,18 +126,18 @@ class KorePlugins {
                         this._loadPluginObject(pluginRow);
                         loadedCount++;
                     } catch (pluginError) {
-                        console.error(`[${this.getTimestamp()}] [KorePlugins] ERROR loading plugin ${pluginRow.name}:`, pluginError.message);
+                        global.consoleLog('Plugins', `ERROR loading plugin ${pluginRow.name}: ${pluginError.message}`, 1);
                     }
                 }
                 
                 this._initializeOperationManagers();
-                console.log(`[${this.getTimestamp()}] [KorePlugins] Plugins loaded: ${loadedCount}/${rows.length} plugins`);
+                global.consoleLog('Plugins', `Plugins loaded: ${loadedCount}/${rows.length} plugins`, 3);
                 
             } finally {
                 connection.release();
             }
         } catch (error) {
-            console.error(`[${this.getTimestamp()}] [KorePlugins] ERROR loading plugins from database:`, error.message);
+            global.consoleLog('Plugins', `ERROR loading plugins from database: ${error.message}`, 1);
         }
     }
 
@@ -85,7 +152,7 @@ class KorePlugins {
             
             const connection = await this.pool.getConnection();
             try {
-                const [rows] = await connection.query('SELECT id, name, display_name, code, routes, rate_limit, config FROM `plugins` WHERE name = ? AND enabled = true', [pluginName]);
+                const [rows] = await connection.query('SELECT id, name, display_name, code, rate_limit, config FROM `plugins` WHERE name = ? AND enabled = true', [pluginName]);
                 
                 if (rows.length === 0) {
                     throw new Error(`Plugin ${pluginName} not found or not enabled`);
@@ -106,7 +173,7 @@ class KorePlugins {
                 connection.release();
             }
         } catch (error) {
-            console.error(`[${this.getTimestamp()}] [KorePlugins] ERROR loading plugin ${pluginName}:`, error.message);
+            global.consoleLog('Plugins', `ERROR loading plugin ${pluginName}: ${error.message}`, 1);
             throw error;
         }
     }
@@ -119,13 +186,13 @@ class KorePlugins {
             await this.loadPlugin(pluginName);
             this.operationManagers[pluginName] = new PluginOperationManager(this.getTimestamp, pluginName, this);
             
-            console.log(`[${this.getTimestamp()}] [KorePlugins] Plugin reloaded: ${pluginName}`);
+            global.consoleLog('Plugins', `Plugin reloaded: ${pluginName}`, 3);
             return {
                 success: true,
                 message: `Plugin ${pluginName} reloaded successfully`
             };
         } catch (error) {
-            console.error(`[${this.getTimestamp()}] [KorePlugins] ERROR reloading plugin ${pluginName}:`, error.message);
+            global.consoleLog('Plugins', `ERROR reloading plugin ${pluginName}: ${error.message}`, 1);
             throw error;
         }
     }
@@ -135,13 +202,13 @@ class KorePlugins {
      */
     async reloadAllPlugins() {
         try {
-            console.log(`[${this.getTimestamp()}] [KorePlugins] Reloading all plugins...`);
+            global.consoleLog('Plugins', 'Reloading all plugins...', 3);
             this.loadedPlugins = {};
             this.operationManagers = {};
             await this.loadAllPlugins();
             
             const pluginCount = Object.keys(this.loadedPlugins).length;
-            console.log(`[${this.getTimestamp()}] [KorePlugins] All plugins reloaded: ${pluginCount} plugins`);
+            global.consoleLog('Plugins', `All plugins reloaded: ${pluginCount} plugins`, 3);
             
             return {
                 success: true,
@@ -149,7 +216,7 @@ class KorePlugins {
                 plugins: Object.keys(this.loadedPlugins)
             };
         } catch (error) {
-            console.error(`[${this.getTimestamp()}] [KorePlugins] ERROR reloading all plugins:`, error.message);
+            global.consoleLog('Plugins', `ERROR reloading all plugins: ${error.message}`, 1);
             throw error;
         }
     }
@@ -293,7 +360,7 @@ class KorePlugins {
                         resolved.push(...taskOptions);
                     }
                 } catch (error) {
-                    console.error(`[${this.getTimestamp()}] [KorePlugins] Error resolving @task.${taskId}:`, error.message);
+                    global.consoleLog('Plugins', `Error resolving @task.${taskId}: ${error.message}`, 1);
                     // Continue with empty options on error
                 }
             } else if (typeof option === 'string' && option.startsWith('@config.')) {
@@ -357,7 +424,7 @@ class KorePlugins {
                     try {
                         staticParams = typeof task.static_params === 'string' ? JSON.parse(task.static_params) : task.static_params;
                     } catch (e) {
-                        console.warn(`[${this.getTimestamp()}] Could not parse static_params for task ${taskId}`);
+                        global.consoleLog('Plugins', `Could not parse static_params for task ${taskId}`, 2);
                     }
                 }
 
@@ -449,7 +516,7 @@ class KorePlugins {
                                     try {
                                         callback(...args);
                                     } catch (error) {
-                                        console.error(`[internal socket] Error in event listener:`, error);
+                                        global.consoleLog('Plugins', `[internal socket] Error in event listener: ${JSON.stringify(error)}`, 1);
                                     }
                                 });
                             }
@@ -611,7 +678,7 @@ class KorePlugins {
                 connection.release();
             }
         } catch (error) {
-            console.error(`[${this.getTimestamp()}] [KorePlugins] Error executing task for options:`, error.message);
+            global.consoleLog('Plugins', `Error executing task for options: ${error.message}`, 1);
             throw error;
         }
     }
@@ -659,7 +726,7 @@ class KorePlugins {
                     
                     return match; // Return unchanged if not recognized
                 } catch (error) {
-                    console.error(`[${this.getTimestamp()}] Error processing variable ${match}:`, error.message);
+                    global.consoleLog('Plugins', `Error processing variable ${match}: ${error.message}`, 1);
                     return match;
                 }
             });
@@ -678,14 +745,256 @@ class KorePlugins {
      * Stub for future implementation
      */
     async executeTask(taskId, inputs) {
-        console.log(`[${this.getTimestamp()}] [KorePlugins] Executing task ${taskId} with inputs:`, inputs);
-        // TODO: Implement task execution logic
-        return {
-            success: false,
-            error: 'Task execution not yet implemented',
-            taskId: taskId,
-            inputs: inputs
-        };
+        global.consoleLog('Plugins', `Executing task ${taskId} with inputs: ${JSON.stringify(inputs)}`, 4);
+        
+        try {
+            if (!this.pool) {
+                throw new Error('Database pool not available');
+            }
+
+            const connection = await this.pool.getConnection();
+            let task;
+            let pluginId;
+            
+            try {
+                // Load task from database
+                const [rows] = await connection.query(
+                    'SELECT * FROM plugin_tasks WHERE task_id = ? AND active = TRUE',
+                    [taskId]
+                );
+
+                if (rows.length === 0) {
+                    return {
+                        success: false,
+                        error: 'Task not found',
+                        taskId: taskId
+                    };
+                }
+
+                task = rows[0];
+                pluginId = task.plugin_id;
+
+                // Parse static_params
+                try {
+                    if (typeof task.static_params === 'string') {
+                        task.static_params = task.static_params ? JSON.parse(task.static_params) : {};
+                    } else if (typeof task.static_params === 'object' && task.static_params !== null) {
+                        task.static_params = task.static_params;
+                    } else {
+                        task.static_params = {};
+                    }
+                } catch (parseError) {
+                    global.consoleLog('Plugins', `WARNING: Could not parse static_params for task ${taskId}: ${parseError.message}`, 2);
+                    task.static_params = {};
+                }
+
+                // Parse inputs
+                try {
+                    if (typeof task.inputs === 'string') {
+                        task.inputs = task.inputs ? JSON.parse(task.inputs) : [];
+                    } else if (Array.isArray(task.inputs)) {
+                        task.inputs = task.inputs;
+                    } else if (typeof task.inputs === 'object' && task.inputs !== null) {
+                        task.inputs = [];
+                    } else {
+                        task.inputs = [];
+                    }
+                } catch (parseError) {
+                    global.consoleLog('Plugins', `WARNING: Could not parse inputs for task ${taskId}: ${parseError.message}`, 2);
+                    task.inputs = [];
+                }
+
+                // Get the plugin name from the plugin_id
+                const [pluginRows] = await connection.query(
+                    'SELECT name FROM plugins WHERE id = ?',
+                    [pluginId]
+                );
+
+                if (pluginRows.length === 0) {
+                    return {
+                        success: false,
+                        error: 'Plugin not found',
+                        taskId: taskId
+                    };
+                }
+
+                task.pluginName = pluginRows[0].name;
+                
+            } finally {
+                connection.release();
+            }
+
+            global.consoleLog('Plugins', `Task loaded: ${task.display_name}, plugin: ${task.pluginName}, route: ${task.route}`, 4);
+
+            // Check for passthrough mode - delegate to subTask instead
+            if (task.static_params.subTaskMode === 'passthrough' && task.static_params.subTask) {
+                let subTaskId = task.static_params.subTask;
+                // Resolve @task.* reference if present
+                if (typeof subTaskId === 'string' && subTaskId.startsWith('@task.')) {
+                    subTaskId = subTaskId.substring(6); // Remove '@task.' prefix
+                }
+                global.consoleLog('Plugins', `Task ${taskId} using passthrough mode, delegating to task ${subTaskId}`, 4);
+                
+                // Merge relevant config parameters (datasource, etc.) with inputs
+                const delegateInputs = {
+                    ...task.static_params,
+                    ...inputs
+                };
+                // Remove internal parameters that shouldn't be passed down
+                delete delegateInputs.subTask;
+                delete delegateInputs.subTaskMode;
+                
+                return this.executeTask(subTaskId, delegateInputs);
+            }
+
+            // Find the plugin object
+            const plugin = this.getPlugin(task.pluginName);
+            if (!plugin) {
+                return {
+                    success: false,
+                    error: `Plugin not loaded: ${task.pluginName}`,
+                    taskId: taskId
+                };
+            }
+            
+            // Get the plugin handler for the task's route
+            const handler = this.getHandler(task.route);
+            if (!handler) {
+                return {
+                    success: false,
+                    error: `No handler found for route: ${task.route}`,
+                    taskId: taskId
+                };
+            }
+
+            // Merge static_params with runtime inputs
+            const mergedInputs = { 
+                endpoint: task.endpoint,
+                ...task.static_params, 
+                ...inputs 
+            };
+            global.consoleLog('Plugins', `Merged inputs: ${JSON.stringify(mergedInputs)}`, 4);
+            
+            // Process variables (e.g., $(now - 365)) in merged inputs
+            const processedInputs = this.processVariables(mergedInputs);
+            global.consoleLog('Plugins', `Processed inputs (variables resolved): ${JSON.stringify(processedInputs)}`, 4);
+            global.consoleLog('Plugins', `Executing handler: ${task.route}`, 4);
+
+            // Execute the handler directly and capture result
+            return new Promise((resolve) => {
+                // Create a mock response object
+                const mockRes = {
+                    statusCode: 200,
+                    headers: {},
+                    setHeader: function(key, value) {
+                        this.headers[key] = value;
+                    },
+                    writeHead: function(code) {
+                        this.statusCode = code;
+                    },
+                    end: function(data) {
+                        try {
+                            const parsed = JSON.parse(data);
+                            const responseStatusCode = this.statusCode || 200;
+                            const isSuccess = responseStatusCode >= 200 && responseStatusCode < 300;
+                            
+                            // Extract the actual data from various possible formats
+                            let result = parsed.options || parsed.data || parsed.result || parsed;
+                            
+                            // Extract error message
+                            let message = parsed.message;
+                            if (!message && !isSuccess) {
+                                message = parsed.error || parsed.error_message || parsed.errorMessage || 'Operation failed';
+                            }
+                            
+                            // Apply label_field formatting if result is array of objects
+                            if (Array.isArray(result) && result.length > 0 && typeof result[0] === 'object') {
+                                result = result.map(item => {
+                                    let label;
+                                    
+                                    if (task.label_field) {
+                                        label = task.label_field;
+                                        if (label.includes('@')) {
+                                            label = label.replace(/@([a-zA-Z_][a-zA-Z0-9_]*(?:\/[a-zA-Z_][a-zA-Z0-9_]*)*)?@/g, (match, fieldPath) => {
+                                                let value = item;
+                                                if (fieldPath) {
+                                                    const parts = fieldPath.split('/');
+                                                    for (const part of parts) {
+                                                        value = value && value[part];
+                                                    }
+                                                }
+                                                return value !== undefined ? String(value) : match;
+                                            });
+                                        } else {
+                                            label = item[task.label_field];
+                                        }
+                                    } else {
+                                        label = item.name || item.id || item.value || '';
+                                    }
+                                    
+                                    return {
+                                        ...item,
+                                        _label: String(label)
+                                    };
+                                });
+                            }
+                            
+                            resolve({
+                                success: isSuccess,
+                                result: result,
+                                message: message || (isSuccess ? 'Operation completed successfully' : 'Operation failed'),
+                                taskId: taskId
+                            });
+                        } catch (e) {
+                            global.consoleLog('Plugins', `Could not parse response: ${e.message}`, 2);
+                            resolve({
+                                success: false,
+                                result: null,
+                                message: 'Invalid response format from plugin',
+                                taskId: taskId
+                            });
+                        }
+                    }
+                };
+
+                // Create mock request
+                const mockReq = {
+                    method: task.method || 'GET',
+                    url: task.route,
+                    headers: {},
+                    socket: {
+                        remoteAddress: 'internal',
+                        setTimeout: function() {} // No-op for workflow execution
+                    },
+                    body: JSON.stringify(processedInputs),
+                    on: function(event, callback) {
+                        if (event === 'data') {
+                            callback(Buffer.from(this.body));
+                        } else if (event === 'end') {
+                            callback();
+                        }
+                    }
+                };
+
+                // Call the plugin handler with helpers
+                const { handler: handlerFunc } = handler;
+                handlerFunc(mockReq, mockRes, {
+                    isIPWhitelisted: this.isIPWhitelisted,
+                    checkRateLimit: this.checkRateLimit,
+                    config: plugin.config,
+                    taskInputs: task.inputs ? (typeof task.inputs === 'string' ? JSON.parse(task.inputs) : task.inputs) : [],
+                    processVariables: this.processVariables.bind(this)
+                });
+            });
+            
+        } catch (error) {
+            global.consoleLog('Plugins', `ERROR executing task ${taskId}: ${error.message}`, 1);
+            return {
+                success: false,
+                error: error.message,
+                taskId: taskId
+            };
+        }
     }
 
     /**
@@ -694,7 +1003,7 @@ class KorePlugins {
      */
     async handleRoute(req, res) {
         const urlPath = req.url.split('?')[0];
-        console.log(`[${this.getTimestamp()}] [KorePlugins] handleRoute checking: ${urlPath}`);
+        global.consoleLog('Plugins', `handleRoute checking: ${urlPath}`, 4);
 
         // Determine if this is a plugin route before applying auth
         const isPluginRoute = urlPath === '/executeTask' || 
@@ -710,7 +1019,7 @@ class KorePlugins {
             const sessionToken = req.headers['x-session-token'];
             
             if (!isInternalCall && !sessionToken) {
-                console.log(`[${this.getTimestamp()}] [KorePlugins] Rejecting ${urlPath}: external call without session token`);
+                global.consoleLog('Plugins', `Rejecting ${urlPath}: external call without session token`, 2);
                 res.setHeader('Content-Type', 'application/json');
                 res.writeHead(401);
                 res.end(JSON.stringify({ error: 'Session token required' }));
@@ -718,50 +1027,50 @@ class KorePlugins {
             }
 
             if (!isInternalCall) {
-                console.log(`[${this.getTimestamp()}] [KorePlugins] External call authenticated (token present)`);
+                global.consoleLog('Plugins', 'External call authenticated (token present)', 4);
             } else {
-                console.log(`[${this.getTimestamp()}] [KorePlugins] Internal call (bypassing token requirement)`);
+                global.consoleLog('Plugins', 'Internal call (bypassing token requirement)', 4);
             }
         }
 
         if (urlPath === '/executeTask') {
-            console.log(`[${this.getTimestamp()}] [KorePlugins] Handling /executeTask`);
+            global.consoleLog('Plugins', 'Handling /executeTask', 4);
             await this._handleExecuteTask(req, res);
             return true;
         }
 
         if (urlPath === '/plugins/execute') {
-            console.log(`[${this.getTimestamp()}] [KorePlugins] Handling /plugins/execute`);
+            global.consoleLog('Plugins', 'Handling /plugins/execute', 4);
             await this._handleExecute(req, res);
             return true;
         }
 
         // Management endpoints
         if (urlPath === '/kore/plugins/list') {
-            console.log(`[${this.getTimestamp()}] [KorePlugins] Handling /kore/plugins/list`);
+            global.consoleLog('Plugins', 'Handling /kore/plugins/list', 4);
             await this._handleListPlugins(req, res);
             return true;
         }
 
         if (urlPath.startsWith('/kore/plugins/details')) {
-            console.log(`[${this.getTimestamp()}] [KorePlugins] Handling /kore/plugins/details`);
+            global.consoleLog('Plugins', 'Handling /kore/plugins/details', 4);
             await this._handlePluginDetails(req, res);
             return true;
         }
 
         if (urlPath.match(/^\/kore\/plugins\/[^/]+\/tasks$/)) {
-            console.log(`[${this.getTimestamp()}] [KorePlugins] Handling /kore/plugins/*/tasks`);
+            global.consoleLog('Plugins', 'Handling /kore/plugins/*/tasks', 4);
             await this._handlePluginTasks(req, res);
             return true;
         }
 
         if (urlPath.match(/^\/kore\/tasks\/\d+$/)) {
-            console.log(`[${this.getTimestamp()}] [KorePlugins] Handling /kore/tasks/:taskId`);
+            global.consoleLog('Plugins', 'Handling /kore/tasks/:taskId', 4);
             await this._handleTaskDetails(req, res);
             return true;
         }
 
-        console.log(`[${this.getTimestamp()}] [KorePlugins] No route match for: ${urlPath}`);
+        global.consoleLog('Plugins', `No route match for: ${urlPath}`, 4);
         return false;
     }
 
@@ -795,7 +1104,7 @@ class KorePlugins {
                     return;
                 }
 
-                console.log(`[${this.getTimestamp()}] [KorePlugins] /executeTask - Loading task ${task_id}`);
+                global.consoleLog('Plugins', `/executeTask - Loading task ${task_id}`, 4);
 
                 // Load task from database
                 if (!this.pool) {
@@ -832,7 +1141,7 @@ class KorePlugins {
                             task.static_params = {};
                         }
                     } catch (parseError) {
-                        console.warn(`[${this.getTimestamp()}] [KorePlugins] WARNING: Could not parse static_params for task ${task_id}:`, parseError.message);
+                        global.consoleLog('Plugins', `WARNING: Could not parse static_params for task ${task_id}: ${parseError.message}`, 2);
                         task.static_params = {};
                     }
 
@@ -851,7 +1160,7 @@ class KorePlugins {
                             task.inputs = [];
                         }
                     } catch (parseError) {
-                        console.warn(`[${this.getTimestamp()}] [KorePlugins] WARNING: Could not parse inputs for task ${task_id}:`, parseError.message);
+                        global.consoleLog('Plugins', `WARNING: Could not parse inputs for task ${task_id}: ${parseError.message}`, 2);
                         task.inputs = [];
                     }
 
@@ -872,7 +1181,31 @@ class KorePlugins {
                     connection.release();
                 }
 
-                console.log(`[${this.getTimestamp()}] [KorePlugins] Task loaded: ${task.display_name}, plugin: ${task.pluginName}, route: ${task.route}`);
+                global.consoleLog('Plugins', `Task loaded: ${task.display_name}, plugin: ${task.pluginName}, route: ${task.route}`, 4);
+
+                // Check for passthrough mode - delegate to subTask instead
+                if (task.static_params.subTaskMode === 'passthrough' && task.static_params.subTask) {
+                    let subTaskId = task.static_params.subTask;
+                    // Resolve @task.* reference if present
+                    if (typeof subTaskId === 'string' && subTaskId.startsWith('@task.')) {
+                        subTaskId = subTaskId.substring(6); // Remove '@task.' prefix
+                    }
+                    global.consoleLog('Plugins', `Task ${task_id} using passthrough mode, delegating to task ${subTaskId}`, 4);
+                    
+                    // Merge relevant config parameters (datasource, etc.) with inputs
+                    const delegateInputs = {
+                        ...task.static_params,
+                        ...inputs
+                    };
+                    // Remove internal parameters that shouldn't be passed down
+                    delete delegateInputs.subTask;
+                    delete delegateInputs.subTaskMode;
+                    
+                    const result = await this.executeTask(subTaskId, delegateInputs);
+                    res.writeHead(200);
+                    res.end(JSON.stringify(result));
+                    return;
+                }
 
                 // Find the plugin object
                 const plugin = this.getPlugin(task.pluginName);
@@ -896,12 +1229,12 @@ class KorePlugins {
                     ...task.static_params, 
                     ...inputs 
                 };
-                console.log(`[${this.getTimestamp()}] [KorePlugins] Merged inputs:`, mergedInputs);
+                global.consoleLog('Plugins', `Merged inputs: ${JSON.stringify(mergedInputs)}`, 4);
                 
                 // Process variables (e.g., $(now - 365)) in merged inputs
                 const processedInputs = this.processVariables(mergedInputs);
-                console.log(`[${this.getTimestamp()}] [KorePlugins] Processed inputs (variables resolved):`, processedInputs);
-                console.log(`[${this.getTimestamp()}] [KorePlugins] Routing to handler: ${task.route}`);
+                global.consoleLog('Plugins', `Processed inputs (variables resolved): ${JSON.stringify(processedInputs)}`, 4);
+                global.consoleLog('Plugins', `Routing to handler: ${task.route}`, 4);
 
                 // Create a mock request object with processed inputs
                 const mockReq = {
@@ -992,7 +1325,7 @@ class KorePlugins {
                             data = JSON.stringify(normalizedResponse);
                         } catch (e) {
                             // If parsing fails, wrap in standard format
-                            console.warn(`[${this.getTimestamp()}] [KorePlugins] Could not parse response:`, e.message);
+                            global.consoleLog('Plugins', `Could not parse response: ${e.message}`, 2);
                             const errorResponse = {
                                 success: false,
                                 result: null,
@@ -1014,7 +1347,7 @@ class KorePlugins {
                 });
 
             } catch (error) {
-                console.error(`[${this.getTimestamp()}] [KorePlugins] ERROR in /executeTask:`, error.message);
+                global.consoleLog('Plugins', `ERROR in /executeTask: ${error.message}`, 1);
                 if (!res.headersSent) {
                     res.writeHead(500);
                     res.end(JSON.stringify({
@@ -1039,7 +1372,7 @@ class KorePlugins {
             res.writeHead(200);
             res.end(JSON.stringify({ plugins }));
         } catch (error) {
-            console.error(`[${this.getTimestamp()}] ERROR listing plugins:`, error.message);
+            global.consoleLog('Plugins', `ERROR listing plugins: ${error.message}`, 1);
             res.writeHead(500);
             res.end(JSON.stringify({ error: 'Failed to list plugins' }));
         }
@@ -1072,7 +1405,7 @@ class KorePlugins {
             res.writeHead(200);
             res.end(JSON.stringify({ plugin }));
         } catch (error) {
-            console.error(`[${this.getTimestamp()}] ERROR getting plugin details:`, error.message);
+            global.consoleLog('Plugins', `ERROR getting plugin details: ${error.message}`, 1);
             res.writeHead(500);
             res.end(JSON.stringify({ error: 'Failed to get plugin details' }));
         }
@@ -1094,11 +1427,11 @@ class KorePlugins {
             }
 
             const pluginName = decodeURIComponent(match[1]);
-            console.log(`[${this.getTimestamp()}] [KorePlugins] _handlePluginTasks for plugin: ${pluginName}`);
+            global.consoleLog('Plugins', `_handlePluginTasks for plugin: ${pluginName}`, 4);
             
             const plugin = this.getPlugin(pluginName);
             if (!plugin) {
-                console.log(`[${this.getTimestamp()}] [KorePlugins] Plugin not found: ${pluginName}`);
+                global.consoleLog('Plugins', `Plugin not found: ${pluginName}`, 2);
                 res.writeHead(404);
                 res.end(JSON.stringify({ error: 'Plugin not found' }));
                 return;
@@ -1113,7 +1446,7 @@ class KorePlugins {
                 res.end(JSON.stringify({ error: 'Method not allowed' }));
             }
         } catch (error) {
-            console.error(`[${this.getTimestamp()}] [KorePlugins] ERROR handling plugin tasks:`, error.message);
+            global.consoleLog('Plugins', `ERROR handling plugin tasks: ${error.message}`, 1);
             res.writeHead(500);
             res.end(JSON.stringify({ error: 'Failed to handle plugin tasks' }));
         }
@@ -1131,13 +1464,13 @@ class KorePlugins {
 
             const connection = await this.pool.getConnection();
             try {
-                console.log(`[${this.getTimestamp()}] [KorePlugins] Querying tasks for plugin ID: ${pluginId}`);
+                global.consoleLog('Plugins', `Querying tasks for plugin ID: ${pluginId}`, 4);
                 const [rows] = await connection.query(
                     'SELECT * FROM plugin_tasks WHERE plugin_id = ? AND active = TRUE ORDER BY display_name',
                     [pluginId]
                 );
 
-                console.log(`[${this.getTimestamp()}] [KorePlugins] Found ${rows.length} tasks for plugin ID ${pluginId}`);
+                global.consoleLog('Plugins', `Found ${rows.length} tasks for plugin ID ${pluginId}`, 4);
 
                 const tasks = rows.map(task => ({
                     ...task,
@@ -1152,7 +1485,7 @@ class KorePlugins {
                 connection.release();
             }
         } catch (error) {
-            console.error(`[${this.getTimestamp()}] [KorePlugins] ERROR in _getTasks:`, error.message);
+            global.consoleLog('Plugins', `ERROR in _getTasks: ${error.message}`, 1);
             res.writeHead(500);
             res.end(JSON.stringify({ error: error.message }));
         }
@@ -1215,7 +1548,7 @@ class KorePlugins {
                             return input;
                         });
                     } catch (resolveError) {
-                        console.warn(`[${this.getTimestamp()}] [KorePlugins] WARNING: Error resolving options for task ${taskId}:`, resolveError.message);
+                        global.consoleLog('Plugins', `WARNING: Error resolving options for task ${taskId}: ${resolveError.message}`, 2);
                         // Continue with unresolved options on error
                     }
                 }
@@ -1226,7 +1559,7 @@ class KorePlugins {
                 connection.release();
             }
         } catch (error) {
-            console.error(`[${this.getTimestamp()}] [KorePlugins] ERROR in _handleTaskDetails:`, error.message);
+            global.consoleLog('Plugins', `ERROR in _handleTaskDetails: ${error.message}`, 1);
             res.writeHead(500);
             res.end(JSON.stringify({ error: error.message }));
         }
@@ -1250,9 +1583,10 @@ class KorePlugins {
                     if (!taskData.task_id) {
                         // INSERT new task
                         const [result] = await connection.query(
-                            'INSERT INTO plugin_tasks (plugin_id, display_name, description, static_params, inputs, outputs, label_field, value_field, endpoint, method, active) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE)',
+                            'INSERT INTO plugin_tasks (plugin_id, plugin_name, display_name, description, static_params, inputs, outputs, label_field, value_field, endpoint, route, method, active) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE)',
                             [
                                 pluginId,
+                                taskData.plugin_name,
                                 taskData.display_name,
                                 taskData.description || '',
                                 JSON.stringify(taskData.static_params || {}),
@@ -1261,6 +1595,7 @@ class KorePlugins {
                                 taskData.label_field || '',
                                 taskData.value_field || '',
                                 taskData.endpoint || '',
+                                taskData.route || '',
                                 taskData.method || 'NA'
                             ]
                         );
@@ -1269,8 +1604,9 @@ class KorePlugins {
                     } else {
                         // UPDATE existing task
                         await connection.query(
-                            'UPDATE plugin_tasks SET display_name = ?, description = ?, static_params = ?, inputs = ?, outputs = ?, label_field = ?, value_field = ?, endpoint = ?, method = ? WHERE task_id = ?',
+                            'UPDATE plugin_tasks SET plugin_name = ?, display_name = ?, description = ?, static_params = ?, inputs = ?, outputs = ?, label_field = ?, value_field = ?, endpoint = ?, route = ?, method = ? WHERE task_id = ?',
                             [
+                                taskData.plugin_name,
                                 taskData.display_name,
                                 taskData.description || '',
                                 JSON.stringify(taskData.static_params || {}),
@@ -1279,6 +1615,7 @@ class KorePlugins {
                                 taskData.label_field || '',
                                 taskData.value_field || '',
                                 taskData.endpoint || '',
+                                taskData.route || '',
                                 taskData.method || 'NA',
                                 taskData.task_id
                             ]
@@ -1290,7 +1627,7 @@ class KorePlugins {
                     connection.release();
                 }
             } catch (error) {
-                console.error(`[${this.getTimestamp()}] ERROR saving task:`, error.message);
+                global.consoleLog('Plugins', `ERROR saving task: ${error.message}`, 1);
                 res.writeHead(400);
                 res.end(JSON.stringify({ error: error.message }));
             }
@@ -1327,7 +1664,7 @@ class KorePlugins {
                         return;
                     }
                     
-                    console.log(`[${this.getTimestamp()}] Plugin execute request - Task ID: ${task_id}`);
+                    global.consoleLog('Plugins', `Plugin execute request - Task ID: ${task_id}`, 4);
                     
                     const result = await this.executeTask(task_id, inputs || {});
                     
@@ -1339,7 +1676,7 @@ class KorePlugins {
                 }
             });
         } catch (error) {
-            console.error(`[${this.getTimestamp()}] ERROR in plugin execute:`, error.message);
+            global.consoleLog('Plugins', `ERROR in plugin execute: ${error.message}`, 1);
             res.writeHead(500);
             res.end(JSON.stringify({ 
                 error: 'Plugin execute error',
@@ -1377,7 +1714,7 @@ class KorePlugins {
             try {
                 pluginConfig = typeof pluginRow.config === 'string' ? JSON.parse(pluginRow.config) : pluginRow.config;
             } catch (e) {
-                console.warn(`[${this.getTimestamp()}] [KorePlugins] WARNING: Could not parse config for plugin ${pluginRow.name}`);
+                global.consoleLog('Plugins', `WARNING: Could not parse config for plugin ${pluginRow.name}`, 2);
             }
         }
         
@@ -1431,13 +1768,13 @@ class PluginOperationManager {
     // Start a normal operation (parallel, no blocking)
     startOperation(opId) {
         this.activeOperations.add(opId);
-        console.log(`[${this.getTimestamp()}] [${this.pluginName}] Operation ${opId} started. Active: ${this.activeOperations.size}`);
+        global.consoleLog('Plugins', `[${this.pluginName}] Operation ${opId} started. Active: ${this.activeOperations.size}`, 4);
     }
 
     // End a normal operation
     async endOperation(opId) {
         this.activeOperations.delete(opId);
-        console.log(`[${this.getTimestamp()}] [${this.pluginName}] Operation ${opId} ended. Active: ${this.activeOperations.size}`);
+        global.consoleLog('Plugins', `[${this.pluginName}] Operation ${opId} ended. Active: ${this.activeOperations.size}`, 4);
         
         // If there's a reload queued AND no more operations, do the reload
         if (this.reloadQueued && this.activeOperations.size === 0) {
@@ -1450,7 +1787,7 @@ class PluginOperationManager {
         const reloadId = `reload-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
         
         if (force && this.activeOperations.size > 0) {
-            console.log(`[${this.getTimestamp()}] [${this.pluginName}] Force reload queued. Waiting for ${this.activeOperations.size} operations to finish...`);
+            global.consoleLog('Plugins', `[${this.pluginName}] Force reload queued. Waiting for ${this.activeOperations.size} operations to finish...`, 4);
         }
 
         this.reloadQueued = {
@@ -1475,11 +1812,11 @@ class PluginOperationManager {
         this.isReloading = true;
 
         try {
-            console.log(`[${this.getTimestamp()}] [${this.pluginName}] Starting reload (${reload.force ? 'force' : 'normal'})...`);
+            global.consoleLog('Plugins', `[${this.pluginName}] Starting reload (${reload.force ? 'force' : 'normal'})...`, 3);
             await this.pluginsModule.reloadPlugin(this.pluginName);
-            console.log(`[${this.getTimestamp()}] [${this.pluginName}] Reload complete`);
+            global.consoleLog('Plugins', `[${this.pluginName}] Reload complete`, 3);
         } catch (error) {
-            console.error(`[${this.getTimestamp()}] [${this.pluginName}] Reload failed:`, error);
+            global.consoleLog('Plugins', `[${this.pluginName}] Reload failed: ${JSON.stringify(error)}`, 1);
         } finally {
             this.isReloading = false;
             this.reloadQueued = null;

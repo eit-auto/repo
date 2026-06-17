@@ -1,6 +1,10 @@
 /**
  * Resources - Kore Managed Resource Module
  *
+ * Stateless function module - no active operations or state to drain.
+ * Simply export and re-export on subsystem reload via require.cache clearing.
+ * All functions read from/write to database via global.auth.korePool.
+ *
  * Handles CRUD operations and permission enforcement for managed resources:
  *   - Workflows (moved from Persephone; execution remains in Persephone)
  *   - Forms
@@ -29,6 +33,12 @@
  *   POST   /kore/form-folders            - Create form folder
  *   PUT    /kore/form-folders/:id        - Update form folder
  *   DELETE /kore/form-folders/:id        - Delete form folder
+ *
+ *   GET    /kore/workflow-utils              - List all workflow actions (?include_disabled=true for all)
+ *   POST   /kore/workflow-utils              - Create workflow action
+ *   GET    /kore/workflow-utils/:action_name - Get specific action (includes code)
+ *   PUT    /kore/workflow-utils/:action_name - Update action
+ *   DELETE /kore/workflow-utils/:action_name - Delete action
  *
  * @version 0.101
  */
@@ -84,6 +94,18 @@ function authenticate(req, res) {
 function send(res, status, data) {
     res.writeHead(status, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(data));
+}
+
+/**
+ * Parse query string parameters
+ */
+function parseQueryParams(url) {
+    const parsed = new URL(url, 'http://localhost');
+    const params = {};
+    parsed.searchParams.forEach((value, key) => {
+        params[key] = value;
+    });
+    return params;
 }
 
 
@@ -283,7 +305,7 @@ async function createResource(resourceType, table, histTable, histFkCol, definit
             `INSERT INTO ${histTable} (${histFkCol}, version, definition) VALUES (?, ?, ?)`,
             [id, version, JSON.stringify(definitionToStore)]
         );
-        console.log(`[Resources] ${resourceType} created: ${id} (${name})`);
+        global.consoleLog('Resources', `${resourceType} created: ${id} (${name})`, 3);
         return { id, name, version };
     } finally {
         conn.release();
@@ -378,7 +400,7 @@ async function updateResource(resourceType, table, histTable, histFkCol, id, dat
             );
         }
 
-        console.log(`[Resources] ${resourceType} updated: ${id} (v${newVersion})`);
+        global.consoleLog('Resources', `${resourceType} updated: ${id} (v${newVersion})`, 3);
         return { id, version: newVersion };
     } finally {
         conn.release();
@@ -665,7 +687,7 @@ async function handleArchiveWorkflow(req, res, auth, clientIP, workflowId, versi
             message: 'Workflow version and history deleted successfully'
         });
     } catch (error) {
-        console.error('[Resources] Archive workflow error:', error.message);
+        global.consoleLog('Resources', `Archive workflow error: ${error.message}`, 1);
         send(res, 500, { error: error.message });
     }
 }
@@ -714,7 +736,7 @@ async function handleWorkflowFoldersRequest(req, res) {
 
         send(res, 405, { error: 'Method not allowed' });
     } catch (error) {
-        console.error('[Resources] Workflow folders error:', error.message);
+        global.consoleLog('Resources', `Workflow folders error: ${error.message}`, 1);
         send(res, 500, { error: error.message });
     }
 }
@@ -912,7 +934,7 @@ async function deleteResource(resourceType, table, histTable, histFkCol, id) {
             [id]
         );
 
-        console.log(`[Resources] ${resourceType} deleted: ${id} (snapshot v${liveRow.version} retained in history)`);
+        global.consoleLog('Resources', `${resourceType} deleted: ${id} (snapshot v${liveRow.version} retained in history)`, 3);
         return { success: true };
     } finally {
         conn.release();
@@ -992,7 +1014,7 @@ async function handleDeleteForm(req, res, auth, formId) {
         const result = await deleteForm(formId);
         send(res, 200, result);
     } catch (error) {
-        console.error('[Resources] Delete form error:', error.message);
+        global.consoleLog('Resources', `Delete form error: ${error.message}`, 1);
         send(res, 400, { error: error.message });
     }
 }
@@ -1028,7 +1050,7 @@ async function handleListFormFolders(req, res, auth) {
         const folders = await getFormFolders();
         send(res, 200, { folders });
     } catch (error) {
-        console.error('[Resources] List form folders error:', error.message);
+        global.consoleLog('Resources', `List form folders error: ${error.message}`, 1);
         send(res, 500, { error: error.message });
     }
 }
@@ -1043,7 +1065,7 @@ async function handleCreateFormFolder(req, res, auth) {
         const result = await createFormFolder(body);
         send(res, 201, result);
     } catch (error) {
-        console.error('[Resources] Create form folder error:', error.message);
+        global.consoleLog('Resources', `Create form folder error: ${error.message}`, 1);
         send(res, 400, { error: error.message });
     }
 }
@@ -1054,7 +1076,7 @@ async function handleUpdateFormFolder(req, res, auth, folderId) {
         const result = await updateFormFolder(folderId, body);
         send(res, 200, result);
     } catch (error) {
-        console.error('[Resources] Update form folder error:', error.message);
+        global.consoleLog('Resources', `Update form folder error: ${error.message}`, 1);
         send(res, 400, { error: error.message });
     }
 }
@@ -1064,7 +1086,7 @@ async function handleDeleteFormFolder(req, res, auth, folderId) {
         const result = await deleteFormFolder(folderId);
         send(res, 200, result);
     } catch (error) {
-        console.error('[Resources] Delete form folder error:', error.message);
+        global.consoleLog('Resources', `Delete form folder error: ${error.message}`, 1);
         send(res, 400, { error: error.message });
     }
 }
@@ -1088,7 +1110,7 @@ async function handleListResource(req, res, resourceType, listGetter, auth, clie
         const resources = await listGetter(clientIP);
         send(res, 200, { [resourceType + 's']: resources });
     } catch (error) {
-        console.error(`[Resources] List ${resourceType}s error:`, error.message);
+        global.consoleLog('Resources', `List ${resourceType}s error: ${error.message}`, 1);
         send(res, 500, { error: error.message });
     }
 }
@@ -1115,7 +1137,7 @@ async function handleGetResource(req, res, resourceType, getter, auth, clientIP,
 
         send(res, 200, { ...resource, canEdit, canDelete });
     } catch (error) {
-        console.error(`[Resources] Get ${resourceType} error:`, error.message);
+        global.consoleLog('Resources', `Get ${resourceType} error: ${error.message}`, 1);
         send(res, 500, { error: error.message });
     }
 }
@@ -1145,7 +1167,7 @@ async function handleCreateResource(req, res, resourceType, createFn, auth, vali
         const result = await createFn(body, auth.userId);
         send(res, 201, result);
     } catch (error) {
-        console.error(`[Resources] Create ${resourceType} error:`, error.message);
+        global.consoleLog('Resources', `Create ${resourceType} error: ${error.message}`, 1);
         send(res, 400, { error: error.message });
     }
 }
@@ -1179,7 +1201,7 @@ async function handleUpdateResource(req, res, resourceType, getter, updateFn, au
         const result = await updateFn(resourceId, body, auth.userId);
         send(res, 200, result);
     } catch (error) {
-        console.error(`[Resources] Update ${resourceType} error:`, error.message);
+        global.consoleLog('Resources', `Update ${resourceType} error: ${error.message}`, 1);
         send(res, 400, { error: error.message });
     }
 }
@@ -1280,7 +1302,7 @@ async function handleDeleteDataTable(req, res, auth, datatableId) {
         const result = await deleteDataTable(datatableId);
         send(res, 200, result);
     } catch (error) {
-        console.error('[Resources] Delete datatable error:', error.message);
+        global.consoleLog('Resources', `Delete datatable error: ${error.message}`, 1);
         send(res, 400, { error: error.message });
     }
 }
@@ -1326,6 +1348,248 @@ async function handleDeleteDatatableFolder(req, res, auth, folderId) {
 }
 
 
+// ============================================================
+// WORKFLOW UTILS - DATA FUNCTIONS
+// ============================================================
+
+/**
+ * List all workflow utils (excludes code for list view)
+ * @param {boolean} includeDisabled - Whether to include disabled actions
+ */
+async function listWorkflowUtils(includeDisabled = false) {
+    const conn = await getPool().getConnection();
+    try {
+        let query = `SELECT action_name, display_name, description, category, action_config, enabled 
+                     FROM kore_sys.workflow_utils`;
+        
+        if (!includeDisabled) {
+            query += ` WHERE enabled = true`;
+        }
+        
+        query += ` ORDER BY category, display_name ASC`;
+        
+        const [rows] = await conn.execute(query);
+        return rows || [];
+    } finally {
+        conn.release();
+    }
+}
+
+/**
+ * Get a specific workflow util (includes code)
+ * @param {string} actionName - The action slug
+ */
+async function getWorkflowUtil(actionName) {
+    const conn = await getPool().getConnection();
+    try {
+        const [rows] = await conn.execute(
+            `SELECT action_name, display_name, description, category, action_config, code, enabled 
+             FROM kore_sys.workflow_utils 
+             WHERE action_name = ?`,
+            [actionName]
+        );
+        if (rows.length === 0) throw new Error('Workflow util not found');
+        return rows[0];
+    } finally {
+        conn.release();
+    }
+}
+
+/**
+ * Create a new workflow util
+ */
+async function createWorkflowUtil(utilData, userId) {
+    const { action_name, display_name, description, category, action_config, code, enabled } = utilData;
+    
+    if (!action_name) throw new Error('action_name is required');
+    if (!display_name) throw new Error('display_name is required');
+    if (!action_config) throw new Error('action_config is required');
+    
+    const conn = await getPool().getConnection();
+    try {
+        await conn.execute(
+            `INSERT INTO kore_sys.workflow_utils 
+             (action_name, display_name, description, category, action_config, code, enabled) 
+             VALUES (?, ?, ?, ?, ?, ?, ?)`,
+            [action_name, display_name, description || null, category || null, 
+             JSON.stringify(action_config), code || null, enabled !== false]
+        );
+        return { action_name, display_name };
+    } finally {
+        conn.release();
+    }
+}
+
+/**
+ * Update an existing workflow util
+ */
+async function updateWorkflowUtil(actionName, utilData, userId) {
+    const { display_name, description, category, action_config, code, enabled } = utilData;
+    
+    const conn = await getPool().getConnection();
+    try {
+        const updateFields = [];
+        const values = [];
+        
+        if (display_name !== undefined) {
+            updateFields.push('display_name = ?');
+            values.push(display_name);
+        }
+        if (description !== undefined) {
+            updateFields.push('description = ?');
+            values.push(description || null);
+        }
+        if (category !== undefined) {
+            updateFields.push('category = ?');
+            values.push(category || null);
+        }
+        if (action_config !== undefined) {
+            updateFields.push('action_config = ?');
+            values.push(JSON.stringify(action_config));
+        }
+        if (code !== undefined) {
+            updateFields.push('code = ?');
+            values.push(code || null);
+        }
+        if (enabled !== undefined) {
+            updateFields.push('enabled = ?');
+            values.push(enabled ? 1 : 0);
+        }
+        
+        if (updateFields.length === 0) throw new Error('No fields to update');
+        
+        values.push(actionName);
+        const [result] = await conn.execute(
+            `UPDATE kore_sys.workflow_utils SET ${updateFields.join(', ')} WHERE action_name = ?`,
+            values
+        );
+        
+        if (result.affectedRows === 0) throw new Error('Workflow util not found');
+        
+        return { success: true };
+    } finally {
+        conn.release();
+    }
+}
+
+/**
+ * Delete a workflow util
+ */
+async function deleteWorkflowUtil(actionName) {
+    const conn = await getPool().getConnection();
+    try {
+        const [result] = await conn.execute(
+            `DELETE FROM kore_sys.workflow_utils WHERE action_name = ?`,
+            [actionName]
+        );
+        
+        if (result.affectedRows === 0) throw new Error('Workflow util not found');
+        
+        return { success: true };
+    } finally {
+        conn.release();
+    }
+}
+
+
+// ============================================================
+// WORKFLOW UTILS - HTTP HANDLERS
+// ============================================================
+
+async function handleWorkflowUtilsRequest(req, res) {
+    const parsedUrl = new URL(req.url, `http://${req.headers.host}`);
+    const parts = parsedUrl.pathname.split('/').filter(p => p);
+    // parts: ['kore', 'workflow-utils', <action_name>]
+    
+    const auth = authenticate(req, res);
+    if (!auth) return;
+    
+    if (req.method === 'GET') {
+        if (parts.length === 2) {
+            // List all
+            return handleListWorkflowUtils(req, res, auth, parsedUrl);
+        } else if (parts.length === 3) {
+            // Get specific
+            return handleGetWorkflowUtil(req, res, auth, parts[2]);
+        }
+    } else if (req.method === 'POST') {
+        return handleCreateWorkflowUtil(req, res, auth);
+    } else if (req.method === 'PUT' && parts.length === 3) {
+        return handleUpdateWorkflowUtil(req, res, auth, parts[2]);
+    } else if (req.method === 'DELETE' && parts.length === 3) {
+        return handleDeleteWorkflowUtil(req, res, auth, parts[2]);
+    }
+    
+    send(res, 405, { error: 'Method not allowed' });
+}
+
+async function handleListWorkflowUtils(req, res, auth, parsedUrl) {
+    try {
+        const params = parseQueryParams(req.url);
+        const includeDisabled = params.include_disabled === 'true';
+        const utils = await listWorkflowUtils(includeDisabled);
+        send(res, 200, { utils });
+    } catch (error) {
+        global.consoleLog('Resources', `List workflow utils error: ${error.message}`, 1);
+        send(res, 400, { error: error.message });
+    }
+}
+
+async function handleGetWorkflowUtil(req, res, auth, actionName) {
+    try {
+        const canRead = await global.auth.hasPermission(auth.userId, 'workflow_util', 'read', actionName);
+        if (!canRead) return send(res, 403, { error: 'Forbidden' });
+        
+        const util = await getWorkflowUtil(actionName);
+        send(res, 200, util);
+    } catch (error) {
+        global.consoleLog('Resources', `Get workflow util error: ${error.message}`, 1);
+        send(res, error.message.includes('not found') ? 404 : 400, { error: error.message });
+    }
+}
+
+async function handleCreateWorkflowUtil(req, res, auth) {
+    try {
+        const canCreate = await global.auth.hasPermission(auth.userId, 'workflow_util', 'create');
+        if (!canCreate) return send(res, 403, { error: 'Forbidden' });
+        
+        const body = await parseBody(req);
+        const result = await createWorkflowUtil(body, auth.userId);
+        send(res, 201, result);
+    } catch (error) {
+        global.consoleLog('Resources', `Create workflow util error: ${error.message}`, 1);
+        send(res, 400, { error: error.message });
+    }
+}
+
+async function handleUpdateWorkflowUtil(req, res, auth, actionName) {
+    try {
+        const canUpdate = await global.auth.hasPermission(auth.userId, 'workflow_util', 'update', actionName);
+        if (!canUpdate) return send(res, 403, { error: 'Forbidden' });
+        
+        const body = await parseBody(req);
+        const result = await updateWorkflowUtil(actionName, body, auth.userId);
+        send(res, 200, result);
+    } catch (error) {
+        global.consoleLog('Resources', `Update workflow util error: ${error.message}`, 1);
+        send(res, error.message.includes('not found') ? 404 : 400, { error: error.message });
+    }
+}
+
+async function handleDeleteWorkflowUtil(req, res, auth, actionName) {
+    try {
+        const canDelete = await global.auth.hasPermission(auth.userId, 'workflow_util', 'delete', actionName);
+        if (!canDelete) return send(res, 403, { error: 'Forbidden' });
+        
+        const result = await deleteWorkflowUtil(actionName);
+        send(res, 200, result);
+    } catch (error) {
+        global.consoleLog('Resources', `Delete workflow util error: ${error.message}`, 1);
+        send(res, error.message.includes('not found') ? 404 : 400, { error: error.message });
+    }
+}
+
+
 
 /**
  * Route incoming requests to the appropriate resource handler.
@@ -1360,15 +1624,33 @@ function handleRoute(req, res) {
         handleDatatableRequest(req, res);
         return true;
     }
+    if (/^\/kore\/workflow-utils(\/.*)?(\?.*)?$/.test(url)) {
+        handleWorkflowUtilsRequest(req, res);
+        return true;
+    }
     return false;
 }
 
+
+// ============================================================
+// INITIALIZATION
+// ============================================================
+
+/**
+ * Initialize Resources module
+ * Stateless module - no operation draining needed
+ * This function exists for consistency with other subsystems
+ */
+async function initialize() {
+    // No-op - stateless module
+}
 
 // ============================================================
 // EXPORTS
 // ============================================================
 
 module.exports = {
+    initialize,
     handleRoute,
     // Generic (for datatables and future resource types)
     createResource,
@@ -1406,5 +1688,11 @@ module.exports = {
     getDatatableFolders,
     createDatatableFolder,
     updateDatatableFolder,
-    deleteDatatableFolder
+    deleteDatatableFolder,
+    // Workflow Utils
+    listWorkflowUtils,
+    getWorkflowUtil,
+    createWorkflowUtil,
+    updateWorkflowUtil,
+    deleteWorkflowUtil
 };

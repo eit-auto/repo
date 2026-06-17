@@ -1,3 +1,5 @@
+import '/lib/base.js';
+
 // ============================================================================
 // Forms Library - Form CRUD operations and UI management
 // ============================================================================
@@ -1067,3 +1069,24 @@ function rerenderCurrentView() {
         renderFormsList();
     }
 }
+// ============================================================================
+// EXPORTS TO WINDOW
+// ============================================================================
+window.applyHideInactive = applyHideInactive;
+window.buildFormRow = buildFormRow;
+window.deleteForm = deleteForm;
+window.editForm = editForm;
+window.filterForms = filterForms;
+window.getFormPermissions = getFormPermissions;
+window.loadAllUsersAndGroupsForModal = loadAllUsersAndGroupsForModal;
+window.loadForms = loadForms;
+window.moveFormToFolder = moveFormToFolder;
+window.openCreateModal = openCreateModal;
+window.renderFilteredForms = renderFilteredForms;
+window.renderFormsList = renderFormsList;
+window.rerenderCurrentView = rerenderCurrentView;
+window.saveForm = saveForm;
+window.saveFormPermissions = saveFormPermissions;
+window.showFormMenu = showFormMenu;
+window.showFormPropertiesModal = showFormPropertiesModal;
+window.toggleFormActive = toggleFormActive;

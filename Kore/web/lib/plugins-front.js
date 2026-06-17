@@ -1,13 +1,17 @@
-// ============================================================================
-// PLUGINS MODULE
+import '/lib/base.js';
+
 // ============================================================================
 // This module contains all plugin management functions and related UI logic.
-// Dependencies: settings.js (for currentUser, sessionToken, helper functions)
+// No external dependencies - uses base.js for authentication (getSessionToken, getUser)
 // ============================================================================
 
 // ============================================================================
 // PLUGIN STATE VARIABLES
 // ============================================================================
+
+// Authentication - initialized on first use from base.js
+let sessionToken = null;   // Cached session token (initialized from window.getSessionToken())
+let currentUser = null;    // Cached user ID (initialized from window.getUser())
 
 let pendingPluginCode = '';
 let currentPluginName = '';
@@ -486,6 +490,8 @@ function syncPluginTaskConfigFromDom() {
 
     cfg.display_name = detailsContainer.querySelector('.plugin-task-name-field')?.value || '';
     cfg.description = detailsContainer.querySelector('.plugin-task-description')?.value || cfg.description || '';
+    cfg.plugin_name = currentPluginName;
+    cfg.route = detailsContainer.querySelector('.plugin-task-route')?.value || '';
     cfg.label_field = detailsContainer.querySelector('.plugin-task-label-field')?.value || '';
     cfg.value_field = detailsContainer.querySelector('.plugin-task-value-field')?.value || '';
     cfg.endpoint = detailsContainer.querySelector('.plugin-task-endpoint')?.value || '';
@@ -659,6 +665,7 @@ async function saveTaskConfig(statusContainer = 'taskStatusMessage') {
             body: JSON.stringify({
                 task_id: isNewTask ? null : cfg.task_id,
                 plugin_id: currentPlugin.id,
+                plugin_name: currentPluginName,
                 display_name: cfg.display_name,
                 description: cfg.description,
                 static_params: cfg.static_params || {},
@@ -667,6 +674,7 @@ async function saveTaskConfig(statusContainer = 'taskStatusMessage') {
                 label_field: cfg.label_field,
                 value_field: cfg.value_field,
                 endpoint: cfg.endpoint,
+                route: cfg.route,
                 method: cfg.method
             })
         });
@@ -811,11 +819,13 @@ function loadBlankTaskForm() {
     // Create a new task object with blank values
     const newTask = {
         task_id: null,  // null indicates new task
+        plugin_name: currentPluginName,
         display_name: '',
         description: '',
         label_field: '',
         value_field: '',
         endpoint: '',
+        route: '',
         method: 'NA',
         static_params: {},
         inputs: [],
@@ -904,6 +914,16 @@ function buildTaskDetailsHtml(task, pluginConfig) {
     
     html += '<div>';
     
+    html += `
+        <div style="margin-bottom: 10px;">
+            <label style="display: block; color: var(--text-muted); font-size: 11px; margin-bottom: 2px; font-weight: 600;">Route</label>
+            <select class="plugin-task-route" style="width: 100%;">
+                <option value="">-- Select Route --</option>
+                ${(pluginConfig?.config?.routes || []).map(r => `<option value="${escapeHtml(r)}" ${task.route === r ? 'selected' : ''}>${escapeHtml(r)}</option>`).join('')}
+            </select>
+        </div>
+    `;
+
     html += `
         <div style="margin-bottom: 10px;">
             <label style="display: block; color: var(--text-muted); font-size: 11px; margin-bottom: 2px; font-weight: 600;">Endpoint</label>
@@ -1206,6 +1226,11 @@ async function fetchPluginTasks(pluginName) {
 
 async function openAddPluginModal() {
     try {
+        // Initialize authentication variables if not already done
+        if (!currentUser) {
+            currentUser = window.getUser();
+        }
+        
         const sessionTokenLocal = await window.getSessionToken();
         const result = await window.executeSqlQuery(
             sessionTokenLocal,
@@ -1445,6 +1470,11 @@ async function openAddPluginModal() {
                 if (formData.headers && Array.isArray(formData.headers) && formData.headers.length > 0) {
                     pluginData.config.headers = formData.headers;
                 }
+            }
+            
+            // Initialize currentUser if needed
+            if (!currentUser) {
+                currentUser = window.getUser();
             }
             
             pluginData.username = currentUser;
@@ -2172,6 +2202,10 @@ async function savePluginSettings() {
             sessionToken = await window.getSessionToken();
         }
 
+        if (!currentUser) {
+            currentUser = window.getUser();
+        }
+
         let newVersion = '1.0';
 
         if (currentPluginVersion) {
@@ -2320,6 +2354,28 @@ async function reloadSelectedPlugin() {
 }
 
 /**
+ * Render HTML for a select field
+ * @param {string} inputId - The input element ID
+ * @param {object} input - The input definition
+ * @param {object} pluginConfig - Plugin configuration (for resolving references)
+ * @returns {string} - HTML string for the select element
+ */
+function renderSelectField(inputId, input, pluginConfig) {
+    const options = input.options || [];
+    
+    let optionsHtml = options.map(opt => {
+        // Handle object options (from @task references)
+        if (typeof opt === 'object' && 'label' in opt) {
+            return `<option value="${escapeHtml(String(opt.value))}">${escapeHtml(opt.label)}</option>`;
+        }
+        // Handle string options (static lists)
+        return `<option value="${escapeHtml(String(opt))}">${escapeHtml(String(opt))}</option>`;
+    }).join('');
+    
+    return `<select id="${inputId}" class="form-field-input" style="width: 100%; padding: 6px; box-sizing: border-box; font-size: 0.85rem;"><option value="">-- Select --</option>${optionsHtml}</select>`;
+}
+
+/**
  * Render HTML for task inputs
  * @param {array} inputs - Array of input definitions
  * @param {object} task - The task object (for task_id)
@@ -2328,20 +2384,17 @@ async function reloadSelectedPlugin() {
  */
 function renderTaskInputsHtml(inputs, task, pluginConfig) {
     if (!inputs || inputs.length === 0) {
-        return '<div id="taskInputs"></div>';
+        return '<div id="taskInputs" class="panel-level-3">No Inputs</div>';
     }
     
-    let html = '<div id="taskInputs">';
+    let html = '<div id="taskInputs" class="panel-level-3">';
     
     inputs.forEach(input => {
         const inputId = input.name;
         
-        html += `<div class="panel-level-3">`;
-        
         if (input.type === 'boolean' || input.type === 'checkbox') {
-            const isChecked = input.default === true ? 'checked' : '';
             html += `<div class="form-group--inline">`;
-            html += `<input type="checkbox" id="${inputId}" ${isChecked}>`;
+            html += `<input type="checkbox" id="${inputId}">`;
             html += `<label for="${inputId}">${escapeHtml(input.label || input.name)}</label>`;
             html += `</div>`;
         } else if (input.type === 'radio') {
@@ -2357,16 +2410,16 @@ function renderTaskInputsHtml(inputs, task, pluginConfig) {
                 const radioId = `${inputId}_${index}`;
                 const optionValue = typeof option === 'object' ? option.value : option;
                 const optionLabel = typeof option === 'object' ? option.label : option;
-                const isChecked = input.default === optionValue ? 'checked' : '';
                 
                 html += `<div style="margin-bottom: 8px;">`;
-                html += `<input type="radio" id="${radioId}" name="${inputId}" value="${escapeHtml(String(optionValue))}" ${isChecked}>`;
+                html += `<input type="radio" id="${radioId}" name="${inputId}" value="${escapeHtml(String(optionValue))}">`;
                 html += `<label for="${radioId}" style="display: inline; margin-left: 4px;">${escapeHtml(optionLabel)}</label>`;
                 html += `</div>`;
             });
             
             html += `</fieldset>`;
         } else {
+            html += `<div class="form-group">`;
             html += `<label for="${inputId}">`;
             html += `${escapeHtml(input.label || input.name)}`;
             if (input.required) {
@@ -2383,9 +2436,9 @@ function renderTaskInputsHtml(inputs, task, pluginConfig) {
             } else {
                 html += `<input type="text" id="${inputId}" placeholder="${escapeHtml(input.default || '')}">`;
             }
+            
+            html += `</div>`;
         }
-        
-        html += `</div>`;
     });
     
     html += '</div>';
@@ -2446,3 +2499,61 @@ async function getTaskDetails(taskId) {
         throw error;
     }
 }
+// ============================================================================
+// EXPORTS TO WINDOW
+// ============================================================================
+window.addDictEntry = addDictEntry;
+window.addListEntry = addListEntry;
+window.addNewTask = addNewTask;
+window.addPlugin = addPlugin;
+window.addSqlDatabase = addSqlDatabase;
+window.buildTaskDetailsHtml = buildTaskDetailsHtml;
+window.cancelPluginSelection = cancelPluginSelection;
+window.cancelSqlDatabase = cancelSqlDatabase;
+window.clearTaskUnsavedTracking = clearTaskUnsavedTracking;
+window.collectPluginTaskList = collectPluginTaskList;
+window.collectPluginTaskStaticParams = collectPluginTaskStaticParams;
+window.deleteSqlDatabase = deleteSqlDatabase;
+window.displayPlugins = displayPlugins;
+window.doCancelSqlDatabase = doCancelSqlDatabase;
+window.doSelectPluginFromList = doSelectPluginFromList;
+window.executeTask = executeTask;
+window.extractTaskInputs = extractTaskInputs;
+window.fetchPluginTasks = fetchPluginTasks;
+window.formatOptionsDisplay = formatOptionsDisplay;
+window.getCurrentPluginFormData = getCurrentPluginFormData;
+window.getPluginDetails = getPluginDetails;
+window.getPluginTasks = getPluginTasks;
+window.getTaskDetails = getTaskDetails;
+window.initializeInputDetailsToggles = initializeInputDetailsToggles;
+window.initializeTaskUnsavedTracking = initializeTaskUnsavedTracking;
+window.listPlugins = listPlugins;
+window.loadBlankTaskForm = loadBlankTaskForm;
+window.loadPluginDetails = loadPluginDetails;
+window.loadPluginsList = loadPluginsList;
+window.markPluginTaskDirty = markPluginTaskDirty;
+window.openAddPluginModal = openAddPluginModal;
+window.openCodeModal = openCodeModal;
+window.openEditHeadersModal = openEditHeadersModal;
+window.openReloadPluginModal = openReloadPluginModal;
+window.openTasksModal = openTasksModal;
+window.parsePluginTaskStaticParamValue = parsePluginTaskStaticParamValue;
+window.populatePluginForm = populatePluginForm;
+window.refreshPluginTaskSelector = refreshPluginTaskSelector;
+window.reloadAllPlugins = reloadAllPlugins;
+window.reloadSelectedPlugin = reloadSelectedPlugin;
+window.removePluginTaskConfigRow = removePluginTaskConfigRow;
+window.renderSelectField = renderSelectField;
+window.renderTaskInputsHtml = renderTaskInputsHtml;
+window.resetTaskConfig = resetTaskConfig;
+window.resolveConfigReference = resolveConfigReference;
+window.savePluginSettings = savePluginSettings;
+window.saveSqlDatabaseForm = saveSqlDatabaseForm;
+window.saveTaskConfig = saveTaskConfig;
+window.selectPluginFromList = selectPluginFromList;
+window.selectSqlDatabase = selectSqlDatabase;
+window.syncPluginTaskConfigFromDom = syncPluginTaskConfigFromDom;
+window.testSqlConnection = testSqlConnection;
+window.unloadSelectedPluginTask = unloadSelectedPluginTask;
+window.updateSaveButtonState = updateSaveButtonState;
+window.updateSqlDbTypeFields = updateSqlDbTypeFields;

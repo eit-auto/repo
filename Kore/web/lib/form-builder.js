@@ -1,3 +1,5 @@
+import '/lib/base.js';
+
 // Form Builder - Main JavaScript File
 // ============================================
 
@@ -2901,13 +2903,6 @@ function buildWorkflowInputs(fieldConfig) {
     `;
 }
 
-function buildWorkflowOutputs(fieldConfig) {
-    // Create a container for workflow output field
-    return `
-        <div id="workflow_output_group" class="form-group" style="border-left: 2px solid #444; padding-left: 12px;">
-        </div>
-    `;
-}
 
 
 function buildDropdownBasicFields(fieldConfig) {
@@ -5630,3 +5625,104 @@ function updateRadioDefaultSelect(fieldConfig, defaultSelect) {
 
 // Initialize on page load
 console.log('Form Builder initialized');
+// ============================================================================
+// EXPORTS TO WINDOW
+// ============================================================================
+window.attachDataRetrievalListeners = attachDataRetrievalListeners;
+window.attachDeleteArrayItemModalListener = attachDeleteArrayItemModalListener;
+window.attachDropdownPluginListeners = attachDropdownPluginListeners;
+window.attachDropdownPrefetchListeners = attachDropdownPrefetchListeners;
+window.attachDropdownSqlListeners = attachDropdownSqlListeners;
+window.attachDropdownStaticListeners = attachDropdownStaticListeners;
+window.attachDropdownTreeListeners = attachDropdownTreeListeners;
+window.attachDropdownWorkflowListeners = attachDropdownWorkflowListeners;
+window.attachElementEventListeners = attachElementEventListeners;
+window.attachRadioOptionListeners = attachRadioOptionListeners;
+window.attachSettingsFieldListeners = attachSettingsFieldListeners;
+window.buildArrayFields = buildArrayFields;
+window.buildCheckboxFields = buildCheckboxFields;
+window.buildCommonFields = buildCommonFields;
+window.buildConditionsFields = buildConditionsFields;
+window.buildDataRetrievalFields = buildDataRetrievalFields;
+window.buildDateTimeFields = buildDateTimeFields;
+window.buildDependentFieldsButton = buildDependentFieldsButton;
+window.buildDropdownBasicFields = buildDropdownBasicFields;
+window.buildDropdownPrefetchFields = buildDropdownPrefetchFields;
+window.buildDropdownSqlFields = buildDropdownSqlFields;
+window.buildDropdownStaticFields = buildDropdownStaticFields;
+window.buildDropdownTypeSelector = buildDropdownTypeSelector;
+window.buildEditArrayButton = buildEditArrayButton;
+window.buildElementSettingsPanel = buildElementSettingsPanel;
+window.buildFormConfig = buildFormConfig;
+window.buildFormExtendFields = buildFormExtendFields;
+window.buildFormExtendSelector = buildFormExtendSelector;
+window.buildHorizontalLineFields = buildHorizontalLineFields;
+window.buildHtmlContentField = buildHtmlContentField;
+window.buildHtmlFields = buildHtmlFields;
+window.buildPluginSelector = buildPluginSelector;
+window.buildPluginTaskSection = buildPluginTaskSection;
+window.buildRadioFields = buildRadioFields;
+window.buildRadioOptions = buildRadioOptions;
+window.buildSQLSelector = buildSQLSelector;
+window.buildTextFields = buildTextFields;
+window.buildTextareaFields = buildTextareaFields;
+window.buildWorkflowInputs = buildWorkflowInputs;
+window.buildWorkflowOutputs = buildWorkflowOutputs;
+window.buildWorkflowSelector = buildWorkflowSelector;
+window.closeArrayItemsModal = closeArrayItemsModal;
+window.closeDependentFieldsModal = closeDependentFieldsModal;
+window.closeElementSettings = closeElementSettings;
+window.createFieldConfig = createFieldConfig;
+window.createFormElementVisual = createFormElementVisual;
+window.fetchExistingFormsList = fetchExistingFormsList;
+window.fetchPluginTasks = fetchPluginTasks;
+window.generateElementUid = generateElementUid;
+window.getConfigValue = getConfigValue;
+window.getFormConfigFromDatabase = getFormConfigFromDatabase;
+window.getFormIdFromUrl = getFormIdFromUrl;
+window.getOrCreateHiddenField = getOrCreateHiddenField;
+window.handleElementMove = handleElementMove;
+window.handleNewElementDrop = handleNewElementDrop;
+window.infoIcon = infoIcon;
+window.initializeArrayItemsModal = initializeArrayItemsModal;
+window.initializeDependentFieldsModal = initializeDependentFieldsModal;
+window.initializeDragAndDrop = initializeDragAndDrop;
+window.initializeElementPalette = initializeElementPalette;
+window.initializeFormLayout = initializeFormLayout;
+window.loadAvailableWorkflows = loadAvailableWorkflows;
+window.loadFormConfiguration = loadFormConfiguration;
+window.loadSqlDatasources = loadSqlDatasources;
+window.markFormChanged = markFormChanged;
+window.moveArrayItem = moveArrayItem;
+window.moveElementsToColumn = moveElementsToColumn;
+window.openArrayItemsModal = openArrayItemsModal;
+window.openDependentFieldsModal = openDependentFieldsModal;
+window.openEditArrayModal = openEditArrayModal;
+window.performFormLoad = performFormLoad;
+window.populateWorkflowOutputs = populateWorkflowOutputs;
+window.renderArrayItemConfig = renderArrayItemConfig;
+window.renderArrayItemRow = renderArrayItemRow;
+window.renderArrayItemValueField = renderArrayItemValueField;
+window.renderArrayItemWorkflowInputs = renderArrayItemWorkflowInputs;
+window.renderDataRetrievalWorkflowFields = renderDataRetrievalWorkflowFields;
+window.renderField = renderField;
+window.renderNestedArrayItemRow = renderNestedArrayItemRow;
+window.renderSections = renderSections;
+window.renderWorkflowInputFields = renderWorkflowInputFields;
+window.saveArrayItems = saveArrayItems;
+window.saveDependentFields = saveDependentFields;
+window.saveFormToDatabase = saveFormToDatabase;
+window.saveTypeSpecificFields = saveTypeSpecificFields;
+window.setSpanningZonesVisible = setSpanningZonesVisible;
+window.setupDropZoneHandlers = setupDropZoneHandlers;
+window.setupPaletteDragHandlers = setupPaletteDragHandlers;
+window.showElementSettings = showElementSettings;
+window.showElementSettingsDirty = showElementSettingsDirty;
+window.showFormSettingsModal = showFormSettingsModal;
+window.updateArrayItemButtonStates = updateArrayItemButtonStates;
+window.updateColumnDisplay = updateColumnDisplay;
+window.updateDefaultValueOptions = updateDefaultValueOptions;
+window.updateElementSequences = updateElementSequences;
+window.updateRadioDefaultSelect = updateRadioDefaultSelect;
+window.updateSaveButtonState = updateSaveButtonState;
+window.updateVertSepCheckboxState = updateVertSepCheckboxState;

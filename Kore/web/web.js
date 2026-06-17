@@ -29,10 +29,18 @@ class KoreWeb {
 
     /**
      * Initialize web module with database connection
+     * On first call: Sets up dependencies
+     * On re-initialization: Clears cache, then resets dependencies
      */
     async initialize(korePool) {
+        // If reinitializing (pool already set), clear cache for fresh loads
+        if (this.pool) {
+            global.consoleLog('Web', 'Reinitializing - clearing library cache', 3);
+            this.libCache = {}; // Clear cache for fresh loads on next requests
+        }
+        
         this.pool = korePool;
-        console.log('[KoreWeb] Initialized');
+        global.consoleLog('Web', 'Initialized', 4);
     }
 
     /**
@@ -128,7 +136,7 @@ class KoreWeb {
                         return { valid: true, refreshed: true };
                     }
                 } catch (err) {
-                    console.log(`[KoreWeb] Token refresh failed: ${err.message}`);
+                    global.consoleLog('Web', `Token refresh failed: ${err.message}`, 1);
                     return { valid: false, refreshed: false };
                 }
             }
@@ -136,7 +144,7 @@ class KoreWeb {
             // Both tokens invalid or missing
             return { valid: false, refreshed: false };
         } catch (error) {
-            console.error('[KoreWeb] Token validation error:', error);
+            global.consoleLog('Web', `Token validation error: ${error.message}`, 1);
             return { valid: false, refreshed: false };
         }
     }
@@ -223,7 +231,7 @@ class KoreWeb {
                 connection.release();
             }
         } catch (error) {
-            console.error('[KoreWeb] Error getting page permissions:', error);
+            global.consoleLog('Web', `Error getting page permissions: ${error.message}`, 1);
             res.writeHead(500, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ error: 'Internal server error' }));
         }
@@ -250,9 +258,9 @@ class KoreWeb {
             try {
                 // Try to find the requested page
                 const pageQuery = `SELECT id, path, title, code, allowedIPs FROM kore_sys.web_pages WHERE path = ? AND active = TRUE`;
-                console.log(`[KoreWeb] Querying for page: ${requestPath}`);
+                global.consoleLog('Web', `Querying for page: ${requestPath}`, 4);
                 const [pageRows] = await connection.execute(pageQuery, [requestPath]);
-                console.log(`[KoreWeb] Query returned ${pageRows.length} rows`);
+                global.consoleLog('Web', `Query returned ${pageRows.length} rows`, 4);
 
                 let pageData = null;
                 if (pageRows.length > 0) {
@@ -261,7 +269,7 @@ class KoreWeb {
 
                 // If page not found, try to load /notfound
                 if (!pageData) {
-                    console.log(`[KoreWeb] Page not found, loading /notfound`);
+                    global.consoleLog('Web', 'Page not found, loading /notfound', 3);
                     const notFoundQuery = `SELECT id, path, title, code, allowedIPs FROM kore_sys.web_pages WHERE path = '/notfound' AND active = TRUE`;
                     const [notFoundRows] = await connection.execute(notFoundQuery);
                     
@@ -271,7 +279,7 @@ class KoreWeb {
                     } else if (requestPath === '/') {
                         // Special case: "/" not found and no /notfound page
                         // Fallback to static index.html
-                        console.log(`[KoreWeb] "/" not in database, falling back to static index.html`);
+                        global.consoleLog('Web', '"/" not in database, falling back to static index.html', 3);
                         connection.release();
                         this.serveStaticFile(req, res, {
                             basePath: 'D:\\Kore\\web',
@@ -290,13 +298,13 @@ class KoreWeb {
                 // Check IP whitelist (hard gate - before permission checks)
                 if (pageData.allowedIPs) {
                     const clientIP = req.socket.remoteAddress || req.connection.remoteAddress || 'unknown';
-                    console.log(`[KoreWeb] Checking IP whitelist for ${clientIP} on page ${pageData.path}`);
+                    global.consoleLog('Web', `Checking IP whitelist for ${clientIP} on page ${pageData.path}`, 4);
                     
                     const ipAllowed = await global.auth.isIPAllowed(clientIP, pageData.allowedIPs);
-                    console.log(`[KoreWeb] IP check result: ${ipAllowed}`);
+                    global.consoleLog('Web', `IP check result: ${ipAllowed}`, 4);
                     
                     if (!ipAllowed) {
-                        console.log(`[KoreWeb] IP denied (${clientIP}), serving /forbidden content`);
+                        global.consoleLog('Web', `IP denied (${clientIP}), serving /forbidden content`, 2);
                         const forbiddenQuery = `SELECT id, path, title, code, allowedIPs FROM kore_sys.web_pages WHERE path = '/forbidden' AND active = TRUE`;
                         const [forbiddenRows] = await connection.execute(forbiddenQuery);
                         
@@ -309,18 +317,18 @@ class KoreWeb {
 
                 // Check permissions if user is authenticated
                 if (req.userId && pageData.path !== '/notfound' && pageData.path !== '/forbidden') {
-                    console.log(`[KoreWeb] Checking permissions for user ${req.userId} on page ${pageData.path}`);
+                    global.consoleLog('Web', `Checking permissions for user ${req.userId} on page ${pageData.path}`, 4);
                     const hasPermission = await global.auth.hasPermission(
                         req.userId,
                         'page',
                         'view',
                         pageData.path
                     );
-                    console.log(`[KoreWeb] Permission check result: ${hasPermission}`);
+                    global.consoleLog('Web', `Permission check result: ${hasPermission}`, 4);
 
                     if (!hasPermission) {
                         // Permission denied, load /forbidden page content but keep original URL
-                        console.log(`[KoreWeb] Permission denied, serving /forbidden content`);
+                        global.consoleLog('Web', 'Permission denied, serving /forbidden content', 2);
                         const forbiddenQuery = `SELECT id, path, title, code, allowedIPs FROM kore_sys.web_pages WHERE path = '/forbidden' AND active = TRUE`;
                         const [forbiddenRows] = await connection.execute(forbiddenQuery);
                         
@@ -332,10 +340,10 @@ class KoreWeb {
                 }
 
                 // Load BASE template
-                console.log(`[KoreWeb] Loading BASE template`);
+                global.consoleLog('Web', 'Loading BASE template', 4);
                 const baseQuery = `SELECT code FROM kore_sys.web_pages WHERE path = 'BASE' AND active = TRUE`;
                 const [baseRows] = await connection.execute(baseQuery);
-                console.log(`[KoreWeb] BASE template query returned ${baseRows.length} rows`);
+                global.consoleLog('Web', `BASE template query returned ${baseRows.length} rows`, 4);
 
                 if (baseRows.length === 0) {
                     res.writeHead(500, { 'Content-Type': 'application/json' });
@@ -356,14 +364,14 @@ class KoreWeb {
                     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
                 }
 
-                console.log(`[KoreWeb] Sending HTML response (${html.length} bytes)`);
+                global.consoleLog('Web', `Sending HTML response (${html.length} bytes)`, 4);
                 res.end(html);
 
             } finally {
                 connection.release();
             }
         } catch (error) {
-            console.error('[KoreWeb] Error loading page from database:', error);
+            global.consoleLog('Web', `Error loading page from database: ${error.message}`, 1);
             res.writeHead(500, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ error: 'Internal server error' }));
         }
@@ -395,13 +403,13 @@ class KoreWeb {
             filePath = filePath.substring('/node_modules'.length);
         }
         
-        console.log(`${logPrefix} Requested: ${parsedUrl.pathname}`);
+        global.consoleLog('Web', `${logPrefix} Requested: ${parsedUrl.pathname}`, 4);
         
         // Security: only allow safe file types
         const isSafeFile = allowedExtensions.some(ext => filePath.endsWith(ext));
         
         if (!isSafeFile) {
-            console.log(`${logPrefix} Access denied - unsafe file type: ${filePath}`);
+            global.consoleLog('Web', `${logPrefix} Access denied - unsafe file type: ${filePath}`, 2);
             res.writeHead(403, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ error: 'Forbidden' }));
             return;
@@ -411,11 +419,11 @@ class KoreWeb {
         let normalizedPath = filePath.replace(/\//g, '\\');
         const fullPath = require('path').join(basePath, normalizedPath);
         
-        console.log(`${logPrefix} Full path: ${fullPath}`);
+        global.consoleLog('Web', `${logPrefix} Full path: ${fullPath}`, 4);
         
         // Security: prevent directory traversal
         if (!fullPath.startsWith(basePath)) {
-            console.log(`${logPrefix} Access denied - path traversal attempt`);
+            global.consoleLog('Web', `${logPrefix} Access denied - path traversal attempt`, 2);
             res.writeHead(403, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ error: 'Forbidden' }));
             return;
@@ -463,13 +471,13 @@ class KoreWeb {
         
         fs.readFile(fullPath, readEncoding, (err, data) => {
             if (err) {
-                console.log(`${logPrefix} Error reading file: ${err.message}`);
+                global.consoleLog('Web', `${logPrefix} Error reading file: ${err.message}`, 1);
                 res.writeHead(404, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify({ error: 'File not found' }));
                 return;
             }
             
-            console.log(`${logPrefix} Serving ${filePath} as ${contentType}`);
+            global.consoleLog('Web', `${logPrefix} Serving ${filePath} as ${contentType}`, 4);
             res.writeHead(200, { 'Content-Type': contentType });
             res.end(data);
         });
@@ -487,7 +495,7 @@ class KoreWeb {
             try {
                 content = fs.readFileSync(filePath, 'utf8');
             } catch (err) {
-                console.error(`[KoreWeb] Library file not found: ${filePath}`);
+                global.consoleLog('Web', `Library file not found: ${filePath}`, 1);
                 res.writeHead(404, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify({ error: 'Library file not found' }));
                 return;
@@ -515,7 +523,7 @@ class KoreWeb {
             res.end(content);
 
         } catch (error) {
-            console.error('[KoreWeb] Error serving library file:', error);
+            global.consoleLog('Web', `Error serving library file: ${error.message}`, 1);
             res.writeHead(500, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ error: 'Internal server error' }));
         }

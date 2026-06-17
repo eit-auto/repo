@@ -1,3 +1,5 @@
+import '/lib/base_css.js';
+
 /**
  * Fetch wrapper for automatic session token refresh
  * Intelligently handles token refresh using sessionToken or refreshToken
@@ -172,9 +174,11 @@ let cachedNavigationMenuHTML = null;
 const MENU_ITEMS = [
     { path: '/', icon: 'i-dashboard', label: 'Dashboard', resource: 'page' },
     { path: '/workflows', icon: 'i-workflows', label: 'Workflows', resource: 'page' },
+    { path: '/workflow-execs', icon: 'i-workflows-exec', label: 'Workflow Executions', resource: 'page' },
     { path: '/forms', icon: 'i-form', label: 'Forms', resource: 'page' },
     { path: '/datatables', icon: 'i-datatable', label: 'Datatables', resource: 'page' },
     { path: '/code-test', icon: 'i-code', label: 'Code Test', resource: 'page' },
+    { path: '/task-test', icon: 'i-code', label: 'Plugin Task Test', resource: 'page' },
 ];
 
 const MENU_ITEMS_BOTTOM = [
@@ -299,12 +303,12 @@ async function buildKoreHeader(pageTitle = "Kore System") {
     const style = document.createElement('style');
     style.textContent = `
         :root {
-            --header-height: 29px; 
-            --header-drop: 41px;
-            --header-clearance: 50px; 
-            --badge-size: 54px;      
-            --pod-height: 44px;      
-            --badge-top: 9px;        
+            --header-height: 19px; 
+            --header-drop: 25px;
+            --header-clearance: 25px; 
+            --badge-size: 34px;      
+            --pod-height: 24px;      
+            --badge-top: 6px;        
             --pod-top: 6px;         
             --brand-light: ${theme[activeTheme].eq.light};
             --brand-dark: ${theme[activeTheme].eq.dark};
@@ -316,8 +320,8 @@ async function buildKoreHeader(pageTitle = "Kore System") {
             --overlay-dark: ${overlayColors.dark};
             --overlay-darkShadow: ${overlayColors.darkShadow};
             --overlay-medium: ${overlayColors.blueMedium};
-            --notch-start: 80px;
-            --notch-end: 94px; 
+            --notch-start: 58px;
+            --notch-end: 66px; 
         }
 
         /* 1. Nav Drawer */
@@ -417,7 +421,7 @@ async function buildKoreHeader(pageTitle = "Kore System") {
 
         .logo-circle { left: 10px; text-decoration: none; }
         .menu-circle { right: 10px; cursor: pointer; }
-        .logo-img { width: 44px; height: 44px; object-fit: contain; }
+        .logo-img { width: 28px; height: 28px; object-fit: contain; }
 
         .title-pod {
             position: absolute;
@@ -427,7 +431,7 @@ async function buildKoreHeader(pageTitle = "Kore System") {
             transform: translateX(-50%);
             background-color: var(--bg-titlePod);
             border: 2px solid var(--border-bright);
-            padding: 0 40px;
+            padding: 0 25px;
             border-radius: 22px; 
             display: flex;
             align-items: center;
@@ -440,26 +444,26 @@ async function buildKoreHeader(pageTitle = "Kore System") {
         .variable-title { 
             color: var(--text-header); 
             font-size: 1rem;
-            font-weight: 750; 
+            font-weight: 750;
             text-transform: uppercase; 
             letter-spacing: 3px; 
             white-space: nowrap;
-            text-shadow: 0 0 12px var(--border-bright);
+            text-shadow: 0 0 6px var(--border-bright);
         }
 
         .hamburger-lines { 
-            width: 28px; height: 4px; 
+            width: 25px; height: 3px; 
             background-color: var(--brand-dark); 
             position: relative;
         }
         .hamburger-lines::before, .hamburger-lines::after { 
             content: ''; position: absolute; 
-            width: 28px; height: 4px; 
+            width: 25px; height: 3px; 
             background-color: var(--brand-dark); 
             transition: all 0.3s ease;
         }
-        .hamburger-lines::before { top: -10px; }
-        .hamburger-lines::after { top: 10px; }
+        .hamburger-lines::before { top: -6.7px; }
+        .hamburger-lines::after { top: 6.7px; }
 
         .menu-circle.active .hamburger-lines { background: transparent; }
         .menu-circle.active .hamburger-lines::before { transform: rotate(45deg); top: 0; }
@@ -516,7 +520,7 @@ async function buildKoreHeader(pageTitle = "Kore System") {
     <header class="header"></header>
     <div class="header-data-streams" id="h-streams"></div>
     <div class="ui-layer">
-        <a href="index.html" class="logo-circle"><img src="https://llink.equinoxits.com/images/kore-icon.png" class="logo-img"></a>
+        <a href="/" class="logo-circle"><img src="https://llink.equinoxits.com/images/kore-icon.png" class="logo-img"></a>
         <div class="title-pod"><div class="variable-title">${pageTitle}</div></div>
         <div class="menu-circle" id="hamburger"><div class="hamburger-lines"></div></div>
     </div>
@@ -977,6 +981,20 @@ async function getSessionToken() {
     return data.sessionToken;
 }
 
+/** Get sessionToken from browser cookies - Returns {string|null} The sessionToken value or null if not found */
+function getSessionTokenFromCookie() {
+    const name = 'sessionToken=';
+    const decodedCookie = decodeURIComponent(document.cookie);
+    const cookieArray = decodedCookie.split(';');
+    for (let cookie of cookieArray) {
+        cookie = cookie.trim();
+        if (cookie.indexOf(name) === 0) {
+            return cookie.substring(name.length);
+        }
+    }
+    return null;
+}
+
 /**
  * Get current user ID from session token
  */
@@ -1205,7 +1223,7 @@ function resetUnsavedChangesTracking() {
  * @param {string} containerId - ID of container element (default: 'statusMessage')
  * @param {number} duration - How long to show in ms (default: 5000)
  */
-function showStatusBanner(message, type = 'info', containerId = 'statusMessage', duration = 5000) {
+function showStatusBanner(message, type = 'info', containerId = 'statusMessage', duration = 5000, persistTime = null, clickAction = null) {
     // Inject CSS on first call
     if (!document.getElementById('statusBannerStyles')) {
         const style = document.createElement('style');
@@ -1261,10 +1279,34 @@ function showStatusBanner(message, type = 'info', containerId = 'statusMessage',
     container.textContent = message;
     container.className = `status-message active status-${type}`;
     
-    // Auto-hide after duration
-    setTimeout(() => {
-        container.classList.remove('active');
-    }, duration);
+    // Add click handler if clickAction is provided or if banner is persistent
+    if (clickAction || persistTime === Infinity) {
+        container.style.cursor = 'pointer';
+        container.style.textDecoration = 'underline';
+        
+        // Handle click
+        container.onclick = () => {
+            if (clickAction) {
+                // Execute custom action
+                if (typeof clickAction === 'function') {
+                    clickAction();
+                }
+            } else {
+                // Default behavior: hide banner
+                container.classList.remove('active');
+            }
+        };
+    }
+    
+    // Auto-hide after duration. If persistTime is Infinity, banner stays visible indefinitely
+    // If persistTime is null or not provided, default to 2 seconds
+    const hideDelay = persistTime === Infinity ? null : (persistTime ?? 2000);
+    
+    if (hideDelay !== null) {
+        setTimeout(() => {
+            container.classList.remove('active');
+        }, hideDelay);
+    }
 }
 
 /**
@@ -1284,7 +1326,7 @@ function hideStatusBanner(containerId = 'statusMessage') {
  * @param {array} fields - Form fields: {name, type, value, placeholder, rows, monospace, required}
  * @param {Function} onSave - Callback with (formData) object
  */
-function showFormModal(title, fields, onSave, readOnly = false, resizable = false, suppressBodyScroll = false) {
+function showFormModal(title, fields, onSave, readOnly = false, resizable = false, suppressBodyScroll = false, submitButtonLabel = 'Save') {
     let formHtml = '';
     let buttonHandlers = {};
     
@@ -1428,7 +1470,7 @@ function showFormModal(title, fields, onSave, readOnly = false, resizable = fals
         ] : [
             { label: 'Cancel', type: 'secondary', onClick: () => {} },
             { 
-                label: 'Save', 
+                label: submitButtonLabel, 
                 type: 'success', 
                 onClick: async () => {
                     const formData = {};
@@ -3501,3 +3543,192 @@ async function performCreateFolderGeneric(folderTableName, folderName, parentId,
         });
     }
 }
+
+/**
+ * Render a data table with pagination
+ * @param {Object} config - Configuration object
+ * @param {string} config.containerId - ID of container to render into
+ * @param {Array} config.headers - Array of column header strings
+ * @param {Array} config.data - Array of row data objects
+ * @param {Array} config.columns - Array of column definitions
+ *   Each column: { key: string, render: function(value, row) }
+ * @param {Object} config.pagination - Pagination config
+ *   { currentOffset: number, pageSize: number, total: number, onPageChange: function(offset) }
+ * @param {Function} config.onRowClick - Optional callback when row is clicked, receives row data
+ */
+function renderDataTable(config) {
+    const { containerId, headers, data, columns, pagination, onRowClick } = config;
+    const container = document.getElementById(containerId);
+    if (!container) {
+        console.error(`Container with id "${containerId}" not found`);
+        return;
+    }
+
+    // Build table HTML
+    let tableHtml = '<table><thead><tr>';
+    headers.forEach(header => {
+        tableHtml += `<th>${header}</th>`;
+    });
+    tableHtml += '</tr></thead><tbody>';
+
+    // Render rows
+    if (data && data.length > 0) {
+        data.forEach((row, idx) => {
+            const rowClass = onRowClick ? 'clickable-row' : '';
+            const dataAttr = onRowClick ? `data-row-index="${idx}"` : '';
+            tableHtml += `<tr class="${rowClass}" ${dataAttr}>`;
+            columns.forEach(col => {
+                const value = row[col.key];
+                const rendered = col.render ? col.render(value, row) : value;
+                tableHtml += `<td>${rendered}</td>`;
+            });
+            tableHtml += '</tr>';
+        });
+    } else {
+        const colSpan = columns.length;
+        tableHtml += `<tr><td colspan="${colSpan}" style="text-align: center; padding: 20px; color: var(--text-muted);">No data</td></tr>`;
+    }
+
+    tableHtml += '</tbody></table>';
+    container.innerHTML = tableHtml;
+
+    // Attach row click handlers
+    if (onRowClick && data && data.length > 0) {
+        const rows = container.querySelectorAll('tbody tr.clickable-row');
+        rows.forEach((tr, idx) => {
+            tr.style.cursor = 'pointer';
+            tr.addEventListener('click', () => onRowClick(data[idx]));
+        });
+    }
+
+    // Render pagination if provided
+    if (pagination && pagination.total > 0) {
+        const { currentOffset, pageSize, total, onPageChange } = pagination;
+        const page = Math.floor(currentOffset / pageSize) + 1;
+        const end = Math.min(currentOffset + pageSize, total);
+        
+        const paginationHtml = `
+            <div class="pagination-container">
+                <button class="pagination-btn" onclick="window._datatable_prevPage()" ${currentOffset === 0 ? 'disabled' : ''}>← Prev</button>
+                <span class="pagination-info">Page ${page} (${currentOffset + 1}–${end} of ${total})</span>
+                <button class="pagination-btn" onclick="window._datatable_nextPage()" ${currentOffset + pageSize >= total ? 'disabled' : ''}>Next →</button>
+            </div>
+        `;
+        container.insertAdjacentHTML('afterend', paginationHtml);
+        
+        // Store pagination state in window for button handlers
+        window._datatable_state = {
+            currentOffset,
+            pageSize,
+            total,
+            onPageChange,
+            containerId
+        };
+    }
+}
+
+/**
+ * Previous page handler for data tables
+ * @private
+ */
+function _datatable_prevPage() {
+    const state = window._datatable_state;
+    if (state && state.currentOffset > 0) {
+        const newOffset = Math.max(0, state.currentOffset - state.pageSize);
+        document.querySelectorAll('.pagination-container').forEach(el => el.remove());
+        state.onPageChange(newOffset);
+    }
+}
+
+/**
+ * Next page handler for data tables
+ * @private
+ */
+function _datatable_nextPage() {
+    const state = window._datatable_state;
+    if (state && state.currentOffset + state.pageSize < state.total) {
+        const newOffset = state.currentOffset + state.pageSize;
+        document.querySelectorAll('.pagination-container').forEach(el => el.remove());
+        state.onPageChange(newOffset);
+    }
+}
+
+// Expose functions to global scope
+window.attemptTokenRefresh = attemptTokenRefresh;
+window.buildFoldersPanel = buildFoldersPanel;
+window.buildKoreHeader = buildKoreHeader;
+window.buildNavigationMenu = buildNavigationMenu;
+window.buildWorkflowFoldersPanel = buildWorkflowFoldersPanel;
+window.changeUserPassword = changeUserPassword;
+window.checkUnsavedChanges = checkUnsavedChanges;
+window.checkUserPermission = checkUserPermission;
+window.clearUnsavedChanges = clearUnsavedChanges;
+window.closeModal = closeModal;
+window.createPermissionRow = createPermissionRow;
+window.createTreeNode = createTreeNode;
+window.deepEqual = deepEqual;
+window.displayAllowedIPsForm = displayAllowedIPsForm;
+window.displayPermissionsForm = displayPermissionsForm;
+window.emailSmtp = emailSmtp;
+window.escapeHtml = escapeHtml;
+window.escapeSql = escapeSql;
+window.executeSqlQuery = executeSqlQuery;
+window.generateUUID = generateUUID;
+window.getAvailableThemes = getAvailableThemes;
+window.getAvailableWhitelists = getAvailableWhitelists;
+window.getBdrTypes = getBdrTypes;
+window.getChangedFields = getChangedFields;
+window.getControlTypes = getControlTypes;
+window.getCurrentUserData = getCurrentUserData;
+window.getGroups = getGroups;
+window.getOrgStack = getOrgStack;
+window.getOrganizations = getOrganizations;
+window.getPsaTypes = getPsaTypes;
+window.getRmmTypes = getRmmTypes;
+window.getRpaTypes = getRpaTypes;
+window.getSecurityConfig = getSecurityConfig;
+window.getSessionToken = getSessionToken;
+window.getSessionTokenFromCookie = getSessionTokenFromCookie;
+window.getUser = getUser;
+window.getUserNotificationPreferences = getUserNotificationPreferences;
+window.getUsers = getUsers;
+window.hasUnsavedChanges = hasUnsavedChanges;
+window.hideStatusBanner = hideStatusBanner;
+window.humanizeWhitelistName = humanizeWhitelistName;
+window.initializeUnsavedTracking = initializeUnsavedTracking;
+window.injectComponentStyles = injectComponentStyles;
+window.loadAllUsersAndGroupsForModal = loadAllUsersAndGroupsForModal;
+window.loadAllowedIPs = loadAllowedIPs;
+window.loadPermissionsForResource = loadPermissionsForResource;
+window.logout = logout;
+window.onFolderSelectedGeneric = onFolderSelectedGeneric;
+window.openCreateFolderModalGeneric = openCreateFolderModalGeneric;
+window.performCreateFolderGeneric = performCreateFolderGeneric;
+window.performDeleteFolderGeneric = performDeleteFolderGeneric;
+window.performEditFolderGeneric = performEditFolderGeneric;
+window.renderDataTable = renderDataTable;
+window.renderTree = renderTree;
+window.resetUnsavedChangesTracking = resetUnsavedChangesTracking;
+window.resizeModalToContent = resizeModalToContent;
+window.resolveIdToName = resolveIdToName;
+window.saveAllowedIPs = saveAllowedIPs;
+window.savePermissionsForResource = savePermissionsForResource;
+window.selectFolderInList = selectFolderInList;
+window.setTheme = setTheme;
+window.setupPageUnsavedChangesProtection = setupPageUnsavedChangesProtection;
+window.showAlert = showAlert;
+window.showConfirm = showConfirm;
+window.showDeleteConfirm = showDeleteConfirm;
+window.showFolderEditModal = showFolderEditModal;
+window.showFormModal = showFormModal;
+window.showModal = showModal;
+window.showStatusBanner = showStatusBanner;
+window.showUnsaved = showUnsaved;
+window.switchTab = switchTab;
+window.updateBodyColors = updateBodyColors;
+window.updateHeaderColors = updateHeaderColors;
+window.updateSVGFilterColor = updateSVGFilterColor;
+window.updateUserNotificationPreferences = updateUserNotificationPreferences;
+window.updateUserProfile = updateUserProfile;
+window._datatable_prevPage = _datatable_prevPage;
+window._datatable_nextPage = _datatable_nextPage;

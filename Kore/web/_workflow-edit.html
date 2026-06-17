@@ -4,17 +4,17 @@
     <!-- Header Panel -->
     <div class="panel-level-2" style="padding: 10px; margin-bottom: 5px;">
         <div style="display: flex; align-items: flex-end; gap: 20px; justify-content: space-between;">
-            <h1 id="workflowNameDisplay" style="margin: 0; font-size: 1.5rem; font-weight: 600; color: var(--text-primary); flex: 1;">-</h1>
+            <h1 id="workflowNameDisplay" style="margin: 0; font-size: 1.2rem; font-weight: 600; color: var(--text-primary); flex: 1;">-</h1>
             <div style="display: flex; gap: 8px;">
                 <div style="position: relative;">
-                    <button class="btn" data-color="bluegrey" onclick="toggleMoreMenu()" title="More Options" style="font-size: 1.2rem;">...</button>
+                    <button class="btn" data-color="blue" data-size="sm" onclick="toggleMoreMenu()" title="More Options" style="font-size: 1.2rem; padding-bottom:5px;">...</button>
                     <div id="moreMenu" style="display: none; position: absolute; top: 100%; left: 50%; transform: translateX(-50%); background: var(--secondary-slate); border: 1px solid var(--border-primary); border-radius: 4px; min-width: 120px; margin-top: 4px; z-index: 1000; box-shadow: 0 2px 8px rgba(0,0,0,0.3);">
-                        <div onclick="showJSONModal(); toggleMoreMenu();" style="padding: 8px 12px; color: var(--text-primary); cursor: pointer; font-size: 0.9rem; white-space: nowrap;">View JSON</div>
+                        <div onclick="showWorkflowSettingsModal(); toggleMoreMenu();" style="padding: 4px 6px; color: var(--text-primary); cursor: pointer; font-size: 0.7rem; font-weight: 600; white-space: nowrap; border-bottom: 1px solid;">Workflow Settings</div>
+                        <div onclick="showJSONModal(); toggleMoreMenu();" style="padding: 4px 6px; color: var(--text-primary); cursor: pointer; font-size: 0.7rem; font-weight: 600; white-space: nowrap;">View JSON</div>
                     </div>
                 </div>
-                <button class="btn" data-color="blue" onclick="showWorkflowSettingsModal()" title="Workflow Settings" style="font-size: 1.2rem;">&#9998;</button>
-                <button id="saveWorkflowBtn" class="btn" data-color="green" onclick="saveWorkflow()" title="Save Workflow" style="font-size: 1.5rem;">&#128427;</button>
-                <button class="btn" data-color="gold" onclick="showModal({title: 'Test Modal', content: 'This is a test'})" title="Test Workflow" style="font-size: 1.2rem;">▶</button>
+                <button id="saveWorkflowBtn" class="btn" data-color="green" data-size="sm" onclick="saveWorkflow()" title="Save Workflow" style="font-size: 1.4rem; padding-bottom:5px;">&#128427;</button>
+                <button class="btn" data-color="gold" data-size="sm" onclick="handleTestWorkflow()" title="Test Workflow" style="font-size: 1.2rem; padding-bottom: 5px; padding-top:2px;">▶</button>
             </div>
         </div>
     </div>
@@ -34,8 +34,8 @@
                 <div draggable="true" class="step-type-item" data-type="Workflow" style="padding: 0; background: #4a1f77; border: 2px solid #7733bb; border-radius: 4px; cursor: move; text-align: center; font-size: 0.9rem; color: #ffffff; user-select: none; display: flex; align-items: center; justify-content: center; height: 30px; box-sizing: border-box;">
                     Workflow
                 </div>
-                <div draggable="true" class="step-type-item" data-type="RMM" style="padding: 0; background: #0a3d55; border: 2px solid #3a7a99; border-radius: 4px; cursor: move; text-align: center; font-size: 0.9rem; color: #ffffff; user-select: none; display: flex; align-items: center; justify-content: center; height: 30px; box-sizing: border-box;">
-                    RMM
+                <div draggable="true" class="step-type-item" data-type="Plugin" style="padding: 0; background: #0a3d55; border: 2px solid #3a7a99; border-radius: 4px; cursor: move; text-align: center; font-size: 0.9rem; color: #ffffff; user-select: none; display: flex; align-items: center; justify-content: center; height: 30px; box-sizing: border-box;">
+                    Plugin
                 </div>
                 <div draggable="true" class="step-type-item" data-type="End" style="padding: 0; background: #5a1a1a; border: 2px solid #cc3333; border-radius: 4px; cursor: move; text-align: center; font-size: 0.9rem; color: #ffffff; user-select: none; display: flex; align-items: center; justify-content: center; height: 30px; box-sizing: border-box;">
                     End
@@ -44,11 +44,11 @@
         </div>
 
         <!-- Canvas Area -->
-        <div class="panel-level-3" id="canvasContainer" style="flex: 1; position: relative; overflow: hidden; box-sizing: border-box; user-select: none; padding: 0;">
+        <div class="panel-level-3" id="canvasContainer" style="flex: 1; position: relative; overflow: hidden; box-sizing: border-box; user-select: none; padding: 0; background: var(--bg-input);">
             <!-- Tools Panel -->
             <div id="toolsPanel" style="position: absolute; top: 6px; right: 6px; width: 90px; background: var(--bg-panel2); border: 1px solid var(--border-primary); border-radius: 4px; padding: 0; display: flex; flex-direction: column; z-index: 15;">
                 <!-- Tools Label with Collapse Button -->
-                <div onclick="toggleToolsPanel()" style="height: 15px; display: flex; align-items: center; justify-content: space-between; background: var(--bg-input); border-bottom: 1px solid var(--border-primary); padding: 0 4px; box-sizing: border-box; cursor: pointer;">
+                <div onclick="toggleToolsPanel()" style="height: 15px; display: flex; align-items: center; justify-content: space-between; background: var(--bg-panel1); border-bottom: 1px solid var(--border-primary); padding: 0 4px; box-sizing: border-box; cursor: pointer;">
                     <span style="font-size: 0.65rem; font-weight: 600; color: var(--text-primary); flex: 1;">TOOLS</span>
                     <button id="toolsCollapseBtn" style="background: transparent; border: none; color: var(--text-primary); cursor: pointer; font-size: 10px; padding: 0; width: 12px; height: 12px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; pointer-events: none;">▼</button>
                 </div>
@@ -81,7 +81,7 @@
             </div>
             
             <!-- Zoom Control -->
-            <div style="position: absolute; bottom: 6px; right: 6px; background: var(--bg-panel2); border: 1px solid var(--border-primary); border-radius: 4px; display: flex; align-items: center; justify-content: center; user-select: none; z-index: 100;">
+            <div style="position: absolute; bottom: 6px; right: 6px; background: var(--bg-panel1); border: 1px solid var(--border-primary); border-radius: 4px; display: flex; align-items: center; justify-content: center; user-select: none; z-index: 100;">
                 <button onclick="zoomOut()" style="background: transparent; border: none; color: var(--text-primary); cursor: pointer; font-size: 1.2rem; display: flex; align-items: center; justify-content: center; width: 24px; height: 24px;">-</button>
                 <span id="zoomDisplay" style="color: var(--text-primary); background: var(--bg-input); border: 1px solid var(--border-primary); border-radius: 6px; font-size: 0.9rem; width: 41px; text-align: center;">100%</span>
                 <button onclick="zoomIn()" style="background: transparent; border: none; color: var(--text-primary); cursor: pointer; font-size: 1.2rem; display: flex; align-items: center; justify-content: center; width: 24px; height: 24px;">+</button>
@@ -260,29 +260,27 @@
         border-color: #ffffff;
     }
 
-    [data-step-type="RMM"] {
+    [data-step-type="Plugin"] {
         background: #3a7a99;
         color: #ffffff;
         border: 2px solid #3a7a99;
         border-radius: 4px;
     }
 
-    [data-step-type="RMM"] .connectionPoint {
+    [data-step-type="Plugin"] .connectionPoint {
         background: #3a7a99;
         border-color: #3a7a99;
     }
 
-    [data-step-type="RMM"].selected {
+    [data-step-type="Plugin"].selected {
         border-color: #ffffff;
     }
 </style>
 
-<script src="/lib/jinja-json.js"></script>
-<script src="/lib/wf-variables.js"></script>
-<script src="/lib/wf-render.js"></script>
-<script src="/lib/wf-canvas.js"></script>
-<script src="/lib/wf-core.js"></script>
-<script>
-  // Initialize the workflow editor after all scripts have loaded
-  document.addEventListener('DOMContentLoaded', initWorkflowEditor);
+<script type="module">
+  await import('/lib/plugins-front.js');
+  await import('/lib/wf-core.js');
+  // Initialize and load workflow immediately (DOM is ready for module scripts)
+  initWorkflowEditor();
+  loadWorkflow();
 </script>

@@ -11,12 +11,26 @@ const QRCode = require('qrcode');
 const crypto = require('crypto');
 
 class Auth {
+  /**
+   * Authentication system constructor
+   * 
+   * Note: Auth is instantiated fresh on each initialization (not a singleton).
+   * All initialization happens in constructor.
+   */
   constructor(korePool, cryptoUtils, securityConfig, logAuditFn, jwtSigningKey) {
     this.korePool = korePool;
     this.crypto = cryptoUtils;
     this.config = securityConfig;
     this.logAudit = logAuditFn;
     this.jwtSigningKey = jwtSigningKey;
+  }
+
+  /**
+   * Initialize method for consistency with other subsystems
+   * Auth is stateless and creates fresh instance, so this is a no-op
+   */
+  async initialize() {
+    // No-op: all setup happens in constructor
   }
 
   // ========== PASSWORD MANAGEMENT ==========
@@ -100,7 +114,7 @@ class Auth {
       const qrCode = await QRCode.toDataURL(otpauth_url);
       return qrCode;
     } catch (err) {
-      console.error('Error generating QR code:', err);
+      global.consoleLog('Auth', `Error generating QR code: ${err.message}`, 1);
       throw err;
     }
   }
@@ -222,7 +236,7 @@ class Auth {
       await this.korePool.execute(query, values);
 
       await this.logAudit(`${entityType}_created`, entityType, id, fields[schema.requiredFields[0]], createdBy, fields, null);
-      console.log(`[${global.getTimestamp()}] ${entityType.charAt(0).toUpperCase() + entityType.slice(1)} created: ${id}`);
+      global.consoleLog('Auth', `${entityType.charAt(0).toUpperCase() + entityType.slice(1)} created: ${id}`, 3);
       
       // Prepare response: include inviteToken if present, exclude internal fields starting with _
       const responseSpecialData = {};
@@ -238,7 +252,7 @@ class Auth {
       
       return { [schema.idField]: id, ...data, ...responseSpecialData };
     } catch (err) {
-      console.error(`[${global.getTimestamp()}] ERROR creating ${entityType}:`, err.message);
+      global.consoleLog('Auth', `ERROR creating ${entityType}: ${err.message}`, 1);
       throw err;
     }
   }
@@ -293,11 +307,11 @@ class Auth {
       
       await this.korePool.execute(query, values);
       await this.logAudit(`${entityType}_updated`, entityType, id, null, null, data, null);
-      console.log(`[${global.getTimestamp()}] ${entityType.charAt(0).toUpperCase() + entityType.slice(1)} updated: ${id}`);
+      global.consoleLog('Auth', `${entityType.charAt(0).toUpperCase() + entityType.slice(1)} updated: ${id}`, 3);
       
       return { success: true };
     } catch (err) {
-      console.error(`[${global.getTimestamp()}] ERROR updating ${entityType}:`, err.message);
+      global.consoleLog('Auth', `ERROR updating ${entityType}: ${err.message}`, 1);
       throw err;
     }
   }
@@ -416,27 +430,27 @@ class Auth {
             emailRes.on('data', chunk => data += chunk);
             emailRes.on('end', () => {
               if (emailRes.statusCode === 200 || emailRes.statusCode === 201) {
-                console.log(`[${global.getTimestamp()}] Invite email sent to ${email}`);
+                global.consoleLog('Auth', `Invite email sent to ${email}`, 3);
               } else {
-                console.error(`[${global.getTimestamp()}] Email send returned status ${emailRes.statusCode}`);
+                global.consoleLog('Auth', `Email send returned status ${emailRes.statusCode}`, 1);
               }
             });
           });
 
           emailReq.on('error', (err) => {
-            console.error(`[${global.getTimestamp()}] Error sending invite email:`, err.message);
+            global.consoleLog('Auth', `Error sending invite email: ${err.message}`, 1);
           });
 
           emailReq.write(payload);
           emailReq.end();
         } catch (err) {
-          console.error(`[${global.getTimestamp()}] Error in sendInviteEmail task:`, err.message);
+          global.consoleLog('Auth', `Error in sendInviteEmail task: ${err.message}`, 1);
         }
       })();
       
       return { inviteToken, inviteExpiresAt };
     } catch (err) {
-      console.error(`[${global.getTimestamp()}] ERROR sending invite email:`, err.message);
+      global.consoleLog('Auth', `ERROR sending invite email: ${err.message}`, 1);
       throw err;
     }
   }
@@ -459,7 +473,7 @@ class Auth {
       // Send invite (generates token, updates DB, sends email)
       return await this.sendInviteEmail(userId, email, fullName);
     } catch (err) {
-      console.error(`[${global.getTimestamp()}] ERROR resending invite:`, err.message);
+      global.consoleLog('Auth', `ERROR resending invite:: ${err.message}`, 1);
       throw err;
     }
   }
@@ -590,7 +604,7 @@ class Auth {
       await this.logAudit('setup_completed', 'user', user.userId, null, user.userId,
         { action: 'Account setup completed' }, null);
       
-      console.log(`[${global.getTimestamp()}] Setup completed for user: ${user.email}`);
+      global.consoleLog('Auth', `Setup completed for user: ${user.email}`, 3);
       
       return {
         success: true,
@@ -598,7 +612,7 @@ class Auth {
         backupCodes: plainCodes
       };
     } catch (err) {
-      console.error(`[${global.getTimestamp()}] ERROR completing setup:`, err.message);
+      global.consoleLog('Auth', `ERROR completing setup:: ${err.message}`, 1);
       throw err;
     }
   }
@@ -725,7 +739,7 @@ class Auth {
 
       await this.logAudit('login', 'user', user.userId, null, user.userId, { action: 'User logged in', ipAddress, userAgent }, null);
 
-      console.log(`[${global.getTimestamp()}] User logged in: ${email}`);
+      global.consoleLog('Auth', `User logged in: ${email}`, 3);
 
       return {
         userId: user.userId,
@@ -737,7 +751,7 @@ class Auth {
         oldestSessionHash  // Send hash so client can request deletion if confirmed
       };
     } catch (err) {
-      console.error(`[${global.getTimestamp()}] ERROR during login:`, err.message);
+      global.consoleLog('Auth', `ERROR during login:: ${err.message}`, 1);
       throw err;
     }
   }
@@ -830,7 +844,7 @@ class Auth {
         expiresAt: payload.exp * 1000
       };
     } catch (err) {
-      console.error(`[${global.getTimestamp()}] ERROR validating session token:`, err.message);
+      global.consoleLog('Auth', `ERROR validating session token:: ${err.message}`, 1);
       return { valid: false };
     }
   }
@@ -904,13 +918,13 @@ class Auth {
       // Generate new session token
       const newSessionToken = this.generateSessionToken(userId);
 
-      console.log(`[${global.getTimestamp()}] Session refreshed for user: ${userId}`);
+      global.consoleLog('Auth', `Session refreshed for user: ${userId}`, 3);
 
       return {
         sessionToken: newSessionToken
       };
     } catch (err) {
-      console.error(`[${global.getTimestamp()}] ERROR refreshing session:`, err.message);
+      global.consoleLog('Auth', `ERROR refreshing session:: ${err.message}`, 1);
       throw err;
     }
   }
@@ -974,13 +988,13 @@ class Auth {
         [refreshTokenHash]
       );
 
-      console.log(`[${global.getTimestamp()}] Session refreshed with refresh token for user: ${userId}`);
+      global.consoleLog('Auth', `Session refreshed with refresh token for user: ${userId}`, 3);
 
       return {
         sessionToken: newSessionToken
       };
     } catch (err) {
-      console.error(`[${global.getTimestamp()}] ERROR refreshing with refresh token:`, err.message);
+      global.consoleLog('Auth', `ERROR refreshing with refresh token:: ${err.message}`, 1);
       throw err;
     }
   }
@@ -1015,11 +1029,11 @@ class Auth {
 
       await this.logAudit('mfa_reset', 'user', userId, user.email, resetBy, { action: 'Admin reset MFA' }, null);
 
-      console.log(`[${global.getTimestamp()}] MFA reset for user ${user.email} by ${resetBy}`);
+      global.consoleLog('Auth', `MFA reset for user ${user.email} by ${resetBy}`, 3);
 
       return { success: true, userId, email: user.email };
     } catch (err) {
-      console.error(`[${global.getTimestamp()}] ERROR resetting MFA:`, err.message);
+      global.consoleLog('Auth', `ERROR resetting MFA:: ${err.message}`, 1);
       throw err;
     }
   }
@@ -1054,11 +1068,11 @@ class Auth {
 
       await this.logAudit('account_unlocked', 'user', userId, user.email, unlockedBy, { action: 'Admin unlocked account' }, null);
 
-      console.log(`[${global.getTimestamp()}] Account unlocked for user ${user.email} by ${unlockedBy}`);
+      global.consoleLog('Auth', `Account unlocked for user ${user.email} by ${unlockedBy}`, 3);
 
       return { success: true, userId, email: user.email };
     } catch (err) {
-      console.error(`[${global.getTimestamp()}] ERROR unlocking user:`, err.message);
+      global.consoleLog('Auth', `ERROR unlocking user:: ${err.message}`, 1);
       throw err;
     }
   }
@@ -1089,7 +1103,7 @@ class Auth {
 
           await this.logAudit('account_auto_unlocked', 'user', userId, user.email, 'system', { action: 'Auto-unlock due to timeout expiry' }, null);
 
-          console.log(`[${global.getTimestamp()}] Account auto-unlocked for user ${user.email}`);
+          global.consoleLog('Auth', `Account auto-unlocked for user ${user.email}`, 3);
 
           return { unlocked: true, userId };
         }
@@ -1097,7 +1111,7 @@ class Auth {
 
       return { unlocked: false };
     } catch (err) {
-      console.error(`[${global.getTimestamp()}] ERROR checking auto-unlock:`, err.message);
+      global.consoleLog('Auth', `ERROR checking auto-unlock:: ${err.message}`, 1);
       throw err;
     }
   }
@@ -1117,7 +1131,7 @@ class Auth {
       const groupIds = rows[0].groupIds;
       return groupIds ? JSON.parse(groupIds) : [];
     } catch (err) {
-      console.error(`[${global.getTimestamp()}] ERROR getting user groups:`, err.message);
+      global.consoleLog('Auth', `ERROR getting user groups:: ${err.message}`, 1);
       return [];
     }
   }
@@ -1228,7 +1242,7 @@ class Auth {
 
       return mapped;
     } catch (err) {
-      console.error(`[${global.getTimestamp()}] ERROR getting user permissions:`, err.message);
+      global.consoleLog('Auth', `ERROR getting user permissions:: ${err.message}`, 1);
       return [];
     }
   }
@@ -1385,7 +1399,7 @@ class Auth {
       }
 
     } catch (error) {
-      console.error('[Auth] Error getting permissions:', error);
+      global.consoleLog('Auth', `Error getting permissions: ${error.message}`, 1);
       throw error;
     }
   }
@@ -1408,7 +1422,7 @@ class Auth {
         try {
           ips = JSON.parse(allowedIPs);
         } catch (e) {
-          console.warn('[Auth] Failed to parse allowedIPs:', e.message);
+          global.consoleLog('Auth', `Failed to parse allowedIPs: ${e.message}`, 2);
           return false;
         }
       } else if (Array.isArray(allowedIPs)) {
@@ -1446,8 +1460,8 @@ class Auth {
                 cachedWhitelists = {};
               }
             } catch (err) {
-              console.warn('[Auth] Failed to fetch system whitelists:', err.message);
-              console.warn('[Auth] Whitelist references will not be expanded. Treat allowedIPs as direct IP addresses.');
+              global.consoleLog('Auth', `Failed to fetch system whitelists: ${err.message}`, 2);
+              global.consoleLog('Auth', `Whitelist references will not be expanded. Treat allowedIPs as direct IP addresses.`, 2);
               whitelistQueryFailed = true;
               cachedWhitelists = {};
             }
@@ -1458,7 +1472,7 @@ class Auth {
             ipsToCheck.push(...cachedWhitelists[category]);
           } else if (whitelistQueryFailed) {
             // If whitelist query failed, skip this reference and don't block access
-            console.warn(`[Auth] Skipping whitelist reference '${ip}' - system not configured`);
+            global.consoleLog('Auth', `Skipping whitelist reference '${ip}' - system not configured`, 2);
           }
         } else {
           ipsToCheck.push(ip);
@@ -1475,7 +1489,7 @@ class Auth {
       return false;
 
     } catch (err) {
-      console.error('[Auth] Error checking IP allowance:', err.message);
+      global.consoleLog('Auth', `Error checking IP allowance: ${err.message}`, 1);
       return false;
     }
   }
@@ -1499,7 +1513,7 @@ class Auth {
           return this.isIPv4InCIDR(clientIP, network, mask);
         }
       } catch (e) {
-        console.warn('[Auth] Invalid CIDR:', ipRule);
+        global.consoleLog('Auth', `Invalid CIDR: ${ipRule}`, 2);
       }
     }
 
@@ -1620,7 +1634,7 @@ class Auth {
             ? JSON.parse(userRows[0].groupIds) 
             : userRows[0].groupIds;
         } catch (parseErr) {
-          console.warn(`[Auth] Failed to parse groupIds for user ${userId}:`, parseErr.message);
+          global.consoleLog('Auth', `Failed to parse groupIds for user ${userId}: ${parseErr.message}`, 2);
           groupIds = [];
         }
       }
@@ -1702,7 +1716,7 @@ class Auth {
       return anyAllowRows[0].count === 0; // Default allow if no rules exist
       
     } catch (err) {
-      console.error(`[${global.getTimestamp()}] ERROR checking permission:`, err.message);
+      global.consoleLog('Auth', `ERROR checking permission:: ${err.message}`, 1);
       return false;
     }
   }
@@ -1762,18 +1776,18 @@ class Auth {
           } else {
             passwordHistory = user.passwordHistory;
           }
-          console.log(`[${global.getTimestamp()}] Parsed passwordHistory:`, passwordHistory);
+          global.consoleLog('Auth', `Parsed passwordHistory: ${JSON.stringify(passwordHistory)}`, 4);
         } catch (e) {
-          console.log(`[${global.getTimestamp()}] ERROR parsing passwordHistory:`, e.message);
+          global.consoleLog('Auth', `ERROR parsing passwordHistory: ${e.message}`, 1);
           passwordHistory = [];
         }
       } else {
-        console.log(`[${global.getTimestamp()}] No passwordHistory in user record`);
+        global.consoleLog('Auth', `No passwordHistory in user record`, 4);
       }
       
       // Ensure passwordHistory is a valid array
       if (!Array.isArray(passwordHistory)) {
-        console.log(`[${global.getTimestamp()}] passwordHistory is not an array, resetting to []`);
+        global.consoleLog('Auth', `passwordHistory is not an array, resetting to []`, 4);
         passwordHistory = [];
       }
       
@@ -1807,7 +1821,7 @@ class Auth {
         salt: user.passwordSalt,
         setAt: setAtValue
       });
-      console.log(`[${global.getTimestamp()}] passwordHistory after unshift:`, passwordHistory);
+      global.consoleLog('Auth', `passwordHistory after unshift: ${JSON.stringify(passwordHistory)}`, 4);
       
       // Cleanup: Keep passwords that satisfy EITHER constraint
       const historyCount = this.config.password?.historyCount || 10;
@@ -1857,11 +1871,11 @@ class Auth {
       await this.logAudit('password_changed', 'user', userId, null, userId,
         { action: 'User changed their password' }, null);
       
-      console.log(`[${global.getTimestamp()}] Password changed for user: ${user.email}`);
+      global.consoleLog('Auth', `Password changed for user: ${user.email}`, 3);
       
       return { success: true };
     } catch (err) {
-      console.error(`[${global.getTimestamp()}] ERROR changing password:`, err.message);
+      global.consoleLog('Auth', `ERROR changing password:: ${err.message}`, 1);
       throw err;
     }
   }
@@ -1934,13 +1948,13 @@ async function handleGenerateTOTP(req, res) {
                     qrCode: qrCode
                 }));
             } catch (err) {
-                console.error(`[${global.getTimestamp()}] ERROR generating TOTP:`, err.message);
+                global.consoleLog('Auth', `ERROR generating TOTP:: ${err.message}`, 1);
                 res.writeHead(500);
                 res.end(JSON.stringify({ error: err.message }));
             }
         });
     } catch (err) {
-        console.error(`[${global.getTimestamp()}] ERROR in handleGenerateTOTP:`, err.message);
+        global.consoleLog('Auth', `ERROR in handleGenerateTOTP:: ${err.message}`, 1);
         res.writeHead(500);
         res.end(JSON.stringify({ error: err.message }));
     }
@@ -1968,7 +1982,7 @@ async function handleLogout(req, res) {
                 'DELETE FROM refresh_tokens WHERE refreshTokenHash = ?',
                 [refreshTokenHash]
             );
-            console.log(`[${global.getTimestamp()}] Refresh token deleted for user logout`);
+            global.consoleLog('Auth', `Refresh token deleted for user logout`, 3);
         }
         
         // Clear both sessionToken and refreshToken cookies
@@ -1980,7 +1994,7 @@ async function handleLogout(req, res) {
         res.writeHead(200);
         res.end(JSON.stringify({ success: true, message: 'Logged out' }));
     } catch (err) {
-        console.error(`[${global.getTimestamp()}] ERROR during logout:`, err.message);
+        global.consoleLog('Auth', `ERROR during logout:: ${err.message}`, 1);
         // Still clear cookies even if DB delete fails
         res.setHeader('Set-Cookie', [
             'sessionToken=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0',
@@ -2033,18 +2047,18 @@ async function handleDeleteOldestSession(req, res) {
                     [validation.userId, oldestSessionHash]
                 );
                 
-                console.log(`[${global.getTimestamp()}] Deleted oldest session for user: ${validation.userId}`);
+                global.consoleLog('Auth', `Deleted oldest session for user: ${validation.userId}`, 3);
                 
                 res.writeHead(200);
                 res.end(JSON.stringify({ success: true, message: 'Oldest session deleted' }));
             } catch (err) {
-                console.error(`[${global.getTimestamp()}] ERROR deleting oldest session:`, err.message);
+                global.consoleLog('Auth', `ERROR deleting oldest session:: ${err.message}`, 1);
                 res.writeHead(500);
                 res.end(JSON.stringify({ error: err.message }));
             }
         });
     } catch (err) {
-        console.error(`[${global.getTimestamp()}] ERROR in handleDeleteOldestSession:`, err.message);
+        global.consoleLog('Auth', `ERROR in handleDeleteOldestSession:: ${err.message}`, 1);
         res.writeHead(500);
         res.end(JSON.stringify({ error: err.message }));
     }
@@ -2096,7 +2110,7 @@ async function handleRefreshToken(req, res) {
         }));
     } catch (err) {
         const ts = global.getTimestamp ? global.getTimestamp() : new Date().toISOString();
-        console.log(`[${ts}] Token Refresh: FAILED - ${err.message}`);
+        global.consoleLog('Auth', `Token Refresh: FAILED - ${err.message}`, 4);
         res.writeHead(401);
         res.end(JSON.stringify({ error: err.message }));
     }
@@ -2155,13 +2169,13 @@ async function handleChangePassword(req, res) {
                     message: 'Password changed successfully'
                 }));
             } catch (err) {
-                console.error(`[${global.getTimestamp()}] ERROR in handleChangePassword:`, err.message);
+                global.consoleLog('Auth', `ERROR in handleChangePassword:: ${err.message}`, 1);
                 res.writeHead(400);
                 res.end(JSON.stringify({ error: err.message }));
             }
         });
     } catch (err) {
-        console.error(`[${global.getTimestamp()}] ERROR in handleChangePassword:`, err.message);
+        global.consoleLog('Auth', `ERROR in handleChangePassword:: ${err.message}`, 1);
         res.writeHead(500);
         res.end(JSON.stringify({ error: 'Internal server error' }));
     }
@@ -2181,8 +2195,7 @@ function handleLoginForm(req, res) {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Kore Login</title>
     <link rel="icon" type="image/png" href="/img/favicon.png">
-    <script src="/lib/base.css"></script>
-    <script src="/lib/base.js"></script>
+    <script type="module" src="/lib/base.js"></script>
     <style>
         :root {
             --brand-dark: #002b59;
@@ -2382,24 +2395,15 @@ function handleLoginForm(req, res) {
                     <input type="password" id="password" onkeypress="if(event.key==='Enter') handleLogin()">
                 </div>
                 
+                <div class="form-group">
+                    <label>MFA Code (6 digits)</label>
+                    <input type="text" id="mfaCode" placeholder="000000" maxlength="6" pattern="[0-9]{6}" onkeypress="if(event.key==='Enter') handleLogin()">
+                </div>
+                
                 <div id="loginError" class="error"></div>
                 
                 <div class="button-group">
                     <button class="btn" onclick="handleLogin()">Sign In</button>
-                </div>
-            </div>
-            
-            <div id="mfaStep" class="mfa-section">
-                <div class="form-group">
-                    <label>MFA Code (6 digits)</label>
-                    <input type="text" id="mfaCode" placeholder="000000" maxlength="6" pattern="[0-9]{6}" onkeypress="if(event.key==='Enter') handleMFA()">
-                </div>
-                
-                <div id="mfaError" class="error"></div>
-                
-                <div class="button-group">
-                    <button class="btn" onclick="handleMFA()">Verify MFA</button>
-                    <button class="btn btn-secondary" onclick="resetLogin()">Back</button>
                 </div>
             </div>
             
@@ -2459,12 +2463,13 @@ function handleLoginForm(req, res) {
         async function handleLogin() {
             const email = document.getElementById('email').value;
             const password = document.getElementById('password').value;
+            const mfaCode = document.getElementById('mfaCode').value;
             const errorDiv = document.getElementById('loginError');
             
             errorDiv.textContent = '';
             
-            if (!email || !password) {
-                errorDiv.textContent = 'Email and password required';
+            if (!email || !password || !mfaCode) {
+                errorDiv.textContent = 'Email, password, and MFA code required';
                 return;
             }
             
@@ -2472,12 +2477,12 @@ function handleLoginForm(req, res) {
                 const response = await fetch('/auth/login', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ email, password })
+                    body: JSON.stringify({ email, password, mfaCode })
                 });
                 
                 const data = await response.json();
                 
-                console.log('Login response:', { ok: response.ok, status: response.status, error: data.error });
+                console.log('Login response logged');
                 
                 if (!response.ok) {
                     // If MFA setup is required (account was reset)
@@ -2490,17 +2495,6 @@ function handleLoginForm(req, res) {
                     }
                     
                     errorDiv.textContent = data.error || 'Login failed';
-                    return;
-                }
-                
-                // Check if MFA is required
-                if (data.requiresMFA) {
-                    currentEmail = email;
-                    currentPassword = password;
-                    
-                    document.getElementById('loginStep').style.display = 'none';
-                    document.getElementById('mfaStep').classList.add('active');
-                    document.getElementById('mfaCode').focus();
                     return;
                 }
                 
@@ -2527,7 +2521,7 @@ function handleLoginForm(req, res) {
                                 credentials: 'include'
                             });
                         } catch (err) {
-                            console.warn('Error deleting oldest session:', err);
+                            console.log('Error deleting oldest session');
                         }
                     }
                     
@@ -2563,10 +2557,10 @@ function handleLoginForm(req, res) {
                                 });
                                 
                                 if (!deleteResponse.ok) {
-                                    console.warn('Failed to delete oldest session, but proceeding anyway');
+                                    console.log('Failed to delete oldest session, but proceeding anyway');
                                 }
                             } catch (err) {
-                                console.warn('Error deleting oldest session:', err);
+                                console.log('Error deleting oldest session');
                             }
                             
                             // Proceed to redirect
@@ -2654,10 +2648,10 @@ function handleLoginForm(req, res) {
                             });
                             
                             if (!deleteResponse.ok) {
-                                console.warn('Failed to delete oldest session, but proceeding anyway');
+                                console.log('Failed to delete oldest session, but proceeding anyway');
                             }
                         } catch (err) {
-                            console.warn('Error deleting oldest session:', err);
+                            console.log('Error deleting oldest session');
                         }
                         
                         // Proceed to redirect
@@ -2767,11 +2761,9 @@ function handleLoginForm(req, res) {
             document.getElementById('newPassword').value = '';
             document.getElementById('confirmPassword').value = '';
             document.getElementById('loginError').textContent = '';
-            document.getElementById('mfaError').textContent = '';
             document.getElementById('passwordChangeError').textContent = '';
             
             document.getElementById('loginStep').style.display = 'block';
-            document.getElementById('mfaStep').classList.remove('active');
             document.getElementById('passwordChangeStep').classList.remove('active');
             document.getElementById('resultStep').classList.remove('active');
             
@@ -2823,13 +2815,13 @@ async function handleValidateSessionToken(req, res) {
                 res.writeHead(200);
                 res.end(JSON.stringify(result));
             } catch (err) {
-                console.error(`[${global.getTimestamp()}] ERROR validating token:`, err.message);
+                global.consoleLog('Auth', `ERROR validating token:: ${err.message}`, 1);
                 res.writeHead(400);
                 res.end(JSON.stringify({ error: err.message }));
             }
         });
     } catch (err) {
-        console.error(`[${global.getTimestamp()}] ERROR in handleValidateSessionToken:`, err.message);
+        global.consoleLog('Auth', `ERROR in handleValidateSessionToken:: ${err.message}`, 1);
         res.writeHead(500);
         res.end(JSON.stringify({ error: err.message }));
     }
@@ -2861,13 +2853,13 @@ async function handleAdminResetMFA(req, res, userId) {
                 res.writeHead(200);
                 res.end(JSON.stringify(result));
             } catch (err) {
-                console.error(`[${global.getTimestamp()}] ERROR in resetMFA:`, err.message);
+                global.consoleLog('Auth', `ERROR in resetMFA:: ${err.message}`, 1);
                 res.writeHead(400);
                 res.end(JSON.stringify({ error: err.message }));
             }
         });
     } catch (err) {
-        console.error(`[${global.getTimestamp()}] ERROR in handleAdminResetMFA:`, err.message);
+        global.consoleLog('Auth', `ERROR in handleAdminResetMFA:: ${err.message}`, 1);
         res.writeHead(500);
         res.end(JSON.stringify({ error: err.message }));
     }
@@ -2899,13 +2891,13 @@ async function handleAdminUnlockUser(req, res, userId) {
                 res.writeHead(200);
                 res.end(JSON.stringify(result));
             } catch (err) {
-                console.error(`[${global.getTimestamp()}] ERROR in unlockUser:`, err.message);
+                global.consoleLog('Auth', `ERROR in unlockUser:: ${err.message}`, 1);
                 res.writeHead(400);
                 res.end(JSON.stringify({ error: err.message }));
             }
         });
     } catch (err) {
-        console.error(`[${global.getTimestamp()}] ERROR in handleAdminUnlockUser:`, err.message);
+        global.consoleLog('Auth', `ERROR in handleAdminUnlockUser:: ${err.message}`, 1);
         res.writeHead(500);
         res.end(JSON.stringify({ error: err.message }));
     }
@@ -2957,7 +2949,7 @@ async function handleLogin(req, res) {
                     
                     if (ageDays > passwordExpiration) {
                       // Password expired - require password change
-                      console.log(`[${global.getTimestamp()}] Password expired for user: ${email} (age: ${Math.floor(ageDays)} days, limit: ${passwordExpiration} days)`);
+                      global.consoleLog('Auth', `Password expired for user: ${email} (age: ${Math.floor(ageDays)} days, limit: ${passwordExpiration} days)`, 3);
                       
                       // Set sessionToken and refreshToken cookies but indicate password change required
                       const sessionCookieOptions = [
@@ -3038,7 +3030,9 @@ async function handleLogin(req, res) {
                     oldestSessionHash: result.oldestSessionHash
                 }));
             } catch (err) {
-                console.error(`[${global.getTimestamp()}] ERROR in login:`, err.message);
+                // MFA code required is a warning, not an error
+                const logLevel = err.message === 'MFA code required' ? 2 : 1;
+                global.consoleLog('Auth', `ERROR in login:: ${err.message}`, logLevel);
                 
                 // Special case: MFA is required - return 200 with requiresMFA flag
                 if (err.message === 'MFA code required') {
@@ -3055,7 +3049,7 @@ async function handleLogin(req, res) {
             }
         });
     } catch (err) {
-        console.error(`[${global.getTimestamp()}] ERROR in handleLogin:`, err.message);
+        global.consoleLog('Auth', `ERROR in handleLogin:: ${err.message}`, 1);
         res.writeHead(500);
         res.end(JSON.stringify({ error: err.message }));
     }
@@ -3103,7 +3097,7 @@ async function handleCreateUser(req, res) {
                     message: 'User created and invite sent'
                 }));
             } catch (err) {
-                console.error(`[${global.getTimestamp()}] ERROR creating user:`, err.message);
+                global.consoleLog('Auth', `ERROR creating user:: ${err.message}`, 1);
                 
                 let statusCode = 400;
                 let errorMessage = err.message;
@@ -3118,7 +3112,7 @@ async function handleCreateUser(req, res) {
             }
         });
     } catch (err) {
-        console.error(`[${global.getTimestamp()}] ERROR in handleCreateUser:`, err.message);
+        global.consoleLog('Auth', `ERROR in handleCreateUser:: ${err.message}`, 1);
         res.writeHead(500);
         res.end(JSON.stringify({ error: err.message }));
     }
@@ -3145,7 +3139,7 @@ async function handleSendInvite(req, res) {
             inviteExpiresAt: result.inviteExpiresAt
         }));
     } catch (err) {
-        console.error(`[${global.getTimestamp()}] ERROR sending invite:`, err.message);
+        global.consoleLog('Auth', `ERROR sending invite:: ${err.message}`, 1);
         res.writeHead(500);
         res.end(JSON.stringify({ error: err.message }));
     }
@@ -3184,13 +3178,13 @@ async function handleUpdateUser(req, res, userId) {
                     message: 'User updated successfully'
                 }));
             } catch (err) {
-                console.error(`[${global.getTimestamp()}] ERROR updating user:`, err.message);
+                global.consoleLog('Auth', `ERROR updating user:: ${err.message}`, 1);
                 res.writeHead(500);
                 res.end(JSON.stringify({ error: err.message }));
             }
         });
     } catch (err) {
-        console.error(`[${global.getTimestamp()}] ERROR in handleUpdateUser:`, err.message);
+        global.consoleLog('Auth', `ERROR in handleUpdateUser:: ${err.message}`, 1);
         res.writeHead(500);
         res.end(JSON.stringify({ error: err.message }));
     }
@@ -3236,13 +3230,13 @@ async function handleCreateGroup(req, res) {
                     description: result.description
                 }));
             } catch (err) {
-                console.error(`[${global.getTimestamp()}] ERROR creating group:`, err.message);
+                global.consoleLog('Auth', `ERROR creating group:: ${err.message}`, 1);
                 res.writeHead(500);
                 res.end(JSON.stringify({ error: err.message }));
             }
         });
     } catch (err) {
-        console.error(`[${global.getTimestamp()}] ERROR in handleCreateGroup:`, err.message);
+        global.consoleLog('Auth', `ERROR in handleCreateGroup:: ${err.message}`, 1);
         res.writeHead(500);
         res.end(JSON.stringify({ error: err.message }));
     }
@@ -3281,13 +3275,13 @@ async function handleUpdateGroup(req, res, groupId) {
                     message: 'Group updated successfully'
                 }));
             } catch (err) {
-                console.error(`[${global.getTimestamp()}] ERROR updating group:`, err.message);
+                global.consoleLog('Auth', `ERROR updating group:: ${err.message}`, 1);
                 res.writeHead(500);
                 res.end(JSON.stringify({ error: err.message }));
             }
         });
     } catch (err) {
-        console.error(`[${global.getTimestamp()}] ERROR in handleUpdateGroup:`, err.message);
+        global.consoleLog('Auth', `ERROR in handleUpdateGroup:: ${err.message}`, 1);
         res.writeHead(500);
         res.end(JSON.stringify({ error: err.message }));
     }
@@ -3324,7 +3318,6 @@ async function handleUserSetupForm(req, res) {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Kore Setup</title>
     <link rel="icon" type="image/png" href="/img/favicon.png">
-    <script src="/lib/base.css"></script>
     <style>
         :root {
             --brand-dark: #002b59;
@@ -3467,7 +3460,7 @@ async function handleUserSetupForm(req, res) {
         }
     </style>
     <script>
-        // Inject base.css component styles
+        // Inject base_css.js component styles
         if (typeof componentStyles !== 'undefined') {
             const styleEl = document.createElement('style');
             styleEl.textContent = componentStyles;
@@ -3504,7 +3497,7 @@ async function handleUserSetupForm(req, res) {
         res.writeHead(200);
         res.end(getSetupFormHTML(token || '', email || ''));
     } catch (err) {
-        console.error(`[${global.getTimestamp()}] ERROR rendering setup form:`, err.message);
+        global.consoleLog('Auth', `ERROR rendering setup form:: ${err.message}`, 1);
         res.writeHead(500);
         res.end(`<h1>Error: ${err.message}</h1>`);
     }
@@ -3574,13 +3567,13 @@ async function handleMFAResetComplete(req, res) {
                     backupCodes: plainCodes
                 }));
             } catch (err) {
-                console.error(`[${global.getTimestamp()}] ERROR in MFA reset:`, err.message);
+                global.consoleLog('Auth', `ERROR in MFA reset:: ${err.message}`, 1);
                 res.writeHead(400);
                 res.end(JSON.stringify({ error: err.message }));
             }
         });
     } catch (err) {
-        console.error(`[${global.getTimestamp()}] ERROR in handleMFAResetComplete:`, err.message);
+        global.consoleLog('Auth', `ERROR in handleMFAResetComplete:: ${err.message}`, 1);
         res.writeHead(500);
         res.end(JSON.stringify({ error: err.message }));
     }
@@ -3616,13 +3609,13 @@ async function handleCompleteSetup(req, res) {
                     backupCodes: result.backupCodes
                 }));
             } catch (err) {
-                console.error(`[${global.getTimestamp()}] ERROR completing setup:`, err.message);
+                global.consoleLog('Auth', `ERROR completing setup:: ${err.message}`, 1);
                 res.writeHead(400);
                 res.end(JSON.stringify({ error: err.message }));
             }
         });
     } catch (err) {
-        console.error(`[${global.getTimestamp()}] ERROR in handleCompleteSetup:`, err.message);
+        global.consoleLog('Auth', `ERROR in handleCompleteSetup:: ${err.message}`, 1);
         res.writeHead(500);
         res.end(JSON.stringify({ error: err.message }));
     }
@@ -3640,7 +3633,6 @@ function getSetupFormHTML(token, email = '') {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Kore Setup</title>
     <link rel="icon" type="image/png" href="/img/favicon.png">
-    <script src="/lib/base.css"></script>
     <style>
         :root {
             --brand-dark: #002b59;
@@ -3778,7 +3770,7 @@ function getSetupFormHTML(token, email = '') {
         }
     </style>
     <script>
-        // Inject base.css component styles
+        // Inject base_css.js component styles
         if (typeof componentStyles !== 'undefined') {
             const styleEl = document.createElement('style');
             styleEl.textContent = componentStyles;
@@ -4063,7 +4055,7 @@ async function handleGetPagePermissions(req, res) {
     }
 
   } catch (error) {
-    console.error('[Auth] Error getting page permissions:', error);
+    global.consoleLog('Auth', `Error getting page permissions: ${error.message}`, 1);
     res.writeHead(500, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: 'Internal server error' }));
   }
@@ -4073,13 +4065,13 @@ async function handleGetPagePermissions(req, res) {
  * Handle PUT /kore/permissions - batch update permissions (generic for any resource)
  */
 async function handleUpdatePermissions(req, res) {
-  console.log('[Auth] handleUpdatePermissions called for:', req.url);
+  global.consoleLog('Auth', `handleUpdatePermissions called for: ${req.url}`, 4);
   try {
     // Verify user is authenticated
     const sessionToken = getSessionTokenFromCookies(req.headers.cookie);
     const validation = validateUserSessionToken(sessionToken);
     
-    console.log('[Auth] Token validation:', validation.valid ? 'valid' : 'invalid');
+    global.consoleLog('Auth', `Token validation: ${validation.valid ? 'valid' : 'invalid'}`, 4);
     
     if (!validation.valid) {
       res.writeHead(401, { 'Content-Type': 'application/json' });
@@ -4089,7 +4081,7 @@ async function handleUpdatePermissions(req, res) {
 
     // Check permission
     const hasPermission = await global.auth.hasPermission(validation.userId, 'permissions', 'view', 'all');
-    console.log('[Auth] Permission check:', hasPermission);
+    global.consoleLog('Auth', `Permission check: ${hasPermission}`, 4);
     
     if (!hasPermission) {
       res.writeHead(403, { 'Content-Type': 'application/json' });
@@ -4105,9 +4097,9 @@ async function handleUpdatePermissions(req, res) {
 
     req.on('end', async () => {
       try {
-        console.log('[Auth] Raw payload:', payload);
+        global.consoleLog('Auth', `Raw payload: ${JSON.stringify(payload)}`, 4);
         const { resource, inserts, updates, deletes } = JSON.parse(payload);
-        console.log('[Auth] Parsed request - resource:', resource, 'inserts:', inserts?.length, 'updates:', updates?.length, 'deletes:', deletes?.length);
+        global.consoleLog('Auth', `Parsed request - resource: ${resource} inserts: ${inserts?.length} updates: ${updates?.length} deletes: ${deletes?.length}`, 4);
 
         if (!resource) {
           res.writeHead(400, { 'Content-Type': 'application/json' });
@@ -4121,7 +4113,7 @@ async function handleUpdatePermissions(req, res) {
 
           // Process deletes/revokes
           if (deletes && deletes.length > 0) {
-            console.log('[Auth] Processing', deletes.length, 'deletes');
+            global.consoleLog('Auth', `Processing ${deletes.length} deletes`, 4);
             for (const permissionId of deletes) {
               await connection.execute(
                 'UPDATE kore_sys.permissions SET revokedAt = NOW(), revokedBy = ? WHERE permissionId = ?',
@@ -4132,7 +4124,7 @@ async function handleUpdatePermissions(req, res) {
 
           // Process inserts and updates
           if (inserts && inserts.length > 0) {
-            console.log('[Auth] Processing', inserts.length, 'inserts');
+            global.consoleLog('Auth', `Processing ${inserts.length} inserts`, 4);
             for (const perm of inserts) {
               await connection.execute(
                 'INSERT INTO kore_sys.permissions (targetType, targetId, resource, action, effect, scope, grantedAt, grantedBy) VALUES (?, ?, ?, ?, ?, ?, NOW(), ?)',
@@ -4142,7 +4134,7 @@ async function handleUpdatePermissions(req, res) {
           }
 
           if (updates && updates.length > 0) {
-            console.log('[Auth] Processing', updates.length, 'updates');
+            global.consoleLog('Auth', `Processing ${updates.length} updates`, 4);
             for (const perm of updates) {
               // Build dynamic UPDATE query based on what fields are being changed
               const updateFields = [];
@@ -4183,7 +4175,7 @@ async function handleUpdatePermissions(req, res) {
               }
               
               if (updateFields.length === 0) {
-                console.log('[Auth] No fields to update for permission:', perm.permissionId);
+                global.consoleLog('Auth', `No fields to update for permission: ${perm.permissionId}`, 4);
                 continue;
               }
 
@@ -4192,15 +4184,15 @@ async function handleUpdatePermissions(req, res) {
               updateParams.push(resource);
 
               const updateQuery = `UPDATE kore_sys.permissions SET ${updateFields.join(', ')} WHERE permissionId = ? AND resource = ?`;
-              console.log('[Auth] Updating permission:', perm.permissionId, 'with query:', updateQuery);
+              global.consoleLog('Auth', `Updating permission: ${perm.permissionId} with query: ${updateQuery}`, 4);
               
               const result = await connection.execute(updateQuery, updateParams);
-              console.log('[Auth] Update result:', result[0]);
+              global.consoleLog('Auth', `Update result: ${JSON.stringify(result[0])}`, 4);
             }
           }
 
           await connection.commit();
-          console.log('[Auth] Transaction committed successfully');
+          global.consoleLog('Auth', `Transaction committed successfully`, 4);
 
           res.writeHead(200, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ success: true, message: 'Permissions updated' }));
@@ -4213,14 +4205,14 @@ async function handleUpdatePermissions(req, res) {
         }
 
       } catch (error) {
-        console.error('[Auth] Error updating permissions:', error);
+        global.consoleLog('Auth', `Error updating permissions: ${error.message}`, 1);
         res.writeHead(400, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: error.message }));
       }
     });
 
   } catch (error) {
-    console.error('[Auth] Error handling permissions update:', error);
+    global.consoleLog('Auth', `Error handling permissions update: ${error.message}`, 1);
     res.writeHead(500, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: 'Internal server error' }));
   }
@@ -4257,7 +4249,7 @@ async function handleGetUserPermissions(req, res) {
     res.end(JSON.stringify(permissions));
 
   } catch (error) {
-    console.error('[Auth] Error handling get user permissions:', error);
+    global.consoleLog('Auth', `Error handling get user permissions: ${error.message}`, 1);
     res.writeHead(500, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: 'Internal server error' }));
   }
@@ -4304,14 +4296,14 @@ async function handleGetPermissionsQuery(req, res) {
         res.end(JSON.stringify(permissions, null, 2));
 
       } catch (error) {
-        console.error('[Auth] Error querying permissions:', error);
+        global.consoleLog('Auth', `Error querying permissions: ${error.message}`, 1);
         res.writeHead(400, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: error.message }));
       }
     });
 
   } catch (error) {
-    console.error('[Auth] Error handling permissions query:', error);
+    global.consoleLog('Auth', `Error handling permissions query: ${error.message}`, 1);
     res.writeHead(500, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: 'Internal server error' }));
   }
@@ -4337,7 +4329,7 @@ async function handleGetWhitelists(req, res) {
           categories = Object.keys(whitelists);
         }
       } catch (parseErr) {
-        console.warn('[Auth] Failed to parse whitelists:', parseErr.message);
+        global.consoleLog('Auth', `Failed to parse whitelists: ${parseErr.message}`, 2);
       }
     }
 
@@ -4345,7 +4337,7 @@ async function handleGetWhitelists(req, res) {
     res.end(JSON.stringify({ whitelists: categories }));
 
   } catch (error) {
-    console.error('[Auth] Error getting whitelists:', error);
+    global.consoleLog('Auth', `Error getting whitelists: ${error.message}`, 1);
     res.writeHead(500, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: 'Internal server error' }));
   }
@@ -4415,7 +4407,7 @@ async function handleGetAllowedIPs(req, res) {
     res.end(JSON.stringify({ allowedIPs: parsedIPs }));
 
   } catch (error) {
-    console.error('[Auth] Error getting allowed IPs:', error);
+    global.consoleLog('Auth', `Error getting allowed IPs: ${error.message}`, 1);
     res.writeHead(500, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: 'Internal server error' }));
   }
@@ -4476,20 +4468,20 @@ async function handleSaveAllowedIPs(req, res) {
           return;
         }
 
-        console.log(`[Auth] Updated allowedIPs for ${table}.${idColumn} = ${id}`);
+        global.consoleLog('Auth', `Updated allowedIPs for ${table}.${idColumn} = ${id}`, 4);
 
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ success: true, message: 'allowedIPs updated successfully' }));
 
       } catch (error) {
-        console.error('[Auth] Error saving allowed IPs:', error);
+        global.consoleLog('Auth', `Error saving allowed IPs: ${error.message}`, 1);
         res.writeHead(400, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: error.message }));
       }
     });
 
   } catch (error) {
-    console.error('[Auth] Error handling save allowed-ips request:', error);
+    global.consoleLog('Auth', `Error handling save allowed-ips request: ${error.message}`, 1);
     res.writeHead(500, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: 'Internal server error' }));
   }
@@ -4524,7 +4516,7 @@ async function handleHasPermission(req, res) {
 
         // If permissionId provided, check if it exists and belongs to user
         if (permissionId) {
-          console.log('[Auth] Checking permissionId:', permissionId, 'for user:', userId);
+          global.consoleLog('Auth', `Checking permissionId: ${permissionId} for user: ${userId}`, 4);
           const permissions = await global.auth.getPermissions({ permissionId });
           
           if (permissions.length > 0) {
@@ -4553,7 +4545,7 @@ async function handleHasPermission(req, res) {
           // Convert action "*" to check for full control (action="*" in database)
           const checkAction = action;
           
-          console.log('[Auth] Checking permission for user:', userId, 'resource:', resource, 'action:', checkAction, 'scope:', checkScope);
+          global.consoleLog('Auth', `Checking permission for user: ${userId} resource: ${resource} action: ${checkAction} scope: ${checkScope}`, 4);
           
           // For page resources, check IP whitelist first (hard gate)
           if (resource === 'page' && checkScope) {
@@ -4563,7 +4555,7 @@ async function handleHasPermission(req, res) {
                                req.connection?.remoteAddress || 
                                'unknown';
               
-              console.log('[Auth] Page resource detected, checking IP whitelist for:', clientIP, 'on page:', checkScope);
+              global.consoleLog('Auth', `Page resource detected, checking IP whitelist for: ${clientIP} on page: ${checkScope}`, 4);
               
               // Query the web_pages table for allowedIPs
               const pageQuery = `SELECT allowedIPs FROM kore_sys.web_pages WHERE path = ? AND active = TRUE`;
@@ -4571,10 +4563,10 @@ async function handleHasPermission(req, res) {
               
               if (pageRows.length > 0 && pageRows[0].allowedIPs) {
                 const ipAllowed = await global.auth.isIPAllowed(clientIP, pageRows[0].allowedIPs);
-                console.log('[Auth] IP check result for', clientIP, ':', ipAllowed);
+                global.consoleLog('Auth', `IP check result for ${clientIP}: ${ipAllowed}`, 4);
                 
                 if (!ipAllowed) {
-                  console.log('[Auth] IP check failed for', clientIP, 'on page:', checkScope);
+                  global.consoleLog('Auth', `IP check failed for ${clientIP} on page: ${checkScope}`, 4);
                   hasPermission = false;
                   // Return early since IP check is a hard gate
                   res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -4583,7 +4575,7 @@ async function handleHasPermission(req, res) {
                 }
               }
             } catch (ipCheckError) {
-              console.error('[Auth] Error during IP check for page:', ipCheckError);
+              global.consoleLog('Auth', `Error during IP check for page: ${ipCheckError.message}`, 1);
               // If IP check fails unexpectedly, deny access
               hasPermission = false;
               res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -4606,14 +4598,14 @@ async function handleHasPermission(req, res) {
         res.end(JSON.stringify({ hasPermission }));
 
       } catch (error) {
-        console.error('[Auth] Error checking permission:', error);
+        global.consoleLog('Auth', `Error checking permission: ${error.message}`, 1);
         res.writeHead(400, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: error.message }));
       }
     });
 
   } catch (error) {
-    console.error('[Auth] Error handling has-permission request:', error);
+    global.consoleLog('Auth', `Error handling has-permission request: ${error.message}`, 1);
     res.writeHead(500, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: 'Internal server error' }));
   }

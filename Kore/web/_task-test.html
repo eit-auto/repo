@@ -1,4 +1,4 @@
-<div class="panel-level-1">
+<div class="panel-level-1" style="max-width: 100%; overflow: hidden;">
     <style>
         .description {
             font-size: 12px;
@@ -42,9 +42,8 @@
     </div>
 
     <!-- Load Kore libraries -->
-    <script src="/lib/plugins-front.js"></script>
-
-    <script>
+    <script type="module">
+        await import('/lib/plugins-front.js');
         // Test page state
         let selectedPluginName = null;
         let selectedTaskId = null;
@@ -187,41 +186,6 @@
             document.getElementById('taskResults').style.display = 'none';
         }
 
-        function renderSelectField(inputId, input, pluginConfig) {
-            let options = [];
-            
-            console.log('renderSelectField - input.options:', input.options, 'pluginConfig:', pluginConfig);
-            
-            if (Array.isArray(input.options)) {
-                // Check if array contains a single @config reference
-                if (input.options.length === 1 && typeof input.options[0] === 'string' && input.options[0].startsWith('@config.')) {
-                    console.log('Resolving config reference from array:', input.options[0]);
-                    options = resolveConfigReference(input.options[0], pluginConfig) || [];
-                    console.log('Resolved to:', options);
-                } else {
-                    options = input.options;
-                }
-            } else if (typeof input.options === 'string' && input.options.startsWith('@config.')) {
-                // Resolve config reference
-                console.log('Resolving config reference:', input.options);
-                options = resolveConfigReference(input.options, pluginConfig) || [];
-                console.log('Resolved to:', options);
-            } else if (typeof input.options === 'string') {
-                options = input.options.split(',').map(s => s.trim());
-            }
-            
-            const optionsHtml = options.map(opt => {
-                // Handle object options (from @task references with value/label)
-                if (typeof opt === 'object' && opt !== null && 'value' in opt && 'label' in opt) {
-                    return `<option value="${escapeHtml(String(opt.value))}">${escapeHtml(opt.label)}</option>`;
-                }
-                // Handle string options (static lists)
-                return `<option value="${escapeHtml(String(opt))}">${escapeHtml(String(opt))}</option>`;
-            }).join('');
-            
-            return `<select id="${inputId}" class="input-field"><option value="">-- Select --</option>${optionsHtml}</select>`;
-        }
-
         function formatOptionsDisplay(options) {
             if (Array.isArray(options)) {
                 // Check if these are object options (from @task references)
@@ -302,9 +266,17 @@
             }
         }
 
-        function selectTask(taskId, taskName, taskData) {
+        async function selectTask(taskId, taskName, taskData) {
             selectedTaskId = taskId;
-            renderTaskDetails(taskData);
+            
+            try {
+                // Fetch task details with resolved options
+                const task = await getTaskDetails(taskId);
+                renderTaskDetails(task);
+            } catch (error) {
+                console.error('Error loading task details:', error);
+                document.getElementById('taskDetails').innerHTML = `<div style="color: red; padding: 20px;">Error loading task details: ${error.message}</div>`;
+            }
         }
 
         // ============================================================================
@@ -377,7 +349,7 @@
             
             // Always display as formatted JSON
             const jsonStr = JSON.stringify(result.result, null, 2);
-            const html = `<pre class="panel-level-3" style="word-wrap: break-word; white-space: pre-wrap; overflow: auto; max-height: 400px; max-width: 100%;">${escapeHtml(jsonStr)}</pre>`;
+            const html = `<pre class="panel-level-3" style="word-wrap: break-word; white-space: pre-wrap; max-width: 100%; max-height: 600px; overflow: auto;">${escapeHtml(jsonStr)}</pre>`;
             resultsContent.innerHTML = html;
             
             resultsPanel.style.display = 'block';

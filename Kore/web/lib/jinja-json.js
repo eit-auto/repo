@@ -3,6 +3,8 @@
 // CodeMirror 6 + Jinja Editor Helper Functions
 // ============================================================================
 
+import '/lib/base.js';
+
 // Module-level variables for dynamic context updates
 let contextData = null;
 
@@ -75,7 +77,7 @@ async function loadFiltersMetadata() {
     if (filtersLoaded) return; // Only load once
     
     try {
-        const response = await fetch('/kore/filters');
+        const response = await fetch('/engine/filters');
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         
         const data = await response.json();
@@ -111,7 +113,7 @@ async function createJinjaEditor(containerId, templateText, contextDataParam, re
     const { EditorView } = await import('codemirror');
     const { EditorState, StateField, RangeSet, StateEffect } = await import('@codemirror/state');
     const { jinja } = await import('@codemirror/lang-jinja');
-    const { autocompletion, acceptCompletion } = await import('@codemirror/autocomplete');
+    // autocompletion import removed - CTX completion is handled via custom CtxDropdown
     const { syntaxHighlighting, HighlightStyle, foldGutter, indentOnInput } = await import('@codemirror/language');
     const { tags: t } = await import('@lezer/highlight');
     const { linter, lintGutter } = await import('@codemirror/lint');
@@ -374,6 +376,138 @@ async function createJinjaEditor(containerId, templateText, contextDataParam, re
 
     // ===== CUSTOM FILTER COMPLETION DROPDOWN =====
     
+    // ===== CTX AUTOCOMPLETE DROPDOWN =====
+
+    class CtxDropdown {
+        constructor(view) {
+            this.view = view;
+            this.dropdownEl = null;
+            this.items = [];
+            this.dotPos = -1;
+            this.selectedIndex = 0;
+        }
+
+        show(items, dotPos) {
+            this.items = items;
+            this.dotPos = dotPos;
+            this.selectedIndex = 0;
+            this.render();
+        }
+
+        hide() {
+            if (this.dropdownEl) {
+                this.dropdownEl.remove();
+                this.dropdownEl = null;
+            }
+        }
+
+        render() {
+            this.hide();
+            if (!this.items.length) return;
+
+            this.dropdownEl = document.createElement('div');
+            this.dropdownEl.className = 'ctx-dropdown';
+            this.dropdownEl.style.cssText = `
+                position: fixed;
+                background: #2a2a2a;
+                border: 1px solid #444;
+                border-radius: 4px;
+                box-shadow: 0 8px 24px rgba(0,0,0,0.6);
+                z-index: 10000;
+                max-height: 300px;
+                overflow-y: auto;
+                min-width: 150px;
+                font-family: monospace;
+                font-size: 13px;
+                max-width: 300px;
+            `;
+
+            const list = document.createElement('ul');
+            list.style.cssText = 'margin: 0; padding: 0; list-style: none;';
+
+            this.items.forEach((item, idx) => {
+                const li = document.createElement('li');
+                li.dataset.index = idx;
+                li.style.cssText = `
+                    padding: 2px 8px;
+                    cursor: pointer;
+                    user-select: none;
+                    border-left: 3px solid transparent;
+                    transition: all 0.1s;
+                    color: #a0a0a0;
+                `;
+                li.textContent = item.label + (item.detail ? '  ' + item.detail : '');
+                li.addEventListener('mouseover', () => this.select(idx));
+                li.addEventListener('click', () => this.insert(idx));
+                list.appendChild(li);
+            });
+
+            this.dropdownEl.appendChild(list);
+            document.body.appendChild(this.dropdownEl);
+
+            // Position below the dot
+            const coords = this.view.coordsAtPos(this.dotPos);
+            if (coords) {
+                const dropdownHeight = 300;
+                const spaceBelow = window.innerHeight - coords.top;
+                const top = spaceBelow > dropdownHeight
+                    ? (coords.top + 14) + 'px'
+                    : (coords.top - dropdownHeight) + 'px';
+                this.dropdownEl.style.left = (coords.left + 14) + 'px';
+                this.dropdownEl.style.top = top;
+            }
+
+            this.updateUI();
+        }
+
+        select(idx) {
+            this.selectedIndex = Math.max(0, Math.min(idx, this.items.length - 1));
+            this.updateUI();
+        }
+
+        updateUI() {
+            if (!this.dropdownEl) return;
+            const lis = this.dropdownEl.querySelectorAll('li');
+            lis.forEach((li, idx) => {
+                if (idx === this.selectedIndex) {
+                    li.style.backgroundColor = '#3a5a70';
+                    li.style.borderLeftColor = '#0a9fd8';
+                    li.style.color = '#fff';
+                } else {
+                    li.style.backgroundColor = 'transparent';
+                    li.style.borderLeftColor = 'transparent';
+                    li.style.color = '#a0a0a0';
+                }
+            });
+        }
+
+        insert(idx) {
+            const item = this.items[idx];
+            const head = this.view.state.selection.main.head;
+            // Replace from dot+1 to cursor with the selected property
+            const afterDot = this.view.state.doc.sliceString(this.dotPos + 1, head);
+            const partialMatch = afterDot.match(/^\w*/)[0];
+            this.view.dispatch({
+                changes: {
+                    from: this.dotPos + 1,
+                    to: this.dotPos + 1 + partialMatch.length,
+                    insert: item.label
+                },
+                selection: { anchor: this.dotPos + 1 + item.label.length }
+            });
+            this.hide();
+            ctxDropdown = null;
+        }
+
+        handleKey(key) {
+            if (key === 'ArrowDown') { this.select(this.selectedIndex + 1); return true; }
+            if (key === 'ArrowUp') { this.select(this.selectedIndex - 1); return true; }
+            if (key === 'Enter' || key === 'Tab') { this.insert(this.selectedIndex); return true; }
+            if (key === 'Escape') { this.hide(); ctxDropdown = null; return true; }
+            return false;
+        }
+    }
+
     class FilterDropdown {
         constructor(editor, view) {
             this.editor = editor;
@@ -469,7 +603,7 @@ async function createJinjaEditor(containerId, templateText, contextDataParam, re
                 
                 // If there's enough space below, position below cursor
                 if (spaceBelow > dropdownHeight) {
-                    top = (coords.top + 2) + 'px';
+                    top = (coords.top + 14) + 'px';
                     bottom = 'auto';
                 } else if (spaceAbove > dropdownHeight) {
                     // Position above cursor - add 12px down offset + 10px more for alignment
@@ -596,9 +730,12 @@ async function createJinjaEditor(containerId, templateText, contextDataParam, re
             const beforeCursor = editor.state.doc.sliceString(0, this.pipePos + 1);
             const lastPipe = beforeCursor.lastIndexOf('|');
             
-            // Get text after pipe
-            const afterPipe = editor.state.doc.sliceString(this.pipePos + 1, editor.state.selection.main.head);
-            const leadingSpaces = afterPipe.match(/^ */)[0].length;
+            // Find end of existing filter text after pipe (spaces + word chars + parens only)
+            const docLength = editor.state.doc.length;
+            let scanPos = this.pipePos + 1;
+            const docText = editor.state.doc.sliceString(scanPos, Math.min(scanPos + 100, docLength));
+            const existingMatch = docText.match(/^[\s\w()]*/);
+            const replaceEnd = scanPos + (existingMatch ? existingMatch[0].length : 0);
             
             // Normalize spacing: ensure exactly 1 space between pipe and filter
             const insertText = ' ' + filterName;
@@ -606,13 +743,14 @@ async function createJinjaEditor(containerId, templateText, contextDataParam, re
             editor.dispatch({
                 changes: {
                     from: this.pipePos + 1,
-                    to: editor.state.selection.main.head,
+                    to: replaceEnd,
                     insert: insertText
                 }
             });
             
             this.hide();
             filterDropdown = null; // Reset global reference so new dropdown can be created
+            filterDropdownLocked = false;
         }
         
         handleKey(key) {
@@ -634,9 +772,13 @@ async function createJinjaEditor(containerId, templateText, contextDataParam, re
     }
     
     let filterDropdown = null;
+    let filterDropdownLocked = false;
+    let ctxDropdown = null; // When true, only explicit selection or outside click closes it
     
     // Close dropdown when clicking outside
     document.addEventListener('click', (e) => {
+        // Don't close on Ctrl/Meta click - that's used to re-open the dropdown
+        if (e.ctrlKey || e.metaKey) return;
         // Only close filter dropdown if clicked in editor area (not in DevTools)
         if (filterDropdown && filterDropdown.dropdownEl && 
             e.target.closest('#editor-wrapper') &&
@@ -644,44 +786,14 @@ async function createJinjaEditor(containerId, templateText, contextDataParam, re
             (!filterDropdown.hintPanelEl || !filterDropdown.hintPanelEl.contains(e.target))) {
             filterDropdown.hide();
             filterDropdown = null;
+            filterDropdownLocked = false;
+        }
+        if (ctxDropdown && ctxDropdown.dropdownEl &&
+            !ctxDropdown.dropdownEl.contains(e.target)) {
+            ctxDropdown.hide();
+            ctxDropdown = null;
         }
     }, true);
-
-    const createCtxCompletion = () => {
-        return (context) => {
-            // Always use the current contextData, never cached
-            if (!contextData) return null;
-            
-            const beforeCursor = context.state.sliceDoc(0, context.pos);
-            
-            // Check for CTX.something pattern
-            const ctxMatch = beforeCursor.match(/CTX\.(\w*)$/);
-            
-            if (!ctxMatch) return null;
-            
-            // Get all properties from CURRENT context data (not cached)
-            const contextProps = Object.keys(contextData).sort();
-            const partial = ctxMatch[1].toLowerCase();
-            
-            // Filter properties that start with the partial text
-            const filtered = contextProps
-                .filter(prop => prop.toLowerCase().startsWith(partial))
-                .map(prop => ({
-                    label: prop,
-                    detail: `(${typeof contextData[prop]})`,
-                    type: 'variable'
-                }));
-            
-            if (filtered.length === 0) return null;
-            
-            // Return fresh completion list
-            return {
-                from: beforeCursor.lastIndexOf('CTX.') + 4, // Start after CTX.
-                to: context.pos,
-                options: filtered
-            };
-        };
-    };
 
     // Define highlight style for better variable coloring
     const highlightStyle = HighlightStyle.define([
@@ -741,10 +853,6 @@ async function createJinjaEditor(containerId, templateText, contextDataParam, re
     const jinjaBracketField = createJinjaBracketField();
     const bracketDecorationsExt = createBracketDecorationsExtension(jinjaBracketField);
     
-    // Create completion sources
-    const ctxCompletion = createCtxCompletion();
-    // Don't use CodeMirror autocomplete for filters - we'll handle custom dropdown instead
-
     // Track finished pipes by their absolute document position
     let finishedPipes = new Set();
     let lastDropdownPipePos = -1;
@@ -765,7 +873,7 @@ async function createJinjaEditor(containerId, templateText, contextDataParam, re
             if (lastDropdownPipePos !== -1 && actualPipePos !== lastDropdownPipePos) {
                 // Cursor moved to a different pipe, mark the old one as finished
                 finishedPipes.add(lastDropdownPipePos.toString());
-                if (filterDropdown) {
+                if (filterDropdown && !filterDropdownLocked) {
                     filterDropdown.hide();
                     filterDropdown = null;
                 }
@@ -776,15 +884,16 @@ async function createJinjaEditor(containerId, templateText, contextDataParam, re
             
             // If there's a word character followed by space, mark this pipe as finished
             if (/\w\s+$/.test(afterPipe)) {
-                if (filterDropdown) {
+                if (filterDropdown && !filterDropdownLocked) {
                     filterDropdown.hide();
                     filterDropdown = null;
                 }
                 finishedPipes.add(pipeKey);  // Mark this pipe position as done
                 lastDropdownPipePos = -1;
             }
-            // Only show/update if we have just spaces and word characters, and this pipe isn't finished
-            else if (/^[\s\w]*$/.test(afterPipe) && !finishedPipes.has(pipeKey)) {
+            // Only show/update if text after pipe is just spaces/word chars,
+            // pipe isn't finished, and update was from typing (not just cursor movement)
+            else if (/^[\s\w]*$/.test(afterPipe) && !finishedPipes.has(pipeKey) && update.docChanged) {
                 // Get all sorted filters
                 const sortedFilters = [...JINJA_FILTERS_METADATA].sort((a, b) => a.name.localeCompare(b.name));
                 
@@ -806,7 +915,7 @@ async function createJinjaEditor(containerId, templateText, contextDataParam, re
                 finishedPipes.add(lastDropdownPipePos.toString());
             }
             
-            if (filterDropdown) {
+            if (filterDropdown && !filterDropdownLocked) {
                 filterDropdown.hide();
                 filterDropdown = null;
             }
@@ -817,18 +926,103 @@ async function createJinjaEditor(containerId, templateText, contextDataParam, re
         if (update.docChanged) {
             finishedPipes.clear();
         }
+        
+        // CTX property autocomplete - use live context from JSON editor if available
+        const liveContextData = (() => {
+            if (window._jinjaJsonEditor) {
+                try { return JSON.parse(window._jinjaJsonEditor.state.doc.toString()); } catch(e) {}
+            }
+            return contextData;
+        })();
+        if (update.docChanged && liveContextData) {
+            const head = update.state.selection.main.head;
+            const before = update.state.doc.sliceString(Math.max(0, head - 50), head);
+            const ctxDotMatch = before.match(/CTX\.([\w]*)$/);
+            if (ctxDotMatch) {
+                const dotPos = head - ctxDotMatch[1].length - 1; // position of the dot
+                const partial = ctxDotMatch[1].toLowerCase();
+                const props = Object.keys(liveContextData).sort()
+                    .filter(k => k.toLowerCase().startsWith(partial))
+                    .map(k => ({ label: k, detail: '(' + typeof liveContextData[k] + ')' }));
+                if (props.length) {
+                    if (!ctxDropdown) ctxDropdown = new CtxDropdown(update.view);
+                    ctxDropdown.show(props, dotPos);
+                } else {
+                    if (ctxDropdown) { ctxDropdown.hide(); ctxDropdown = null; }
+                }
+            } else {
+                if (ctxDropdown) { ctxDropdown.hide(); ctxDropdown = null; }
+            }
+        } else if (!update.docChanged) {
+            // Hide CTX dropdown on cursor movement away
+            if (ctxDropdown) {
+                const head = update.state.selection.main.head;
+                const before = update.state.doc.sliceString(Math.max(0, head - 50), head);
+                if (!before.match(/CTX\.\w*$/)) {
+                    ctxDropdown.hide();
+                    ctxDropdown = null;
+                }
+            }
+        }
     });
 
     // Monitor for selection attempts - close dropdown when user starts selecting in editor
     const editorMousedownHandler = (e) => {
+        // Don't close if Ctrl/Meta held - that's a Ctrl+Click to re-open the dropdown
+        if (e.ctrlKey || e.metaKey) return;
         const isInDropdown = e.target.closest('.filter-dropdown');
         const isInEditor = e.target.closest('.cm-editor');
         
         // If clicking in editor but not on dropdown, close it
-        if (isInEditor && !isInDropdown && filterDropdown) {
+        if (isInEditor && !isInDropdown && filterDropdown && !filterDropdownLocked) {
             filterDropdown.hide();
             filterDropdown = null;
         }
+        if (isInEditor && ctxDropdown && ctxDropdown.dropdownEl &&
+            !ctxDropdown.dropdownEl.contains(e.target)) {
+            ctxDropdown.hide();
+            ctxDropdown = null;
+        }
+    };
+
+    // Ctrl+Click in editor re-opens filter autocomplete for the pipe near cursor
+    // Note: references `editor` which is assigned after this handler is declared — closure is fine
+    const editorCtrlClickHandler = (e) => {
+        if (!(e.ctrlKey || e.metaKey)) return;
+        const isInEditor = e.target.closest('.cm-editor');
+        const isInDropdown = e.target.closest('.filter-dropdown');
+        if (!isInEditor || isInDropdown) return;
+        
+        // Get click position in the document
+        const clickPos = editor.posAtCoords({ x: e.clientX, y: e.clientY });
+        if (clickPos === null) return;
+        
+        // Look for a pipe before the click position
+        const beforeClick = editor.state.doc.sliceString(Math.max(0, clickPos - 50), clickPos);
+        const lastPipe = beforeClick.lastIndexOf('|');
+        if (lastPipe === -1) return;
+        
+        const afterPipe = beforeClick.slice(lastPipe + 1);
+        if (!/^[\s\w()]*$/.test(afterPipe)) return;
+        
+        const actualPipePos = clickPos - (beforeClick.length - lastPipe);
+        const pipeKey = actualPipePos.toString();
+        
+        // Re-activate this pipe and show dropdown (lock so cursor movement won't close it)
+        finishedPipes.delete(pipeKey);
+        lastDropdownPipePos = actualPipePos;
+        filterDropdownLocked = true;
+        
+        const sortedFilters = [...JINJA_FILTERS_METADATA].sort((a, b) => a.name.localeCompare(b.name));
+        const filterText = afterPipe.trim().replace(/[()]/g, '').toLowerCase();
+        const filtered = filterText
+            ? sortedFilters.filter(f => f.name.toLowerCase().startsWith(filterText))
+            : sortedFilters;
+        
+        if (!filterDropdown) {
+            filterDropdown = new FilterDropdown(editor, editor);
+        }
+        filterDropdown.show(filtered, actualPipePos);
     };
 
     // Handle typing bracket characters when text is selected - wrap selection
@@ -869,6 +1063,34 @@ async function createJinjaEditor(containerId, templateText, contextDataParam, re
         return false;
     };
 
+    // Check if cursor is currently inside a Jinja tag ({{ }}, {%  %}, {# #})
+    const isInsideJinjaTag = (view) => {
+        const pos = view.state.selection.main.head;
+        const doc = view.state.doc.toString();
+        // Scan backwards for the nearest Jinja opener
+        const openers = ['{{-', '{{', '{%-', '{%', '{#-', '{#'];
+        const closers = ['-}}', '}}', '-%}', '%}', '-#}', '#}'];
+        let nearestOpen = -1;
+        let nearestOpenEnd = -1;
+        for (const opener of openers) {
+            const idx = doc.lastIndexOf(opener, pos - 1);
+            if (idx !== -1 && idx > nearestOpen) {
+                nearestOpen = idx;
+                nearestOpenEnd = idx + opener.length;
+            }
+        }
+        if (nearestOpen === -1) return false;
+        // Check that a closer follows the cursor
+        for (const closer of closers) {
+            const idx = doc.indexOf(closer, pos);
+            if (idx !== -1) {
+                // Make sure there's no other opener between nearestOpen and pos
+                return true;
+            }
+        }
+        return false;
+    };
+
     // Filter out the default comment keybindings and add our Jinja-specific ones
     const filteredDefaultKeymap = defaultKeymap.filter(binding => 
         binding.key !== 'Ctrl-/' && binding.key !== 'Cmd-/'
@@ -886,12 +1108,171 @@ async function createJinjaEditor(containerId, templateText, contextDataParam, re
                 if (filterDropdown && filterDropdown.dropdownEl) {
                     return filterDropdown.handleKey('Tab');
                 }
-                // Try to accept CTX autocomplete completion
-                if (acceptCompletion(view)) {
-                    return true;
+                // Try to accept CTX dropdown completion
+                if (ctxDropdown && ctxDropdown.dropdownEl) {
+                    return ctxDropdown.handleKey('Tab');
                 }
                 // Default: indent using the standard indentation command
                 return indentWithTab.run(view);
+            }
+        },
+        {
+            key: 'Backspace',
+            run: (view) => {
+                const pos = view.state.selection.main.head;
+                // Pairs to check for backspace deletion/downgrade
+                const states = [
+                    // Dash state -> downgrade to plain state
+                    { before: '{{-', after: ' -}}', newBefore: '{{', newAfter: ' }}' },
+                    { before: '{%-', after: ' -%}', newBefore: '{%', newAfter: ' %}' },
+                    { before: '{#-', after: ' -#}', newBefore: '{#', newAfter: ' #}' },
+                    // Plain state -> remove closing entirely, leave single {
+                    { before: '{{', after: ' }}', newBefore: '{', newAfter: '' },
+                    { before: '{%', after: ' %}', newBefore: '{', newAfter: '' },
+                    { before: '{#', after: ' #}', newBefore: '{', newAfter: '' },
+                    // Inner bracket pairs - remove closing when cursor is between empty pair
+                    { before: '(', after: ')', newBefore: '', newAfter: '' },
+                    { before: '[', after: ']', newBefore: '', newAfter: '' },
+                    { before: '{', after: '}', newBefore: '', newAfter: '' },
+                ];
+                for (const s of states) {
+                    const before = view.state.doc.sliceString(pos - s.before.length, pos);
+                    const after = view.state.doc.sliceString(pos, pos + s.after.length);
+                    if (before === s.before && after === s.after) {
+                        const from = pos - s.before.length;
+                        const to = pos + s.after.length;
+                        view.dispatch({
+                            changes: { from, to, insert: s.newBefore + s.newAfter },
+                            selection: { anchor: from + s.newBefore.length }
+                        });
+                        return true;
+                    }
+                }
+                return false;
+            }
+        },
+        // Bracket wrapping for selections
+        { key: '"', run: (view) => handleBracketWrap(view, '"') },
+        { key: "'", run: (view) => handleBracketWrap(view, "'") },
+        {
+            key: '(',
+            run: (view) => {
+                if (handleBracketWrap(view, '(')) return true;
+                if (isInsideJinjaTag(view)) {
+                    const pos = view.state.selection.main.head;
+                    view.dispatch({
+                        changes: { from: pos, to: pos, insert: '()' },
+                        selection: { anchor: pos + 1 }
+                    });
+                    return true;
+                }
+                return false;
+            }
+        },
+        {
+            key: '[',
+            run: (view) => {
+                if (handleBracketWrap(view, '[')) return true;
+                if (isInsideJinjaTag(view)) {
+                    const pos = view.state.selection.main.head;
+                    view.dispatch({
+                        changes: { from: pos, to: pos, insert: '[]' },
+                        selection: { anchor: pos + 1 }
+                    });
+                    return true;
+                }
+                return false;
+            }
+        },
+        // Jinja auto-close pairs
+        {
+            key: '{',
+            run: (view) => {
+                // Wrap selection if any
+                if (handleBracketWrap(view, '{')) return true;
+                const pos = view.state.selection.main.head;
+                const before = view.state.doc.sliceString(pos - 1, pos);
+                // Auto-close Jinja tag: if previous char is '{', insert '{ }}' (the char + closing)
+                if (before === '{') {
+                    view.dispatch({
+                        changes: { from: pos, to: pos, insert: '{ }}' },
+                        selection: { anchor: pos + 1 }
+                    });
+                    return true;
+                }
+                // Auto-close single { inside a Jinja tag
+                if (isInsideJinjaTag(view)) {
+                    view.dispatch({
+                        changes: { from: pos, to: pos, insert: '{}' },
+                        selection: { anchor: pos + 1 }
+                    });
+                    return true;
+                }
+                return false;
+            }
+        },
+        {
+            key: '%',
+            run: (view) => {
+                // Auto-close {%: if previous char is '{', insert '% %}'
+                const pos = view.state.selection.main.head;
+                const before = view.state.doc.sliceString(pos - 1, pos);
+                if (before === '{') {
+                    view.dispatch({
+                        changes: { from: pos, to: pos, insert: '% %}' },
+                        selection: { anchor: pos + 1 }
+                    });
+                    return true;
+                }
+                return false;
+            }
+        },
+        {
+            key: '#',
+            run: (view) => {
+                // Auto-close {#: if previous char is '{', insert '# #}'
+                const pos = view.state.selection.main.head;
+                const before = view.state.doc.sliceString(pos - 1, pos);
+                if (before === '{') {
+                    view.dispatch({
+                        changes: { from: pos, to: pos, insert: '# #}' },
+                        selection: { anchor: pos + 1 }
+                    });
+                    return true;
+                }
+                return false;
+            }
+        },
+        {
+            key: '-',
+            run: (view) => {
+                const pos = view.state.selection.main.head;
+                // Check if we're inside an auto-closed pair and should add dashes
+                // Pattern: cursor is after '{{ ' and before ' }}'  -> change to '{{- ' and ' -}}'
+                // Pattern: cursor is after '{% ' and before ' %}'  -> change to '{%- ' and ' -%}'
+                // Pattern: cursor is after '{# ' and before ' #}'  -> change to '{#- ' and ' -#}'
+                const pairs = [
+                    { open: '{{', closeOld: ' }}', closeNew: ' -}}' },
+                    { open: '{%', closeOld: ' %}', closeNew: ' -%}' },
+                    { open: '{#', closeOld: ' #}', closeNew: ' -#}' },
+                ];
+                for (const pair of pairs) {
+                    const before = view.state.doc.sliceString(pos - pair.open.length, pos);
+                    const after = view.state.doc.sliceString(pos, pos + pair.closeOld.length);
+                    if (before === pair.open && after === pair.closeOld) {
+                        // First update the closing pair, then insert '-' at cursor
+                        // Do closing first (higher offset) to avoid position shifting
+                        view.dispatch({
+                            changes: { from: pos, to: pos + pair.closeOld.length, insert: pair.closeNew }
+                        });
+                        view.dispatch({
+                            changes: { from: pos, to: pos, insert: '-' },
+                            selection: { anchor: pos + 1 }
+                        });
+                        return true;
+                    }
+                }
+                return false;
             }
         },
         ...filteredDefaultKeymap,
@@ -906,6 +1287,9 @@ async function createJinjaEditor(containerId, templateText, contextDataParam, re
                 if (filterDropdown && filterDropdown.dropdownEl) {
                     return filterDropdown.handleKey('ArrowDown');
                 }
+                if (ctxDropdown && ctxDropdown.dropdownEl) {
+                    return ctxDropdown.handleKey('ArrowDown');
+                }
                 return false;
             }
         },
@@ -914,6 +1298,9 @@ async function createJinjaEditor(containerId, templateText, contextDataParam, re
             run: (view) => {
                 if (filterDropdown && filterDropdown.dropdownEl) {
                     return filterDropdown.handleKey('ArrowUp');
+                }
+                if (ctxDropdown && ctxDropdown.dropdownEl) {
+                    return ctxDropdown.handleKey('ArrowUp');
                 }
                 return false;
             }
@@ -924,6 +1311,9 @@ async function createJinjaEditor(containerId, templateText, contextDataParam, re
                 if (filterDropdown && filterDropdown.dropdownEl) {
                     return filterDropdown.handleKey('Enter');
                 }
+                if (ctxDropdown && ctxDropdown.dropdownEl) {
+                    return ctxDropdown.handleKey('Enter');
+                }
                 return false;
             }
         },
@@ -933,15 +1323,12 @@ async function createJinjaEditor(containerId, templateText, contextDataParam, re
                 if (filterDropdown && filterDropdown.dropdownEl) {
                     return filterDropdown.handleKey('Escape');
                 }
+                if (ctxDropdown && ctxDropdown.dropdownEl) {
+                    return ctxDropdown.handleKey('Escape');
+                }
                 return false;
             }
         },
-        // Bracket wrapping for selections
-        { key: '(', run: (view) => handleBracketWrap(view, '(') },
-        { key: '[', run: (view) => handleBracketWrap(view, '[') },
-        { key: '{', run: (view) => handleBracketWrap(view, '{') },
-        { key: '"', run: (view) => handleBracketWrap(view, '"') },
-        { key: "'", run: (view) => handleBracketWrap(view, "'") }
     ];
 
     // Create update listener to mark filter names with a class for styling
@@ -1002,23 +1389,7 @@ async function createJinjaEditor(containerId, templateText, contextDataParam, re
             EditorState.allowMultipleSelections.of(true),
             indentOnInput(),
             syntaxHighlighting(highlightStyle),
-            autocompletion({ 
-                override: [ctxCompletion],
-                maxHeight: 300,
-                closeOnBlur: false,
-                positionInfo: (view) => {
-                    const coords = view.coordsAtPos(view.state.selection.main.head);
-                    if (!coords) return {};
-                    
-                    const spaceBelow = window.innerHeight - coords.top;
-                    
-                    // Position above if less than 300px space below
-                    if (spaceBelow < 300) {
-                        return { top: -(300 + 20 - 10) + 'px' }; // Move down 10px when extending up
-                    }
-                    return { top: '-10px' }; // Move up 10px when extending down
-                }
-            }),
+
             documentChangeListener,
             rectangularSelection(),
             crosshairCursor(),
@@ -1246,6 +1617,7 @@ async function createJinjaEditor(containerId, templateText, contextDataParam, re
     
     // Attach mousedown listener for dropdown handling
     editor.dom.addEventListener('mousedown', editorMousedownHandler, true);
+    editor.dom.addEventListener('mousedown', editorCtrlClickHandler, true);
     
     // Setup linting indicator listener after view is created
     const updateLintingIndicator = () => {
@@ -1710,7 +2082,7 @@ async function createJsonEditor(containerId, jsonData, renderCommands = []) {
 
 async function createOutputEditor(containerId, outputText, performRender = null) {
     // Ensure outputText is a string
-    const text = typeof outputText === 'string' ? outputText : String(outputText);
+    const text = typeof outputText === 'string' ? outputText : (outputText !== null && typeof outputText === 'object') ? JSON.stringify(outputText, null, 2) : String(outputText);
 
     // Get the container and clear it first
     const container = document.getElementById(containerId);
@@ -1729,8 +2101,13 @@ async function createOutputEditor(containerId, outputText, performRender = null)
     const { syntaxHighlighting, HighlightStyle } = await import('@codemirror/language');
     const { tags: t } = await import('@lezer/highlight');
     const { foldGutter } = await import('@codemirror/language');
+    const { json } = await import('@codemirror/lang-json');
     const { defaultKeymap, indentWithTab } = await import('@codemirror/commands');
     const { keymap, lineNumbers, highlightActiveLineGutter, highlightSpecialChars, drawSelection, dropCursor, rectangularSelection, crosshairCursor } = await import('@codemirror/view');
+    const { searchKeymap, highlightSelectionMatches } = await import('@codemirror/search');
+
+    // Get the computed value of --bg-primary CSS variable
+    const bgPrimaryColor = getComputedStyle(document.documentElement).getPropertyValue('--bg-primary').trim() || '#1a3540';
 
     // Define bracket decoration helpers for output (colored brackets, no validation)
     const createBracketDecorations = (doc) => {
@@ -1823,26 +2200,27 @@ async function createOutputEditor(containerId, outputText, performRender = null)
     const state = EditorState.create({
         doc: text,
         extensions: [
-            EditorView.editable.of(false), // Read-only
-            EditorState.readOnly.of(true),
+            EditorState.readOnly.of(true), // Read-only but still focusable for keyboard shortcuts
             lineNumbers(),
             highlightActiveLineGutter(),
             highlightSpecialChars(),
             foldGutter(),
+            json(),
             drawSelection(),
             dropCursor(),
             EditorState.allowMultipleSelections.of(true),
             rectangularSelection(),
             crosshairCursor(),
-            keymap.of([...defaultKeymap, indentWithTab]),
+            keymap.of([...defaultKeymap, ...searchKeymap, indentWithTab]),
+            highlightSelectionMatches(),
             syntaxHighlighting(highlightStyle),
             outputBracketField,
             EditorView.lineWrapping,
             EditorView.theme({
                 '.cm-editor': { height: '100%', width: '100%', flex: '1', overflow: 'hidden', minWidth: '0' },
-                '.cm-content': { backgroundColor: '#1a3540', color: '#e0e0e0' },
-                '.cm-selectionBackground': { backgroundColor: '#ffff00' },
-                '.cm-selection': { backgroundColor: '#ffff00' }
+                '.cm-content': { backgroundColor: bgPrimaryColor, color: '#e0e0e0' },
+                '.cm-selectionBackground': { backgroundColor: 'rgba(255, 255, 0, 0.3)' },
+                '.cm-selection': { backgroundColor: 'rgba(255, 255, 0, 0.3)' }
             }, { dark: true })
         ]
     });
@@ -1945,7 +2323,7 @@ async function createOutputEditor(containerId, outputText, performRender = null)
 async function renderTemplateWithPersephone(template, context) {
     try {
         // Send request to Persephone's /render-template endpoint
-        const response = await fetch('/kore/render-template', {
+        const response = await fetch('/engine/render-template', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
@@ -2035,6 +2413,7 @@ async function initializeEditors(jsonContainerId, jinjaContainerId, outputContai
 
     // Create the JSON editor with context data and render commands
     const jsonEditor = await createJsonEditor(jsonContainerId, initialContextData, renderCommands);
+    window._jinjaJsonEditor = jsonEditor; // expose for live CTX autocomplete
 
     // Create the Jinja editor with render commands
     const jinjaEditor = await createJinjaEditor(jinjaContainerId, sampleTemplate, initialContextData, renderCommands);
@@ -2105,3 +2484,15 @@ function openJsonEditorModal(fieldLabel, initialValue, onSaveCallback, readOnly 
 
 // Export for use in other modules
 // Functions are exposed globally: createJinjaEditor, createJsonEditor, createOutputEditor, renderTemplate, renderTemplateWithPersephone, initializeEditors, contextData
+// ============================================================================
+// EXPORTS TO WINDOW
+// ============================================================================
+window.createJinjaEditor = createJinjaEditor;
+window.createJsonEditor = createJsonEditor;
+window.createOutputEditor = createOutputEditor;
+window.initializeEditors = initializeEditors;
+window.loadFiltersMetadata = loadFiltersMetadata;
+window.openJinjaEditorModal = openJinjaEditorModal;
+window.openJsonEditorModal = openJsonEditorModal;
+window.renderTemplateWithPersephone = renderTemplateWithPersephone;
+window.setupCodeMirror = setupCodeMirror;

@@ -1,0 +1,36 @@
+<div class="panel-level-1">
+    <script src="/lib/wf-core.js"></script>
+    <script src="/lib/jinja-json.js"></script>
+    <script>
+        (async () => {
+            const executionId = getQueryParam('id');
+            if (!executionId) {
+                document.currentScript.parentElement.innerHTML += '<div style="color: #ff6b6b; padding: 10px;">No execution ID provided</div>';
+                return;
+            }
+            
+            try {
+                document.currentScript.parentElement.innerHTML = 'Loading...';
+                const execution = await fetchExecutionDetail(executionId);
+                const html = generateExecDetailHTML(execution);
+                document.currentScript.parentElement.innerHTML = html;
+                
+                // Render editors
+                if (window._contextToRender?.length) {
+                    for (const ctx of window._contextToRender) {
+                        const jsonString = typeof ctx.data === 'string' ? JSON.stringify(JSON.parse(ctx.data), null, 2) : JSON.stringify(ctx.data, null, 2);
+                        await createOutputEditor(ctx.containerId, jsonString);
+                    }
+                }
+                if (window._stepsToRender?.length) {
+                    for (const step of window._stepsToRender) {
+                        const jsonString = typeof step.data === 'string' ? JSON.stringify(JSON.parse(step.data), null, 2) : JSON.stringify(step.data, null, 2);
+                        await createOutputEditor(step.containerId, jsonString);
+                    }
+                }
+            } catch (error) {
+                document.currentScript.parentElement.innerHTML = `<div style="color: #ff6b6b; padding: 10px;">Error: ${error.message}</div>`;
+            }
+        })();
+    </script>
+</div>

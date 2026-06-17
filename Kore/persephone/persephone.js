@@ -24,6 +24,11 @@ const transformFilters = require('./filters/transform');
 const Resources = require('../resources/resources');
 
 /**
+ * Track active executions for cancellation support
+ */
+const activeExecutions = {}; // { executionId: { cancelled: false } }
+
+/**
  * Get current timestamp formatted in configured timezone
  */
 function getTimestamp() {
@@ -47,74 +52,174 @@ const Persephone = (() => {
         rewst: null,
         cwa: null
     };
-
-    // Route registry for dynamic route handling
-    const routes = [];
+    
+    let plugins = null;  // Plugins module reference for workflow execution
+    let env = null;      // Nunjucks environment - recreated on reload
 
     /**
-     * Register an endpoint with the route registry
+     * Main request handler for all /engine/ endpoints
+     * Routes to appropriate handler based on pathname and method
      */
-    function registerRoute(pattern, handler) {
-        routes.push({ pattern, handler });
+    async function handleRequest(req, res) {
+        const parsedUrl = url.parse(req.url, true);
+        const pathname = parsedUrl.pathname;
+        
+        global.consoleLog('Persephone', `Routing /engine/ request: ${req.method} ${pathname}`, 4);
+        
+        try {
+            // POST /engine/execute - Execute workflow
+            if (req.method === 'POST' && pathname === '/engine/execute') {
+                return handleExecuteRequest(req, res);
+            }
+            
+            // /engine/executions/* - List, get status, or cancel execution
+            else if (pathname.startsWith('/engine/executions')) {
+                return handleExecutionRequest(req, res);
+            }
+            
+            // /engine/filters* - Get filters (all or specific)
+            else if (pathname.startsWith('/engine/filters')) {
+                return handleFilterRequest(req, res);
+            }
+            
+            // POST /engine/render-template - Render a Jinja2 template
+            else if (req.method === 'POST' && pathname === '/engine/render-template') {
+                return handleRenderTemplate(req, res);
+            }
+            
+            // No matching route
+            else {
+                global.consoleLog('Persephone', `No route matched for: ${req.method} ${pathname}`, 3);
+                res.writeHead(404, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: 'Not found' }));
+            }
+        } catch (error) {
+            global.consoleLog('Persephone', `Request handler error: ${error.message}`, 1);
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Internal server error' }));
+        }
     }
 
     /**
-     * Check if a URL matches any registered route and handle it
+     * Drain active workflow executions before reload
+     * Waits for running workflows to complete with timeout
      */
-    function handleRegisteredRoute(req, res) {
-        console.log(`[Persephone] Checking route for: ${req.url}`);
-        for (const route of routes) {
-            if (typeof route.pattern === 'string') {
-                // Exact match or startsWith for query params
-                if (req.url === route.pattern || req.url.startsWith(route.pattern + '?')) {
-                    console.log(`[Persephone] Matched string route: ${route.pattern}`);
-                    return route.handler(req, res);
-                }
-            } else if (route.pattern instanceof RegExp) {
-                // Regex match
-                if (route.pattern.test(req.url)) {
-                    console.log(`[Persephone] Matched regex route: ${route.pattern}`);
-                    return route.handler(req, res);
+    async function drainActiveExecutions(korePool) {
+        try {
+            const executionTimeout = 60000; // 60 second timeout for executions to complete
+            const drainDeadline = Date.now() + executionTimeout;
+            
+            let runningCount = 0;
+            let checkCount = 0;
+            let lastReportedCount = -1;
+            
+            while (Date.now() < drainDeadline) {
+                try {
+                    const [execRows] = await korePool.query(
+                        'SELECT COUNT(*) as count FROM workflow_exec WHERE status = ?',
+                        ['running']
+                    );
+                    runningCount = execRows[0]?.count || 0;
+                    
+                    if (runningCount === 0) {
+                        if (checkCount > 0) {
+                            global.consoleLog('Persephone', 'All running executions completed - safe to reload', 3);
+                        }
+                        return;
+                    }
+                    
+                    // Log only when count changes or first check
+                    if (checkCount === 0 || runningCount !== lastReportedCount) {
+                        global.consoleLog('Persephone', `Waiting for ${runningCount} running workflow execution(s) to complete...`, 3);
+                        lastReportedCount = runningCount;
+                    }
+                    checkCount++;
+                    
+                    await new Promise(resolve => setTimeout(resolve, 500));
+                    
+                } catch (dbError) {
+                    global.consoleLog('Persephone', `Could not check running executions: ${dbError.message}`, 2);
+                    return; // Don't block reload if DB check fails
                 }
             }
+            
+            // Timeout reached
+            if (runningCount > 0) {
+                global.consoleLog('Persephone', `WARNING: ${runningCount} workflow execution(s) still running after ${executionTimeout}ms - forcing reload`, 2);
+            }
+            
+        } catch (error) {
+            global.consoleLog('Persephone', `Error draining executions: ${error.message}`, 2);
+            // Don't block reload on drain errors
         }
-        console.log(`[Persephone] No route matched for: ${req.url}`);
-        return false; // No route matched
     }
 
     /**
-     * Initialize Persephone with MySQL pools for all three databases
+     * Initialize Persephone with MySQL pool for kore_sys database only
+     * External database queries are handled via Plugin system /sqlquery endpoint
+     * 
+     * On first call: Sets up dependencies
+     * On re-initialization: Drains active executions, then resets and reloads
      */
-    async function initialize(korePool, rewstPool, cwaPool) {
+    async function initialize(korePool, pluginsModule) {
+        // If reinitializing (kore_sys pool already set), drain active executions first
+        if (pools.kore_sys) {
+            global.consoleLog('Persephone', 'Draining active workflow executions before reload...', 3);
+            await drainActiveExecutions(korePool);
+        }
+        
+        // Clear require cache for Persephone dependencies to ensure fresh reload
+        const modulesToClear = [
+            './filters',
+            './filters/transform',
+            './filters/utils',
+            './filters/datetime',
+            '../resources/resources'
+        ];
+        
+        for (const modulePath of modulesToClear) {
+            try {
+                delete require.cache[require.resolve(modulePath)];
+            } catch (e) {
+                // Module might not be cached yet, that's fine
+            }
+        }
+        
+        // Re-require dependencies after cache clear
+        const freshRegisterFilters = require('./filters');
+        const freshTransformFilters = require('./filters/transform');
+        
+        // Clear nunjucks compiled template cache
+        if (nunjucks.loaders && nunjucks.loaders[0]) {
+            nunjucks.loaders[0].cache = {};
+        }
+        
         pools.kore_sys = korePool;
-        pools.rewst = rewstPool;
-        pools.cwa = cwaPool;
-        const env = nunjucks.configure({ 
+        plugins = pluginsModule;  // Store plugins module reference for workflow execution
+        env = nunjucks.configure({ 
             autoescape: false,
             throwOnUndefined: true,  // Throw on undefined, none/true/false are defined values
             finalize: function(value) {
-                // If it's an object or array, serialize to JSON (pretty-printed)
                 if (value !== null && typeof value === 'object') {
-                    return JSON.stringify(value, null, 2);
+                    return JSON.stringify(value);
                 }
-                // Otherwise return as-is (strings, numbers, booleans, null, undefined)
                 return value;
             }
         });
         
         // Register custom filters
         try {
-            const filterStatus = registerFilters(env);
+            const filterStatus = freshRegisterFilters(env);
             if (filterStatus.failed.length > 0) {
-                console.warn(`[Persephone] Failed to register ${filterStatus.failed.length} filters:`, filterStatus.failed);
+                global.consoleLog('Persephone', `Failed to register ${filterStatus.failed.length} filters: ${JSON.stringify(filterStatus.failed)}`, 2);
             }
         } catch (error) {
-            console.error(`[Persephone] Error registering filters: ${error.message}`);
+            global.consoleLog('Persephone', `Error registering filters: ${error.message}`, 1);
         }
         
         // Register transform filters (type conversion and transformation)
         try {
-            Object.entries(transformFilters).forEach(([name, fn]) => {
+            Object.entries(freshTransformFilters).forEach(([name, fn]) => {
                 env.addFilter(name, fn);
             });
             
@@ -124,22 +229,23 @@ const Persephone = (() => {
                 env.addFilter(name, fn);
             });
         } catch (error) {
-            console.error(`[Persephone] Error registering transform filters: ${error.message}`);
+            global.consoleLog('Persephone', `Error registering transform filters: ${error.message}`, 1);
         }
         
-        // Register global functions
+        // Register global functions and all datetime filters
         try {
             const datetimeFilters = require('./filters/datetime');
             env.addGlobal('now', datetimeFilters.now);
+            Object.entries(datetimeFilters).forEach(([name, fn]) => {
+                if (name !== 'now' && typeof fn === 'function') {
+                    env.addFilter(name, fn);
+                }
+            });
         } catch (error) {
-            console.error(`[Persephone] Error registering global functions: ${error.message}`);
+            global.consoleLog('Persephone', `Error registering global functions: ${error.message}`, 1);
         }
         
-        // Register Persephone API routes (execution only)
-        registerRoute('/kore/execute', handleExecuteRequest);
-        registerRoute('/kore/executions', handleExecutionRequest);
-        registerRoute(/^\/kore\/filters(\/.*)?(\?.*)?$/, handleFilterRequest);
-        registerRoute('/kore/render-template', handleRenderTemplate);
+        global.consoleLog('Persephone', 'Initialization complete - /engine/ endpoints ready', 3);
     }
 
     /**
@@ -154,7 +260,6 @@ const Persephone = (() => {
             timeout = 3600000 // 1 hour default
         } = options;
 
-        const executionId = uuidv4();
         const conn = await pools.kore_sys.getConnection();
 
         try {
@@ -162,41 +267,68 @@ const Persephone = (() => {
             const workflow = await Resources.getWorkflow(workflowId, workflowVersion);
 
             // Initialize variables with workflow defaults + parameters
+            // We'll add _executionId after the INSERT
             const variables = {
                 ...workflow.definition.variables,
                 ...parameters,
-                _executionId: executionId,
                 _workflowId: workflowId,
                 _workflowVersion: workflow.version,
                 _startedAt: global.getTimestamp()
             };
 
-            // Create execution record
-            await conn.execute(
-                `INSERT INTO pers_executions 
-                 (execution_id, workflow_id, workflow_version, triggered_by, triggered_by_user, parameters, variables, status)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, 'running')`,
+            // Create execution record with initial context
+            // Build CTX with only user-defined variables (filter out internal _ prefixed and steps)
+            const initialCTX = {};
+            for (const [key, value] of Object.entries(variables)) {
+                if (!key.startsWith('_') && key !== 'steps') {
+                    initialCTX[key] = value;
+                }
+            }
+            
+            const initialContext = {
+                CTX: initialCTX,
+                STEPS: {},
+                WORKFLOW: {
+                    workflowId: workflowId,
+                    workflowVersion: workflow.version,
+                    startedAt: global.getTimestamp()
+                }
+            };
+            
+            // Insert execution record and get auto-generated ID
+            const [okPacket] = await conn.execute(
+                `INSERT INTO workflow_exec 
+                 (workflow_id, workflow_version, triggered_by, triggered_by_user, variables, context, status, triggered_at)
+                 VALUES (?, ?, ?, ?, ?, ?, 'running', NOW())`,
                 [
-                    executionId,
                     workflowId,
                     workflow.version,
                     triggeredBy,
                     triggeredByUser,
-                    JSON.stringify(parameters),
-                    JSON.stringify(variables)
+                    JSON.stringify(variables),
+                    JSON.stringify(initialContext)
                 ]
             );
+            
+            const executionId = okPacket.insertId;
+            
+            // Initialize execution tracking
+            activeExecutions[executionId] = { cancelled: false };
+            
+            // Now add executionId to variables and context
+            variables._executionId = executionId;
+            initialContext.WORKFLOW.executionId = executionId;
 
-            console.log(`[Persephone] Execution started: ${executionId}`);
+            global.consoleLog('Persephone', `Execution started: ${executionId}`, 3);
 
             // Execute workflow asynchronously
-            executeWorkflowSteps(executionId, workflow, variables, conn).catch(err => {
-                console.error(`[Persephone] Execution failed: ${executionId}`, err);
+            executeWorkflowSteps(executionId, workflow, variables).catch(err => {
+                global.consoleLog('Persephone', `Execution failed: ${executionId} ${JSON.stringify(err)}`, 1);
             });
 
             return { executionId, status: 'running', startedAt: global.getTimestamp() };
         } catch (error) {
-            console.error(`[Persephone] Execute workflow error:`, error);
+            global.consoleLog('Persephone', `Execute workflow error: ${JSON.stringify(error)}`, 1);
             throw error;
         } finally {
             conn.release();
@@ -204,98 +336,507 @@ const Persephone = (() => {
     }
 
     /**
-     * Execute workflow steps (internal)
+     * Execute workflow steps using graph traversal
+     * Follows transitions to execute steps concurrently across paths
      */
-    async function executeWorkflowSteps(executionId, workflow, variables, conn) {
+    async function executeWorkflowSteps(executionId, workflow, variables) {
+        const conn = await pools.kore_sys.getConnection();
         const startTime = Date.now();
         const results = {};
         const errors = [];
-        let stepsFailed = false;
+        const stepLookup = {};
+        const sequenceCounter = { value: 0 };  // Shared counter for step execution order
+        
+        // Build step lookup map
+        workflow.definition.steps.forEach(step => {
+            stepLookup[step.id] = step;
+        });
+
+        // Build node lookup map for resolving targetNodes -> targetSteps
+        const nodeLookup = {};
+        if (workflow.definition.nodes) {
+            workflow.definition.nodes.forEach(node => {
+                nodeLookup[node.id] = node;
+            });
+        }
 
         try {
-            for (const step of workflow.definition.steps) {
-                if (stepsFailed && !step.continueOnError) {
-                    // Skip remaining steps if one failed
-                    await recordStepExecution(conn, executionId, step.id, step.type, 'skipped', null, null);
-                    continue;
+            // Pre-calculate in-degree (number of incoming paths) for each step
+            const inDegree = calculateInDegree(workflow.definition.steps, nodeLookup);
+            
+            // Track completion status of predecessors
+            const completedPredecessors = {};
+            inDegree.forEach((count, stepId) => {
+                completedPredecessors[stepId] = 0;
+            });
+
+            // Find the Begin step
+            const beginStep = workflow.definition.steps.find(s => s.type === 'Begin');
+            if (!beginStep) {
+                throw new Error('Workflow must have a Begin step');
+            }
+
+            global.consoleLog('Persephone', `Starting workflow execution from Begin step: ${beginStep.id}`, 4);
+
+            // Execute the workflow graph starting from Begin
+            // This handles both the single path (Begin → Plugin) and multi-path scenarios
+            const beginResult = await executeStepInWorkflow(
+                beginStep.id,
+                variables,
+                stepLookup,
+                nodeLookup,
+                results,
+                errors,
+                conn,
+                executionId,
+                inDegree,
+                completedPredecessors,
+                sequenceCounter
+            );
+
+            // Find matching case for Begin step
+            const beginCase = await findMatchingCase(beginStep.transition, beginResult.state, variables);
+            
+            if (beginCase) {
+                // Resolve targetSteps including via nodes
+                const beginNextSteps = [...(beginCase.targetSteps || [])];
+                if (beginCase.targetNodes) {
+                    beginCase.targetNodes.forEach(nodeId => {
+                        const node = nodeLookup[nodeId];
+                        if (node && node.targetSteps) beginNextSteps.push(...node.targetSteps);
+                    });
                 }
-
-                const stepStartTime = Date.now();
-
-                try {
-                    console.log(`[Persephone] Executing step: ${step.id} (${step.type})`);
-
-                    let stepOutput;
-
-                    // Execute step based on type
-                    switch (step.type) {
-                        case 'command':
-                            stepOutput = await executeCommand(step, variables);
-                            break;
-                        case 'query':
-                            stepOutput = await executeQuery(step, variables);
-                            break;
-                        case 'condition':
-                            stepOutput = await executeCondition(step, variables);
-                            break;
-                        case 'foreach':
-                            stepOutput = await executeForeach(step, variables);
-                            break;
-                        case 'action':
-                            stepOutput = await executeAction(step, variables);
-                            break;
-                        default:
-                            throw new Error(`Unknown step type: ${step.type}`);
-                    }
-
-                    // Store step output in variables for next steps
-                    if (!variables.steps) variables.steps = {};
-                    variables.steps[step.id] = stepOutput;
-                    results[step.id] = stepOutput;
-
-                    const stepDuration = Date.now() - stepStartTime;
-                    await recordStepExecution(conn, executionId, step.id, step.type, 'completed', stepOutput, null, stepDuration);
-
-                } catch (err) {
-                    stepsFailed = true;
-                    const errorMsg = err?.message || err?.toString?.() || String(err);
-                    errors.push({ step: step.id, error: errorMsg });
-
-                    const stepDuration = Date.now() - stepStartTime;
-                    await recordStepExecution(conn, executionId, step.id, step.type, 'failed', null, errorMsg, stepDuration);
-
-                    console.error(`[Persephone] Step error: ${step.id}`, err);
-
-                    if (!step.continueOnError) {
-                        throw err;
-                    }
+                if (beginNextSteps.length > 0) {
+                    // Launch all successor paths in parallel
+                    const pathPromises = beginNextSteps.map(stepId =>
+                        executePath(stepId, variables, stepLookup, nodeLookup, results, errors, conn, executionId, inDegree, completedPredecessors, sequenceCounter)
+                    );
+                    await Promise.allSettled(pathPromises);
                 }
             }
 
             // Update execution as completed
             const duration = Date.now() - startTime;
+            
+            // Build CTX with only user-defined variables (filter out internal _ prefixed and steps)
+            const CTX = {};
+            for (const [key, value] of Object.entries(variables)) {
+                if (!key.startsWith('_') && key !== 'steps') {
+                    CTX[key] = value;
+                }
+            }
+            
+            // Determine final workflow status based on step results
+            let finalStatus = 'success';  // Default: all succeeded
+            
+            // Check if any steps failed
+            const failedSteps = Object.entries(results).filter(([stepId, result]) => {
+                return result && result.state === 'Failure';
+            });
+            
+            if (failedSteps.length > 0) {
+                // Find the last step(s) executed (those with no successors)
+                const lastSteps = workflow.definition.steps.filter(step => {
+                    // A step is "last" if no other step targets it as a successor
+                    const isTargeted = workflow.definition.steps.some(otherStep => {
+                        if (!otherStep.transition || !otherStep.transition.cases) return false;
+                        return otherStep.transition.cases.some(caseObj => {
+                            if (caseObj.targetSteps && caseObj.targetSteps.includes(step.id)) return true;
+                            if (caseObj.targetNodes) {
+                                return caseObj.targetNodes.some(nodeId => {
+                                    const node = nodeLookup[nodeId];
+                                    return node && node.targetSteps && node.targetSteps.includes(step.id);
+                                });
+                            }
+                            return false;
+                        });
+                    });
+                    return !isTargeted;
+                });
+                
+                // Check if any of the last steps failed
+                const lastStepFailed = lastSteps.some(step => {
+                    const result = results[step.name];
+                    return result && result.state === 'Failure';
+                });
+                
+                finalStatus = lastStepFailed ? 'failure' : 'warning';
+            }
+            
+            // Check if execution was cancelled - if so, override final status
+            if (activeExecutions[executionId]?.cancelled) {
+                finalStatus = 'cancelled';
+            }
+            
+            const fullContext = {
+                CTX: CTX,
+                STEPS: results,
+                WORKFLOW: {
+                    executionId: executionId,
+                    workflowId: variables._workflowId,
+                    startedAt: variables._startedAt,
+                    completedAt: global.getTimestamp(),
+                    duration: duration
+                }
+            };
             await conn.execute(
-                `UPDATE pers_executions 
-                 SET status = 'completed', results = ?, errors = ?, duration_ms = ?, completed_at = NOW()
+                `UPDATE workflow_exec 
+                 SET status = ?, results = ?, errors = ?, context = ?, duration_ms = ?, completed_at = NOW()
                  WHERE execution_id = ?`,
-                [JSON.stringify(results), JSON.stringify(errors), duration, executionId]
+                [finalStatus, JSON.stringify(results), JSON.stringify(errors), JSON.stringify(fullContext), duration, executionId]
             );
 
-            console.log(`[Persephone] Execution completed: ${executionId} (${duration}ms)`);
+            global.consoleLog('Persephone', `Execution completed: ${executionId} (${duration}ms) with status: ${finalStatus}`, 3);
 
         } catch (err) {
             // Update execution as failed
             const duration = Date.now() - startTime;
             errors.push({ workflow: 'fatal', error: err.message });
+            
+            const fullContext = {
+                CTX: variables,
+                STEPS: results,
+                WORKFLOW: {
+                    executionId: executionId,
+                    workflowId: variables._workflowId,
+                    startedAt: variables._startedAt,
+                    completedAt: global.getTimestamp(),
+                    duration: duration
+                }
+            };
 
             await conn.execute(
-                `UPDATE pers_executions 
-                 SET status = 'failed', errors = ?, duration_ms = ?, completed_at = NOW()
+                `UPDATE workflow_exec 
+                 SET status = 'failure', errors = ?, context = ?, duration_ms = ?, completed_at = NOW()
                  WHERE execution_id = ?`,
-                [JSON.stringify(errors), duration, executionId]
+                [JSON.stringify(errors), JSON.stringify(fullContext), duration, executionId]
             );
 
-            console.error(`[Persephone] Execution failed: ${executionId}`, err);
+            global.consoleLog('Persephone', `Execution failed: ${executionId} ${JSON.stringify(err)}`, 1);
+        } finally {
+            // Clean up execution tracking
+            delete activeExecutions[executionId];
+            conn.release();
+        }
+    }
+
+    /**
+     * Calculate in-degree (number of incoming paths) for each step
+     */
+    function calculateInDegree(steps, nodeLookup = {}) {
+        const inDegree = new Map();
+        
+        // Initialize all steps with 0 in-degree
+        steps.forEach(step => {
+            inDegree.set(step.id, 0);
+        });
+
+        // Helper to get all target step IDs including via nodes
+        function resolveTargetSteps(caseObj) {
+            const stepIds = [...(caseObj.targetSteps || [])];
+            if (caseObj.targetNodes) {
+                caseObj.targetNodes.forEach(nodeId => {
+                    const node = nodeLookup[nodeId];
+                    if (node && node.targetSteps) {
+                        stepIds.push(...node.targetSteps);
+                    }
+                });
+            }
+            return stepIds;
+        }
+
+        // Count incoming paths from each step's transition
+        steps.forEach(step => {
+            if (step.transition && step.transition.cases) {
+                step.transition.cases.forEach(caseObj => {
+                    resolveTargetSteps(caseObj).forEach(targetStepId => {
+                        inDegree.set(targetStepId, (inDegree.get(targetStepId) || 0) + 1);
+                    });
+                });
+            }
+        });
+
+        return inDegree;
+    }
+
+    /**
+     * Find matching transition case based on step outcome
+     */
+    async function findMatchingCase(transition, stepState, variables) {
+        if (!transition || !transition.cases || transition.cases.length === 0) {
+            return null;
+        }
+
+        const mode = transition.mode || 'First';
+
+        // Sort cases by order field if present
+        const sortedCases = [...transition.cases].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+
+        if (mode === 'First') {
+            for (const caseObj of sortedCases) {
+                const matched = await evaluateCase(caseObj, stepState, variables);
+                if (matched) return caseObj;
+            }
+        } else if (mode === 'All') {
+            const matchingCases = [];
+            for (const caseObj of sortedCases) {
+                const matched = await evaluateCase(caseObj, stepState, variables);
+                if (matched) matchingCases.push(caseObj);
+            }
+            return matchingCases.length > 0 ? matchingCases[0] : null;
+        }
+
+        return null;
+    }
+
+    async function evaluateCase(caseObj, stepState, variables) {
+        // Always type always matches
+        if (caseObj.type === 'Always') return true;
+
+        // Logic type - evaluate Jinja condition
+        if (caseObj.type === 'Logic') {
+            if (!caseObj.conditions) return false;
+            try {
+                const renderResult = await renderTemplate(caseObj.conditions, { CTX: variables, STEPS: variables.steps || {} });
+                if (!renderResult.success) {
+                    global.consoleLog('Persephone', `Logic case condition error: ${renderResult.error}`, 2);
+                    return false;
+                }
+                const result = renderResult.result;
+                // Treat as falsy: false, null, undefined, 0, '', 'false', 'none', 'False', 'None'
+                if (result === false || result === null || result === undefined || result === 0) return false;
+                if (typeof result === 'string') {
+                    const lower = result.trim().toLowerCase();
+                    if (lower === 'false' || lower === 'none' || lower === '' || lower === '0') return false;
+                }
+                return true;
+            } catch (err) {
+                global.consoleLog('Persephone', `Logic case evaluation error: ${err.message}`, 2);
+                return false;
+            }
+        }
+
+        // Standard type match (success, failure, etc.)
+        return caseObj.type === stepState;
+    }
+
+    /**
+     * Execute a step and record its result
+     */
+    async function executeStepInWorkflow(stepId, variables, stepLookup, nodeLookup, results, errors, conn, executionId, inDegree, completedPredecessors, sequenceCounter) {
+        const step = stepLookup[stepId];
+        const stepStartTime = Date.now();
+
+        // Check if execution was cancelled
+        if (activeExecutions[executionId]?.cancelled) {
+            global.consoleLog('Persephone', `Step cancelled before execution: ${stepId}`, 4);
+            return { state: 'Cancelled' };
+        }
+
+        let stepExecutionId = null;
+
+        try {
+            global.consoleLog('Persephone', `Executing step: ${stepId} (${step.type})`, 4);
+            
+            // Record step as running at the start of execution
+            stepExecutionId = await recordStepExecution(
+                conn, executionId, stepId, step.type, 'running', null, null, null, null, step.name, ++sequenceCounter.value
+            );
+
+            let stepOutput;
+
+            // Execute step based on type
+            switch (step.type) {
+                case 'Begin':
+                    stepOutput = { type: 'Begin', status: 'executed' };
+                    break;
+                case 'command':
+                    stepOutput = await executeCommand(step, variables);
+                    break;
+                case 'query':
+                    stepOutput = await executeQuery(step, variables);
+                    break;
+                case 'condition':
+                    stepOutput = await executeCondition(step, variables);
+                    break;
+                case 'foreach':
+                    stepOutput = await executeForeach(step, variables);
+                    break;
+                case 'action':
+                    stepOutput = await executeAction(step, variables);
+                    break;
+                case 'Plugin':
+                    stepOutput = await executePlugin(step, variables);
+                    break;
+                case 'Kore':
+                    stepOutput = await executeKore(step, variables, executionId);
+                    break;
+                default:
+                    throw new Error(`Unknown step type: ${step.type}`);
+            }
+
+            // Store step output
+            if (!variables.steps) variables.steps = {};
+            variables.steps[step.name] = stepOutput;
+            results[step.name] = stepOutput;
+
+            // Track what gets added to CTX from this step
+            let stepNewContext = {};
+
+            // Process step variables if defined
+            if (step.variables && Array.isArray(step.variables)) {
+                const renderContext = {
+                    CTX: variables,
+                    STEPS: results
+                };
+
+                // Sort variables by order field before execution to ensure correct processing order
+                // Assign order by index for variables that don't have it (backward compatibility)
+                step.variables.forEach((v, i) => { if (v.order === undefined) v.order = i; });
+                const sortedVariables = [...step.variables].sort((a, b) => a.order - b.order);
+                for (const varDef of sortedVariables) {
+                    try {
+                        const renderResult = await renderTemplate(varDef.value, renderContext);
+                        if (!renderResult.success) {
+                            throw new Error(renderResult.error || 'Template rendering failed');
+                        }
+                        variables[varDef.name] = renderResult.result;
+                        stepNewContext[varDef.name] = renderResult.result;
+                        global.consoleLog('Persephone', `Step variable: ${varDef.name} = ${JSON.stringify(renderResult.result)}`, 4);
+                    } catch (err) {
+                        global.consoleLog('Persephone', `Error rendering step variable ${varDef.name}: ${err.message}`, 1);
+                        const enriched = new Error(`Variable "${varDef.name}": ${err.message}  (template: ${String(varDef.value).substring(0, 200)})`);
+                        throw enriched;
+                    }
+                }
+            }
+
+            const stepDuration = Date.now() - stepStartTime;
+            await recordStepExecution(conn, executionId, stepId, step.type, 'success', stepOutput, null, stepDuration, stepNewContext, step.name, null, stepExecutionId);
+
+            // Update main execution context if step added new variables
+            if (Object.keys(stepNewContext).length > 0) {
+                // Merge new context into variables (CTX)
+                Object.assign(variables, stepNewContext);
+                
+                // Build CTX object without the internal steps property
+                const ctx = {};
+                for (const [key, value] of Object.entries(variables)) {
+                    if (!key.startsWith('_') && key !== 'steps') {
+                        ctx[key] = value;
+                    }
+                }
+                
+                // Build full context for persistence
+                const fullContext = {
+                    CTX: ctx
+                };
+                
+                // Update execution record with new context
+                await conn.execute(
+                    `UPDATE workflow_exec SET context = ? WHERE execution_id = ?`,
+                    [JSON.stringify(fullContext), executionId]
+                );
+                
+                global.consoleLog('Persephone', `Updated execution context with ${Object.keys(stepNewContext).length} new variable(s)`, 4);
+            }
+
+            global.consoleLog('Persephone', `Step completed: ${stepId}`, 4);
+
+            // Return step state (Success by default, Failure if error, Always matches everything)
+            return {
+                state: 'Success',
+                output: stepOutput
+            };
+
+        } catch (err) {
+            const errorMsg = err?.message || err?.toString?.() || String(err);
+            const isCancelled = errorMsg === 'Execution cancelled';
+            
+            const stepDuration = Date.now() - stepStartTime;
+            const stepStatus = isCancelled ? 'cancelled' : 'failure';
+            
+            if (!isCancelled) {
+                errors.push({ step: stepId, error: errorMsg });
+            }
+            
+            try {
+                await recordStepExecution(conn, executionId, stepId, step.type, stepStatus, null, isCancelled ? null : errorMsg, stepDuration, null, step.name, null, stepExecutionId);
+            } catch (dbErr) {
+                global.consoleLog('Persephone', `Step DB update FAILED: stepExecutionId=${stepExecutionId} error=${dbErr.message}`, 1);
+            }
+
+            global.consoleLog('Persephone', `Step ${isCancelled ? 'cancelled' : 'error'}: ${stepId}${isCancelled ? '' : ' ' + JSON.stringify(err)}`, isCancelled ? 3 : 1);
+
+            return {
+                state: isCancelled ? 'Cancelled' : 'Failure',
+                error: isCancelled ? undefined : errorMsg
+            };
+        }
+    }
+
+    /**
+     * Recursively execute a path in the workflow graph
+     * Each path follows its own transitions sequentially
+     * Multiple paths execute in parallel
+     */
+    async function executePath(stepId, variables, stepLookup, nodeLookup, results, errors, conn, executionId, inDegree, completedPredecessors, sequenceCounter) {
+        const step = stepLookup[stepId];
+
+        // Execute this step
+        const stepResult = await executeStepInWorkflow(
+            stepId,
+            variables,
+            stepLookup,
+            nodeLookup,
+            results,
+            errors,
+            conn,
+            executionId,
+            inDegree,
+            completedPredecessors,
+            sequenceCounter
+        );
+
+        // Find matching case for this step's outcome
+        const matchingCase = await findMatchingCase(step.transition, stepResult.state, variables);
+
+        if (matchingCase) {
+            // Resolve all target step IDs including via nodes
+            const nextStepIds = [...(matchingCase.targetSteps || [])];
+            if (matchingCase.targetNodes) {
+                matchingCase.targetNodes.forEach(nodeId => {
+                    const node = nodeLookup[nodeId];
+                    if (node && node.targetSteps) {
+                        nextStepIds.push(...node.targetSteps);
+                    }
+                });
+            }
+
+            if (nextStepIds.length > 0) {
+                // Process each successor step
+                for (const nextStepId of nextStepIds) {
+                    // Increment the predecessor completion count
+                    completedPredecessors[nextStepId] = (completedPredecessors[nextStepId] || 0) + 1;
+
+                    const nextStep = stepLookup[nextStepId];
+                    const minConn = (nextStep && nextStep.min_connections) ? nextStep.min_connections : 0;
+                    const required = minConn > 0 ? minConn : inDegree.get(nextStepId);
+                    const completed = completedPredecessors[nextStepId];
+
+                    // Check if threshold is met
+                    if (completed >= required) {
+                        global.consoleLog('Persephone', `Threshold met for ${nextStepId} (${completed}/${required}), executing`, 4);
+                        await executePath(nextStepId, variables, stepLookup, nodeLookup, results, errors, conn, executionId, inDegree, completedPredecessors, sequenceCounter);
+                    } else {
+                        global.consoleLog('Persephone', `Waiting for predecessors of ${nextStepId} (${completed}/${required})`, 4);
+                    }
+                }
+            } else {
+                global.consoleLog('Persephone', `No successors for step: ${stepId}, path ends`, 4);
+            }
+        } else {
+            global.consoleLog('Persephone', `No successors for step: ${stepId}, path ends`, 4);
         }
     }
 
@@ -304,14 +845,14 @@ const Persephone = (() => {
      */
     async function executeCommand(step, variables) {
         // Render template with current variables
-        const renderedCommand = nunjucks.renderString(step.command, variables);
-        console.log(`[Persephone] Rendered command: ${renderedCommand.substring(0, 100)}`);
+        const renderedCommand = env.renderString(step.command, variables);
+        global.consoleLog('Persephone', `Rendered command: ${renderedCommand.substring(0, 100)}`, 4);
 
         // TODO: Integrate with Kore's MeshCentral command execution
         // For now, return mock result
         return {
             command: renderedCommand,
-            nodeId: nunjucks.renderString(step.nodeId || '', variables),
+            nodeId: env.renderString(step.nodeId || '', variables),
             status: 'executed'
         };
     }
@@ -327,8 +868,8 @@ const Persephone = (() => {
             throw new Error(`Database pool not available: ${database}`);
         }
 
-        const renderedQuery = nunjucks.renderString(step.query, variables);
-        console.log(`[Persephone] Executing query on ${database}: ${renderedQuery.substring(0, 100)}`);
+        const renderedQuery = env.renderString(step.query, variables);
+        global.consoleLog('Persephone', `Executing query on ${database}: ${renderedQuery.substring(0, 100)}`, 4);
 
         const conn = await pool.getConnection();
         try {
@@ -341,7 +882,7 @@ const Persephone = (() => {
                 rows: Array.isArray(results) ? results : []
             };
 
-            console.log(`[Persephone] Query result: ${result.rowsAffected} rows affected/returned`);
+            global.consoleLog('Persephone', `Query result: ${result.rowsAffected} rows affected/returned`, 4);
             return result;
         } finally {
             conn.release();
@@ -352,7 +893,7 @@ const Persephone = (() => {
      * Execute condition step
      */
     async function executeCondition(step, variables) {
-        const condition = nunjucks.renderString(step.condition, variables);
+        const condition = env.renderString(step.condition, variables);
         // Make variables available to eval by injecting them into scope
         // eslint-disable-next-line no-eval
         const result = (function() {
@@ -384,32 +925,202 @@ const Persephone = (() => {
     async function executeAction(step, variables) {
         // Execute arbitrary action
         if (step.action) {
-            nunjucks.renderString(step.action, variables);
+            env.renderString(step.action, variables);
         }
         return { action: 'executed' };
     }
 
     /**
-     * Record step execution in database
+     * Execute plugin step (render inputs and call plugin task)
      */
-    async function recordStepExecution(conn, executionId, stepId, stepType, status, output, error, duration) {
-        const stepExecutionId = uuidv4();
+    async function executePlugin(step, variables) {
+        const taskId = step.action;
+        
+        if (!taskId) {
+            throw new Error('Plugin step requires action (task_id)');
+        }
 
-        await conn.execute(
-            `INSERT INTO pers_execution_steps
-             (step_execution_id, execution_id, step_id, step_type, status, output, error, duration_ms)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-            [
-                stepExecutionId,
-                executionId,
-                stepId,
-                stepType,
-                status,
-                output ? JSON.stringify(output) : null,
-                error,
-                duration || null
-            ]
-        );
+        global.consoleLog('Persephone', `Executing plugin task: ${taskId}`, 4);
+
+        // Render taskInputs with current variables
+        const renderedInputs = {};
+        if (step.taskInputs && Array.isArray(step.taskInputs)) {
+            for (const input of step.taskInputs) {
+                if (input.name && input.value !== undefined) {
+                    const renderResult = await renderTemplate(String(input.value), { CTX: variables, STEPS: variables.steps || {} });
+                    if (!renderResult.success) {
+                        throw new Error(`Input "${input.name}": ${renderResult.error}  (template: ${String(input.value).substring(0, 200)})`);
+                    }
+                    renderedInputs[input.name] = renderResult.result;
+                }
+            }
+        }
+
+        global.consoleLog('Persephone', `Rendered plugin inputs: ${JSON.stringify(renderedInputs)}`, 4);
+
+        // Call plugins.executeTask - get Plugins from global scope at execution time
+        if (!global.Plugins || !global.Plugins.executeTask) {
+            throw new Error('Plugins module not available');
+        }
+
+        const result = await global.Plugins.executeTask(taskId, renderedInputs);
+        
+        if (!result.success) {
+            throw new Error(`Plugin task failed: ${result.error || result.message}`);
+        }
+
+        return result;
+    }
+
+    /**
+     * Returns a promise that rejects when the execution is cancelled
+     */
+    function cancellationPromise(executionId) {
+        return new Promise((_, reject) => {
+            const check = setInterval(() => {
+                if (!activeExecutions[executionId]) {
+                    clearInterval(check); // Execution finished normally, clean up
+                } else if (activeExecutions[executionId].cancelled) {
+                    clearInterval(check);
+                    reject(new Error('Execution cancelled'));
+                }
+            }, 200);
+        });
+    }
+
+    /**
+     * Execute Kore action step (fetch action definition and execute code)
+     */
+    async function executeKore(step, variables, executionId) {
+        const actionName = step.action;
+        
+        if (!actionName || actionName === 'None' || actionName === 'none') {
+            global.consoleLog('Persephone', `Kore step has no action (None) - executing as passthrough`, 4);
+            // No action to execute - step still runs for variable setting and transition evaluation
+            return { type: 'Kore', status: 'executed', action: 'None' };
+        }
+
+        global.consoleLog('Persephone', `Executing Kore action: ${actionName}`, 4);
+
+        // Fetch action definition from Resources (includes code)
+        let actionDef;
+        try {
+            actionDef = await Resources.getWorkflowUtil(actionName);
+        } catch (error) {
+            throw new Error(`Failed to load Kore action "${actionName}": ${error.message}`);
+        }
+
+        if (!actionDef.enabled) {
+            throw new Error(`Kore action "${actionName}" is not enabled`);
+        }
+
+        if (!actionDef.code) {
+            throw new Error(`Kore action "${actionName}" has no executable code`);
+        }
+
+        // Render actionInputs with current variables
+        const renderedInputs = {};
+        if (step.actionInputs && typeof step.actionInputs === 'object') {
+            for (const [key, value] of Object.entries(step.actionInputs)) {
+                if (value !== undefined) {
+                    const renderResult = await renderTemplate(String(value), { CTX: variables, STEPS: variables.steps || {} });
+                    if (!renderResult.success) {
+                        throw new Error(`Input "${key}": ${renderResult.error}  (template: ${String(value).substring(0, 200)})`);
+                    }
+                    renderedInputs[key] = renderResult.result;
+                }
+            }
+        }
+
+        global.consoleLog('Persephone', `Rendered Kore action inputs: ${JSON.stringify(renderedInputs)}`, 4);
+
+        // Get action config with timeout and retries
+        const config = actionDef.action_config || {};
+        const timeout = config.timeout || 30000;
+        const retries = config.retries || 0;
+
+        // Execute the action code with retries
+        let lastError;
+        for (let attempt = 0; attempt <= retries; attempt++) {
+            try {
+                global.consoleLog('Persephone', `Executing Kore action "${actionName}" (attempt ${attempt + 1}/${retries + 1})`, 4);
+
+                // Create an async function from the code string
+                // Wrap the code in an async IIFE so 'await' works in the code body
+                const actionFunc = new Function('inputs', `return (async () => { ${actionDef.code} })()`);
+
+                // Execute with timeout
+                const result = await Promise.race([
+                    actionFunc(renderedInputs),
+                    new Promise((_, reject) =>
+                        setTimeout(() => reject(new Error(`Action timeout after ${timeout}ms`)), timeout)
+                    ),
+                    cancellationPromise(executionId)
+                ]);
+
+                global.consoleLog('Persephone', `Kore action "${actionName}" completed successfully`, 3);
+                return result;
+            } catch (error) {
+                lastError = error;
+                global.consoleLog('Persephone', `Kore action "${actionName}" attempt ${attempt + 1} failed: ${error.message}`, 1);
+
+                if (attempt < retries) {
+                    global.consoleLog('Persephone', `Retrying Kore action "${actionName}"...`, 3);
+                    // Optional: add delay between retries
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                }
+            }
+        }
+
+        // All retries exhausted
+        throw lastError || new Error(`Kore action "${actionName}" failed after ${retries + 1} attempts`);
+    }
+
+    /**
+     * Record or update step execution in database
+     * If stepExecutionId is provided, updates existing record
+     * If stepExecutionId is not provided, inserts new record and returns the ID
+     */
+    async function recordStepExecution(conn, executionId, stepId, stepType, status, output, error, duration, stepContext, stepName, executionSequence, stepExecutionId = null) {
+        // If no stepExecutionId provided, this is a new record (INSERT)
+        if (!stepExecutionId) {
+            const [okPacket] = await conn.execute(
+                `INSERT INTO workflow_exec_steps
+                 (execution_id, step_id, step_name, step_type, status, output, error, duration_ms, context, started_at, completed_at, execution_sequence)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW(), ?)`,
+                [
+                    executionId,
+                    stepId,
+                    stepName,
+                    stepType,
+                    status,
+                    output ? JSON.stringify(output) : null,
+                    error,
+                    duration || null,
+                    stepContext ? JSON.stringify(stepContext) : null,
+                    executionSequence
+                ]
+            );
+            
+            stepExecutionId = okPacket.insertId;
+        } else {
+            // stepExecutionId provided, update existing record
+            await conn.execute(
+                `UPDATE workflow_exec_steps 
+                 SET status = ?, output = ?, error = ?, duration_ms = ?, context = ?, completed_at = NOW()
+                 WHERE step_execution_id = ?`,
+                [
+                    status,
+                    output ? JSON.stringify(output) : null,
+                    error,
+                    duration || null,
+                    stepContext ? JSON.stringify(stepContext) : null,
+                    stepExecutionId
+                ]
+            );
+        }
+        
+        return stepExecutionId;
     }
 
     /**
@@ -418,61 +1129,110 @@ const Persephone = (() => {
     async function getExecutionStatus(executionId) {
         const conn = await pools.kore_sys.getConnection();
         try {
+            global.consoleLog('Persephone', `Getting execution status for: ${executionId}`, 4);
+            
             const [execRows] = await conn.execute(
-                `SELECT * FROM pers_executions WHERE execution_id = ?`,
+                `SELECT 
+                    e.execution_id, e.workflow_id, e.workflow_version, e.status,
+                    e.triggered_at, e.completed_at, e.duration_ms,
+                    e.triggered_by, e.triggered_by_user,
+                    e.results, e.errors, e.context,
+                    w.name as workflow_name
+                 FROM workflow_exec e
+                 LEFT JOIN workflows w ON e.workflow_id = w.id
+                 WHERE e.execution_id = ?`,
                 [executionId]
             );
 
             if (execRows.length === 0) {
                 throw new Error(`Execution not found: ${executionId}`);
             }
+            
+            global.consoleLog('Persephone', `Found execution, fetching steps...`, 4);
 
             const execution = execRows[0];
 
             // Get step details
+            global.consoleLog('Persephone', `Getting steps for execution...`, 4);
+            
             const [stepRows] = await conn.execute(
-                `SELECT * FROM pers_execution_steps 
+                `SELECT 
+                    step_id, step_name, step_type, status,
+                    started_at, completed_at, duration_ms,
+                    output, error, execution_sequence
+                 FROM workflow_exec_steps 
                  WHERE execution_id = ?
-                 ORDER BY started_at ASC`,
+                 ORDER BY execution_sequence ASC`,
                 [executionId]
             );
+            
+            global.consoleLog('Persephone', `Found ${stepRows.length} steps, building response...`, 4);
 
-            return {
+            global.consoleLog('Persephone', `Building response object with ${stepRows.length} steps...`, 4);
+            
+            const response = {
                 executionId: execution.execution_id,
                 workflowId: execution.workflow_id,
+                workflowName: execution.workflow_name,
                 workflowVersion: execution.workflow_version,
                 status: execution.status,
                 triggeredAt: execution.triggered_at,
                 completedAt: execution.completed_at,
                 duration: execution.duration_ms,
-                results: execution.results ? (typeof execution.results === 'string' ? JSON.parse(execution.results) : execution.results) : null,
-                errors: execution.errors ? (typeof execution.errors === 'string' ? JSON.parse(execution.errors) : execution.errors) : null,
+                results: (() => {
+                    try {
+                        return execution.results ? (typeof execution.results === 'string' ? JSON.parse(execution.results) : execution.results) : null;
+                    } catch (e) {
+                        global.consoleLog('Persephone', `Error parsing results: ${e.message}, data: ${String(execution.results).substring(0, 500)}`, 2);
+                        return execution.results;
+                    }
+                })(),
+                errors: (() => {
+                    try {
+                        return execution.errors ? (typeof execution.errors === 'string' ? JSON.parse(execution.errors) : execution.errors) : null;
+                    } catch (e) {
+                        global.consoleLog('Persephone', `Error parsing errors: ${e.message}, data: ${String(execution.errors).substring(0, 500)}`, 2);
+                        return execution.errors;
+                    }
+                })(),
+                context: (() => {
+                    try {
+                        return execution.context ? (typeof execution.context === 'string' ? JSON.parse(execution.context) : execution.context) : null;
+                    } catch (e) {
+                        global.consoleLog('Persephone', `Error parsing context: ${e.message}, data: ${String(execution.context).substring(0, 500)}`, 2);
+                        return execution.context;
+                    }
+                })(),
                 steps: stepRows.map(row => ({
                     stepId: row.step_id,
+                    stepName: row.step_name,
                     stepType: row.step_type,
                     status: row.status,
                     startedAt: row.started_at,
                     completedAt: row.completed_at,
                     duration: row.duration_ms,
-                    output: row.output ? (typeof row.output === 'string' ? JSON.parse(row.output) : row.output) : null,
-                    error: row.error
+                    output: (() => {
+                        try {
+                            return row.output ? (typeof row.output === 'string' ? JSON.parse(row.output) : row.output) : null;
+                        } catch (e) {
+                            global.consoleLog('Persephone', `Error parsing step output for ${row.step_name}: ${e.message}, data: ${String(row.output).substring(0, 500)}`, 2);
+                            return row.output;
+                        }
+                    })(),
+                    error: row.error,
+                    executionSequence: row.execution_sequence
                 }))
             };
+            
+            global.consoleLog('Persephone', `Response object created, stringifying for JSON...`, 4);
+            
+            return response;
         } finally {
             conn.release();
         }
     }
     async function handleExecuteRequest(req, res) {
-        const url = require('url');
-        const parsedUrl = url.parse(req.url, true);
-        const pathname = parsedUrl.pathname;
-
-        if (req.method === 'POST' && pathname === '/kore/execute') {
-            handleExecuteWorkflow(req, res);
-        } else {
-            res.writeHead(405, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ error: 'Method not allowed' }));
-        }
+        handleExecuteWorkflow(req, res);
     }
 
     async function handleExecuteWorkflow(req, res) {
@@ -496,7 +1256,7 @@ const Persephone = (() => {
                 res.writeHead(202, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify(result));
             } catch (error) {
-                console.error('[Persephone] Execute workflow error:', error.message);
+                global.consoleLog('Persephone', `Execute workflow error: ${error.message}`, 1);
                 res.writeHead(400, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify({ error: error.message }));
             }
@@ -504,16 +1264,19 @@ const Persephone = (() => {
     }
 
     async function handleExecutionRequest(req, res) {
-        const url = require('url');
         const parsedUrl = url.parse(req.url, true);
         const pathname = parsedUrl.pathname;
         const parts = pathname.split('/').filter(p => p);
+        // parts: [engine, executions] or [engine, executions, :executionId] or [engine, executions, :executionId, cancel]
 
         if (req.method === 'GET' && parts.length === 3) {
+            // GET /engine/executions/:executionId
             handleGetExecutionStatus(req, res, parts[2]);
         } else if (req.method === 'POST' && parts.length === 4 && parts[3] === 'cancel') {
+            // POST /engine/executions/:executionId/cancel
             handleCancelExecution(req, res, parts[2]);
         } else if (req.method === 'GET' && parts.length === 2) {
+            // GET /engine/executions
             handleListExecutions(req, res);
         } else {
             res.writeHead(405, { 'Content-Type': 'application/json' });
@@ -523,67 +1286,127 @@ const Persephone = (() => {
 
     async function handleGetExecutionStatus(req, res, executionId) {
         try {
+            global.consoleLog('Persephone', `handleGetExecutionStatus: calling getExecutionStatus for ${executionId}`, 4);
             const status = await getExecutionStatus(executionId);
+            global.consoleLog('Persephone', `handleGetExecutionStatus: got status object, keys: ${Object.keys(status).join(', ')}`, 4);
+            global.consoleLog('Persephone', `handleGetExecutionStatus: stringifying status...`, 4);
+            const jsonStr = JSON.stringify(status);
+            global.consoleLog('Persephone', `handleGetExecutionStatus: stringify successful, length: ${jsonStr.length}`, 4);
             res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify(status));
+            res.end(jsonStr);
         } catch (error) {
-            console.error('[Persephone] Get execution status error:', error.message);
+            global.consoleLog('Persephone', `Get execution status error: ${error.message}`, 2);
             res.writeHead(404, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ error: error.message }));
         }
     }
 
     async function handleCancelExecution(req, res, executionId) {
+        const conn = await pools.kore_sys.getConnection();
         try {
+            // Set cancellation flag
+            if (activeExecutions[executionId]) {
+                activeExecutions[executionId].cancelled = true;
+            }
+            
+            // Update execution record in database - 'cancelling' until in-flight steps finish
+            await conn.execute(
+                `UPDATE workflow_exec SET status = ? WHERE execution_id = ?`,
+                ['cancelling', executionId]
+            );
+            
+            global.consoleLog('Persephone', `Execution cancelling: ${executionId}`, 3);
+            
             res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ executionId, message: 'Execution cancel requested' }));
+            res.end(JSON.stringify({ executionId, status: 'cancelling', message: 'Execution cancelling' }));
         } catch (error) {
-            console.error('[Persephone] Cancel execution error:', error.message);
+            global.consoleLog('Persephone', `Cancel execution error: ${error.message}`, 1);
             res.writeHead(400, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ error: error.message }));
+        } finally {
+            conn.release();
         }
     }
 
     async function handleListExecutions(req, res) {
         try {
-            res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ executions: [], total: 0 }));
+            const url = require('url');
+            const parsedUrl = url.parse(req.url, true);
+            const query = parsedUrl.query;
+
+            // Parse query parameters
+            const limit = Math.min(parseInt(query.limit || '50', 10), 1000);  // Max 1000
+            const offset = parseInt(query.offset || '0', 10);
+            const status = query.status;  // Optional: filter by status
+            const workflowId = query.workflowId;  // Optional: filter by workflow
+
+            const conn = await pools.kore_sys.getConnection();
+            try {
+                // Build WHERE clause
+                let whereConditions = [];
+                let params = [];
+
+                if (status) {
+                    whereConditions.push('status = ?');
+                    params.push(status);
+                }
+                if (workflowId) {
+                    whereConditions.push('workflow_id = ?');
+                    params.push(workflowId);
+                }
+
+                const whereClause = whereConditions.length > 0 
+                    ? 'WHERE ' + whereConditions.join(' AND ')
+                    : '';
+
+                // Get total count
+                const [countRows] = await conn.execute(
+                    `SELECT COUNT(*) as total FROM workflow_exec ${whereClause}`,
+                    params
+                );
+                const total = countRows[0].total;
+
+                // Get paginated results with workflow name
+                const [rows] = await conn.execute(
+                    `SELECT 
+                        e.execution_id, e.workflow_id, e.workflow_version, e.status,
+                        e.triggered_at, e.completed_at, e.duration_ms,
+                        e.triggered_by, e.triggered_by_user,
+                        w.name as workflow_name
+                     FROM workflow_exec e
+                     LEFT JOIN workflows w ON e.workflow_id = w.id
+                     ${whereClause}
+                     ORDER BY e.triggered_at DESC
+                     LIMIT ${limit} OFFSET ${offset}`,
+                    params
+                );
+
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({
+                    executions: rows.map(row => ({
+                        executionId: row.execution_id,
+                        workflowId: row.workflow_id,
+                        workflowName: row.workflow_name,
+                        workflowVersion: row.workflow_version,
+                        status: row.status,
+                        triggeredAt: row.triggered_at,
+                        completedAt: row.completed_at,
+                        duration: row.duration_ms,
+                        triggeredBy: row.triggered_by,
+                        triggeredByUser: row.triggered_by_user
+                    })),
+                    total: total,
+                    limit: limit,
+                    offset: offset
+                }));
+            } finally {
+                conn.release();
+            }
         } catch (error) {
-            console.error('[Persephone] List executions error:', error.message);
+            global.consoleLog('Persephone', `List executions error: ${error.message}`, 1);
             res.writeHead(400, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ error: error.message }));
         }
-    }
-
-    /**
-     * Mark lines that are purely control/comment structures
-     * Lines where first non-space chars are {% or {# and last non-space chars are %} or #}
-     */
-    function markControlLines(template) {
-        const MARKER = '__CONTROL_LINE_MARKER__';
-        const lines = template.split('\n');
-        
-        return lines.map(line => {
-            const trimmed = line.trim();
-            // Check if line starts with {% or {# and ends with %} or #}
-            if ((trimmed.startsWith('{%') && trimmed.endsWith('%}')) ||
-                (trimmed.startsWith('{#') && trimmed.endsWith('#}'))) {
-                // This is a pure control/comment line - add marker
-                return line + MARKER;
-            }
-            return line;
-        }).join('\n');
-    }
-
-    /**
-     * Clean up rendered output by removing lines with control/comment markers
-     */
-    function cleanRenderOutput(output) {
-        const MARKER = '__CONTROL_LINE_MARKER__';
-        return output
-            .split('\n')
-            .filter(line => !line.includes(MARKER))
-            .join('\n');
     }
 
     /**
@@ -591,20 +1414,62 @@ const Persephone = (() => {
      */
     function autoJsonFilter(template, context) {
         // Regex to find {{ ... }}, {{- ... }}, {{ ... -}}, or {{- ... -}} expressions
-        // This matches {{ VARIABLE }}, {{- VARIABLE }}, {{ VARIABLE -}}, {{- VARIABLE -}}
-        const regex = /\{\{-?\s*([a-zA-Z_][a-zA-Z0-9_.]*)\s*-?\}\}/g;
+        // Matches patterns like: {{ VARIABLE }}, {{ VAR.prop }}, {{ VAR[0] }}, {{ VAR.prop[0].name }}
+        const regex = /\{\{-?\s*([a-zA-Z_][a-zA-Z0-9_.\[\]]*)\s*-?\}\}/g;
+        
+        // Ensure template is a string
+        if (typeof template !== 'string') {
+            // If it's an object/array, stringify it
+            if (typeof template === 'object' && template !== null) {
+                return JSON.stringify(template);
+            }
+            // For numbers, booleans, etc., convert to string
+            return String(template);
+        }
         
         return template.replace(regex, (match, varName) => {
-            // Resolve the variable from context (supports dot notation like CTX.users)
-            const parts = varName.split('.');
+            // Parse variable name which may include array indices like CTX.test[0]
+            // Split on dots for properties, but preserve brackets
             let value = context;
+            let remaining = varName;
             
-            for (const part of parts) {
-                if (value && typeof value === 'object' && part in value) {
-                    value = value[part];
+            // Handle array/property access: CTX.test[0].name
+            const pattern = /^([a-zA-Z_][a-zA-Z0-9_]*)(.*)$/;
+            let m = pattern.exec(remaining);
+            
+            if (m) {
+                const firstKey = m[1];
+                const rest = m[2];  // e.g., ".test[0].name"
+                
+                // Get initial value
+                if (firstKey in context) {
+                    value = context[firstKey];
                 } else {
-                    value = undefined;
-                    break;
+                    return match;  // Variable not found, return unchanged
+                }
+                
+                // Parse remaining path like ".test[0].name"
+                const pathPattern = /\.([a-zA-Z_][a-zA-Z0-9_]*)|(\[(\d+)\])/g;
+                let pathMatch;
+                while ((pathMatch = pathPattern.exec(rest)) !== null) {
+                    if (pathMatch[1]) {
+                        // Property access like .test
+                        if (value && typeof value === 'object' && pathMatch[1] in value) {
+                            value = value[pathMatch[1]];
+                        } else {
+                            value = undefined;
+                            break;
+                        }
+                    } else if (pathMatch[3]) {
+                        // Array access like [0]
+                        const index = parseInt(pathMatch[3], 10);
+                        if (Array.isArray(value) && index < value.length) {
+                            value = value[index];
+                        } else {
+                            value = undefined;
+                            break;
+                        }
+                    }
                 }
             }
             
@@ -624,30 +1489,131 @@ const Persephone = (() => {
     }
 
     /**
+     * Shared template pre-processing: autoJsonFilter, solo expression detection, block tag normalization
+     */
+    function preprocessTemplate(template, context) {
+        // Ensure template is a string
+        if (typeof template !== 'string') {
+            if (typeof template === 'object' && template !== null) {
+                template = JSON.stringify(template);
+            } else {
+                template = String(template);
+            }
+        }
+
+        // Collapse multi-line {{ }} and {% %} expressions into single lines
+        // Must happen before autoJsonFilter so regexes aren't confused by newlines
+        const collapsedTemplate = template
+            .replace(/\{\{([\s\S]*?)\}\}/g, (match, inner) => {
+                if (!inner.includes('\n')) return match;
+                return '{{' + inner.replace(/\s*\n\s*/g, ' ').trim() + '}}';
+            })
+            .replace(/\{%([\s\S]*?)%\}/g, (match, inner) => {
+                if (!inner.includes('\n')) return match;
+                return '{%' + inner.replace(/\s*\n\s*/g, ' ').trim() + '%}';
+            });
+
+        // Auto-apply json filter to object/array outputs resolvable from context
+        let processedTemplate = autoJsonFilter(collapsedTemplate, context);
+
+        // Normalize bare | d and | d() to | d(none) so the core default filter
+        // receives an explicit null argument when none is specified
+        processedTemplate = processedTemplate
+            .replace(/\|\s*d\s*\(\s*\)/g, '| d(none)')
+            .replace(/\|\s*d\s*(?!\s*[\(\w])/g, '| d(none)')
+            .replace(/\|\s*default\s*\(\s*\)/g, '| default(none)')
+            .replace(/\|\s*default\s*(?!\s*[\(\w])/g, '| default(none)');
+        // Rewrite datetime comparison operators to filter calls so Nunjucks can evaluate them
+        // e.g. "x | parse_datetime >= y" -> "x | parse_datetime | gte(y)"
+        // Matches expressions inside {% %} and {{ }} blocks
+        processedTemplate = processedTemplate
+            .replace(/(\|\s*[\w_]+(?:\([^)]*\))?)\s*>=\s*([^\s%}][^%}]*?)(\s*(?:and|or|%|}}))/g, '$1 | gte($2)$3')
+            .replace(/(\|\s*[\w_]+(?:\([^)]*\))?)\s*<=\s*([^\s%}][^%}]*?)(\s*(?:and|or|%|}}))/g, '$1 | lte($2)$3')
+            .replace(/(\|\s*[\w_]+(?:\([^)]*\))?)\s*>\s*([^\s%}][^%}]*?)(\s*(?:and|or|%|}}))/g,  '$1 | gt($2)$3')
+            .replace(/(\|\s*[\w_]+(?:\([^)]*\))?)\s*<\s*([^\s%}][^%}]*?)(\s*(?:and|or|%|}}))/g,  '$1 | lt($2)$3');
+
+        // Rewrite .append(x) as .concat([x]) — append is not native to Nunjucks arrays
+        // Also handle {% do list.append(x) %} by converting to {% set list = list.concat([x]) %}
+        // Uses balanced-parentheses matching to handle nested parens in arguments
+        processedTemplate = (function rewriteAppend(str) {
+            let result = '';
+            let i = 0;
+            while (i < str.length) {
+                // Look for varName.append(
+                const appendIdx = str.indexOf('.append(', i);
+                if (appendIdx === -1) { result += str.slice(i); break; }
+                // Find the variable name before .append(
+                let nameStart = appendIdx - 1;
+                while (nameStart >= 0 && /[\w]/.test(str[nameStart])) nameStart--;
+                nameStart++;
+                const varName = str.slice(nameStart, appendIdx);
+                // Find matching closing paren with depth tracking
+                let depth = 1;
+                let j = appendIdx + '.append('.length;
+                while (j < str.length && depth > 0) {
+                    if (str[j] === '(') depth++;
+                    else if (str[j] === ')') depth--;
+                    j++;
+                }
+                const arg = str.slice(appendIdx + '.append('.length, j - 1);
+                result += str.slice(i, nameStart) + varName + '.concat([' + arg + '])';
+                i = j;
+            }
+            // Rewrite {% do list.concat([x]) %} -> {%- set list = list.concat([x]) -%}
+            return result.replace(/\{%-?\s*do\s+(\w+)\.concat\(\[([\s\S]*?)\]\)\s*-?%\}/g,
+                '{%- set $1 = $1.concat([$2]) -%}');
+        })(processedTemplate);
+
+        // Detect if template is a solo output expression (only a single {{ }} with no surrounding text)
+        const strippedForCheck = processedTemplate.replace(/\{%[\s\S]*?%\}/g, '').trim().replace(/\s+/g, ' ');
+        const isSoloExpression = /^\{\{-?\s*[^}]+\s*-?\}\}$/.test(strippedForCheck);
+
+        // If solo expression and no | auto_json already applied, inject | auto_json before the closing }}
+        // auto_json only serializes objects/arrays, passes strings/primitives through unchanged
+        if (isSoloExpression && !strippedForCheck.includes('| auto_json') && !strippedForCheck.includes('| json') && !strippedForCheck.includes('|json')) {
+            processedTemplate = processedTemplate.replace(
+                /(\{\{-?\s*)([^}]+?)(\s*-?\}\})/,
+                '$1$2 | auto_json$3'
+            );
+        }
+
+        // Normalize block tags to always use whitespace control dashes
+        processedTemplate = processedTemplate
+            .replace(/\{%-/g, '\x00BLOCKOPEN\x00')
+            .replace(/-%}/g, '\x00BLOCKCLOSE\x00')
+            .replace(/\{#-/g, '\x00COMMENTOPEN\x00')
+            .replace(/-#}/g, '\x00COMMENTCLOSE\x00')
+            .replace(/\{%/g, '{%-')
+            .replace(/%}/g, '-%}')
+            .replace(/\{#/g, '{#-')
+            .replace(/#}/g, '-#}')
+            .replace(/\x00BLOCKOPEN\x00/g, '{%-')
+            .replace(/\x00BLOCKCLOSE\x00/g, '-%}')
+            .replace(/\x00COMMENTOPEN\x00/g, '{#-')
+            .replace(/\x00COMMENTCLOSE\x00/g, '-#}');
+
+        return processedTemplate;
+    }
+
+    /**
      * Render a Jinja2 template with given context
      */
     async function renderTemplate(template, context) {
         try {
-            // Auto-apply json filter to object/array outputs
-            let processedTemplate = autoJsonFilter(template, context);
-            
-            // Skip mark/clean logic if template uses whitespace control on any braces
-            let shouldClean = false;
-            
-            if (!processedTemplate.includes('{{-') && !processedTemplate.includes('-}}') &&
-                !processedTemplate.includes('{%-') && !processedTemplate.includes('-%}')) {
-                // Mark lines that are purely control/comment structures
-                processedTemplate = markControlLines(processedTemplate);
-                shouldClean = true;
-            }
+            const processedTemplate = preprocessTemplate(template, context);
             
             // Render the template
-            const result = nunjucks.renderString(processedTemplate, context);
+            const result = env.renderString(processedTemplate, context);
             
-            // Clean up by removing marked lines (only if we marked them)
-            const cleanedResult = shouldClean ? cleanRenderOutput(result) : result;
-            
-            return { success: true, result: cleanedResult };
+            // If the result is valid JSON, return it as a parsed object so downstream
+            // steps can access properties directly (e.g. CTX.first_result.id)
+            try {
+                const parsed = JSON.parse(result);
+                return { success: true, result: parsed };
+            } catch (e) {
+                // Not JSON - return as plain string
+                return { success: true, result: result };
+            }
         } catch (error) {
             // Parse Nunjucks error to extract variable name and line info
             const errorInfo = parseNunjucksError(error, template);
@@ -655,6 +1621,11 @@ const Persephone = (() => {
             // If it's a null value (variable declared but set to none), treat as success
             if (errorInfo.isNull) {
                 return { success: true, result: '' };
+            }
+            
+            // If variable had | d or | default applied, return null as the default value
+            if (errorInfo.isDefault) {
+                return { success: true, result: null };
             }
             
             return { 
@@ -769,6 +1740,21 @@ const Persephone = (() => {
             }
         }
         
+        // Check if this is a filter not found error
+        const filterNotFoundMatch = message.match(/filter not found:\s*(\w+)/i) ||
+                                    message.match(/unknown filter:\s*(\w+)/i) ||
+                                    message.match(/filter\s+["']?(\w+)["']?\s+(not found|is not defined)/i);
+        if (filterNotFoundMatch) {
+            return {
+                message: `Unknown filter: ${filterNotFoundMatch[1]} (Line ${lineNumber}, Column ${column})`,
+                errorType: 'filter_not_found',
+                filterName: filterNotFoundMatch[1],
+                variable: 'unknown',
+                lineNumber: lineNumber,
+                column: column
+            };
+        }
+
         // Check if this is a filter error by parsing the message
         // Filters throw errors like "filter_name: error message"
         const filterMatch = message.match(/Error:\s*([a-z_]+):\s*(.+?)(?:\n|$)/i);
@@ -801,17 +1787,17 @@ const Persephone = (() => {
         if (lineNumber > 0 && lineNumber <= lines.length) {
             const errorLine = lines[lineNumber - 1];
             
-            // Pattern 1: {{ VARIABLE }}
-            let varMatch = errorLine.match(/\{\{\s*([a-zA-Z_][a-zA-Z0-9_.]*)/);
+            // Pattern 1: {{ VARIABLE }} or {{- VARIABLE -}} (with optional whitespace-control dashes and array indices)
+            let varMatch = errorLine.match(/\{\{-?\s*([a-zA-Z_][a-zA-Z0-9_.[\]]*)/);
             if (varMatch) {
                 variable = varMatch[1];
             }
             // Pattern 2: {% for x in VARIABLE %}
-            else if ((varMatch = errorLine.match(/\{%\s*for\s+\w+\s+in\s+([a-zA-Z_][a-zA-Z0-9_.]*)/))) {
+            else if ((varMatch = errorLine.match(/\{%-?\s*for\s+\w+\s+in\s+([a-zA-Z_][a-zA-Z0-9_.[\]]*)/))) {
                 variable = varMatch[1];
             }
             // Pattern 3: {% if VARIABLE %}
-            else if ((varMatch = errorLine.match(/\{%\s*if\s+([a-zA-Z_][a-zA-Z0-9_.]*)/))) {
+            else if ((varMatch = errorLine.match(/\{%-?\s*if\s+([a-zA-Z_][a-zA-Z0-9_.[\]]*)/))) {
                 variable = varMatch[1];
             }
         }
@@ -830,9 +1816,24 @@ const Persephone = (() => {
             };
         }
         
+        // Check if the error line uses | d or | default on this variable
+        // If so, treat as null result rather than an error (throwOnUndefined fires before filters run)
+        if (lineNumber > 0 && lineNumber <= lines.length) {
+            const errorLine = lines[lineNumber - 1];
+            if (/\|\s*(?:d|default)\s*(?:\(|\s*-?}}|\s*}})/i.test(errorLine)) {
+                return {
+                    message: '',
+                    errorType: null,
+                    variable: variable,
+                    lineNumber: lineNumber,
+                    column: column,
+                    isDefault: true
+                };
+            }
+        }
+        
         // Format error message for truly undefined variable
-        const varName = variable.includes('.') ? variable.split('.').pop() : variable;
-        const errorMessage = `${varName} was not found (Line ${lineNumber}, Column ${column})`;
+        const errorMessage = `${variable} was not found (Line ${lineNumber}, Column ${column})`;
         
         return {
             message: errorMessage,
@@ -851,32 +1852,32 @@ const Persephone = (() => {
      * Handle filter metadata requests
      */
     async function handleFilterRequest(req, res) {
-        console.log(`[Persephone] handleFilterRequest called`);
+        global.consoleLog('Persephone', 'handleFilterRequest called', 4);
         try {
             // Parse URL to get filter name if specified
             const parsedUrl = url.parse(req.url, true);
-            const filterName = parsedUrl.pathname.replace('/kore/filters', '').replace(/^\//, '');
+            const filterName = parsedUrl.pathname.replace('/engine/filters', '').replace(/^\//, '');
             
-            console.log(`[Persephone] URL: ${req.url}`);
-            console.log(`[Persephone] Pathname: ${parsedUrl.pathname}`);
-            console.log(`[Persephone] FilterName: "${filterName}"`);
-            console.log(`[Persephone] FilterName is empty? ${filterName === ''}`);
+            global.consoleLog('Persephone', `URL: ${req.url}`, 4);
+            global.consoleLog('Persephone', `Pathname: ${parsedUrl.pathname}`, 4);
+            global.consoleLog('Persephone', `FilterName: "${filterName}"`, 4);
+            global.consoleLog('Persephone', `FilterName is empty? ${filterName === ''}`, 4);
             // Load filter definitions
             let filterDefs;
             try {
                 const jsonPath = path.join(__dirname, 'filters', 'jinja-filters.json');
-                console.log(`[Persephone] Filter path: ${jsonPath}`);
+                global.consoleLog('Persephone', `Filter path: ${jsonPath}`, 4);
                 const rawData = fs.readFileSync(jsonPath, 'utf8');
-                console.log(`[Persephone] Filter file loaded successfully`);
+                global.consoleLog('Persephone', 'Filter file loaded successfully', 4);
                 filterDefs = JSON.parse(rawData);
-                console.log(`[Persephone] filterDefs structure:`, Object.keys(filterDefs));
-                console.log(`[Persephone] filterDefs.filters exists?`, !!filterDefs.filters);
+                global.consoleLog('Persephone', `filterDefs structure: ${JSON.stringify(Object.keys(filterDefs))}`, 4);
+                global.consoleLog('Persephone', `filterDefs.filters exists? ${!!filterDefs.filters}`, 4);
                 if (filterDefs.filters) {
-                    console.log(`[Persephone] filterDefs.filters is array?`, Array.isArray(filterDefs.filters));
-                    console.log(`[Persephone] filterDefs.filters length:`, filterDefs.filters.length);
+                    global.consoleLog('Persephone', `filterDefs.filters is array? ${Array.isArray(filterDefs.filters)}`, 4);
+                    global.consoleLog('Persephone', `filterDefs.filters length: ${filterDefs.filters.length}`, 4);
                 }
             } catch (error) {
-                console.error(`[Persephone] Filter file error: ${error.message}`);
+                global.consoleLog('Persephone', `Filter file error: ${error.message}`, 1);
                 res.writeHead(500, { 'Content-Type': 'application/json' });
                 return res.end(JSON.stringify({ error: 'Failed to load filter definitions' }));
             }
@@ -893,15 +1894,15 @@ const Persephone = (() => {
             }
             
             // Return all filters
-            console.log(`[Persephone] Returning ${filterDefs.filters.length} filters`);
-            console.log(`[Persephone] Sending response with status 200`);
+            global.consoleLog('Persephone', `Returning ${filterDefs.filters.length} filters`, 4);
+            global.consoleLog('Persephone', 'Sending response with status 200', 4);
             res.writeHead(200, { 'Content-Type': 'application/json' });
             const responseData = JSON.stringify(filterDefs);
-            console.log(`[Persephone] Response size: ${responseData.length} bytes`);
+            global.consoleLog('Persephone', `Response size: ${responseData.length} bytes`, 4);
             res.end(responseData);
-            console.log(`[Persephone] Response sent`);
+            global.consoleLog('Persephone', 'Response sent', 4);
         } catch (error) {
-            console.error('[Persephone] Filter request error:', error.message);
+            global.consoleLog('Persephone', `Filter request error: ${error.message}`, 1);
             res.writeHead(500, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ error: error.message }));
         }
@@ -946,13 +1947,13 @@ const Persephone = (() => {
                         }));
                     }
                 } catch (error) {
-                    console.error('[Persephone] Template rendering error:', error.message);
+                    global.consoleLog('Persephone', `Template rendering error: ${error.message}`, 1);
                     res.writeHead(500, { 'Content-Type': 'application/json' });
                     res.end(JSON.stringify({ error: error.message }));
                 }
             });
         } catch (error) {
-            console.error('[Persephone] Template rendering error:', error.message);
+            global.consoleLog('Persephone', `Template rendering error: ${error.message}`, 1);
             res.writeHead(500, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ error: error.message }));
         }
@@ -963,12 +1964,8 @@ const Persephone = (() => {
         initialize,
         executeWorkflow,
         getExecutionStatus,
-        handleExecuteRequest,
-        handleExecutionRequest,
-        renderTemplate,
-        handleRenderTemplate,
-        registerRoute,
-        handleRegisteredRoute
+        handleRequest,
+        renderTemplate
     };
 })();
 

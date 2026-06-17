@@ -1,0 +1,160 @@
+<div class="panel-level-1">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; gap: 10px; flex-wrap: wrap;">
+        <h2 style="margin: 0; font-size: 18px;">Workflow Executions</h2>
+        <button class="btn" data-size="sm" data-color="theme-brand" id="refreshBtn">↻ Refresh</button>
+    </div>
+
+    <div style="display: flex; gap: 10px; margin-bottom: 15px; flex-wrap: wrap;">
+        <select id="statusFilter">
+            <option value="">All Statuses</option>
+            <option value="success">Success</option>
+            <option value="failure">Failure</option>
+            <option value="warning">Warning</option>
+            <option value="running">Running</option>
+        </select>
+        <input type="text" id="workflowIdFilter" placeholder="Filter by Workflow Name..." style="flex: 1; min-width: 200px;">
+    </div>
+
+    <div class="panel-level-2" style="padding: 0; overflow: hidden;">
+        <div id="execsContent"></div>
+    </div>
+
+    <script src="/lib/wf-core.js"></script>
+    <script>
+        let currentOffset = 0;
+        const pageSize = 50;
+        let totalExecutions = 0;
+        let currentFilters = { status: '', workflowId: '' };
+
+        function formatTimestamp(ts) {
+            if (!ts) return 'N/A';
+            return new Date(ts).toLocaleString();
+        }
+
+        function formatDuration(ms) {
+            if (!ms) return 'N/A';
+            const seconds = ms / 1000;
+            if (seconds < 60) return `${seconds.toFixed(2)}s`;
+            const minutes = seconds / 60;
+            if (minutes < 60) return `${minutes.toFixed(2)}m`;
+            const hours = minutes / 60;
+            return `${hours.toFixed(2)}h`;
+        }
+
+        function getStatusClass(status) {
+            switch (status) {
+                case 'success': return 'status-success';
+                case 'failure': return 'status-failure';
+                case 'running': return 'status-running';
+                case 'warning': return 'status-warning';
+                case 'skipped': return 'status-skipped';
+                default: return 'status-pending';
+            }
+        }
+
+        async function loadExecutions() {
+            const content = document.getElementById('execsContent');
+            content.innerHTML = 'Loading...';
+
+            try {
+                const options = { limit: pageSize, offset: currentOffset };
+                if (currentFilters.status) options.status = currentFilters.status;
+                if (currentFilters.workflowId) options.workflowId = currentFilters.workflowId;
+
+                const data = await fetchExecutionSummaries(options);
+                totalExecutions = data.total || 0;
+
+                if (!data.executions || data.executions.length === 0) {
+                    content.innerHTML = 'No executions found';
+                    document.querySelector('.panel-level-2').querySelectorAll('.pagination-container').forEach(el => el.remove());
+                    return;
+                }
+
+                renderDataTable({
+                    containerId: 'execsContent',
+                    headers: ['Workflow Name', 'Status', 'Started', 'Completed', 'Duration', 'Actions'],
+                    data: data.executions,
+                    columns: [
+                        {
+                            key: 'workflowName',
+                            render: (value) => escapeHtml(value || 'Unknown')
+                        },
+                        {
+                            key: 'status',
+                            render: (value) => `<span class="status-badge ${getStatusClass(value)}">${value}</span>`
+                        },
+                        {
+                            key: 'triggeredAt',
+                            render: (value) => formatTimestamp(value)
+                        },
+                        {
+                            key: 'completedAt',
+                            render: (value) => value ? formatTimestamp(value) : '—'
+                        },
+                        {
+                            key: 'duration',
+                            render: (value) => formatDuration(value)
+                        },
+                        {
+                            key: 'executionId',
+                            render: (value) => `<button class="btn" data-size="sm" data-color="slate">Details</button>`
+                        }
+                    ],
+                    pagination: {
+                        currentOffset,
+                        pageSize,
+                        total: totalExecutions,
+                        onPageChange: (newOffset) => {
+                            currentOffset = newOffset;
+                            loadExecutions();
+                        }
+                    },
+                    onRowClick: (row) => {
+                        window.location.href = `/workflow-exec?id=${row.executionId}`;
+                    }
+                });
+
+            } catch (error) {
+                console.error('Error:', error);
+                content.innerHTML = `Error: ${error.message}`;
+            }
+        }
+
+        function escapeHtml(text) {
+            const map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' };
+            return String(text || '').replace(/[&<>"']/g, m => map[m]);
+        }
+
+        function setupFilters() {
+            document.getElementById('statusFilter').addEventListener('change', (e) => {
+                currentFilters.status = e.target.value;
+                currentOffset = 0;
+                document.querySelectorAll('.pagination-container').forEach(el => el.remove());
+                loadExecutions();
+            });
+
+            document.getElementById('workflowIdFilter').addEventListener('change', (e) => {
+                currentFilters.workflowId = e.target.value;
+                currentOffset = 0;
+                document.querySelectorAll('.pagination-container').forEach(el => el.remove());
+                loadExecutions();
+            });
+        }
+
+        function initPage() {
+            setupFilters();
+            document.getElementById('refreshBtn').addEventListener('click', () => {
+                currentOffset = 0;
+                document.querySelectorAll('.pagination-container').forEach(el => el.remove());
+                loadExecutions();
+            });
+            loadExecutions();
+        }
+
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', initPage);
+        } else {
+            initPage();
+        }
+    </script>
+</div>

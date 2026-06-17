@@ -768,11 +768,6 @@
                                 <h3 style="margin: 0; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Subsystem Restarts</h3>
                             </div>
                             <div style="display: flex; flex-direction: column; gap: 15px;">
-                                <!-- Restart Resources Button -->
-                                <div style="display: flex; flex-direction: column; gap: 6px;">
-                                    <button type="button" class="btn" data-color="blue" data-size="sm" onclick="confirmRestartSubsystem('resources', 'Restart Resources')" style="width: 100%;">Restart Resources</button>
-                                    <p style="color: var(--text-muted); font-size: 11px; margin: 0; line-height: 1.4;">Restart the Resources subsystem, which manages Workflows, Forms, and other managed resources.</p>
-                                </div>
                                 
                                 <!-- Restart Auth Button -->
                                 <div style="display: flex; flex-direction: column; gap: 6px;">
@@ -780,16 +775,28 @@
                                     <p style="color: var(--text-muted); font-size: 11px; margin: 0; line-height: 1.4;">Restart the Auth subsystem, which handles user logins and permissions</p>
                                 </div>
                                 
-                                <!-- Restart Web Button -->
-                                <div style="display: flex; flex-direction: column; gap: 6px;">
-                                    <button type="button" class="btn" data-color="blue" data-size="sm" onclick="confirmRestartSubsystem('web', 'Restart Web')" style="width: 100%;">Restart Web</button>
-                                    <p style="color: var(--text-muted); font-size: 11px; margin: 0; line-height: 1.4;">Restart the Web subsystem, which handles serving web pages and related files</p>
-                                </div>
-                                
                                 <!-- Restart Persephone Button -->
                                 <div style="display: flex; flex-direction: column; gap: 6px;">
                                     <button type="button" class="btn" data-color="blue" data-size="sm" onclick="confirmRestartSubsystem('persephone', 'Restart Persephone')" style="width: 100%;">Restart Persephone</button>
                                     <p style="color: var(--text-muted); font-size: 11px; margin: 0; line-height: 1.4;">Restart Persephone Workflow Engine, which handles execution of workflows.</p>
+                                </div>
+                                
+                                <!-- Restart Plugins Button -->
+                                <div style="display: flex; flex-direction: column; gap: 6px;">
+                                    <button type="button" class="btn" data-color="blue" data-size="sm" onclick="confirmRestartSubsystem('plugins', 'Restart Plugins')" style="width: 100%;">Restart Plugins</button>
+                                    <p style="color: var(--text-muted); font-size: 11px; margin: 0; line-height: 1.4;">Restart Plugins subsystem, which handles management and execution of plugin tasks.</p>
+                                </div>
+
+                                <!-- Restart Resources Button -->
+                                <div style="display: flex; flex-direction: column; gap: 6px;">
+                                    <button type="button" class="btn" data-color="blue" data-size="sm" onclick="confirmRestartSubsystem('resources', 'Restart Resources')" style="width: 100%;">Restart Resources</button>
+                                    <p style="color: var(--text-muted); font-size: 11px; margin: 0; line-height: 1.4;">Restart the Resources subsystem, which manages Workflows, Forms, and other managed resources.</p>
+                                </div>
+                                
+                                <!-- Restart Web Button -->
+                                <div style="display: flex; flex-direction: column; gap: 6px;">
+                                    <button type="button" class="btn" data-color="blue" data-size="sm" onclick="confirmRestartSubsystem('web', 'Restart Web')" style="width: 100%;">Restart Web</button>
+                                    <p style="color: var(--text-muted); font-size: 11px; margin: 0; line-height: 1.4;">Restart the Web subsystem, which handles serving web pages and related files</p>
                                 </div>
                                 
                                 <!-- Restart All Button -->
@@ -814,5 +821,7 @@
             </div>
             </section>
 
-<script src="/lib/settings.js"></script>
-<script src="/lib/plugins.js"></script>
+<script type="module">
+    await import('/lib/settings.js');
+    await import('/lib/plugins-front.js');
+</script>

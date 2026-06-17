@@ -31,8 +31,8 @@
         display: block;
     }
 </style>
-<script src="/lib/workflows.js"></script>
-<script> // UTILITY FUNCTIONS
+<script type="modules"> // UTILITY FUNCTIONS
+await import('/lib/workflows.js');
 window.addEventListener('DOMContentLoaded', async () => {
 await loadWorkflows(); // Load workflows data
 await buildWorkflowFoldersPanel('foldersPanelContainer', 'workflow-folders', 'workflows', 'renderFilteredWorkflows'); // Build and populate the folder sidebar
