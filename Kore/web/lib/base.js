@@ -84,6 +84,18 @@ function generateUUID() {
 }
 
 /**
+ * Utility: Generate a short random ID with optional prefix
+ * e.g. generateId('step') => 'step-a3f9x2'
+ */
+function generateId(prefix = '') {
+    const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+    let id = prefix ? prefix + '-' : '';
+    for (let i = 0; i < 6; i++) id += chars[Math.floor(Math.random() * chars.length)];
+    return id;
+}
+window.generateId = generateId;
+
+/**
  * Theme Management
  */
 let activeTheme = localStorage.getItem('kore-theme') || 'default';
@@ -141,6 +153,8 @@ function updateBodyColors() {
     root.style.setProperty('--bg-panel1', t.bg.panel1);
     root.style.setProperty('--bg-panel2', t.bg.panel2);
     root.style.setProperty('--bg-panel3', t.bg.panel3);
+    root.style.setProperty('--bg-panel4', t.bg.panel4);
+    root.style.setProperty('--bg-panel5', t.bg.panel5);
     root.style.setProperty('--text-primary', t.text.primary);
     root.style.setProperty('--text-muted', t.text.muted);
     root.style.setProperty('--text-accent', t.text.accent);

@@ -50,7 +50,16 @@ function renderNode(nodeData) {
               e.stopPropagation();
               // Only open properties if the node wasn't dragged
               if (!nodeElement.getAttribute('data-was-dragged')) {
-                  showNodeProperties(nodeId);
+                  if (e.ctrlKey || e.metaKey) {
+                      addToSelection(nodeId, 'node', nodeElement);
+                  } else if (selectedElements.size > 1 && selectedElements.has('node:' + nodeId)) {
+                      // Plain click on already-selected node in multi-selection: do nothing
+                  } else {
+                      clearSelection();
+                      addToSelection(nodeId, 'node', nodeElement);
+                      showNodeProperties(nodeId);
+                      showPropertiesPanel();
+                  }
               }
               nodeElement.removeAttribute('data-was-dragged');
           });
@@ -221,7 +230,7 @@ function renderNode(nodeData) {
                     const gridY = Math.round((dropY / zoomLevel) / 30);
                     
                     // Create new node
-                    const newNodeId = 'node-' + Date.now();
+                    const newNodeId = generateId('node');
                     const newNode = {
                       id: newNodeId,
                       position: `${gridX},${gridY}`,
@@ -307,7 +316,7 @@ function renderLoadedStepsOnCanvas() {
         // Create lines from this node to target steps
         if (node.targetSteps && node.targetSteps.length > 0) {
             node.targetSteps.forEach(targetStepId => {
-                const lineUUID = String(Date.now()) + '-' + Math.random().toString(36).substr(2, 9);
+                const lineUUID = generateId();
                 const nodeLine = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
                 nodeLine.setAttribute('data-node-connection-line', lineUUID);
                 nodeLine.setAttribute('data-from-node', node.id);
@@ -329,7 +338,7 @@ function renderLoadedStepsOnCanvas() {
         // Create lines from this node to target nodes
         if (node.targetNodes && node.targetNodes.length > 0) {
             node.targetNodes.forEach(targetNodeId => {
-                const lineUUID = String(Date.now()) + '-' + Math.random().toString(36).substr(2, 9);
+                const lineUUID = generateId();
                 const nodeLine = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
                 nodeLine.setAttribute('data-node-connection-line', lineUUID);
                 nodeLine.setAttribute('data-from-node', node.id);
@@ -503,7 +512,7 @@ function renderLoadedStepsOnCanvas() {
                     if (transition.targetSteps && transition.targetSteps.length > 0) {
                         transition.targetSteps.forEach(targetStepId => {
                             // Create case line element
-                            const lineUUID = String(Date.now()) + '-' + Math.random().toString(36).substr(2, 9);
+                            const lineUUID = generateId();
                             const caseLine = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
                             caseLine.setAttribute('data-transition-connection-line', lineUUID);
                             caseLine.setAttribute('data-from-transition', conditionId);
@@ -536,7 +545,7 @@ function renderLoadedStepsOnCanvas() {
                     if (transition.targetNodes && transition.targetNodes.length > 0) {
                         transition.targetNodes.forEach(targetNodeId => {
                             // Create case line element
-                            const lineUUID = String(Date.now()) + '-' + Math.random().toString(36).substr(2, 9);
+                            const lineUUID = generateId();
                             const caseLine = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
                             caseLine.setAttribute('data-transition-connection-line', lineUUID);
                             caseLine.setAttribute('data-from-transition', conditionId);
@@ -1118,7 +1127,8 @@ function renderTransitionFrame(frameUUID, vertical) {
         frameRect.appendChild(conditionsContainer);
         
         // Add grab indicator to add button if frame is attached
-        if (frame.attachedToStepId) {
+        // DISABLED: detach-by-drag is kept in the codebase but hidden from UI for now
+        /* if (frame.attachedToStepId) {
             // Visual triangle (stays within bounds)
             const visualIndicator = document.createElement('div');
             visualIndicator.style.cssText = `
@@ -1150,7 +1160,7 @@ function renderTransitionFrame(frameUUID, vertical) {
             addButton.style.overflow = 'visible';
             addButton.appendChild(visualIndicator);
             addButton.appendChild(hitbox);
-        }
+        } */
     }
     
     // Drag handling
@@ -1651,10 +1661,10 @@ function renderTransitionFrame(frameUUID, vertical) {
                 });
                 
                 // Re-render frame to add grab indicator
-                renderTransitionFrame(frameUUID, false);
-                
-                // Update preview
-                updatePreview();
+                if (wasDragging) {
+                    renderTransitionFrame(frameUUID, false);
+                    updatePreview();
+                }
             }
         }
         
@@ -1668,22 +1678,30 @@ function renderTransitionFrame(frameUUID, vertical) {
     
     // Frame click handler
     frameRect.addEventListener('click', (e) => {
-        e.stopPropagation();
-        
-        // Only show properties if the frame wasn't dragged
-        if (!frameRect._isFrameDragging) {
-            showTransitionFrameProperties(frameUUID);
-            
-            // Deselect all steps (remove inline border colors so CSS applies)
-            document.querySelectorAll('[data-step-id]').forEach(el => {
-                el.style.borderColor = '';
-            });
-            frameRect.style.borderColor = '#ffff00';
+        // Let clicks on condition boxes, add buttons, and other interactive children pass through
+        if (e.target.closest('[data-condition-id]') || 
+            e.target.closest('[data-add-condition-btn]') ||
+            e.target.closest('[data-frame-header]') ||
+            e.target.closest('button') ||
+            e.target.closest('input') ||
+            e.target.closest('select')) {
+            return;
         }
-        
-        // Reset the dragging flag for next interaction
+        e.stopPropagation();
+        if (!frameRect._isFrameDragging) {
+            if (e.ctrlKey || e.metaKey) {
+                addToSelection(frameUUID, 'frame', frameRect);
+            } else if (selectedElements.size > 1 && selectedElements.has('frame:' + frameUUID)) {
+                // do nothing
+            } else {
+                clearSelection();
+                addToSelection(frameUUID, 'frame', frameRect);
+                showTransitionFrameProperties(frameUUID);
+                showPropertiesPanel();
+            }
+        }
         frameRect._isFrameDragging = false;
-    });
+    }, true);
     
     canvas.appendChild(frameRect);
 }
@@ -1692,7 +1710,7 @@ function renderStep(stepData) {
     // Universal step rendering - works for both new and loaded steps
     const canvas = document.getElementById('workflowCanvas');
     const stepElement = document.createElement('div');
-    const stepId = `step-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    const stepId = generateId('step');
     stepElement.setAttribute('data-step-id', stepId);
     stepElement.setAttribute('data-step-uuid', stepData.id);
     stepElement.setAttribute('data-step-type', stepData.type);
@@ -1845,17 +1863,22 @@ function renderStep(stepData) {
         
         // Only show properties if the step wasn't just dragged
         if (!wasStepDragged) {
-            showStepProperties(stepData.id);
-            
-            // Deselect all other steps and transitions
-            document.querySelectorAll('[data-step-id]').forEach(el => {
-                el.classList.remove('selected');
-            });
-            document.querySelectorAll('[data-transition-uuid]').forEach(el => {
-                el.classList.remove('selected');
-            });
-            // Highlight selected step
-            stepElement.classList.add('selected');
+            if (e.ctrlKey || e.metaKey) {
+                // Ctrl+Click: toggle this step in multi-selection
+                addToSelection(stepData.id, 'step', stepElement);
+            } else if (selectedElements.size > 1 && selectedElements.has('step:' + stepData.id)) {
+                // Plain click on an already-selected step in a multi-selection: do nothing
+                // (allows drag to start without clearing selection)
+            } else {
+                // Normal click: clear multi-select, select this step
+                clearSelection();
+                addToSelection(stepData.id, 'step', stepElement);
+                document.querySelectorAll('[data-transition-uuid]').forEach(el => {
+                    el.classList.remove('selected');
+                });
+                showStepProperties(stepData.id);
+                showPropertiesPanel();
+            }
         }
     });
     
@@ -1932,6 +1955,7 @@ transitionLines.forEach(line => {
     let isDragging = false;
     let dragOffsetX = 0;
     let dragOffsetY = 0;
+    let multiDragStartPositions = null;
     
     let wasStepDragged = false;
     
@@ -1942,11 +1966,48 @@ transitionLines.forEach(line => {
         // Convert screen offset to grid offset, accounting for zoom
         dragOffsetX = (e.clientX - rect.left) / zoomLevel;
         dragOffsetY = (e.clientY - rect.top) / zoomLevel;
+
+        // Reset multi-drag — snapshot deferred to after click event resolves
+        multiDragStartPositions = null;
+        setTimeout(() => {
+            const myKey = 'step:' + stepData.id;
+            if (isDragging && selectedElements.size > 1 && selectedElements.has(myKey)) {
+                multiDragStartPositions = {};
+                selectedElements.forEach(key => {
+                    const el = getElementForKey(key);
+                    if (el) {
+                        multiDragStartPositions[key] = {
+                            x: parseInt(el.style.left) || 0,
+                            y: parseInt(el.style.top) || 0
+                        };
+                    }
+                });
+            }
+        }, 0);
     });
     
     document.addEventListener('mousemove', (e) => {
         if (isDragging) {
             wasStepDragged = true; // Mark that we're actually dragging
+
+            // Snapshot all selected positions on first move (not mousedown, to capture full selection)
+            if (multiDragStartPositions === null) {
+                const myKey = 'step:' + stepData.id;
+                if (selectedElements.size > 1 && selectedElements.has(myKey)) {
+                    multiDragStartPositions = {};
+                    selectedElements.forEach(key => {
+                        const el = getElementForKey(key);
+                        if (el) {
+                            multiDragStartPositions[key] = {
+                                x: parseInt(el.style.left) || 0,
+                                y: parseInt(el.style.top) || 0
+                            };
+                        }
+                    });
+                } else {
+                    multiDragStartPositions = false; // Mark as checked, not multi-selecting
+                }
+            }
             const canvasRect = canvas.getBoundingClientRect();
             // Convert screen coordinates to grid coordinates
             // canvasRect already includes the pan transform, so no need to add panX/panY
@@ -1960,6 +2021,79 @@ transitionLines.forEach(line => {
             // Keep within canvas bounds
             newX = Math.max(0, newX);
             newY = Math.max(0, newY);
+
+            // Multi-select: move all other selected elements by the same delta
+            if (multiDragStartPositions && multiDragStartPositions !== false) {
+                const myStart = multiDragStartPositions['step:' + stepData.id];
+                if (myStart) {
+                    const dx = newX - myStart.x;
+                    const dy = newY - myStart.y;
+                    selectedElements.forEach(key => {
+                        if (key === 'step:' + stepData.id) return;
+                        const el = getElementForKey(key);
+                        const start = multiDragStartPositions[key];
+                        if (el && start) {
+                            const elX = Math.max(0, start.x + dx);
+                            const elY = Math.max(0, start.y + dy);
+                            el.style.left = elX + 'px';
+                            el.style.top = elY + 'px';
+                            const [elType, elId] = key.split(':');
+                            updateConnectedLines(elId, elType);
+                            updateElementPosition(elId, elType, elX, elY);
+
+                            // If this is a step, also move its attached frame
+                            if (elType === 'step') {
+                                const elGridX = elX / 30;
+                                const elGridY = elY / 30;
+                                const elAttachedFrame = currentTransitionFrames.find(f => f.attachedToStepId === elId);
+                                if (elAttachedFrame) {
+                                    const elFrameEl = canvas.querySelector(`[data-transition-frame="${elAttachedFrame.id}"]`);
+                                    if (elFrameEl) {
+                                        elFrameEl.style.left = elX + 'px';
+                                        elFrameEl.style.top = elY + 'px';
+                                        elAttachedFrame.position = `${elGridX},${elGridY}`;
+                                        elAttachedFrame.conditions.forEach(conditionId => {
+                                            const caseLines = canvas.querySelectorAll(`[data-transition-connection-line][data-from-transition="${conditionId}"]`);
+                                            caseLines.forEach(line => {
+                                                const toStepId = line.getAttribute('data-to-step');
+                                                const toNodeId = line.getAttribute('data-to-node');
+                                                const transition = currentTransitions.find(t => t.id === conditionId);
+                                                const caseColor = transition ? getTransitionTheme(transition.type).color : getTransitionTheme('Success').color;
+                                                if (toStepId) drawConnectionLine(line, conditionId, 'case', toStepId, 'step', canvas, caseColor, false, elAttachedFrame);
+                                                else if (toNodeId) drawConnectionLine(line, conditionId, 'case', toNodeId, 'node', canvas, caseColor, false, elAttachedFrame);
+                                            });
+                                        });
+                                    }
+                                }
+                                // Also update inbound/outbound connection lines for this step
+                                const elStepData = currentSteps.find(s => s.id === elId);
+                                if (elStepData) elStepData.position = `${elGridX},${elGridY}`;
+                                const elTransLines = canvas.querySelectorAll(`[data-connection-line][data-from-step="${elId}"]`);
+                                elTransLines.forEach(line => {
+                                    const frameUUID = line.getAttribute('data-connection-line');
+                                    if (frameUUID) {
+                                        const fEl = canvas.querySelector(`[data-transition-frame="${frameUUID}"]`);
+                                        if (fEl) updateTransitionLine(line, frameUUID, elId, getClosestSideToFrame(el, fEl, canvas), canvas);
+                                    }
+                                });
+                                const elCaseLines = canvas.querySelectorAll(`[data-transition-connection-line][data-to-step="${elId}"]`);
+                                elCaseLines.forEach(line => {
+                                    const fromTransId = line.getAttribute('data-from-transition');
+                                    const frame = currentTransitionFrames.find(f => f.conditions.includes(fromTransId));
+                                    const transition = currentTransitions.find(t => t.id === fromTransId);
+                                    const caseColor = transition ? getTransitionTheme(transition.type).color : getTransitionTheme('Success').color;
+                                    drawConnectionLine(line, fromTransId, 'case', elId, 'step', canvas, caseColor, false, frame);
+                                });
+                                const elInboundNodeLines = canvas.querySelectorAll(`[data-node-connection-line][data-to-step="${elId}"]`);
+                                elInboundNodeLines.forEach(line => {
+                                    const fromNodeId = line.getAttribute('data-from-node');
+                                    drawConnectionLine(line, fromNodeId, 'node', elId, 'step', canvas, '#707070', true);
+                                });
+                            }
+                        }
+                    });
+                }
+            }
             
             stepElement.style.left = newX + 'px';
             stepElement.style.top = newY + 'px';
@@ -2060,6 +2194,7 @@ transitionLines.forEach(line => {
     document.addEventListener('mouseup', () => {
         if (isDragging) {
             isDragging = false;
+            multiDragStartPositions = null;
             updatePreview();
         }
     });

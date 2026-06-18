@@ -42,6 +42,10 @@ const stepsWithTimersStarted = {};
 // Track which steps have been rendered in their final state (to skip re-rendering)
 const stepsRenderedFinal = {};
 
+// Track expanded Workflow steps and their sub-execution IDs for polling
+// key: stepId (step-seq-N), value: array of executionIds
+const expandedSubExecutions = {};
+
 // Track execution duration timer (for the overall workflow)
 let executionDurationTimer = null;
 let executionStartTime = null;
@@ -63,6 +67,7 @@ function cleanupPreviousExecution() {
     Object.keys(stepDurationTimers).forEach(key => delete stepDurationTimers[key]);
     Object.keys(stepsWithTimersStarted).forEach(key => delete stepsWithTimersStarted[key]);
     Object.keys(stepsRenderedFinal).forEach(key => delete stepsRenderedFinal[key]);
+    Object.keys(expandedSubExecutions).forEach(key => delete expandedSubExecutions[key]);
     
     // Clear execution duration timer
     if (executionDurationTimer) {
@@ -189,6 +194,7 @@ function getStatusClass(status) {
         'failure': 'status-failure',
         'running': 'status-running',
         'pending': 'status-pending',
+        'warning': 'status-warning',
         'cancelled': 'status-cancelled',
         'cancelling': 'status-cancelled'
     };
@@ -253,7 +259,7 @@ function showPersistentExecutionBanner(message, type) {
  * @returns {Promise<{executions: Array, total: number, limit: number, offset: number}>}
  */
 async function fetchExecutionSummaries(options = {}) {
-    const { limit = 50, offset = 0, status = null, workflowId = null } = options;
+    const { limit = 50, offset = 0, status = null, workflowId = null, showSubworkflows = false } = options;
     
     try {
         const sessionToken = window.sessionToken || getSessionTokenFromCookie();
@@ -270,6 +276,7 @@ async function fetchExecutionSummaries(options = {}) {
         params.append('offset', offset);
         if (status) params.append('status', status);
         if (workflowId) params.append('workflowId', workflowId);
+        if (showSubworkflows) params.append('showSubworkflows', 'true');
 
         const response = await fetch(`/engine/executions?${params.toString()}`, {
             method: 'GET',
@@ -596,6 +603,17 @@ function startPollingExecution(executionId, container, backButton) {
             
             // Re-render with latest data
             await renderExecutionDetail(execution, container, backButton);
+
+            // Refresh any expanded sub-executions on Workflow steps
+            for (const [stepId, subExecIds] of Object.entries(expandedSubExecutions)) {
+                if (expandedSections['step-' + stepId]) {
+                    const subContainer = document.querySelector('#' + stepId + '-subexec');
+                    if (subContainer) {
+                        const executionIsTerminal = execution.status !== 'running' && execution.status !== 'pending' && execution.status !== 'cancelling';
+                        await renderSubExecutionSteps(subExecIds, subContainer, executionIsTerminal);
+                    }
+                }
+            }
             
             // Stop polling if execution completed or was cancelled (but not cancelling - still in progress)
             if (execution.status !== 'running' && execution.status !== 'pending' && execution.status !== 'cancelling') {
@@ -669,6 +687,12 @@ async function renderExecutionDetail(execution, container, backButton = false) {
         errors.id = 'exec-errors';
         errors.style.display = 'none';
         wrapper.appendChild(errors);
+
+        // Warnings (created but hidden initially)
+        const warnings = document.createElement('div');
+        warnings.id = 'exec-warnings';
+        warnings.style.display = 'none';
+        wrapper.appendChild(warnings);
         
         // Context
         const context = document.createElement('div');
@@ -751,18 +775,64 @@ async function renderExecutionDetail(execution, container, backButton = false) {
         stopExecutionDurationTimer(execution.duration);
     }
 
-    // Update errors section
+    // Update errors and warnings sections
     const errorsEl = document.getElementById('exec-errors');
+    const warningsEl = document.getElementById('exec-warnings');
+
     if (execution.errors && execution.errors.length > 0) {
-        errorsEl.innerHTML = `
-            <div class="panel-level-2" style="border-left: 3px solid #ff6b6b;">
-                <div style="color: #ff6b6b; font-weight: 600; margin-bottom: 10px;">Errors</div>
-                <pre style="background: var(--bg-primary); border-radius: 4px; padding: 10px; overflow-x: auto; color: #ff6b6b; margin: 0;">${escapeHtml(formatJson(execution.errors))}</pre>
-            </div>
-        `;
-        errorsEl.style.display = 'block';
+        const failureItems = execution.errors.filter(e => !e.type || e.type === 'failure');
+        const warningItems = execution.errors.filter(e => e.type === 'warning');
+
+        if (failureItems.length > 0) {
+            errorsEl.innerHTML = `
+                <div class="panel-level-2" style="padding: 6px; border-left: 3px solid #ff6b6b;">
+                    <div data-section-id="exec-errors-section" style="display: flex; align-items: center; gap: 10px; cursor: pointer; user-select: none; font-size: 13px;" onclick="toggleSection('exec-errors-content', 'exec-errors-section', event)">
+                        <span style="font-weight: bold;">▶</span>
+                        <strong style="color: #ff6b6b;">Errors (${failureItems.length})</strong>
+                    </div>
+                    <div id="exec-errors-content" style="display: none; margin-top: 10px;">
+                        <pre style="background: var(--bg-primary); border-radius: 4px; padding: 10px; overflow-x: auto; color: #ff6b6b; margin: 0;">${escapeHtml(formatJson(failureItems))}</pre>
+                    </div>
+                </div>
+            `;
+            errorsEl.style.display = 'block';
+            if (expandedSections['exec-errors-section']) {
+                const content = errorsEl.querySelector('#exec-errors-content');
+                if (content) {
+                    content.style.display = 'block';
+                    errorsEl.querySelector('span').textContent = '▼';
+                }
+            }
+        } else {
+            errorsEl.style.display = 'none';
+        }
+
+        if (warningItems.length > 0) {
+            warningsEl.innerHTML = `
+                <div class="panel-level-2" style="padding: 6px; border-left: 3px solid #f0a500;">
+                    <div data-section-id="exec-warnings-section" style="display: flex; align-items: center; gap: 10px; cursor: pointer; user-select: none; font-size: 13px;" onclick="toggleSection('exec-warnings-content', 'exec-warnings-section', event)">
+                        <span style="font-weight: bold;">▶</span>
+                        <strong style="color: #f0a500;">Warnings (${warningItems.length})</strong>
+                    </div>
+                    <div id="exec-warnings-content" style="display: none; margin-top: 10px;">
+                        <pre style="background: var(--bg-primary); border-radius: 4px; padding: 10px; overflow-x: auto; color: #f0a500; margin: 0;">${escapeHtml(formatJson(warningItems))}</pre>
+                    </div>
+                </div>
+            `;
+            warningsEl.style.display = 'block';
+            if (expandedSections['exec-warnings-section']) {
+                const content = warningsEl.querySelector('#exec-warnings-content');
+                if (content) {
+                    content.style.display = 'block';
+                    warningsEl.querySelector('span').textContent = '▼';
+                }
+            }
+        } else {
+            warningsEl.style.display = 'none';
+        }
     } else {
         errorsEl.style.display = 'none';
+        warningsEl.style.display = 'none';
     }
 
     // Update context section
@@ -876,7 +946,8 @@ async function renderExecutionDetail(execution, container, backButton = false) {
                     return;
                 }
 
-                if (stepsRenderedFinal[stepId]) {
+                const isWorkflowStep = step.stepType === 'Workflow';
+                if (stepsRenderedFinal[stepId] && !isWorkflowStep) {
                     return;
                 }
 
@@ -903,18 +974,59 @@ async function renderExecutionDetail(execution, container, backButton = false) {
 
                 if (hasResult) {
                     const contentId = `${stepId}-content`;
-                    const editorId = `${stepId}-editor`;
 
-                    stepEl.innerHTML =
-                        '<div data-section-id="step-' + stepId + '" style="display: flex; align-items: center; gap: 10px; cursor: pointer; user-select: none; font-size: 13px;" onclick="toggleSection(' + "'" + contentId + "'" + ', ' + "'step-" + stepId + "'" + ', event)">' +
-                        (effectiveStatus === 'running' ? spinnerHtml : '<span style="font-weight: bold;">▶</span>') +
-                        '<strong>' + escapeHtml(stepName) + '</strong> ' + seqLabel +
-                        '<span style="color: var(--text-muted); font-size: 12px;" id="duration-' + stepId + '">' + durationDisplay + '</span>' +
-                        statusBadge +
-                        '</div>' +
-                        '<div id="' + contentId + '" style="display: none; margin-top: 10px; min-height: 200px;">' +
-                        '<div id="' + editorId + '" style="height: 300px; background: var(--bg-primary); border-radius: 6px; overflow: hidden;"></div>' +
-                        '</div>';
+                    // Determine sub-execution IDs for Workflow steps
+                    let subExecutionIds = [];
+                    if (isWorkflowStep && step.output) {
+                        if (step.output.executionId) {
+                            // Single run
+                            subExecutionIds = [step.output.executionId];
+                        } else if (step.output.combined_results) {
+                            // Loop run
+                            subExecutionIds = step.output.combined_results
+                                .map(r => r.executionId)
+                                .filter(Boolean);
+                        }
+                    }
+
+                    // Only rebuild innerHTML if not yet rendered final, or if it's a Workflow step (children may update)
+                    const alreadyFinal = stepsRenderedFinal[stepId] && !isWorkflowStep;
+                    if (!alreadyFinal) {
+                        const editorId = `${stepId}-editor`;
+                        const contentInner = isWorkflowStep
+                            ? '<div id="' + stepId + '-subexec" style="padding: 4px 0;"></div>'
+                            : '<div id="' + editorId + '" style="height: 300px; background: var(--bg-primary); border-radius: 6px; overflow: hidden;"></div>';
+
+                        stepEl.innerHTML =
+                            '<div data-section-id="step-' + stepId + '" style="display: flex; align-items: center; gap: 10px; cursor: pointer; user-select: none; font-size: 13px;">' +
+                            (effectiveStatus === 'running' ? spinnerHtml : '<span style="font-weight: bold;">▶</span>') +
+                            '<strong>' + escapeHtml(stepName) + '</strong> ' + seqLabel +
+                            '<span style="color: var(--text-muted); font-size: 12px;" id="duration-' + stepId + '">' + durationDisplay + '</span>' +
+                            statusBadge +
+                            '</div>' +
+                            '<div id="' + contentId + '" style="display: none; margin-top: 6px;">' +
+                            contentInner +
+                            '</div>';
+
+                        // Attach onclick — Workflow steps get a custom handler that also fetches children
+                        const headerEl = stepEl.querySelector('[data-section-id="step-' + stepId + '"]');
+                        if (headerEl) {
+                            if (isWorkflowStep && subExecutionIds.length > 0) {
+                                headerEl.onclick = (e) => {
+                                    toggleSection(contentId, 'step-' + stepId, e);
+                                    // If now expanded, fetch sub-executions
+                                    if (expandedSections['step-' + stepId]) {
+                                        const subContainer = stepEl.querySelector('#' + stepId + '-subexec');
+                                        if (subContainer) {
+                                            renderSubExecutionSteps(subExecutionIds, subContainer, executionIsTerminal);
+                                        }
+                                    }
+                                };
+                            } else {
+                                headerEl.onclick = (e) => toggleSection(contentId, 'step-' + stepId, e);
+                            }
+                        }
+                    }
 
                     if (effectiveStatus === 'running') {
                         if (!stepsWithTimersStarted[stepId]) {
@@ -926,18 +1038,34 @@ async function renderExecutionDetail(execution, container, backButton = false) {
                             stopStepDurationTimer(stepId, step.duration);
                             delete stepsWithTimersStarted[stepId];
                         }
-                        stepsRenderedFinal[stepId] = true;
+                        if (!isWorkflowStep) stepsRenderedFinal[stepId] = true;
                     }
 
-                    if (expandedSections['step-' + stepId]) {
-                        const contentDiv = stepEl.querySelector('#' + contentId);
-                        if (contentDiv) {
+                    const isExpanded = expandedSections['step-' + stepId];
+                    const contentDiv = stepEl.querySelector('#' + contentId);
+                    if (contentDiv) {
+                        if (isExpanded) {
                             contentDiv.style.display = 'block';
-                            stepEl.querySelector('span').textContent = '▼';
+                            const chevron = stepEl.querySelector('[data-section-id="step-' + stepId + '"] span');
+                            if (chevron) chevron.textContent = '▼';
+                        }
+
+                        // For Workflow steps: register sub-executions for poll cycle refresh
+                        if (isWorkflowStep && subExecutionIds.length > 0) {
+                            expandedSubExecutions[stepId] = subExecutionIds;
+                            // If already expanded (e.g. after poll re-render), refresh children
+                            if (isExpanded) {
+                                const subContainer = stepEl.querySelector('#' + stepId + '-subexec');
+                                if (subContainer) {
+                                    renderSubExecutionSteps(subExecutionIds, subContainer, executionIsTerminal);
+                                }
+                            }
                         }
                     }
 
-                    editorsToRender.push({ containerId: editorId, data: resultData.result });
+                    if (!isWorkflowStep) {
+                        editorsToRender.push({ containerId: `${stepId}-editor`, data: resultData.result });
+                    }
 
                 } else {
                     stepEl.innerHTML =
@@ -1001,6 +1129,168 @@ async function renderExecutionDetail(execution, container, backButton = false) {
 
 
 // Expose functions to global scope
+/**
+ * Render the step list inside an expanded sub-execution container
+ */
+function renderSubExecStepList(subExecution, stepsContainer) {
+    if (!subExecution.steps || subExecution.steps.length === 0) return;
+    const sorted = [...subExecution.steps].sort((a, b) =>
+        (a.executionSequence ?? Infinity) - (b.executionSequence ?? Infinity));
+    const subIsTerminal = subExecution.status !== 'running' && subExecution.status !== 'pending';
+    const spinnerHtml = '<span style="display: inline-block; width: 12px; height: 12px; border: 2px solid var(--text-muted); border-top-color: var(--text-primary); border-radius: 50%; animation: spin 0.8s linear infinite;"></span>';
+
+    sorted.forEach(step => {
+        const stepName = step.stepName || 'Step ' + step.executionSequence;
+        const seq = step.executionSequence ?? '?';
+        const subStepId = 'subexec-' + subExecution.executionId + '-step-' + seq;
+        const effectiveStatus = (step.status === 'running' && subIsTerminal) ? 'cancelled' : step.status;
+        const effectiveClass = getStatusClass(effectiveStatus);
+        const durationDisplay = formatDuration(step.duration || 0);
+        const hasOutput = step.output && Object.keys(step.output).length > 0;
+        const hasError = !!step.error;
+        const isExpandable = hasOutput || hasError;
+        const contentId = subStepId + '-content';
+        const editorId = subStepId + '-editor';
+
+        let stepEl = stepsContainer.querySelector('[data-sub-step-id="' + subStepId + '"]');
+        if (!stepEl) {
+            stepEl = document.createElement('div');
+            stepEl.setAttribute('data-sub-step-id', subStepId);
+            stepEl.className = 'panel-level-5';
+            stepEl.style.cssText = 'padding: 3px 0 3px 6px; margin-bottom: 2px;';
+            stepsContainer.appendChild(stepEl);
+        }
+
+        // Build header
+        const headerHtml =
+            '<div data-sub-step-header style="display: flex; align-items: center; gap: 8px; font-size: 12px;' +
+            (isExpandable ? ' cursor: pointer; user-select: none;' : '') + '">' +
+            (effectiveStatus === 'running' ? spinnerHtml : (isExpandable ? '<span style="font-weight: bold;">▶</span>' : '')) +
+            '<strong>' + escapeHtml(stepName) + '</strong>' +
+            '<span style="color: var(--text-muted); font-size: 11px;">#' + seq + '</span>' +
+            '<span style="color: var(--text-muted); font-size: 11px;">' + durationDisplay + '</span>' +
+            '<span class="status-badge ' + effectiveClass + '" style="margin-left: auto; font-size: 11px;">' + effectiveStatus + '</span>' +
+            '</div>';
+
+        const contentHtml = isExpandable
+            ? '<div id="' + contentId + '" style="display: none; margin-top: 6px;">' +
+              (hasError
+                  ? '<pre style="background: var(--bg-primary); border-radius: 4px; padding: 8px; color: #ff6b6b; font-size: 11px; margin: 0; white-space: pre-wrap;">' + escapeHtml(step.error) + '</pre>'
+                  : '<div id="' + editorId + '" style="height: 200px; background: var(--bg-primary); border-radius: 6px; overflow: hidden;"></div>') +
+              '</div>'
+            : '';
+
+        stepEl.innerHTML = headerHtml + contentHtml;
+
+        // Attach expand onclick for expandable steps
+        if (isExpandable) {
+            const headerEl = stepEl.querySelector('[data-sub-step-header]');
+            const sectionKey = subStepId + '-expanded';
+            if (headerEl) {
+                headerEl.onclick = (e) => {
+                    e.stopPropagation();
+                    const contentDiv = stepEl.querySelector('#' + contentId);
+                    if (!contentDiv) return;
+                    const isHidden = contentDiv.style.display === 'none';
+                    contentDiv.style.display = isHidden ? 'block' : 'none';
+                    const chevron = headerEl.querySelector('span[style*="font-weight"]');
+                    if (chevron) chevron.textContent = isHidden ? '▼' : '▶';
+                    if (isHidden && hasOutput && !hasError) {
+                        // Lazy-render CodeMirror editor on first expand
+                        const editorEl = document.getElementById(editorId);
+                        if (editorEl && !editorEl.querySelector('.cm-editor')) {
+                            const jsonString = typeof step.output === 'string'
+                                ? JSON.stringify(JSON.parse(step.output), null, 2)
+                                : JSON.stringify(step.output, null, 2);
+                            createOutputEditor(editorId, jsonString);
+                        }
+                    }
+                };
+            }
+        }
+    });
+}
+
+/**
+ * Render sub-execution steps inside an expanded Workflow step
+ * For loop runs, renders one section per sub-execution with its steps nested inside
+ */
+async function renderSubExecutionSteps(executionIds, container, parentIsTerminal) {
+    for (const subExecId of executionIds) {
+        try {
+            const subExecution = await fetchExecutionDetail(subExecId);
+            const isLoop = executionIds.length > 1;
+
+            // Get or create a container for this sub-execution
+            let subExecEl = container.querySelector('[data-sub-exec-id="' + subExecId + '"]');
+            if (!subExecEl) {
+                subExecEl = document.createElement('div');
+                subExecEl.setAttribute('data-sub-exec-id', subExecId);
+                subExecEl.className = 'panel-level-4';
+                subExecEl.style.cssText = 'padding: 4px 0 4px 6px; margin-bottom: 4px;';
+                container.appendChild(subExecEl);
+            }
+
+            const statusClass = getStatusClass(subExecution.status);
+            const statusBadge = '<span class="status-badge ' + statusClass + '">' + subExecution.status + '</span>';
+            const workflowName = subExecution.workflowName || ('Sub-execution #' + subExecId);
+            const headerText = isLoop
+                ? workflowName + ' <span style="color: var(--text-muted); font-size: 11px;">#' + subExecId + '</span>'
+                : workflowName + ' <span style="color: var(--text-muted); font-size: 11px;">#' + subExecId + '</span>';
+            const subContentId = 'subexec-' + subExecId + '-steps';
+
+            // Build or update header
+            let headerEl = subExecEl.querySelector('[data-sub-exec-header]');
+            if (!headerEl) {
+                headerEl = document.createElement('div');
+                headerEl.setAttribute('data-sub-exec-header', '1');
+                headerEl.style.cssText = 'display: flex; align-items: center; gap: 8px; font-size: 12px; cursor: pointer; user-select: none;';
+                subExecEl.appendChild(headerEl);
+
+                const stepsContainer = document.createElement('div');
+                stepsContainer.id = subContentId;
+                stepsContainer.style.cssText = 'display: none; margin-top: 4px; padding-left: 12px;';
+                subExecEl.appendChild(stepsContainer);
+            }
+
+            // Attach onclick with immediate child rendering on expand
+            headerEl.onclick = (e) => {
+                e.stopPropagation();
+                const stepsDiv = subExecEl.querySelector('#' + subContentId);
+                if (!stepsDiv) return;
+                const isHidden = stepsDiv.style.display === 'none';
+                stepsDiv.style.display = isHidden ? 'block' : 'none';
+                const chevron = headerEl.querySelector('span[data-chevron]');
+                if (chevron) chevron.textContent = isHidden ? '▼' : '▶';
+                if (isHidden) {
+                    expandedSections['subexec-hdr-' + subExecId] = true;
+                    renderSubExecStepList(subExecution, stepsDiv);
+                } else {
+                    delete expandedSections['subexec-hdr-' + subExecId];
+                }
+            };
+
+            const isExpanded = expandedSections['subexec-hdr-' + subExecId];
+            headerEl.innerHTML =
+                '<span data-chevron style="font-weight: bold;">' + (isExpanded ? '▼' : '▶') + '</span>' +
+                '<span>' + headerText + '</span> ' +
+                '<span style="margin-left: auto;">' + statusBadge + '</span>';
+
+            // Re-render steps if already expanded (poll refresh)
+            if (isExpanded) {
+                const stepsContainer = subExecEl.querySelector('#' + subContentId);
+                if (stepsContainer) {
+                    stepsContainer.style.display = 'block';
+                    renderSubExecStepList(subExecution, stepsContainer);
+                }
+            }
+        } catch (err) {
+            console.error('[renderSubExecutionSteps] Error fetching sub-execution ' + subExecId + ':', err);
+        }
+    }
+}
+
+window.expandedSubExecutions = expandedSubExecutions;
 window.executeWorkflow = executeWorkflow;
 window.fetchExecutionDetail = fetchExecutionDetail;
 window.fetchExecutionSummaries = fetchExecutionSummaries;

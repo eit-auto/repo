@@ -31,8 +31,10 @@ if (typeof theme === 'undefined') {
       panel2_: '#212c47',
       panel3_: '#1a2238',
       panel1: '#002b59',
-      panel2: '#002547',
-      panel3: '#002040',
+      panel2: '#00254C',
+      panel3: '#001F40',
+      panel4: '#001933',
+      panel5: '#001226',
     },
 
     // Text Colors
@@ -54,53 +56,6 @@ if (typeof theme === 'undefined') {
       background: '#002b59',
       text: '#4cb5ff',
       border: '#0070b9',
-    },
-  },
-
-  green: {
-    // Primary Brand Colors
-    eq: {
-      dark: '#0d4620',
-      light: '#27ae60',
-      lighter: '#52be80',
-    },
-
-    // Secondary Brand Colors
-    secondary: {
-      light: '#d5ede0',
-      medium: '#5cb85c',
-      slate: '#6b8e6f',
-      neutral: '#aab1ba',
-    },
-
-    // Background Colors
-    bg: {
-      primary: '#1a2420',
-      input: '#1f2f27',
-      subpanel: '#23382d',
-      drawer: '#0f2818',
-      titlePod: '#0d2214',
-    },
-
-    // Text Colors
-    text: {
-      primary: '#ffffff',
-      muted: '#8fb891',
-      header: '#d5ede0',
-      accent: '#52be80',
-    },
-
-    // Border & Divider Colors
-    border: {
-      primary: '#2d5a3d',
-      bright: 'rgba(39, 174, 96, 0.9)',
-    },
-
-    // Semantic/Component Colors
-    badge: {
-      background: '#0d4620',
-      text: '#52be80',
-      border: '#27ae60',
     },
   },
 };
@@ -228,6 +183,26 @@ if (typeof componentStyles === 'undefined') {
 
   .panel-level-3 {
     background-color: var(--bg-panel3);
+    border: 1px solid var(--border-primary);
+    border-radius: 6px;
+    padding: 10px;
+    display: flex;
+    flex-direction: column;
+    box-sizing: border-box;
+  }
+
+  .panel-level-4 {
+    background-color: var(--bg-panel4);
+    border: 1px solid var(--border-primary);
+    border-radius: 6px;
+    padding: 10px;
+    display: flex;
+    flex-direction: column;
+    box-sizing: border-box;
+  }
+
+  .panel-level-5 {
+    background-color: var(--bg-panel5);
     border: 1px solid var(--border-primary);
     border-radius: 6px;
     padding: 10px;
@@ -762,6 +737,9 @@ if (typeof componentStyles === 'undefined') {
     font-size: 11px;
     font-weight: 600;
     text-transform: uppercase;
+    width: 50px;
+    text-align: center;
+    box-sizing: content-box;
   }
 
   .status-success { background-color: rgba(76, 175, 80, 0.2); color: #4caf50; }

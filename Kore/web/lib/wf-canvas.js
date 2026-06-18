@@ -21,6 +21,51 @@ const GRID_SIZE = 5000; // Must match HTML canvas dimensions
 const MIN_DRAG_DISTANCE = 20; // Minimum pixels to drag before considering it a drag operation
 
 // ============================================================================
+// MULTI-SELECT STATE
+// ============================================================================
+// Each entry is a string key: 'step:id', 'node:id', 'frame:id'
+const selectedElements = new Set();
+
+/**
+ * Add or toggle an element in the multi-selection.
+ * Applies 'selected' class and hides the properties panel.
+ */
+function addToSelection(id, type, element) {
+    const key = type + ':' + id;
+    if (selectedElements.has(key)) {
+        selectedElements.delete(key);
+        if (element) element.classList.remove('selected');
+    } else {
+        selectedElements.add(key);
+        if (element) element.classList.add('selected');
+    }
+    if (selectedElements.size > 0) {
+        hidePropertiesPanel();
+    }
+}
+
+/**
+ * Clear all multi-selections and remove 'selected' class.
+ * Does not touch the properties panel.
+ */
+function clearSelection() {
+    selectedElements.clear();
+    document.querySelectorAll('.selected').forEach(el => el.classList.remove('selected'));
+}
+
+/**
+ * Get the canvas element for a given selection key
+ */
+function getElementForKey(key) {
+    const canvas = document.getElementById('workflowCanvas');
+    const [type, id] = key.split(':');
+    if (type === 'step') return canvas.querySelector(`[data-step-uuid="${id}"]`);
+    if (type === 'node') return canvas.querySelector(`[data-node-id="${id}"]`);
+    if (type === 'frame') return canvas.querySelector(`[data-transition-frame="${id}"]`);
+    return null;
+}
+
+// ============================================================================
 // PHASE 1: PURE UTILITY FUNCTIONS - No dependencies
 // ============================================================================
 
@@ -645,7 +690,7 @@ function createStepOnCanvas(stepType, x, y) {
     
     // Create step data object
     const stepData = {
-        id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        id: generateId(),
         name: stepType === 'Begin' ? 'BEGIN' : stepType === 'End' ? 'End' : stepType === 'Workflow' ? 'Workflow' : stepType === 'RMM' ? 'RMM Step' : stepType === 'Kore' ? 'Kore' : `${stepType} Step`,
         type: stepType,
         action: '',
@@ -677,7 +722,7 @@ function createStepOnCanvas(stepType, x, y) {
     // Create and render the attached transition frame
     const frameX = x;  // Use pixel coordinates from drop
     const frameY = y;
-    const frameUUID = `frame-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    const frameUUID = generateId("frame");
     const frameData = {
         id: frameUUID,
         execution: 'First',
@@ -851,6 +896,7 @@ function makeElementDraggable(element, elementId, elementType, onDragMove, onDra
     let dragOffsetY = 0;
     let dragStartX = 0;
     let dragStartY = 0;
+    let multiDragStartPositions = null; // {key: {x, y}} for all selected elements at drag start
     
     const {
         dragHandle = null,
@@ -874,6 +920,23 @@ function makeElementDraggable(element, elementId, elementType, onDragMove, onDra
         const canvasRect = canvas.getBoundingClientRect();
         dragOffsetX = (e.clientX - rect.left) / zoomLevel;
         dragOffsetY = (e.clientY - rect.top) / zoomLevel;
+
+        // If this element is in a multi-selection, snapshot all selected positions
+        const myKey = elementType + ':' + elementId;
+        if (selectedElements.size > 1 && selectedElements.has(myKey)) {
+            multiDragStartPositions = {};
+            selectedElements.forEach(key => {
+                const el = getElementForKey(key);
+                if (el) {
+                    multiDragStartPositions[key] = {
+                        x: parseInt(el.style.left) || 0,
+                        y: parseInt(el.style.top) || 0
+                    };
+                }
+            });
+        } else {
+            multiDragStartPositions = null;
+        }
         
         const handleMouseMove = (moveEvent) => {
             if (!isDragging) return;
@@ -905,6 +968,31 @@ function makeElementDraggable(element, elementId, elementType, onDragMove, onDra
                 newX = Math.max(0, newX);
                 newY = Math.max(0, newY);
             }
+
+            if (multiDragStartPositions) {
+                // Multi-select drag: compute delta from primary element's start pos and apply to all
+                const myStart = multiDragStartPositions[elementType + ':' + elementId];
+                if (myStart) {
+                    const dx = newX - myStart.x;
+                    const dy = newY - myStart.y;
+                    selectedElements.forEach(key => {
+                        if (key === elementType + ':' + elementId) return; // handled below
+                        const el = getElementForKey(key);
+                        const start = multiDragStartPositions[key];
+                        if (el && start) {
+                            const elX = Math.max(0, start.x + dx);
+                            const elY = Math.max(0, start.y + dy);
+                            el.style.left = elX + 'px';
+                            el.style.top = elY + 'px';
+                            // Update data and lines for each co-dragged element
+                            const [elType, elId] = key.split(':');
+                            updateConnectedLines(elId, elType);
+                            // Update data position
+                            updateElementPosition(elId, elType, elX, elY);
+                        }
+                    });
+                }
+            }
             
             element.style.left = newX + 'px';
             element.style.top = newY + 'px';
@@ -922,6 +1010,7 @@ function makeElementDraggable(element, elementId, elementType, onDragMove, onDra
             if (!isDragging) return;
             
             isDragging = false;
+            multiDragStartPositions = null;
             
             const finalX = parseInt(element.style.left);
             const finalY = parseInt(element.style.top);
@@ -1045,19 +1134,48 @@ function setupCanvasDragDrop() {
     
     // Pan with left mouse button (on empty canvas only)
     const container = document.getElementById('canvasContainer');
+    let isMarqueeSelecting = false;
+    let marqueeStartX = 0;
+    let marqueeStartY = 0;
+    let marqueeEl = null;
+
     container.addEventListener('mousedown', (e) => {
         if (e.button === 0 && (e.target === canvas || e.target.closest('[data-transition-connection-line]'))) {
-            // Don't pan if clicking on steps, frames, or hitboxes
+            // Don't pan/marquee if clicking on steps, frames, or hitboxes
             if (e.target.closest('[data-step-uuid]') || 
                 e.target.closest('[data-transition-frame]') ||
                 e.target.closest('[data-case-arrow-hitbox]')) {
                 return;
             }
-            isPanning = true;
-            panStartX = e.clientX + panX;
-            panStartY = e.clientY + panY;
-            container.style.cursor = 'grabbing';
-            e.preventDefault();
+
+            if (e.ctrlKey || e.metaKey) {
+                // Ctrl+drag: start marquee selection
+                isMarqueeSelecting = true;
+                const containerRect = container.getBoundingClientRect();
+                marqueeStartX = e.clientX - containerRect.left;
+                marqueeStartY = e.clientY - containerRect.top;
+
+                marqueeEl = document.createElement('div');
+                marqueeEl.style.cssText = `
+                    position: absolute;
+                    border: 1px dashed #ffffff;
+                    background: rgba(255,255,255,0.05);
+                    pointer-events: none;
+                    z-index: 1000;
+                    left: ${marqueeStartX}px;
+                    top: ${marqueeStartY}px;
+                    width: 0;
+                    height: 0;
+                `;
+                container.appendChild(marqueeEl);
+                e.preventDefault();
+            } else {
+                isPanning = true;
+                panStartX = e.clientX + panX;
+                panStartY = e.clientY + panY;
+                container.style.cursor = 'grabbing';
+                e.preventDefault();
+            }
         }
     });
     
@@ -1068,12 +1186,59 @@ function setupCanvasDragDrop() {
             clampPan();
             updateTransform();
         }
+
+        if (isMarqueeSelecting && marqueeEl) {
+            const containerRect = container.getBoundingClientRect();
+            const curX = e.clientX - containerRect.left;
+            const curY = e.clientY - containerRect.top;
+            const x = Math.min(curX, marqueeStartX);
+            const y = Math.min(curY, marqueeStartY);
+            const w = Math.abs(curX - marqueeStartX);
+            const h = Math.abs(curY - marqueeStartY);
+            marqueeEl.style.left = x + 'px';
+            marqueeEl.style.top = y + 'px';
+            marqueeEl.style.width = w + 'px';
+            marqueeEl.style.height = h + 'px';
+        }
     });
     
-    document.addEventListener('mouseup', () => {
+    document.addEventListener('mouseup', (e) => {
         if (isPanning) {
             isPanning = false;
             container.style.cursor = 'auto';
+        }
+
+        if (isMarqueeSelecting && marqueeEl) {
+            isMarqueeSelecting = false;
+
+            // Marquee bounds in screen space
+            const containerRect = container.getBoundingClientRect();
+            const mx1 = containerRect.left + parseFloat(marqueeEl.style.left);
+            const my1 = containerRect.top + parseFloat(marqueeEl.style.top);
+            const mx2 = mx1 + parseFloat(marqueeEl.style.width);
+            const my2 = my1 + parseFloat(marqueeEl.style.height);
+
+            const intersects = (el) => {
+                const r = el.getBoundingClientRect();
+                return r.left < mx2 && r.right > mx1 && r.top < my2 && r.bottom > my1;
+            };
+
+            canvas.querySelectorAll('[data-step-uuid]').forEach(el => {
+                if (intersects(el)) addToSelection(el.getAttribute('data-step-uuid'), 'step', el);
+            });
+            canvas.querySelectorAll('[data-node-id]').forEach(el => {
+                if (intersects(el)) addToSelection(el.getAttribute('data-node-id'), 'node', el);
+            });
+            canvas.querySelectorAll('[data-transition-frame]').forEach(el => {
+                if (intersects(el)) addToSelection(el.getAttribute('data-transition-frame'), 'frame', el);
+            });
+
+            marqueeEl.remove();
+            marqueeEl = null;
+
+            // Suppress the canvas click that fires after mouseup
+            const suppressClick = (e) => { e.stopPropagation(); canvas.removeEventListener('click', suppressClick, true); };
+            canvas.addEventListener('click', suppressClick, true);
         }
     });
     
@@ -1258,7 +1423,7 @@ function setupCanvasDragDrop() {
                     }
                     
                     // Create new line
-                    const lineUUID = String(Date.now()) + '-' + Math.random().toString(36).substr(2, 9);
+                    const lineUUID = generateId();
                     const newLine = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
                     newLine.setAttribute('data-transition-connection-line', lineUUID);
                     newLine.setAttribute('data-from-transition', draggedConnectionSourceId);
@@ -1305,7 +1470,7 @@ function setupCanvasDragDrop() {
                     }
                     
                     // Create new line
-                    const lineUUID = String(Date.now()) + '-' + Math.random().toString(36).substr(2, 9);
+                    const lineUUID = generateId();
                     const newLine = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
                     newLine.setAttribute('data-node-connection-line', lineUUID);
                     newLine.setAttribute('data-from-node', draggedConnectionSourceId);
@@ -1518,7 +1683,7 @@ function setupCanvasDragDrop() {
                     }
                     
                     // Create green connection line
-                    const lineUUID = String(Date.now()) + '-' + Math.random().toString(36).substr(2, 9);
+                    const lineUUID = generateId();
                     const connectionLine = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
                     connectionLine.setAttribute('data-transition-connection-line', lineUUID);
                     connectionLine.setAttribute('data-from-transition', savedTransitionId);
@@ -1557,7 +1722,7 @@ function setupCanvasDragDrop() {
                     }
                     
                     // Create connection line to node
-                    const lineUUID = String(Date.now()) + '-' + Math.random().toString(36).substr(2, 9);
+                    const lineUUID = generateId();
                     const connectionLine = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
                     connectionLine.setAttribute('data-transition-connection-line', lineUUID);
                     connectionLine.setAttribute('data-from-transition', savedTransitionId);
@@ -1655,11 +1820,7 @@ function setupCanvasDragDrop() {
     // Click on empty canvas to deselect steps and transitions
     canvas.addEventListener('click', (e) => {
         if (e.target === canvas) {
-            document.querySelectorAll('[data-step-id]').forEach(el => {
-                const stepUUID = el.getAttribute('data-step-uuid');
-                const step = currentSteps.find(s => s.id === stepUUID);
-                el.classList.remove('selected');
-            });
+            clearSelection();
             document.querySelectorAll('[data-transition-uuid]').forEach(el => {
                 const transId = el.getAttribute('data-transition-uuid');
                 const transObj = currentTransitions.find(t => t.id === transId);
@@ -1672,6 +1833,104 @@ function setupCanvasDragDrop() {
             hidePropertiesPanel();
             document.getElementById('propertiesContent').innerHTML = '<div style="color: #b0b0b0; font-size: 0.85rem;">Select a step or transition to edit properties</div>';
         }
+    });
+
+    // ── CONTEXT MENU ─────────────────────────────────────────────────────────
+    const ctxMenu = document.createElement('div');
+    ctxMenu.id = 'canvasContextMenu';
+    ctxMenu.style.cssText = `
+        display: none;
+        position: fixed;
+        z-index: 9999;
+        background: var(--bg-panel2);
+        border: 1px solid var(--border-primary);
+        border-radius: 6px;
+        padding: 4px 0;
+        min-width: 150px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+        font-size: 13px;
+    `;
+    document.body.appendChild(ctxMenu);
+
+    function ctxItem(label, onClick, danger = false) {
+        const item = document.createElement('div');
+        item.textContent = label;
+        item.style.cssText = `
+            padding: 7px 16px;
+            cursor: pointer;
+            color: ${danger ? '#ff6b6b' : 'var(--text-primary)'};
+            user-select: none;
+        `;
+        item.addEventListener('mouseenter', () => item.style.background = 'var(--bg-panel3)');
+        item.addEventListener('mouseleave', () => item.style.background = '');
+        item.addEventListener('click', () => { hideCtxMenu(); onClick(); });
+        return item;
+    }
+
+    function hideCtxMenu() {
+        ctxMenu.style.display = 'none';
+        ctxMenu.innerHTML = '';
+    }
+
+    function showCtxMenu(x, y, items) {
+        ctxMenu.innerHTML = '';
+        items.forEach(item => ctxMenu.appendChild(item));
+        ctxMenu.style.left = x + 'px';
+        ctxMenu.style.top = y + 'px';
+        ctxMenu.style.display = 'block';
+        // Nudge back into viewport if needed
+        const rect = ctxMenu.getBoundingClientRect();
+        if (rect.right > window.innerWidth) ctxMenu.style.left = (x - rect.width) + 'px';
+        if (rect.bottom > window.innerHeight) ctxMenu.style.top = (y - rect.height) + 'px';
+    }
+
+    document.addEventListener('click', hideCtxMenu);
+    document.addEventListener('contextmenu', hideCtxMenu);
+
+    canvas.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+
+        const canvasRect = canvas.getBoundingClientRect();
+        const canvasX = (e.clientX - canvasRect.left) / zoomLevel;
+        const canvasY = (e.clientY - canvasRect.top) / zoomLevel;
+        const gridX = Math.round(canvasX / 30);
+        const gridY = Math.round(canvasY / 30);
+
+        const stepEl = e.target.closest('[data-step-uuid]');
+        const nodeEl = e.target.closest('[data-node-id]');
+        const frameEl = e.target.closest('[data-transition-frame]');
+
+        const items = [];
+
+        if (stepEl) {
+            const stepId = stepEl.getAttribute('data-step-uuid');
+            if (!selectedElements.has('step:' + stepId)) { clearSelection(); addToSelection(stepId, 'step', stepEl); }
+            items.push(ctxItem('Copy', () => copySelection()));
+            if (selectedElements.size > 1) {
+                items.push(ctxItem('Delete Selected', () => deleteSelection(), true));
+            } else {
+                items.push(ctxItem('Delete', () => deleteElement(stepId, 'step'), true));
+            }
+        } else if (nodeEl) {
+            const nodeId = nodeEl.getAttribute('data-node-id');
+            if (!selectedElements.has('node:' + nodeId)) { clearSelection(); addToSelection(nodeId, 'node', nodeEl); }
+            items.push(ctxItem('Copy', () => copySelection()));
+            if (selectedElements.size > 1) {
+                items.push(ctxItem('Delete Selected', () => deleteSelection(), true));
+            } else {
+                items.push(ctxItem('Delete', () => deleteElement(nodeId, 'node'), true));
+            }
+        } else if (frameEl) {
+            const frameId = frameEl.getAttribute('data-transition-frame');
+            if (!selectedElements.has('frame:' + frameId)) { clearSelection(); addToSelection(frameId, 'frame', frameEl); }
+            items.push(ctxItem('Copy', () => copySelection()));
+        } else {
+            items.push(ctxItem('Add Node', () => placeNode(canvasX, canvasY)));
+            items.push(ctxItem('Paste', () => pasteClipboard(canvasX, canvasY)));
+        }
+
+        showCtxMenu(e.clientX, e.clientY, items);
     });
 }
 
@@ -1808,9 +2067,239 @@ function resetZoom() {
     updateZoomDisplay();
     updatePreview();
 }
-// ============================================================================
-// EXPORTS TO WINDOW
-// ============================================================================
+function deleteSelection() {
+    const toDelete = [...selectedElements].filter(key => {
+        const [type] = key.split(':');
+        return type === 'step' || type === 'node';
+    });
+    if (toDelete.length === 0) return;
+
+    const msg = `Delete ${toDelete.length} selected item${toDelete.length > 1 ? 's' : ''}? All connections will be removed. This cannot be undone.`;
+    showDeleteConfirm(msg, () => {
+        toDelete.forEach(key => {
+            const [type, id] = key.split(':');
+            deleteElement(id, type, { skipConfirm: true });
+        });
+        clearSelection();
+    });
+}
+
+function copySelection() {
+    const steps = [];
+    const nodes = [];
+
+    selectedElements.forEach(key => {
+        const [type, id] = key.split(':');
+        if (type === 'step') {
+            const step = currentSteps.find(s => s.id === id);
+            if (step) {
+                const frame = currentTransitionFrames.find(f => f.parentStepId === id);
+                const transitions = frame
+                    ? frame.conditions.map(cid => currentTransitions.find(t => t.id === cid)).filter(Boolean)
+                    : [];
+                steps.push({
+                    step: JSON.parse(JSON.stringify(step)),
+                    frame: frame ? JSON.parse(JSON.stringify(frame)) : null,
+                    transitions: JSON.parse(JSON.stringify(transitions))
+                });
+            }
+        } else if (type === 'node') {
+            const node = currentNodes.find(n => n.id === id);
+            if (node) nodes.push(JSON.parse(JSON.stringify(node)));
+        }
+    });
+
+    if (steps.length === 0 && nodes.length === 0) return;
+
+    const clipboard = { steps, nodes, copiedAt: Date.now() };
+    const json = JSON.stringify(clipboard, null, 2);
+    localStorage.setItem('kore-clipboard', json);
+    try { navigator.clipboard.writeText(json); } catch(e) {}
+}
+
+function pasteClipboard(canvasX, canvasY) {
+    const raw = localStorage.getItem('kore-clipboard');
+    if (!raw) return;
+    let clipboard;
+    try { clipboard = JSON.parse(raw); } catch(e) { return; }
+
+    const { steps = [], nodes = [] } = clipboard;
+    if (steps.length === 0 && nodes.length === 0) return;
+
+    const pastedBegin = steps.find(s => s.step.type === 'Begin');
+    const existingBegin = pastedBegin ? currentSteps.find(s => s.type === 'Begin') : null;
+
+    if (pastedBegin && existingBegin) {
+        showConfirm(
+            'Paste BEGIN Step',
+            'This workflow already has a BEGIN step. Pasting will overwrite it. Continue?',
+            () => {
+                deleteElement(existingBegin.id, 'step', { skipConfirm: true });
+                executePaste(steps, nodes, canvasX, canvasY);
+            },
+            'OK'
+        );
+    } else {
+        executePaste(steps, nodes, canvasX, canvasY);
+    }
+}
+
+function executePaste(steps, nodes, canvasX, canvasY) {
+    // Find anchor: lowest Y, then lowest X
+    const allPositions = [
+        ...steps.map(s => s.step.position),
+        ...nodes.map(n => n.position)
+    ].map(p => { const [x, y] = p.split(',').map(Number); return { x, y }; });
+
+    const anchor = allPositions.reduce((a, b) =>
+        (b.y < a.y || (b.y === a.y && b.x < a.x)) ? b : a
+    );
+
+    const pasteGridX = canvasX / 30;
+    const pasteGridY = canvasY / 30;
+    const dx = pasteGridX - anchor.x;
+    const dy = pasteGridY - anchor.y;
+
+    // Build ID remap: old -> new for steps and nodes
+    const idMap = {};
+    steps.forEach(({ step }) => { idMap[step.id] = generateId(); });
+    nodes.forEach(node => { idMap[node.id] = generateNodeId(); });
+
+    const pastedFrameIds = [];
+    steps.forEach(({ step, frame, transitions }) => {
+        const newStep = JSON.parse(JSON.stringify(step));
+        newStep.id = idMap[step.id];
+
+        const [sx, sy] = step.position.split(',').map(Number);
+        newStep.position = `${Math.round(sx + dx)},${Math.round(sy + dy)}`;
+
+        // Remap transition.cases targets within copied group
+        if (newStep.transition && newStep.transition.cases) {
+            newStep.transition.cases.forEach(c => {
+                if (c.targetSteps) c.targetSteps = c.targetSteps.filter(id => idMap[id]).map(id => idMap[id]);
+                if (c.targetNodes) c.targetNodes = c.targetNodes.filter(id => idMap[id]).map(id => idMap[id]);
+            });
+            const [tx, ty] = (newStep.transition.position || step.position).split(',').map(Number);
+            newStep.transition.position = `${Math.round(tx + dx)},${Math.round(ty + dy)}`;
+        }
+
+        currentSteps.push(newStep);
+
+        if (frame) {
+            const newFrame = JSON.parse(JSON.stringify(frame));
+            newFrame.id = generateId('frame');
+            newFrame.parentStepId = newStep.id;
+            newFrame.attachedToStepId = newStep.id;
+            const [fx, fy] = frame.position.split(',').map(Number);
+            newFrame.position = `${Math.round(fx + dx)},${Math.round(fy + dy)}`;
+
+            // Remap condition IDs and push transition entries
+            const condIdMap = {};
+            newFrame.conditions = frame.conditions.map(cid => {
+                const newCid = generateId();
+                condIdMap[cid] = newCid;
+                return newCid;
+            });
+
+            // Push remapped transition entries
+            transitions.forEach(t => {
+                const newT = JSON.parse(JSON.stringify(t));
+                newT.id = condIdMap[t.id] || generateId();
+                if (newT.targetSteps) newT.targetSteps = newT.targetSteps.filter(id => idMap[id]).map(id => idMap[id]);
+                if (newT.targetNodes) newT.targetNodes = newT.targetNodes.filter(id => idMap[id]).map(id => idMap[id]);
+                currentTransitions.push(newT);
+            });
+
+            currentTransitionFrames.push(newFrame);
+            pastedFrameIds.push({ id: newFrame.id, vertical: newFrame.verticalLayout });
+        }
+
+        renderStep(newStep);
+    });
+
+    nodes.forEach(node => {
+        const newNode = JSON.parse(JSON.stringify(node));
+        newNode.id = idMap[node.id];
+        const [nx, ny] = node.position.split(',').map(Number);
+        newNode.position = `${Math.round(nx + dx)},${Math.round(ny + dy)}`;
+        newNode.targetSteps = (newNode.targetSteps || []).filter(id => idMap[id]).map(id => idMap[id]);
+        newNode.targetNodes = (newNode.targetNodes || []).filter(id => idMap[id]).map(id => idMap[id]);
+        currentNodes.push(newNode);
+        renderNode(newNode);
+    });
+
+    // Render all frames after all steps and nodes are in the DOM
+    // so drawConnectionLine can find their target elements
+    pastedFrameIds.forEach(({ id, vertical }) => renderTransitionFrame(id, vertical));
+
+    updateSaveButtonState();
+    updatePreview();
+
+    // Defer connection line rendering until DOM is ready
+    const pastedFrames = pastedFrameIds.map(({ id }) => currentTransitionFrames.find(f => f.id === id)).filter(Boolean);
+    setTimeout(() => {
+        requestAnimationFrame(() => {
+            const canvas = document.getElementById('workflowCanvas');
+            pastedFrames.forEach(frame => {
+                frame.conditions.forEach(conditionId => {
+                    const transition = currentTransitions.find(t => t.id === conditionId);
+                    if (transition) {
+                        if (transition.targetSteps) {
+                            transition.targetSteps.forEach(targetStepId => {
+                                const lineUUID = generateId();
+                                const caseLine = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+                                caseLine.setAttribute('data-transition-connection-line', lineUUID);
+                                caseLine.setAttribute('data-from-transition', conditionId);
+                                caseLine.setAttribute('data-to-step', targetStepId);
+                                caseLine.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:5;';
+                                canvas.appendChild(caseLine);
+                                const caseColor = getTransitionTheme(transition.type).color;
+                                drawConnectionLine(caseLine, conditionId, 'case', targetStepId, 'step', canvas, caseColor, false, frame);
+                            });
+                        }
+                        if (transition.targetNodes) {
+                            transition.targetNodes.forEach(targetNodeId => {
+                                const lineUUID = generateId();
+                                const caseLine = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+                                caseLine.setAttribute('data-transition-connection-line', lineUUID);
+                                caseLine.setAttribute('data-from-transition', conditionId);
+                                caseLine.setAttribute('data-to-node', targetNodeId);
+                                caseLine.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:5;';
+                                canvas.appendChild(caseLine);
+                                const caseColor = getTransitionTheme(transition.type).color;
+                                drawConnectionLine(caseLine, conditionId, 'case', targetNodeId, 'node', canvas, caseColor, false, frame);
+                            });
+                        }
+                    }
+                });
+            });
+        });
+    }, 300);
+}
+
+/**
+ * Update the data model position for an element during multi-select drag.
+ * Steps handle their own position in wf-render.js mousemove.
+ * This handles nodes and frames.
+ */
+function updateElementPosition(id, type, px, py) {
+    const gridX = px / 30;
+    const gridY = py / 30;
+    if (type === 'node') {
+        const node = currentNodes.find(n => n.id === id);
+        if (node) node.position = `${gridX},${gridY}`;
+    } else if (type === 'frame') {
+        const frame = currentTransitionFrames.find(f => f.id === id);
+        if (frame) {
+            frame.position = `${gridX},${gridY}`;
+            // Sync to owning step's transition position if detached
+            const owningStep = currentSteps.find(s => s.transition && currentTransitionFrames.find(f2 => f2.id === id && f2.parentStepId === s.id));
+            if (owningStep && owningStep.transition) {
+                owningStep.transition.position = `${gridX},${gridY}`;
+            }
+        }
+    }
+}
 window.createCurvedPath = createCurvedPath;
 window.createStepOnCanvas = createStepOnCanvas;
 window.detectDropTarget = detectDropTarget;
@@ -1832,3 +2321,11 @@ window.updateZoomDisplay = updateZoomDisplay;
 window.zoomIn = zoomIn;
 window.zoomLevel = zoomLevel;
 window.zoomOut = zoomOut;
+window.selectedElements = selectedElements;
+window.addToSelection = addToSelection;
+window.clearSelection = clearSelection;
+window.getElementForKey = getElementForKey;
+window.updateElementPosition = updateElementPosition;
+window.copySelection = copySelection;
+window.pasteClipboard = pasteClipboard;
+window.deleteSelection = deleteSelection;

@@ -261,14 +261,7 @@ function recheckFlaggedSteps() {
 // NODE PLACEMENT TOOL
 // ============================================================================
 
-function generateNodeId() {
-    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-    let id = 'node-';
-    for (let i = 0; i < 6; i++) {
-        id += chars.charAt(Math.floor(Math.random() * chars.length));
-    }
-    return id;
-}
+function generateNodeId() { return generateId('node'); }
 
 let isNodePlacementActive = false;
 let nodePreview = null;
@@ -2540,6 +2533,33 @@ function syncTransitionCasesToStep() {
     });
 }
 
+/**
+ * Normalize steps for comparison/export: sorts transition cases and strips
+ * type-irrelevant fields. Used by both updatePreview and loadWorkflow so that
+ * the baseline and the current state are always structurally identical.
+ * @param {Array} steps - Raw steps array
+ * @returns {Array} Normalized steps array
+ */
+function normalizeStepsForComparison(steps) {
+    return steps.map(step => {
+        const exported = {
+            ...step,
+            transition: step.transition ? {
+                ...step.transition,
+                attached: step.transition.attached === true,
+                cases: [...step.transition.cases].sort((a, b) => (a.order || 1) - (b.order || 1))
+            } : undefined
+        };
+        if (exported.type !== 'Plugin') delete exported.taskInputs;
+        if (exported.type !== 'Workflow') {
+            delete exported.workflowInputs;
+            delete exported.loopMode;
+            delete exported.loopConfig;
+        }
+        return exported;
+    });
+}
+
 function updatePreview() {
     
     try {
@@ -2553,25 +2573,7 @@ function updatePreview() {
     
     try {
         // Sort cases by order within each transition
-        const stepsForExport = currentSteps.map(step => {
-            const exported = {
-                ...step,
-                transition: step.transition ? {
-                    ...step.transition,
-                    attached: step.transition.attached === true,
-                    cases: [...step.transition.cases].sort((a, b) => (a.order || 1) - (b.order || 1))
-                } : undefined
-            };
-            // Strip taskInputs from non-Plugin steps
-            if (exported.type !== 'Plugin') delete exported.taskInputs;
-            // Strip workflowInputs/loopMode/loopConfig from non-Workflow steps
-            if (exported.type !== 'Workflow') {
-                delete exported.workflowInputs;
-                delete exported.loopMode;
-                delete exported.loopConfig;
-            }
-            return exported;
-        });
+        const stepsForExport = normalizeStepsForComparison(currentSteps);
         
         // Log what's being exported for BEGIN step
         const beginStepExport = stepsForExport.find(s => s.type === 'Begin');
@@ -2590,7 +2592,8 @@ function updatePreview() {
             description: document.getElementById('workflowDescription')?.value || currentDefinition?.description || '',
             inputVariables: currentInputVariables,
             outputVariables: currentOutputVariables,
-            steps: stepsForExport
+            steps: stepsForExport,
+            nodes: currentNodes
         };
         
         // Update currentDefinition and check for changes
@@ -2681,6 +2684,10 @@ function deleteElement(elementId, elementType, options = {}) {
                 // Remove transition frame(s) for this step
                 const framesToRemove = currentTransitionFrames.filter(f => f.parentStepId === elementId);
                 framesToRemove.forEach(frame => {
+                    // Remove all case lines from this frame's conditions
+                    frame.conditions.forEach(conditionId => {
+                        document.querySelectorAll(`[data-from-transition="${conditionId}"]`).forEach(el => el.remove());
+                    });
                     const frameElement = canvas.querySelector(`[data-transition-frame="${frame.id}"]`);
                     if (frameElement) frameElement.remove();
                 });
@@ -2916,7 +2923,7 @@ async function handleTestWorkflow() {
         description: document.getElementById('workflowDescription')?.value || '',
         inputVariables: currentInputVariables,
         outputVariables: currentOutputVariables,
-        steps: currentSteps,
+        steps: normalizeStepsForComparison(currentSteps),
         nodes: currentNodes
     };
 
@@ -2977,7 +2984,7 @@ async function saveWorkflow() {
         description: document.getElementById('workflowDescription')?.value || '',
         inputVariables: currentInputVariables,
         outputVariables: currentOutputVariables,
-        steps: currentSteps,
+        steps: normalizeStepsForComparison(currentSteps),
         nodes: currentNodes
     };
 
@@ -3416,7 +3423,7 @@ async function performSave(newVersion) {
                 metadata: currentMetadata,
                 inputVariables: currentInputVariables,
                 outputVariables: currentOutputVariables,
-                steps: currentSteps,
+                steps: normalizeStepsForComparison(currentSteps),
                 nodes: currentNodes
             };
             
@@ -3451,7 +3458,14 @@ async function performSave(newVersion) {
 }
 
 function goBack() {
-    window.location.href = 'workflows.html';
+    if (hasUnsavedChanges()) {
+        showUnsaved(
+            () => saveWorkflow().then(() => { window.location.href = 'workflows.html'; }),
+            () => { window.location.href = 'workflows.html'; }
+        );
+    } else {
+        window.location.href = 'workflows.html';
+    }
 }
 
 function toggleMoreMenu() {
@@ -3560,7 +3574,9 @@ async function loadWorkflow() {
         // Clean up any stale references to deleted nodes/steps
         cleanupStaleReferences();
         
-        // Build definition object for unsaved changes tracking
+        // Build definition object for unsaved changes tracking.
+        // Steps must be normalized the same way updatePreview does it so that
+        // deepEqual comparisons are valid (same key set, same sort order).
         const workflowDefinition = {
             id: currentWorkflowId,
             name: currentWorkflowName,
@@ -3573,7 +3589,7 @@ async function loadWorkflow() {
             description: definition.description || '',
             inputVariables: currentInputVariables,
             outputVariables: currentOutputVariables,
-            steps: currentSteps,
+            steps: normalizeStepsForComparison(currentSteps),
             nodes: currentNodes
         };
         
@@ -3630,6 +3646,9 @@ function initWorkflowEditor() {
     fetchUtilSteps().catch(error => {
         console.error('[initWorkflowEditor] Failed to load utility steps:', error);
     });
+
+    // Set up browser beforeunload warning for unsaved changes
+    setupPageUnsavedChangesProtection();
 
     // Expose functions to global scope for onclick handlers
     window.showWorkflowSettingsModal = showWorkflowSettingsModal;
