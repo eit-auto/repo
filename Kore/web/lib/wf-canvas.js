@@ -1,24 +1,122 @@
 /**
  * wf-canvas.js
- * 
+ *
  * Canvas interaction management for workflow editor
  * - Drawing and rendering connection lines
  * - Canvas drag-drop for step creation
  * - Pan and zoom functionality
  * - Node and element dragging
  * - Connection detection and visibility
+ *
+ * COORDINATE SYSTEM
+ * -----------------
+ * All internal logic uses CSS pixel space (logical pixels, zoom-agnostic).
+ * Element positions are stored and applied as CSS left/top in logical pixels.
+ * Grid coordinates are stored as gridX/gridY (1 grid unit = 30 logical px).
+ *
+ * Two boundary functions handle all coordinate conversions:
+ *
+ *   clientToCanvas(clientX, clientY, canvas)
+ *     Mouse event coords → CSS pixel position on the canvas.
+ *     This is the ONLY place getBoundingClientRect is used for positioning.
+ *     Accounts for browser zoom (via canvasRect) and canvas zoom/pan.
+ *
+ *   gridToPixel(gx, gy)
+ *     Grid units → CSS pixels. Used at render time only.
+ *
+ * Nothing else in this file (or wf-render.js / wf-core.js) should call
+ * getBoundingClientRect for positional math — only for the clientToCanvas
+ * entry point and for UI-overlay positioning (context menus, fixed elements).
  */
 
 import '/lib/base.js';
 
 // ============================================================================
-// GLOBAL PAN AND ZOOM STATE
+// CANVAS CONFIGURATION
+// ============================================================================
+const CANVAS_SIZE = 5000; // Total canvas dimensions in CSS pixels
+const GU = 30;            // One grid unit in CSS pixels
+const HG = GU / 2;       // Half grid unit in CSS pixels
+const BORDER = Math.max(2, Math.round(GU / 15)); // Step border width in CSS pixels
+const I_CONT_H = GU - BORDER * 2; // Inner content height (GU minus borders)
+const MIN_DRAG_DISTANCE = 20; // Minimum pixels to drag before considering it a drag operation
+
+// ============================================================================
+// PAN AND ZOOM STATE
 // ============================================================================
 let panX = 0;
 let panY = 0;
 let zoomLevel = 1;
-const GRID_SIZE = 5000; // Must match HTML canvas dimensions
-const MIN_DRAG_DISTANCE = 20; // Minimum pixels to drag before considering it a drag operation
+
+// ============================================================================
+// COORDINATE CONVERSION — the only two functions that touch zoom/pan math
+// ============================================================================
+
+/**
+ * Convert mouse event coordinates to CSS pixel position on the canvas.
+ * This is the single entry point for all mouse input.
+ * Handles both browser zoom (via getBoundingClientRect) and canvas zoom/pan.
+ *
+ * @param {number} clientX - e.clientX from a mouse event
+ * @param {number} clientY - e.clientY from a mouse event
+ * @param {HTMLElement} canvas - the workflowCanvas element
+ * @returns {{ x: number, y: number }} position in CSS pixel space
+ */
+function clientToCanvas(clientX, clientY, canvas) {
+    const rect = canvas.getBoundingClientRect();
+    // rect.left/top are in physical screen pixels (includes browser zoom).
+    // Subtracting gives us physical pixels relative to the canvas corner.
+    // Dividing by zoomLevel converts from scaled canvas pixels to logical CSS pixels.
+    // Adding pan restores the scroll offset.
+    return {
+        x: (clientX - rect.left) / zoomLevel + panX,
+        y: (clientY - rect.top) / zoomLevel + panY
+    };
+}
+
+/**
+ * Convert grid coordinates to CSS pixel position.
+ * 1 grid unit = 30 CSS pixels at all zoom levels.
+ *
+ * @param {number} gx - grid X coordinate
+ * @param {number} gy - grid Y coordinate
+ * @returns {{ x: number, y: number }} position in CSS pixel space
+ */
+function gridToPixel(gx, gy) {
+    return { x: gx * GU, y: gy * GU };
+}
+
+/**
+ * Convert CSS pixel position to grid coordinates.
+ *
+ * @param {number} px - CSS pixel X
+ * @param {number} py - CSS pixel Y
+ * @returns {{ gx: number, gy: number }}
+ */
+function pixelToGrid(px, py) {
+    return { gx: px / GU, gy: py / GU };
+}
+
+/**
+ * Get the CSS pixel X center of a condition box within its step element.
+ * Uses offsetLeft chain — pure DOM layout, no screen coordinates.
+ *
+ * @param {HTMLElement} conditionBox - the [data-condition-id] element
+ * @param {HTMLElement} stepElement  - the parent [data-step-uuid] element
+ * @returns {number} CSS pixel X of the condition box center
+ */
+function conditionBoxCenterX(conditionBox, stepElement) {
+    // Case boxes are exactly GU wide, laid out sequentially with no gap.
+    // Strip left edge = step left border + icon column (I_CONT_H) + content margin (BORDER)
+    // Case box i center = stripLeft + (i * GU) + HG
+    const strip = conditionBox.closest('[data-case-strip]');
+    const wrapper = conditionBox.parentElement;
+    const index = wrapper && strip ? Array.from(strip.children).indexOf(wrapper) : 0;
+
+    const STRIP_LEFT = BORDER + I_CONT_H + BORDER; // left border + icon + content margin
+    const BOX_WIDTH = GU;
+    return (parseInt(stepElement.style.left) || 0) + STRIP_LEFT + (index * BOX_WIDTH) + (BOX_WIDTH / 2);
+}
 
 // ============================================================================
 // MULTI-SELECT STATE
@@ -89,23 +187,13 @@ function offsetPointFromEdge(x, y, side, offset = 6) {
 
 /**
  * Create a curved SVG path using cubic bezier curves
- * @param {number} x1 - Start X
- * @param {number} y1 - Start Y
- * @param {string} exitSide - Exit direction ('top'|'bottom'|'left'|'right')
- * @param {number} x2 - End X
- * @param {number} y2 - End Y
- * @param {string} enterSide - Entry direction
- * @returns {string} - SVG path data (M ... C ...)
  */
 function createCurvedPath(x1, y1, exitSide, x2, y2, enterSide) {
-    // Simple organic curve system: smooth bezier curves that flow naturally
     const distance = Math.hypot(x2 - x1, y2 - y1);
-    
-    // Calculate control point distance based on path distance
+
     let controlDistance = Math.min(50, distance * 0.3);
-    controlDistance = Math.max(15, controlDistance);
-    
-    // Calculate start control point based on exit direction
+    controlDistance = Math.max(HG, controlDistance);
+
     let ctrl1_x = x1, ctrl1_y = y1;
     switch(exitSide) {
         case 'top': ctrl1_y -= controlDistance; break;
@@ -113,8 +201,7 @@ function createCurvedPath(x1, y1, exitSide, x2, y2, enterSide) {
         case 'left': ctrl1_x -= controlDistance; break;
         case 'right': ctrl1_x += controlDistance; break;
     }
-    
-    // Calculate end control point based on entry direction
+
     let ctrl2_x = x2, ctrl2_y = y2;
     switch(enterSide) {
         case 'top': ctrl2_y -= controlDistance; break;
@@ -122,40 +209,138 @@ function createCurvedPath(x1, y1, exitSide, x2, y2, enterSide) {
         case 'left': ctrl2_x -= controlDistance; break;
         case 'right': ctrl2_x += controlDistance; break;
     }
-    
-    // Simple cubic bezier curve
+
     return `M ${x1} ${y1} C ${ctrl1_x} ${ctrl1_y} ${ctrl2_x} ${ctrl2_y} ${x2} ${y2}`;
 }
 
 /**
- * Find which side of a step is closest to a frame
- * @param {HTMLElement} stepElement - Step DOM element
- * @param {HTMLElement} frameElement - Transition frame DOM element
- * @param {HTMLElement} canvas - Canvas DOM element
- * @returns {string} - 'top'|'bottom'|'left'|'right'
+ * Create an orthogonal (Manhattan-style) SVG path with rounded 90 degree corners.
+ * All coordinates are in CSS pixels.
+ * @param {number} sx - Source X
+ * @param {number} sy - Source Y
+ * @param {number} ex - End point X (offset for arrow)
+ * @param {number} ey - End point Y (offset for arrow)
+ * @param {string} entryDir - Entry direction into target ('top'|'bottom'|'left'|'right')
+ * @param {number} surfaceX - Actual target surface X (for turn geometry)
+ * @param {number} surfaceY - Actual target surface Y (for turn geometry)
+ * @param {string} exitDir  - Exit direction from source (default 'bottom')
+ */
+function createOrthogonalPath(sx, sy, ex, ey, entryDir, surfaceX, surfaceY, exitDir = 'bottom') {
+    const R = 6;
+    const HALF = HG;
+    const tx = surfaceX !== undefined ? surfaceX : ex;
+    const ty = surfaceY !== undefined ? surfaceY : ey;
+
+    function snap(v) {
+        return Math.round(v / HALF) * HALF;
+    }
+
+    function corner(cx, cy, from, to) {
+        const approaches = {
+            'top':    { x: cx,     y: cy + R },
+            'bottom': { x: cx,     y: cy - R },
+            'left':   { x: cx + R, y: cy     },
+            'right':  { x: cx - R, y: cy     }
+        };
+        const departures = {
+            'top':    { x: cx,     y: cy - R },
+            'bottom': { x: cx,     y: cy + R },
+            'left':   { x: cx - R, y: cy     },
+            'right':  { x: cx + R, y: cy     }
+        };
+        const a = approaches[from];
+        const d = departures[to];
+        return `L ${a.x} ${a.y} Q ${cx} ${cy} ${d.x} ${d.y}`;
+    }
+
+    // Vertical exits (top/bottom): turn axis is horizontal
+    if (exitDir === 'bottom' || exitDir === 'top') {
+        const toRight = ex > sx;
+        const horizDir = toRight ? 'right' : 'left';
+        // For top exit, source moves upward first — flip the R offset direction
+        const exitSign = exitDir === 'bottom' ? 1 : -1;
+
+        if (entryDir === 'bottom') {
+            // For top exit into bottom entry: if nearly vertical, straight line up
+            if (exitDir === 'top' && Math.abs(tx - sx) < R) {
+                return `M ${sx} ${sy} L ${ex} ${ey}`;
+            }
+            // U-shape: exit vertically, turn horizontal, turn back to enter bottom
+            const rawTurnY = exitDir === 'bottom'
+                ? Math.max(sy + R, ty + R)
+                : Math.min(sy - R, ty + R);
+            const turnY = exitDir === 'bottom'
+                ? Math.ceil(rawTurnY / HALF) * HALF
+                : Math.floor(rawTurnY / HALF) * HALF;
+            const c1 = corner(sx, turnY, exitDir, horizDir);
+            const c2 = corner(tx, turnY, horizDir, 'top');
+            return `M ${sx} ${sy} ${c1} L ${tx - (toRight ? R : -R)} ${turnY} ${c2} L ${ex} ${ey}`;
+
+        } else if (entryDir === 'top') {
+            const rawTurnY = exitDir === 'bottom'
+                ? Math.max(sy + R, ty - HG)
+                : Math.min(sy - R, ty - HG);
+            const turnY = snap(rawTurnY);
+            if (Math.abs(tx - sx) < R) {
+                return `M ${sx} ${sy} L ${ex} ${ey}`;
+            }
+            const c1 = corner(sx, turnY, exitDir, horizDir);
+            const c2 = corner(tx, turnY, horizDir, 'bottom');
+            return `M ${sx} ${sy} ${c1} L ${tx - (toRight ? R : -R)} ${turnY} ${c2} L ${ex} ${ey}`;
+
+        } else {
+            // Side entry (left or right)
+            const turnY = snap(ty);
+            const minTurnY = exitDir === 'bottom' ? sy + R * 2 : sy - R * 2;
+            if ((exitDir === 'bottom' && turnY < minTurnY) || (exitDir === 'top' && turnY > minTurnY)) {
+                const dropY = snap(minTurnY);
+                const c1 = corner(sx, dropY, exitDir, horizDir);
+                return `M ${sx} ${sy} ${c1} L ${ex} ${ey}`;
+            }
+            const c1 = corner(sx, turnY, exitDir, horizDir);
+            return `M ${sx} ${sy} ${c1} L ${ex} ${ey}`;
+        }
+
+    // Horizontal exits (left/right): always a straight line or simple L-shape into a side entry
+    } else {
+        const toDown = ey > sy;
+        const vertDir = toDown ? 'bottom' : 'top';
+
+        // If target is at same Y level, straight line
+        if (Math.abs(ey - sy) < R) {
+            return `M ${sx} ${sy} L ${ex} ${ey}`;
+        }
+
+        // Simple L-shape: go horizontal to target's X level, then turn vertical to side entry
+        const c1 = corner(ex, sy, exitDir, vertDir);
+        return `M ${sx} ${sy} ${c1} L ${ex} ${ey}`;
+    }
+}
+
+/**
+ * Get the closest side of a step element to a frame element.
+ * Uses style.left/top — no getBoundingClientRect.
  */
 function getClosestSideToFrame(stepElement, frameElement, canvas) {
-    const stepRect = stepElement.getBoundingClientRect();
-    const frameRect = frameElement.getBoundingClientRect();
-    const canvasRect = canvas.getBoundingClientRect();
-    
-    // Get step center
-    const stepCenterX = stepRect.left - canvasRect.left + (stepRect.width / 2);
-    const stepCenterY = stepRect.top - canvasRect.top + (stepRect.height / 2);
-    
-    // Get frame center
-    const frameCenterX = frameRect.left - canvasRect.left + (frameRect.width / 2);
-    const frameCenterY = frameRect.top - canvasRect.top + (frameRect.height / 2);
-    
-    // Calculate delta
+    const stepX = parseInt(stepElement.style.left);
+    const stepY = parseInt(stepElement.style.top);
+    const stepW = parseInt(stepElement.style.width);
+    const stepH = parseInt(stepElement.style.height);
+
+    const frameX = parseInt(frameElement.style.left);
+    const frameY = parseInt(frameElement.style.top);
+    const frameW = parseInt(frameElement.style.width);
+    const frameH = parseInt(frameElement.style.height);
+
+    const stepCenterX = stepX + stepW / 2;
+    const stepCenterY = stepY + stepH / 2;
+    const frameCenterX = frameX + frameW / 2;
+    const frameCenterY = frameY + frameH / 2;
+
     const deltaX = frameCenterX - stepCenterX;
     const deltaY = frameCenterY - stepCenterY;
-    
-    // Determine which side is closest
-    const absDeltaX = Math.abs(deltaX);
-    const absDeltaY = Math.abs(deltaY);
-    
-    if (absDeltaY > absDeltaX) {
+
+    if (Math.abs(deltaY) > Math.abs(deltaX)) {
         return deltaY > 0 ? 'bottom' : 'top';
     } else {
         return deltaX > 0 ? 'right' : 'left';
@@ -167,35 +352,31 @@ function getClosestSideToFrame(stepElement, frameElement, canvas) {
 // ============================================================================
 
 /**
- * Detect which step or node the mouse is over, with a catch area margin
- * @param {HTMLElement} canvas - Canvas DOM element
- * @param {number} clientX - Mouse X coordinate (screen space)
- * @param {number} clientY - Mouse Y coordinate (screen space)
- * @returns {object} - {droppedOnStep: stepId|null, droppedOnNode: nodeId|null}
+ * Detect which step or node a mouse position is over, with a catch area margin.
+ * Takes raw clientX/Y — this is one of the two legitimate uses of screen coords,
+ * because getBoundingClientRect and clientX/Y are in the same physical space so
+ * the comparison is internally consistent.
  */
 function detectDropTarget(canvas, clientX, clientY) {
     let droppedOnStep = null;
     let droppedOnNode = null;
-    
-    const CATCH_AREA = 29;
-    
+
+    // Scale catch area by zoomLevel so it represents the same logical distance
+    // regardless of canvas zoom, while staying in screen space for the comparison.
+    const CATCH_AREA = 29 * zoomLevel;
+
     canvas.querySelectorAll('[data-step-uuid]').forEach(stepElement => {
         const stepId = stepElement.getAttribute('data-step-uuid');
         const step = currentSteps.find(s => s.id === stepId);
-        
-        // Don't allow connections to BEGIN step
-        if (step && step.type === 'Begin') {
-            return;
-        }
-        
+        if (step && step.type === 'Begin') return;
+
         const rect = stepElement.getBoundingClientRect();
         if (clientX >= rect.left - CATCH_AREA && clientX <= rect.right + CATCH_AREA &&
             clientY >= rect.top - CATCH_AREA && clientY <= rect.bottom + CATCH_AREA) {
             droppedOnStep = stepId;
         }
     });
-    
-    // Check for nodes
+
     canvas.querySelectorAll('[data-node-id]').forEach(nodeElement => {
         const rect = nodeElement.getBoundingClientRect();
         if (clientX >= rect.left - CATCH_AREA && clientX <= rect.right + CATCH_AREA &&
@@ -203,20 +384,16 @@ function detectDropTarget(canvas, clientX, clientY) {
             droppedOnNode = nodeElement.getAttribute('data-node-id');
         }
     });
-    
+
     return { droppedOnStep, droppedOnNode };
 }
 
 /**
  * Update visibility of connection point circles on a step
- * Shows all circles if no transitions, hides unconnected ones if transitions exist
- * @param {string} stepId - Step UUID
  */
 function updateConnectionPointVisibility(stepId) {
-    // Check if this step has any connected transitions
     const step = currentSteps.find(s => s.id === stepId);
     if (!step || !step.transition || !step.transition.cases || step.transition.cases.length === 0) {
-        // No transitions connected, show all circles
         const stepElement = document.querySelector(`[data-step-uuid="${stepId}"]`);
         if (stepElement) {
             stepElement.querySelectorAll('[data-connection-point]').forEach(circle => {
@@ -225,8 +402,7 @@ function updateConnectionPointVisibility(stepId) {
         }
         return;
     }
-    
-    // Step has transitions, hide unconnected circles
+
     const stepElement = document.querySelector(`[data-step-uuid="${stepId}"]`);
     if (stepElement) {
         stepElement.querySelectorAll('[data-connection-point]').forEach(circle => {
@@ -241,92 +417,64 @@ function updateConnectionPointVisibility(stepId) {
 // ============================================================================
 
 /**
- * Draw a connection line from a step to a transition frame
- * @param {SVGElement} line - SVG element to render into
- * @param {string} frameUUID - Transition frame UUID
- * @param {string} fromStepId - Source step UUID
- * @param {string} fromConnectionPoint - 'top'|'bottom'|'left'|'right'
- * @param {HTMLElement} canvasElement - Canvas DOM element
- * @param {string} lineColor - Hex color code (optional, derives from step type if omitted)
+ * Draw a connection line from a step to a transition frame.
+ * All positions read from style.left/top — no getBoundingClientRect.
  */
 function updateTransitionLine(line, frameUUID, fromStepId, fromConnectionPoint, canvasElement, lineColor) {
-    // Look up step by UUID and determine color from step type if not provided
     const frameElement = canvasElement.querySelector(`[data-transition-frame="${frameUUID}"]`);
     const stepElement = canvasElement.querySelector(`[data-step-uuid="${fromStepId}"]`);
-    
-    // If color not provided, determine it from step type
+
     if (!lineColor) {
         const stepData = currentSteps.find(s => s.id === fromStepId);
         lineColor = stepData ? getStepTypeTheme(stepData.type).color : '#3a7a99';
     }
-    
+
     if (!frameElement || !stepElement) return;
-    
-    // Get step position and dimensions (in screen pixels)
+
     const stepX = parseInt(stepElement.style.left);
     const stepY = parseInt(stepElement.style.top);
     const stepWidth = parseInt(stepElement.style.width);
     const stepHeight = parseInt(stepElement.style.height);
-    
-    // Calculate the connection point on the step (in screen pixels)
+
     let fromX = stepX + stepWidth / 2;
     let fromY = stepY + stepHeight / 2;
-    
-    if (fromConnectionPoint === 'top') {
-        fromY = stepY;
-    } else if (fromConnectionPoint === 'bottom') {
-        fromY = stepY + stepHeight;
-    } else if (fromConnectionPoint === 'left') {
-        fromX = stepX;
-    } else if (fromConnectionPoint === 'right') {
-        fromX = stepX + stepWidth;
-    }
-    
-    // Get frame position and dimensions (in screen pixels, relative to canvas)
+
+    if (fromConnectionPoint === 'top') { fromY = stepY; }
+    else if (fromConnectionPoint === 'bottom') { fromY = stepY + stepHeight; }
+    else if (fromConnectionPoint === 'left') { fromX = stepX; }
+    else if (fromConnectionPoint === 'right') { fromX = stepX + stepWidth; }
+
     const frameX = parseInt(frameElement.style.left);
     const frameY = parseInt(frameElement.style.top);
     const frameWidth = parseInt(frameElement.style.width);
     const frameHeight = parseInt(frameElement.style.height);
-    
-    // Find nearest side of frame
+
     const frameSideCenters = [
         { x: frameX + frameWidth / 2, y: frameY, name: 'top' },
         { x: frameX + frameWidth / 2, y: frameY + frameHeight, name: 'bottom' },
         { x: frameX, y: frameY + frameHeight / 2, name: 'left' },
         { x: frameX + frameWidth, y: frameY + frameHeight / 2, name: 'right' }
     ];
-    
+
     let nearestSide = frameSideCenters[0];
     let minDistance = Infinity;
     frameSideCenters.forEach(side => {
         const distance = Math.hypot(fromX - side.x, fromY - side.y);
-        if (distance < minDistance) {
-            minDistance = distance;
-            nearestSide = side;
-        }
+        if (distance < minDistance) { minDistance = distance; nearestSide = side; }
     });
-    
-    // Offset endpoint 10px away from edge (15 - 5 = 10)
+
     const offsetEnd = offsetPointFromEdge(nearestSide.x, nearestSide.y, nearestSide.name, 10);
     const path = createCurvedPath(fromX, fromY, fromConnectionPoint, offsetEnd.x, offsetEnd.y, nearestSide.name);
     line.innerHTML = `<defs><marker id="transitionArrowhead-${frameUUID}" markerWidth="10" markerHeight="10" refX="0" refY="3" orient="auto"><polygon points="0 0, 6 3, 0 6" fill="${lineColor}"/></marker></defs><path d="${path}" stroke="${lineColor}" stroke-width="2" fill="none" marker-end="url(#transitionArrowhead-${frameUUID})"/>`;
 }
 
 /**
- * Unified line drawing for all connection types (step→frame, step→step, node→step, case→step, case→node)
- * Handles floating endpoints, curved bezier paths, and interactive hitboxes
- * @param {SVGElement} lineElement - SVG to draw into
- * @param {string} sourceId - step/node/case UUID
- * @param {string} sourceType - 'step'|'node'|'case'
- * @param {string} targetId - step/node/frame UUID
- * @param {string} targetType - 'step'|'node'|'frame'
- * @param {HTMLElement} canvas - canvas element
- * @param {string} lineColor - hex color code
- * @param {boolean} sourceFloating - does source endpoint float? (default true)
- * @param {object} sourceContext - additional context (frame for case, element for step/node)
+ * Unified line drawing for all connection types.
+ * All positions read from style.left/top (CSS pixels) — no getBoundingClientRect.
+ * Case startX uses conditionBoxCenterX() which walks offsetLeft — zoom-agnostic.
  */
 function drawConnectionLine(lineElement, sourceId, sourceType, targetId, targetType, canvas, lineColor, sourceFloating = true, sourceContext = null) {
-    const sourceEl = sourceType === 'case' 
+    const sourceEl = sourceType === 'case'
         ? canvas.querySelector(`[data-condition-id="${sourceId}"]`)
         : canvas.querySelector(`[data-${sourceType}-id="${sourceId}"]`) || canvas.querySelector(`[data-${sourceType}-uuid="${sourceId}"]`);
     const targetEl = targetType === 'frame'
@@ -334,245 +482,191 @@ function drawConnectionLine(lineElement, sourceId, sourceType, targetId, targetT
         : (targetType === 'step'
             ? canvas.querySelector(`[data-step-uuid="${targetId}"]`)
             : canvas.querySelector(`[data-node-id="${targetId}"]`));
-    
+
     if (!sourceEl || !targetEl) return;
 
-    // Get positions
     const sourceX = parseInt(sourceEl.style.left);
     const sourceY = parseInt(sourceEl.style.top);
     const sourceWidth = parseInt(sourceEl.style.width);
     const sourceHeight = parseInt(sourceEl.style.height);
-    
+
     const targetX = parseInt(targetEl.style.left);
     const targetY = parseInt(targetEl.style.top);
     const targetWidth = parseInt(targetEl.style.width);
     const targetHeight = parseInt(targetEl.style.height);
 
-    // Pre-calculate centers for use in both source and target logic
     let sourceCenterX = sourceX + sourceWidth / 2;
     let sourceCenterY = sourceY + sourceHeight / 2;
     let targetCenterX = targetX + targetWidth / 2;
     let targetCenterY = targetY + targetHeight / 2;
-    
-    // If target is a step with attached transition frame, use bottom of step as centerY
-    if (targetType === 'step') {
-        const transitionFrames = Array.from(canvas.querySelectorAll('[data-transition-frame]'));
-        const attachedFrame = transitionFrames.find(el => {
-            const frameY = parseInt(el.style.top);
-            // If frame is at same Y position as step, it's likely attached to this step
-            return frameY === targetY;
-        });
-        
-        if (attachedFrame) {
-            // Use the bottom of the step as the effective centerY
-            targetCenterY = targetY + targetHeight;
-        }
-    }
 
     let startX, startY, startDir;
 
-    // Calculate source point
     if (sourceType === 'case') {
-        // Case: fixed point based on frame layout
-        const frame = sourceContext;
-        if (!frame) return;
-        
-        const frameElement = canvas.querySelector(`[data-transition-frame="${frame.id}"]`);
-        if (!frameElement) return;
-        
-        const frameX = parseInt(frameElement.style.left);
-        const frameY = parseInt(frameElement.style.top);
-        
-        // Get the wrapper element (parent of the condition box)
-        const wrapper = sourceEl.parentElement;
-        const wrapperOffsetX = wrapper ? wrapper.offsetLeft : 0;
-        const wrapperOffsetY = wrapper ? wrapper.offsetTop : 0;
-        
-        const conditionOffsetX = sourceEl.offsetLeft;
-        const conditionOffsetY = sourceEl.offsetTop;
-        const conditionWidth = sourceEl.offsetWidth;
-        const conditionHeight = sourceEl.offsetHeight;
-        
-        // Total offset includes the wrapper position plus the condition's position within the wrapper
-        const conditionAbsX = frameX + wrapperOffsetX + conditionOffsetX;
-        // In vertical layout, wrappers are stacked vertically so include wrapperOffsetY
-        const conditionAbsY = frame.verticalLayout 
-            ? frameY + wrapperOffsetY + conditionOffsetY
-            : frameY + conditionOffsetY;
+        const stepData = sourceContext;
+        if (!stepData) return;
 
-        if (frame.verticalLayout) {
-            startX = conditionAbsX + conditionWidth + 10;
-            startY = conditionAbsY + 13;
-            startDir = 'right';
-        } else {
-            startX = conditionAbsX + conditionWidth / 2 + 2;
-            startY = conditionAbsY + conditionHeight + 40;
-            startDir = 'bottom';
-        }
+        const stepElement = canvas.querySelector(`[data-step-uuid="${stepData.id}"]`);
+        if (!stepElement) return;
+
+        const stepY = parseInt(stepElement.style.top);
+        const stepHeight = parseInt(stepElement.style.height);
+
+        // Use offsetLeft chain — pure DOM layout, no screen coordinates
+        startX = conditionBoxCenterX(sourceEl, stepElement);
+        startY = stepY + stepHeight - 1;
+        startDir = 'bottom';
     } else {
-        // Step/Node: floating - find nearest side/point to target
-
         if (sourceType === 'step') {
-            // Step: nearest side
             const sides = [
                 { x: sourceCenterX, y: sourceY, name: 'top' },
                 { x: sourceCenterX, y: sourceY + sourceHeight, name: 'bottom' },
                 { x: sourceX, y: sourceCenterY, name: 'left' },
                 { x: sourceX + sourceWidth, y: sourceCenterY, name: 'right' }
             ];
-            const nearest = sides.reduce((a, b) => 
+            const nearest = sides.reduce((a, b) =>
                 Math.hypot(a.x - targetCenterX, a.y - targetCenterY) < Math.hypot(b.x - targetCenterX, b.y - targetCenterY) ? a : b
             );
             startX = nearest.x;
             startY = nearest.y;
             startDir = nearest.name;
         } else if (sourceType === 'node') {
-            // Node: nearest diamond point
             const dx = targetCenterX - sourceCenterX;
             const dy = targetCenterY - sourceCenterY;
             const absX = Math.abs(dx);
             const absY = Math.abs(dy);
-            const diamondPoint = 6; // Distance from center to diamond point
+            const diamondPoint = 6;
 
-            // Special case: node-to-step with close horizontal alignment and node above target
-            if (targetType === 'step') {
-                // Determine exit point based on target position relative to node
-                const sourceGridX = sourceCenterX / 30;
-                const targetCenterGridY = targetCenterY / 30;
-                const sourceCenterGridY = sourceCenterY / 30;
-                const targetLeftGridX = targetX / 30;  // Target left edge in grid coords
-                const targetRightGridX = (targetX + targetWidth) / 30;  // Target right edge in grid coords
-                
-                if (targetCenterGridY < sourceCenterGridY - 2) {
-                    // Target is well above node: exit from TOP
-                    startX = sourceCenterX;
-                    startY = sourceCenterY - diamondPoint;
-                    startDir = 'top';
-                } else if (targetCenterGridY > sourceCenterGridY + 2) {
-                    // Target is well below node: exit from BOTTOM
-                    startX = sourceCenterX;
-                    startY = sourceCenterY + diamondPoint;
-                    startDir = 'bottom';
-                } else if (targetLeftGridX >= sourceGridX + 1.5) {
-                    // Target's left edge is well to the right: exit from RIGHT
-                    startX = sourceCenterX + diamondPoint;
-                    startY = sourceCenterY;
-                    startDir = 'right';
-                } else if (targetRightGridX <= sourceGridX - 1.5) {
-                    // Target's right edge is well to the left: exit from LEFT
-                    startX = sourceCenterX - diamondPoint;
-                    startY = sourceCenterY;
-                    startDir = 'left';
+            // Target is above source — apply span-based exit direction rules
+            if (targetCenterY < sourceCenterY) {
+                if (sourceCenterX === targetCenterX) {
+                    // Exactly aligned — straight up, bottom entry
+                    startX = sourceCenterX; startY = sourceCenterY - diamondPoint; startDir = 'top';
+                } else if (sourceCenterX === targetCenterX - HG || sourceCenterX === targetCenterX + HG) {
+                    // Exactly half grid off-center — side exit, bottom entry
+                    const exitRight = sourceCenterX < targetCenterX;
+                    startX = sourceCenterX + (exitRight ? diamondPoint : -diamondPoint); startY = sourceCenterY; startDir = exitRight ? 'right' : 'left';
+                } else if (sourceCenterX >= targetX && sourceCenterX < targetCenterX) {
+                    // Within span, left of center — exit right, upward turn, bottom entry
+                    startX = sourceCenterX + diamondPoint; startY = sourceCenterY; startDir = 'right';
+                } else if (sourceCenterX <= targetX + targetWidth && sourceCenterX > targetCenterX) {
+                    // Within span, right of center — exit left, upward turn, bottom entry
+                    startX = sourceCenterX - diamondPoint; startY = sourceCenterY; startDir = 'left';
+                } else if (sourceCenterX < targetX) {
+                    // Left of target — exit top, right turn, left-side entry
+                    startX = sourceCenterX; startY = sourceCenterY - diamondPoint; startDir = 'top';
                 } else {
-                    // No strong directional preference: use closest side
-                    const targetCenterGridX = (targetLeftGridX + targetRightGridX) / 2;
-                    if (targetCenterGridX > sourceGridX) {
-                        startX = sourceCenterX + diamondPoint;
-                        startY = sourceCenterY;
-                        startDir = 'right';
-                    } else {
-                        startX = sourceCenterX - diamondPoint;
-                        startY = sourceCenterY;
-                        startDir = 'left';
-                    }
+                    // Right of target — exit top, left turn, right-side entry
+                    startX = sourceCenterX; startY = sourceCenterY - diamondPoint; startDir = 'top';
                 }
-            } else if (absX > absY) {
-                // Exiting from left or right point
+            } else if (Math.abs(dy) < 6) {
+                // Target is at essentially the same Y — horizontal exit to side entry
                 startX = sourceCenterX + (dx > 0 ? diamondPoint : -diamondPoint);
                 startY = sourceCenterY;
                 startDir = dx > 0 ? 'right' : 'left';
+            } else if (sourceCenterX === targetCenterX - HG || sourceCenterX === targetCenterX + HG) {
+                // Exactly half grid off-center, target below — side exit, top entry
+                const exitRight = sourceCenterX < targetCenterX;
+                startX = sourceCenterX + (exitRight ? diamondPoint : -diamondPoint); startY = sourceCenterY; startDir = exitRight ? 'right' : 'left';
             } else {
-                // Exiting from top or bottom point
+                // Target is below (or below and to the side) — always exit bottom
                 startX = sourceCenterX;
-                startY = sourceCenterY + (dy > 0 ? diamondPoint : -diamondPoint);
-                startDir = dy > 0 ? 'bottom' : 'top';
+                startY = sourceCenterY + diamondPoint;
+                startDir = 'bottom';
             }
+            // Safety fallback — should never be needed but prevents detachment
+            if (startX === undefined) { startX = sourceCenterX; startY = sourceCenterY + diamondPoint; startDir = 'bottom'; }
         }
     }
 
-    // Calculate target point (handle node targets specially)
-    
     let nearestTargetSide;
     if (targetType === 'node') {
-        // Node target: use the 4 diamond points
         const diamondPoints = [
-            { x: targetCenterX + targetWidth / 2, y: targetCenterY, name: 'right' },    // right point
-            { x: targetCenterX - targetWidth / 2, y: targetCenterY, name: 'left' },    // left point
-            { x: targetCenterX, y: targetCenterY + targetHeight / 2, name: 'bottom' }, // bottom point
-            { x: targetCenterX, y: targetCenterY - targetHeight / 2, name: 'top' }     // top point
+            { x: targetCenterX + targetWidth / 2,  y: targetCenterY,                name: 'right' },
+            { x: targetCenterX - targetWidth / 2,  y: targetCenterY,                name: 'left' },
+            { x: targetCenterX,                    y: targetCenterY + targetHeight / 2, name: 'bottom' },
+            { x: targetCenterX,                    y: targetCenterY - targetHeight / 2, name: 'top' }
         ];
-        
-        // Check if line is nearly vertical
-        const startGridX = startX / 30;
-        const targetGridX = targetX / 30;
-        const targetGridY = targetY / 30;
-        const startGridY = startY / 30;
+
+        const startGridX = startX / GU;
+        const targetGridX = targetX / GU;
+        const targetGridY = targetY / GU;
+        const startGridY = startY / GU;
         const horizontalDistance = Math.abs(startGridX - targetGridX);
-        
-        // If nearly vertical and target is lower, attach to top
-        if (horizontalDistance <= 1 && targetGridY > startGridY) {
-            nearestTargetSide = diamondPoints[3]; // top point
+
+        const sourceTopY = sourceType === 'case'
+            ? (sourceContext ? parseInt(canvas.querySelector(`[data-step-uuid="${sourceContext.id}"]`)?.style.top || 0) : 0)
+            : sourceY;
+
+        if (targetY <= sourceTopY + HG && sourceType !== 'node') {
+            nearestTargetSide = diamondPoints[2]; // bottom — target is above or level with source step
+        } else if (sourceType === 'case') {
+            // Entry point based on where case startX falls relative to node's horizontal span
+            if (startX < targetX) {
+                nearestTargetSide = diamondPoints[1]; // left diamond point
+            } else if (startX > targetX + targetWidth) {
+                nearestTargetSide = diamondPoints[0]; // right diamond point
+            } else {
+                nearestTargetSide = diamondPoints[3]; // top diamond point — startX within node span
+            }
+        } else if (sourceType === 'node') {
+            if (sourceCenterX < targetX) {
+                nearestTargetSide = diamondPoints[1]; // left
+            } else if (sourceCenterX > targetX + targetWidth) {
+                nearestTargetSide = diamondPoints[0]; // right
+            } else if (targetCenterY < sourceCenterY) {
+                nearestTargetSide = diamondPoints[2]; // bottom — target above, within span
+            } else {
+                nearestTargetSide = diamondPoints[3]; // top — target below or same, within span
+            }
+        } else if (horizontalDistance <= 1 && targetGridY > startGridY) {
+            nearestTargetSide = diamondPoints[3];
         } else {
             nearestTargetSide = diamondPoints.reduce((a, b) =>
                 Math.hypot(a.x - startX, a.y - startY) < Math.hypot(b.x - startX, b.y - startY) ? a : b
             );
         }
     } else {
-        // Step or frame target: use rectangular sides
         const targetSides = [
-            { x: targetCenterX, y: targetY, name: 'top' },
-            { x: targetCenterX, y: targetY + targetHeight, name: 'bottom' },
-            { x: targetX, y: targetCenterY, name: 'left' },
-            { x: targetX + targetWidth, y: targetCenterY, name: 'right' }
+            { x: targetCenterX, y: targetY,                name: 'top' },
+            { x: targetCenterX, y: targetY + targetHeight,  name: 'bottom' },
+            { x: targetX,       y: targetCenterY,           name: 'left' },
+            { x: targetX + targetWidth, y: targetCenterY,   name: 'right' }
         ];
-        
-        // If target step has attached transition frame, adjust entry points
-        if (targetType === 'step') {
-            const transitionFrames = Array.from(canvas.querySelectorAll('[data-transition-frame]'));
-            const attachedFrame = transitionFrames.find(el => {
-                const frameY = parseInt(el.style.top);
-                return frameY === targetY;
-            });
-            
-            if (attachedFrame) {
-                // Adjust entry points for attached frame
-                targetSides[1].y += 30;      // BOTTOM: lowered by 1 grid unit (30px)
-                // TOP, LEFT, RIGHT remain unchanged
-            }
-        }
-        
-        // Check if line is nearly vertical (within 1 grid unit horizontally)
-        const startGridX = startX / 30;
-        const targetGridX = targetX / 30;
-        const targetGridY = targetY / 30;
-        const startGridY = startY / 30;
+
+        const startGridX = startX / GU;
+        const targetGridX = targetX / GU;
+        const targetGridY = targetY / GU;
+        const startGridY = startY / GU;
         const horizontalDistance = Math.abs(startGridX - targetGridX);
-        
-        // Special case: node-to-step with step's right edge within 0.5 of node center
-        if (sourceType === 'node' && targetType === 'step') {
-            const sourceCenterGridX = sourceCenterX / 30;  // Node center in grid coords
-            const sourceCenterGridY = sourceCenterY / 30;  // Node center Y in grid coords
-            const targetCenterGridX = targetCenterX / 30;  // Target center in grid coords
-            const targetCenterGridY = targetCenterY / 30;  // Target center Y in grid coords
-            
-            // Entry point based on target center Y position relative to node center Y
-            if (targetCenterGridY < sourceCenterGridY - 1.5) {
-                nearestTargetSide = targetSides[1]; // bottom
-            } else if (targetCenterGridY > sourceCenterGridY + 1.5) {
-                nearestTargetSide = targetSides[0]; // top
+
+        const sourceTopY = sourceType === 'case'
+            ? (sourceContext ? parseInt(canvas.querySelector(`[data-step-uuid="${sourceContext.id}"]`)?.style.top || 0) : 0)
+            : sourceY;
+
+        if (targetY <= sourceTopY + HG && sourceType !== 'node') {
+            nearestTargetSide = targetSides[1]; // bottom — target is above or level with source step
+        } else if (sourceType === 'node' && targetType === 'step') {
+            if (sourceCenterX < targetX) {
+                nearestTargetSide = targetSides[2]; // left
+            } else if (sourceCenterX > targetX + targetWidth) {
+                nearestTargetSide = targetSides[3]; // right
+            } else if (targetCenterY < sourceCenterY) {
+                nearestTargetSide = targetSides[1]; // bottom — target above, within span
             } else {
-                // Target within ±1 grid unit Y of node: enter from side (left or right, closer to node center X)
-                const distToLeft = Math.abs(sourceCenterX - targetX);
-                const distToRight = Math.abs(sourceCenterX - (targetX + targetWidth));
-                if (distToLeft <= distToRight) {
-                    nearestTargetSide = targetSides[2]; // left
-                } else {
-                    nearestTargetSide = targetSides[3]; // right
-                }
+                nearestTargetSide = targetSides[0]; // top — target below or same, within span
+            }
+        } else if (sourceType === 'case') {
+            // Entry side based on where the case start X falls relative to target's horizontal span
+            if (startX < targetX) {
+                nearestTargetSide = targetSides[2]; // left
+            } else if (startX > targetX + targetWidth) {
+                nearestTargetSide = targetSides[3]; // right
+            } else {
+                nearestTargetSide = targetSides[0]; // top — startX is within target span
             }
         } else if (horizontalDistance <= 1 && targetGridY > startGridY) {
-            // If nearly vertical and target is lower, attach to top
-            nearestTargetSide = targetSides[0]; // top
+            nearestTargetSide = targetSides[0];
         } else {
             nearestTargetSide = targetSides.reduce((a, b) =>
                 Math.hypot(a.x - startX, a.y - startY) < Math.hypot(b.x - startX, b.y - startY) ? a : b
@@ -580,54 +674,36 @@ function drawConnectionLine(lineElement, sourceId, sourceType, targetId, targetT
         }
     }
 
-    // Offset endpoint to account for arrow width (~6px) plus 7px gap = ~13px from target
-    const arrowOffset = 13;
-    
-    let endPoint;
+    const arrowOffset = 8;
     let offsetX = 0, offsetY = 0;
-    
-    // Offset perpendicular to each point of the diamond
+
     switch(nearestTargetSide.name) {
-        case 'top': offsetY = -arrowOffset; break;
-        case 'bottom': offsetY = arrowOffset; break;
-        case 'left': offsetX = -arrowOffset; break;
-        case 'right': offsetX = arrowOffset; break;
+        case 'top':    offsetY = -arrowOffset; break;
+        case 'bottom': offsetY =  arrowOffset; break;
+        case 'left':   offsetX = -arrowOffset; break;
+        case 'right':  offsetX =  arrowOffset; break;
     }
-    
-    endPoint = {
+
+    const endPoint = {
         x: nearestTargetSide.x + offsetX,
         y: nearestTargetSide.y + offsetY
     };
 
-    // Generate path and render
-    let path = createCurvedPath(startX, startY, startDir, endPoint.x, endPoint.y, nearestTargetSide.name);
-    
-    // For node sources, add 9px straight segment before the curve
-    if (sourceType === 'node') {
-        const segmentLength = 9;
-        let segmentX = startX, segmentY = startY;
-        
-        switch(startDir) {
-            case 'top': segmentY -= segmentLength; break;
-            case 'bottom': segmentY += segmentLength; break;
-            case 'left': segmentX -= segmentLength; break;
-            case 'right': segmentX += segmentLength; break;
-        }
-        
-        // Rebuild path: straight line for 9px, then curve from there
-        const curvedPart = createCurvedPath(segmentX, segmentY, startDir, endPoint.x, endPoint.y, nearestTargetSide.name);
-        path = `M ${startX} ${startY} L ${segmentX} ${segmentY} ${curvedPart.substring(curvedPart.indexOf('C'))}`;
+    let path;
+
+    if (sourceType === 'case') {
+        path = createOrthogonalPath(startX, startY, endPoint.x, endPoint.y, nearestTargetSide.name, nearestTargetSide.x, nearestTargetSide.y);
+    } else if (sourceType === 'node') {
+        path = createOrthogonalPath(startX, startY, endPoint.x, endPoint.y, nearestTargetSide.name, nearestTargetSide.x, nearestTargetSide.y, startDir);
+    } else {
+        path = createCurvedPath(startX, startY, startDir, endPoint.x, endPoint.y, nearestTargetSide.name);
     }
-    
+
     const markerId = `arrow-${sourceType}-${sourceId}-${targetId}`;
-    
-    let svg = `<defs><marker id="${markerId}" markerWidth="10" markerHeight="10" refX="0" refY="3" orient="auto"><polygon points="0 0, 6 3, 0 6" fill="${lineColor}"/></marker></defs><path d="${path}" stroke="${lineColor}" stroke-width="2" fill="none" marker-end="url(#${markerId})" style="pointer-events: none;"/>`;
-    
-    // Add hitboxes for all connection types (start and end)
-    // Start point hitbox
+
+    let svg = `<defs><marker id="${markerId}" markerWidth="8" markerHeight="6" refX="0" refY="2" orient="auto"><polygon points="0 0, 4 2, 0 4" fill="${lineColor}"/></marker></defs><path d="${path}" stroke="${lineColor}" stroke-width="2" fill="none" marker-end="url(#${markerId})" style="pointer-events: none;"/>`;
+
     svg += `<circle cx="${startX}" cy="${startY}" r="8" fill="transparent" data-connection-hitbox="start" data-line-source-type="${sourceType}" data-line-source-id="${sourceId}" data-line-target-type="${targetType}" data-line-target-id="${targetId}" style="cursor: crosshair !important; pointer-events: auto;" />`;
-    
-    // End point hitbox
     svg += `<circle cx="${endPoint.x}" cy="${endPoint.y}" r="8" fill="transparent" data-connection-hitbox="end" data-line-source-type="${sourceType}" data-line-source-id="${sourceId}" data-line-target-type="${targetType}" data-line-target-id="${targetId}" style="cursor: crosshair !important; pointer-events: auto;" />`;
 
     lineElement.innerHTML = svg;
@@ -640,55 +716,44 @@ function drawConnectionLine(lineElement, sourceId, sourceType, targetId, targetT
 // ============================================================================
 
 /**
- * Place a node on the canvas at the specified coordinates
- * Creates node data, adds to state, and renders visually
- * @param {number} x - X coordinate in pixels
- * @param {number} y - Y coordinate in pixels
+ * Place a node on the canvas at the specified CSS pixel coordinates.
  */
 function placeNode(x, y) {
     const canvas = document.getElementById('workflowCanvas');
     const nodeId = generateNodeId();
-    
-    // Snap to 15px grid (half-grid) in pixels
-    const snappedX = Math.round(x / 15) * 15;
-    const snappedY = Math.round(y / 15) * 15;
-    
-    // Convert to grid units (30px per unit) for storage
-    const gridX = snappedX / 30;
-    const gridY = snappedY / 30;
-    
-    // Create node data object for definition
+
+    // Offset by half node size (15px) so the center snaps to the nearest half-grid,
+    // not the top-left corner
+    const snappedX = Math.round((x - HG) / HG) * HG;
+    const snappedY = Math.round((y - HG) / HG) * HG;
+
+    const { gx: gridX, gy: gridY } = pixelToGrid(snappedX, snappedY);
+
     const nodeData = {
         id: nodeId,
         position: `${gridX},${gridY}`,
         targetSteps: [],
         targetNodes: []
     };
-    
-    // Add to current nodes
+
     currentNodes.push(nodeData);
-    
-    // Mark unsaved changes
     updateSaveButtonState();
     updatePreview();
-    
-    // Render the node
     renderNode(nodeData);
 }
 
 /**
- * Create a step on the canvas with attached transition frame
- * @param {string} stepType - Type of step (Begin, End, Workflow, RMM, Kore, etc.)
- * @param {number} x - X coordinate in pixels (snapped grid)
- * @param {number} y - Y coordinate in pixels (snapped grid)
+ * Create a step on the canvas.
+ * @param {string} stepType - Type of step
+ * @param {number} x - X in CSS pixels (snapped)
+ * @param {number} y - Y in CSS pixels (snapped)
  */
 function createStepOnCanvas(stepType, x, y) {
-    // x and y are already snapped grid coordinates from the drop handler (in pixels)
-    // Convert to grid units (divide by 30)
-    const gridX = Math.round(x / 30);
-    const gridY = Math.round(y / 30);
-    
-    // Create step data object
+    const { gx: gridX, gy: gridY } = pixelToGrid(Math.round(x / GU) * GU, Math.round(y / GU) * GU);
+
+    transitionCounter = (transitionCounter || 0) + 1;
+    const defaultConditionId = String(transitionCounter);
+
     const stepData = {
         id: generateId(),
         name: stepType === 'Begin' ? 'BEGIN' : stepType === 'End' ? 'End' : stepType === 'Workflow' ? 'Workflow' : stepType === 'RMM' ? 'RMM Step' : stepType === 'Kore' ? 'Kore' : `${stepType} Step`,
@@ -700,144 +765,83 @@ function createStepOnCanvas(stepType, x, y) {
         variables: [],
         position: `${gridX},${gridY}`,
         transition: {
-            position: `${gridX},${gridY}`,
             mode: 'First',
-            vertical: false,
-            attached: true,
             cases: [
                 {
                     type: 'Success',
                     conditions: '',
                     targetSteps: [],
                     targetNodes: [],
-                    order: 1
+                    order: 1,
+                    _conditionId: defaultConditionId
                 }
             ]
         }
     };
-    
-    // Store step data
-    currentSteps.push(stepData);
-    
-    // Create and render the attached transition frame
-    const frameX = x;  // Use pixel coordinates from drop
-    const frameY = y;
-    const frameUUID = generateId("frame");
-    const frameData = {
-        id: frameUUID,
-        execution: 'First',
-        conditions: [],
-        position: `${gridX},${gridY}`,
-        verticalLayout: false,
-        attached: true,
-        parentStepId: stepData.id,
-        attachedToStepId: stepData.id  // Runtime variable linking frame to step
-    };
-    
-    // Create default transition condition
-    transitionCounter = (transitionCounter || 0) + 1;
-    const defaultConditionId = String(transitionCounter);
-    const defaultConditionData = {
+
+    currentTransitions.push({
         id: defaultConditionId,
+        name: '',
         type: 'Success',
         conditions: '',
         targetSteps: [],
         targetNodes: [],
-        order: 1
-    };
-    
-    frameData.conditions.push(defaultConditionId);
-    currentTransitionFrames.push(frameData);
-    currentTransitions.push(defaultConditionData);
-    
-    // Render the step
+        order: 1,
+        parentStepId: stepData.id
+    });
+
+    currentSteps.push(stepData);
     renderStep(stepData);
-    
-    // Render the frame
-    renderTransitionFrame(frameUUID, false);
-    
-    // Mark unsaved changes
     updatePreview();
 }
 
-// ============================================================================
-// PHASE 5: LINE UPDATE FUNCTION - Refresh connections when elements move
-// ============================================================================
-
-/**
- * Universal function to update all lines connected to a draggable element
- * Called whenever a step, frame, or node moves to refresh visual connections
- * @param {string} elementId - The ID of the element being dragged (step/frame/node ID)
- * @param {string} elementType - Type of element: 'step', 'frame', or 'node'
- */
 function updateConnectedLines(elementId, elementType) {
     const canvas = document.getElementById('workflowCanvas');
-    
-    if (elementType === 'step' || elementType === 'frame') {
-        // Update case lines from conditions in this step/frame
-        let conditionIds = [];
-        if (elementType === 'step') {
-            const step = currentSteps.find(s => s.id === elementId);
-            if (step && step.transition) {
-                const frame = currentTransitionFrames.find(f => f.attachedToStepId === elementId);
-                if (frame) conditionIds = frame.conditions;
-            }
-        } else {
-            const frame = currentTransitionFrames.find(f => f.id === elementId);
-            if (frame) conditionIds = frame.conditions;
-        }
-        
-        conditionIds.forEach(conditionId => {
-            const caseLines = canvas.querySelectorAll(`[data-transition-connection-line][data-from-transition="${conditionId}"]`);
-            caseLines.forEach(line => {
-                const toStepId = line.getAttribute('data-to-step');
-                const toNodeId = line.getAttribute('data-to-node');
+
+    if (elementType === 'step') {
+        const step = currentSteps.find(s => s.id === elementId);
+        if (step && step.transition && step.transition.cases) {
+            step.transition.cases.forEach(caseData => {
+                const conditionId = caseData._conditionId;
+                if (!conditionId) return;
                 const transition = currentTransitions.find(t => t.id === conditionId);
-                const caseColor = transition ? getTransitionTheme(transition.type).color : getTransitionTheme('Success').color;
-                const frame = currentTransitionFrames.find(f => f.conditions.includes(conditionId));
-                
-                if (toStepId) {
-                    drawConnectionLine(line, conditionId, 'case', toStepId, 'step', canvas, caseColor, false, frame);
-                } else if (toNodeId) {
-                    drawConnectionLine(line, conditionId, 'case', toNodeId, 'node', canvas, caseColor, false, frame);
-                }
-            });
-        });
-        
-        // Update step→frame connection lines (if this is a step)
-        if (elementType === 'step') {
-            const connectionLines = canvas.querySelectorAll(`[data-connection-line][data-from-step="${elementId}"]`);
-            connectionLines.forEach(line => {
-                const frameUUID = line.getAttribute('data-connection-line');
-                const stepElement = canvas.querySelector(`[data-step-uuid="${elementId}"]`);
-                const frameElement = canvas.querySelector(`[data-transition-frame="${frameUUID}"]`);
-                if (stepElement && frameElement) {
-                    const stepColor = currentSteps.find(s => s.id === elementId)?.type 
-                        ? getStepTypeTheme(currentSteps.find(s => s.id === elementId).type).color
-                        : '#3a7a99';
-                    drawConnectionLine(line, elementId, 'step', frameUUID, 'frame', canvas, stepColor, true);
-                }
-            });
-            
-            // Update node connection lines pointing TO this step (when step is moved)
-            const inboundNodeLines = canvas.querySelectorAll(`[data-node-connection-line][data-to-step="${elementId}"]`);
-            inboundNodeLines.forEach(line => {
-                const fromNodeId = line.getAttribute('data-from-node');
-                drawConnectionLine(line, fromNodeId, 'node', elementId, 'step', canvas, '#707070', true);
+                if (!transition) return;
+                const caseColor = getTransitionTheme(transition.type).color;
+                const caseLines = canvas.querySelectorAll(`[data-transition-connection-line][data-from-transition="${conditionId}"]`);
+                caseLines.forEach(line => {
+                    const toStepId = line.getAttribute('data-to-step');
+                    const toNodeId = line.getAttribute('data-to-node');
+                    if (toStepId) drawConnectionLine(line, conditionId, 'case', toStepId, 'step', canvas, caseColor, false, step);
+                    else if (toNodeId) drawConnectionLine(line, conditionId, 'case', toNodeId, 'node', canvas, caseColor, false, step);
+                });
             });
         }
+
+        const inboundNodeLines = canvas.querySelectorAll(`[data-node-connection-line][data-to-step="${elementId}"]`);
+        inboundNodeLines.forEach(line => {
+            const fromNodeId = line.getAttribute('data-from-node');
+            drawConnectionLine(line, fromNodeId, 'node', elementId, 'step', canvas, '#707070', true);
+        });
+
+        const inboundCaseLines = canvas.querySelectorAll(`[data-transition-connection-line][data-to-step="${elementId}"]`);
+        inboundCaseLines.forEach(line => {
+            const fromTransitionId = line.getAttribute('data-from-transition');
+            const tr = currentTransitions.find(t => t.id === fromTransitionId);
+            const srcStep = tr ? currentSteps.find(s => s.id === tr.parentStepId) : null;
+            const caseColor = tr ? getTransitionTheme(tr.type).color : getTransitionTheme('Success').color;
+            drawConnectionLine(line, fromTransitionId, 'case', elementId, 'step', canvas, caseColor, false, srcStep);
+        });
+
     } else if (elementType === 'node') {
-        // Update case lines pointing to this node
         const caseLines = canvas.querySelectorAll(`[data-transition-connection-line][data-to-node="${elementId}"]`);
         caseLines.forEach(line => {
             const fromTransitionId = line.getAttribute('data-from-transition');
-            const frame = currentTransitionFrames.find(f => f.conditions.includes(fromTransitionId));
-            const transition = currentTransitions.find(t => t.id === fromTransitionId);
-            const caseColor = transition ? getTransitionTheme(transition.type).color : getTransitionTheme('Success').color;
-            drawConnectionLine(line, fromTransitionId, 'case', elementId, 'node', canvas, caseColor, false, frame);
+            const tr = currentTransitions.find(t => t.id === fromTransitionId);
+            const srcStep = tr ? currentSteps.find(s => s.id === tr.parentStepId) : null;
+            const caseColor = tr ? getTransitionTheme(tr.type).color : getTransitionTheme('Success').color;
+            drawConnectionLine(line, fromTransitionId, 'case', elementId, 'node', canvas, caseColor, false, srcStep);
         });
-        
-        // Update node connection lines from this node (outbound)
+
         const outboundNodeLines = canvas.querySelectorAll(`[data-node-connection-line][data-from-node="${elementId}"]`);
         outboundNodeLines.forEach(line => {
             const toStepId = line.getAttribute('data-to-step');
@@ -846,23 +850,19 @@ function updateConnectedLines(elementId, elementType) {
             const targetId = toStepId || toNodeId;
             drawConnectionLine(line, elementId, 'node', targetId, targetType, canvas, '#707070', true);
         });
-        
-        // Update node connection lines pointing TO this node (inbound)
+
         const inboundNodeLines = canvas.querySelectorAll(`[data-node-connection-line][data-to-node="${elementId}"]`);
         inboundNodeLines.forEach(line => {
             const fromNodeId = line.getAttribute('data-from-node');
             drawConnectionLine(line, fromNodeId, 'node', elementId, 'node', canvas, '#707070', true);
         });
     }
-    
-    // COMPREHENSIVE FIX: Also update ALL node-to-node and node-to-step lines whenever anything moves
-    // This ensures endpoints stick to targets even in edge cases
-    const allNodeLines = canvas.querySelectorAll(`[data-node-connection-line]`);
+
+    const allNodeLines = canvas.querySelectorAll('[data-node-connection-line]');
     allNodeLines.forEach(line => {
         const fromNodeId = line.getAttribute('data-from-node');
         const toNodeId = line.getAttribute('data-to-node');
         const toStepId = line.getAttribute('data-to-step');
-        
         if (fromNodeId && (toNodeId || toStepId)) {
             const targetId = toNodeId || toStepId;
             const targetType = toNodeId ? 'node' : 'step';
@@ -871,57 +871,40 @@ function updateConnectedLines(elementId, elementType) {
     });
 }
 
-// ============================================================================
-// PHASE 6: DRAG HANDLER - Universal element dragging with callbacks
-// ============================================================================
-
 /**
- * Make any element draggable with universal drag handling
- * Handles steps, frames, and nodes with optional callbacks and grid snapping
- * @param {HTMLElement} element - The element to make draggable
- * @param {string} elementId - The element's ID (step/frame/node UUID)
- * @param {string} elementType - Type of element: 'step', 'frame', or 'node'
- * @param {Function} onDragMove - Optional callback during drag: (newX, newY, element) => void
- * @param {Function} onDragEnd - Optional callback after drag ends: (finalX, finalY, element) => void
- * @param {Object} options - Configuration options:
- *   - dragHandle: CSS selector for drag handle element (default: null = drag anywhere)
- *   - threshold: pixels to move before drag starts (default: 0)
- *   - snapSize: grid snap size in pixels (default: 15)
- *   - bounds: enforce non-negative coordinates (default: true)
+ * Make an element draggable within the canvas.
+ * All position math is in CSS pixel space.
+ * dragOffsetX/Y computed once at mousedown via clientToCanvas, then used as a fixed offset.
  */
 function makeElementDraggable(element, elementId, elementType, onDragMove, onDragEnd, options = {}) {
     const canvas = document.getElementById('workflowCanvas');
     let isDragging = false;
     let dragOffsetX = 0;
     let dragOffsetY = 0;
-    let dragStartX = 0;
-    let dragStartY = 0;
-    let multiDragStartPositions = null; // {key: {x, y}} for all selected elements at drag start
-    
+    let dragStartClientX = 0;
+    let dragStartClientY = 0;
+    let multiDragStartPositions = null;
+
     const {
         dragHandle = null,
         threshold = 0,
-        snapSize = 15,
+        snapSize = HG,
         bounds = true
     } = options;
-    
+
     element.addEventListener('mousedown', (e) => {
-        // Skip if a specific drag handle is required and not clicked
-        if (dragHandle && !e.target.closest(dragHandle)) {
-            return;
-        }
-        
+        if (dragHandle && !e.target.closest(dragHandle)) return;
+
         e.stopPropagation();
         isDragging = true;
-        dragStartX = e.clientX;
-        dragStartY = e.clientY;
-        
-        const rect = element.getBoundingClientRect();
-        const canvasRect = canvas.getBoundingClientRect();
-        dragOffsetX = (e.clientX - rect.left) / zoomLevel;
-        dragOffsetY = (e.clientY - rect.top) / zoomLevel;
+        dragStartClientX = e.clientX;
+        dragStartClientY = e.clientY;
 
-        // If this element is in a multi-selection, snapshot all selected positions
+        // Convert mouse position to canvas CSS pixels, then compute offset
+        const canvasPos = clientToCanvas(e.clientX, e.clientY, canvas);
+        dragOffsetX = canvasPos.x - (parseInt(element.style.left) || 0);
+        dragOffsetY = canvasPos.y - (parseInt(element.style.top) || 0);
+
         const myKey = elementType + ':' + elementId;
         if (selectedElements.size > 1 && selectedElements.has(myKey)) {
             multiDragStartPositions = {};
@@ -937,46 +920,40 @@ function makeElementDraggable(element, elementId, elementType, onDragMove, onDra
         } else {
             multiDragStartPositions = null;
         }
-        
+
         const handleMouseMove = (moveEvent) => {
             if (!isDragging) return;
-            
-            // Check drag threshold
+
+            // Threshold check: delta in screen space, browser zoom cancels out
             if (threshold > 0) {
-                const deltaX = Math.abs(moveEvent.clientX - dragStartX);
-                const deltaY = Math.abs(moveEvent.clientY - dragStartY);
-                if (deltaX < threshold && deltaY < threshold) {
-                    return;
-                }
+                const deltaX = Math.abs(moveEvent.clientX - dragStartClientX);
+                const deltaY = Math.abs(moveEvent.clientY - dragStartClientY);
+                if (deltaX < threshold && deltaY < threshold) return;
             }
-            
-            // Mark that a drag occurred
+
             if (elementType === 'node') {
                 element.setAttribute('data-was-dragged', 'true');
             }
-            
-            const canvasRect = canvas.getBoundingClientRect();
-            let newX = (moveEvent.clientX - canvasRect.left) / zoomLevel - dragOffsetX;
-            let newY = (moveEvent.clientY - canvasRect.top) / zoomLevel - dragOffsetY;
-            
-            // Snap to grid
+
+            const pos = clientToCanvas(moveEvent.clientX, moveEvent.clientY, canvas);
+            let newX = pos.x - dragOffsetX;
+            let newY = pos.y - dragOffsetY;
+
             newX = Math.round(newX / snapSize) * snapSize;
             newY = Math.round(newY / snapSize) * snapSize;
-            
-            // Apply bounds
+
             if (bounds) {
                 newX = Math.max(0, newX);
                 newY = Math.max(0, newY);
             }
 
             if (multiDragStartPositions) {
-                // Multi-select drag: compute delta from primary element's start pos and apply to all
                 const myStart = multiDragStartPositions[elementType + ':' + elementId];
                 if (myStart) {
                     const dx = newX - myStart.x;
                     const dy = newY - myStart.y;
                     selectedElements.forEach(key => {
-                        if (key === elementType + ':' + elementId) return; // handled below
+                        if (key === elementType + ':' + elementId) return;
                         const el = getElementForKey(key);
                         const start = multiDragStartPositions[key];
                         if (el && start) {
@@ -984,47 +961,35 @@ function makeElementDraggable(element, elementId, elementType, onDragMove, onDra
                             const elY = Math.max(0, start.y + dy);
                             el.style.left = elX + 'px';
                             el.style.top = elY + 'px';
-                            // Update data and lines for each co-dragged element
                             const [elType, elId] = key.split(':');
                             updateConnectedLines(elId, elType);
-                            // Update data position
                             updateElementPosition(elId, elType, elX, elY);
                         }
                     });
                 }
             }
-            
+
             element.style.left = newX + 'px';
             element.style.top = newY + 'px';
-            
-            // Call custom drag move handler
-            if (onDragMove) {
-                onDragMove(newX, newY, element);
-            }
-            
-            // Update lines for this element type
+
+            if (onDragMove) onDragMove(newX, newY, element);
             updateConnectedLines(elementId, elementType);
         };
-        
+
         const handleMouseUp = (upEvent) => {
             if (!isDragging) return;
-            
             isDragging = false;
             multiDragStartPositions = null;
-            
+
             const finalX = parseInt(element.style.left);
             const finalY = parseInt(element.style.top);
-            
-            // Call custom drag end handler
-            if (onDragEnd) {
-                onDragEnd(finalX, finalY, element);
-            }
-            
-            // Remove listeners
+
+            if (onDragEnd) onDragEnd(finalX, finalY, element);
+
             document.removeEventListener('mousemove', handleMouseMove);
             document.removeEventListener('mouseup', handleMouseUp);
         };
-        
+
         document.addEventListener('mousemove', handleMouseMove);
         document.addEventListener('mouseup', handleMouseUp);
     });
@@ -1034,106 +999,88 @@ function makeElementDraggable(element, elementId, elementType, onDragMove, onDra
 // ============================================================================
 // PHASE 7A: CANVAS EVENT ORCHESTRATION - Drag-drop, pan, zoom, line manipulation
 // ============================================================================
-// WARNING: This is a complex, high-risk function with many nested event listeners.
-// It manages step dragging, canvas pan/zoom, and connection line manipulation.
-// Changes here can affect multiple user interactions simultaneously.
-// ============================================================================
 
 function setupCanvasDragDrop() {
     const stepTypeItems = document.querySelectorAll('.step-type-item');
     const canvas = document.getElementById('workflowCanvas');
     let dragOffsetX = 0;
     let dragOffsetY = 0;
-    
-    // Setup draggable step types
+
     stepTypeItems.forEach(item => {
         item.addEventListener('dragstart', (e) => {
             e.dataTransfer.effectAllowed = 'copy';
             e.dataTransfer.setData('stepType', item.getAttribute('data-type'));
-            // Capture offset from item's top-left to mouse cursor
+            // Offset stays in screen space — used as screen-space delta before clientToCanvas
             const rect = item.getBoundingClientRect();
             dragOffsetX = e.clientX - rect.left;
             dragOffsetY = e.clientY - rect.top;
         });
     });
 
-    // Setup canvas to accept drops
     canvas.addEventListener('dragover', (e) => {
         e.preventDefault();
         e.dataTransfer.dropEffect = 'copy';
     });
 
     canvas.addEventListener('dragleave', (e) => {
-        if (e.target === canvas) {
-            // Keep canvas transparent with grid
-        }
+        if (e.target === canvas) { /* keep canvas transparent */ }
     });
 
     canvas.addEventListener('drop', (e) => {
         e.preventDefault();
-        
+
         const stepType = e.dataTransfer.getData('stepType');
-        const rect = canvas.getBoundingClientRect();
-        // Convert screen coordinates to grid coordinates accounting for zoom
-        // Note: pan is handled by canvas transform, not by adjusting coordinates
-        let x = (e.clientX - rect.left - dragOffsetX) / zoomLevel;
-        let y = (e.clientY - rect.top - dragOffsetY) / zoomLevel;
-        
-        // Snap to 30px grid
-        x = Math.round(x / 30) * 30;
-        y = Math.round(y / 30) * 30;
-        
+        // Adjust clientX/Y by drag offset (both screen space), then convert to canvas CSS pixels
+        const pos = clientToCanvas(e.clientX - dragOffsetX, e.clientY - dragOffsetY, canvas);
+
+        const x = Math.round(pos.x / GU) * GU;
+        const y = Math.round(pos.y / GU) * GU;
+
         createStepOnCanvas(stepType, x, y);
     });
-    
-    // Zoom and Pan functionality
+
+    // ── Pan and Zoom ─────────────────────────────────────────────────────────
     let isPanning = false;
     let panStartX = 0;
     let panStartY = 0;
-    
+
+    const container = document.getElementById('canvasContainer');
+
     function clampPan() {
+        // getBoundingClientRect used only for container viewport sizing, not element positioning
         const containerRect = container.getBoundingClientRect();
-        const containerWidth = containerRect.width;
-        const containerHeight = containerRect.height;
-        
-        // Calculate visible grid area at current zoom
-        const visibleWidth = containerWidth / zoomLevel;
-        const visibleHeight = containerHeight / zoomLevel;
-        
-        // Clamp pan so viewport stays within 0,0 to GRID_SIZE,GRID_SIZE
-        // panX/panY represent the top-left corner of the viewport in grid space
-        panX = Math.max(0, Math.min(panX, GRID_SIZE - visibleWidth));
-        panY = Math.max(0, Math.min(panY, GRID_SIZE - visibleHeight));
+        const visibleWidth = containerRect.width / zoomLevel;
+        const visibleHeight = containerRect.height / zoomLevel;
+        panX = Math.max(0, Math.min(panX, CANVAS_SIZE - visibleWidth));
+        panY = Math.max(0, Math.min(panY, CANVAS_SIZE - visibleHeight));
     }
-    
+
     function updateTransform() {
         canvas.style.transform = `scale(${zoomLevel}) translate(${-panX}px, ${-panY}px)`;
         canvas.style.transformOrigin = '0 0';
     }
-    
-    // Mouse wheel zoom
+
     canvas.addEventListener('wheel', (e) => {
         e.preventDefault();
-        
+
         const zoomIncrement = e.deltaY > 0 ? -0.05 : 0.05;
         const newZoom = Math.max(0.55, Math.min(2, zoomLevel + zoomIncrement));
-        
-        // Adjust pan to zoom toward mouse cursor
+
+        // mouseX/Y relative to container for zoom centering — not element positioning
         const rect = container.getBoundingClientRect();
         const mouseX = e.clientX - rect.left;
         const mouseY = e.clientY - rect.top;
-        
+
         panX = mouseX / newZoom + (panX * zoomLevel / newZoom) - mouseX / newZoom;
         panY = mouseY / newZoom + (panY * zoomLevel / newZoom) - mouseY / newZoom;
-        
+
         zoomLevel = newZoom;
         clampPan();
         updateTransform();
         updateZoomDisplay();
     }, { passive: false });
-    
-    // Pan with left mouse button (on empty canvas only)
-    const container = document.getElementById('canvasContainer');
+
+    // ── Marquee and Pan ───────────────────────────────────────────────────────
     let isMarqueeSelecting = false;
     let marqueeStartX = 0;
     let marqueeStartY = 0;
@@ -1141,16 +1088,15 @@ function setupCanvasDragDrop() {
 
     container.addEventListener('mousedown', (e) => {
         if (e.button === 0 && (e.target === canvas || e.target.closest('[data-transition-connection-line]'))) {
-            // Don't pan/marquee if clicking on steps, frames, or hitboxes
-            if (e.target.closest('[data-step-uuid]') || 
+            if (e.target.closest('[data-step-uuid]') ||
                 e.target.closest('[data-transition-frame]') ||
                 e.target.closest('[data-case-arrow-hitbox]')) {
                 return;
             }
 
             if (e.ctrlKey || e.metaKey) {
-                // Ctrl+drag: start marquee selection
                 isMarqueeSelecting = true;
+                // Marquee is a UI overlay on the container; container-relative screen coords correct here
                 const containerRect = container.getBoundingClientRect();
                 marqueeStartX = e.clientX - containerRect.left;
                 marqueeStartY = e.clientY - containerRect.top;
@@ -1171,6 +1117,7 @@ function setupCanvasDragDrop() {
                 e.preventDefault();
             } else {
                 isPanning = true;
+                // Pan uses raw clientX/Y deltas — browser zoom cancels out in the subtraction
                 panStartX = e.clientX + panX;
                 panStartY = e.clientY + panY;
                 container.style.cursor = 'grabbing';
@@ -1178,7 +1125,7 @@ function setupCanvasDragDrop() {
             }
         }
     });
-    
+
     document.addEventListener('mousemove', (e) => {
         if (isPanning && !draggedConnectionHitbox) {
             panX = panStartX - e.clientX;
@@ -1201,7 +1148,7 @@ function setupCanvasDragDrop() {
             marqueeEl.style.height = h + 'px';
         }
     });
-    
+
     document.addEventListener('mouseup', (e) => {
         if (isPanning) {
             isPanning = false;
@@ -1211,7 +1158,7 @@ function setupCanvasDragDrop() {
         if (isMarqueeSelecting && marqueeEl) {
             isMarqueeSelecting = false;
 
-            // Marquee bounds in screen space
+            // Marquee hit-testing: both sides in screen space, internally consistent
             const containerRect = container.getBoundingClientRect();
             const mx1 = containerRect.left + parseFloat(marqueeEl.style.left);
             const my1 = containerRect.top + parseFloat(marqueeEl.style.top);
@@ -1236,26 +1183,12 @@ function setupCanvasDragDrop() {
             marqueeEl.remove();
             marqueeEl = null;
 
-            // Suppress the canvas click that fires after mouseup
             const suppressClick = (e) => { e.stopPropagation(); canvas.removeEventListener('click', suppressClick, true); };
             canvas.addEventListener('click', suppressClick, true);
         }
     });
-    
-    // Drag from transition triangles to create lines to steps
-    let isDrawingFromTransition = false;
-    let fromTransitionId = null;
-    let transitionStartX = 0;
-    let transitionStartY = 0;
-    
-    // Drag case line end arrows to move or delete connections
-    let draggedCaseConditionId = null;
-    let draggedCaseTargetStepId = null;
-    let draggedCaseTargetNodeId = null;
-    let caseArrowStartX = 0;
-    let caseArrowStartY = 0;
-    
-    // Track dragged connection hitbox
+
+    // ── Connection hitbox dragging ────────────────────────────────────────────
     let draggedConnectionHitbox = null;
     let draggedConnectionLineElement = null;
     let draggedConnectionSourceType = null;
@@ -1263,182 +1196,128 @@ function setupCanvasDragDrop() {
     let draggedConnectionTargetType = null;
     let draggedConnectionTargetId = null;
     let draggedConnectionStartPoint = { x: 0, y: 0 };
-    
+
     document.addEventListener('mousedown', (e) => {
-        // Check if clicking on a universal connection hitbox
         const hitbox = e.target.closest('[data-connection-hitbox]');
-        if (hitbox) {
-            const canvas = document.getElementById('workflowCanvas');
-            if (!canvas) return;
-            
-            e.stopPropagation();
-            e.preventDefault();
-            
-            draggedConnectionHitbox = hitbox;
-            draggedConnectionSourceType = hitbox.getAttribute('data-line-source-type');
-            draggedConnectionSourceId = hitbox.getAttribute('data-line-source-id');
-            draggedConnectionTargetType = hitbox.getAttribute('data-line-target-type');
-            draggedConnectionTargetId = hitbox.getAttribute('data-line-target-id');
-            
-            // Find the line element
-            let lineElement = null;
-            if (draggedConnectionSourceType === 'case') {
-                lineElement = canvas.querySelector(`[data-transition-connection-line][data-from-transition="${draggedConnectionSourceId}"][data-to-${draggedConnectionTargetType}="${draggedConnectionTargetId}"]`);
-            } else if (draggedConnectionSourceType === 'node') {
-                lineElement = canvas.querySelector(`[data-node-connection-line][data-from-node="${draggedConnectionSourceId}"][data-to-${draggedConnectionTargetType}="${draggedConnectionTargetId}"]`);
-            } else if (draggedConnectionSourceType === 'step') {
-                lineElement = canvas.querySelector(`[data-connection-line][data-from-step="${draggedConnectionSourceId}"][data-to-frame="${draggedConnectionTargetId}"]`);
-            }
-            
-            draggedConnectionLineElement = lineElement;
-            
-            // Store the start point - we need the actual source point of the connection
-            // For case lines, start from the transition condition box
-            // For node lines, start from the source node
-            if (draggedConnectionSourceType === 'case') {
-                const transition = currentTransitions.find(t => t.id === draggedConnectionSourceId);
-                const frame = currentTransitionFrames.find(f => f.conditions.includes(draggedConnectionSourceId));
-                if (transition && frame) {
-                    const frameElement = canvas.querySelector(`[data-transition-frame="${frame.id}"]`);
-                    const conditionBox = frameElement.querySelector(`[data-condition-id="${draggedConnectionSourceId}"]`);
-                    if (frameElement && conditionBox) {
-                        const frameX = parseInt(frameElement.style.left);
-                        const frameY = parseInt(frameElement.style.top);
-                        const offsetX = conditionBox.offsetLeft;
-                        const offsetY = conditionBox.offsetTop;
-                        const width = conditionBox.offsetWidth;
-                        const height = conditionBox.offsetHeight;
-                        
-                        if (frame.verticalLayout) {
-                            draggedConnectionStartPoint = { x: frameX + offsetX + width, y: frameY + offsetY + height / 2 + 3 };
-                        } else {
-                            draggedConnectionStartPoint = { x: frameX + offsetX + width / 2 + 2, y: frameY + offsetY + height + 40 };
-                        }
-                    }
-                }
-            } else if (draggedConnectionSourceType === 'node') {
-                const sourceNode = currentNodes.find(n => n.id === draggedConnectionSourceId);
-                if (sourceNode) {
-                    const nodeElement = canvas.querySelector(`[data-node-id="${draggedConnectionSourceId}"]`);
-                    if (nodeElement) {
-                        const nodeX = parseInt(nodeElement.style.left);
-                        const nodeY = parseInt(nodeElement.style.top);
-                        const nodeWidth = parseInt(nodeElement.style.width);
-                        const nodeHeight = parseInt(nodeElement.style.height);
-                        draggedConnectionStartPoint = {
-                            x: nodeX + nodeWidth / 2,
-                            y: nodeY + nodeHeight / 2
-                        };
-                    }
-                }
-            }
-            
-            // Hide the current line
-            if (lineElement) {
-                lineElement.style.display = 'none';
-            }
-            
-            // Will be handled by mousemove and mouseup
+        if (!hitbox) return;
+
+        const canvas = document.getElementById('workflowCanvas');
+        if (!canvas) return;
+
+        e.stopPropagation();
+        e.preventDefault();
+
+        draggedConnectionHitbox = hitbox;
+        draggedConnectionSourceType = hitbox.getAttribute('data-line-source-type');
+        draggedConnectionSourceId = hitbox.getAttribute('data-line-source-id');
+        draggedConnectionTargetType = hitbox.getAttribute('data-line-target-type');
+        draggedConnectionTargetId = hitbox.getAttribute('data-line-target-id');
+
+        let lineElement = null;
+        if (draggedConnectionSourceType === 'case') {
+            lineElement = canvas.querySelector(`[data-transition-connection-line][data-from-transition="${draggedConnectionSourceId}"][data-to-${draggedConnectionTargetType}="${draggedConnectionTargetId}"]`);
+        } else if (draggedConnectionSourceType === 'node') {
+            lineElement = canvas.querySelector(`[data-node-connection-line][data-from-node="${draggedConnectionSourceId}"][data-to-${draggedConnectionTargetType}="${draggedConnectionTargetId}"]`);
+        } else if (draggedConnectionSourceType === 'step') {
+            lineElement = canvas.querySelector(`[data-connection-line][data-from-step="${draggedConnectionSourceId}"][data-to-frame="${draggedConnectionTargetId}"]`);
         }
+        draggedConnectionLineElement = lineElement;
+
+        // Calculate start point from style.left/top — no getBoundingClientRect
+        if (draggedConnectionSourceType === 'case') {
+            const transition = currentTransitions.find(t => t.id === draggedConnectionSourceId);
+            if (transition) {
+                const stepElement = canvas.querySelector(`[data-step-uuid="${transition.parentStepId}"]`);
+                const conditionBox = stepElement ? stepElement.querySelector(`[data-condition-id="${draggedConnectionSourceId}"]`) : null;
+                if (stepElement && conditionBox) {
+                    const stepY = parseInt(stepElement.style.top);
+                    const stepHeight = parseInt(stepElement.style.height);
+                    draggedConnectionStartPoint = {
+                        x: conditionBoxCenterX(conditionBox, stepElement),
+                        y: stepY + stepHeight - 1
+                    };
+                }
+            }
+        } else if (draggedConnectionSourceType === 'node') {
+            const nodeElement = canvas.querySelector(`[data-node-id="${draggedConnectionSourceId}"]`);
+            if (nodeElement) {
+                const nodeX = parseInt(nodeElement.style.left);
+                const nodeY = parseInt(nodeElement.style.top);
+                const nodeWidth = parseInt(nodeElement.style.width);
+                const nodeHeight = parseInt(nodeElement.style.height);
+                draggedConnectionStartPoint = {
+                    x: nodeX + nodeWidth / 2,
+                    y: nodeY + nodeHeight / 2
+                };
+            }
+        }
+
+        if (lineElement) lineElement.style.display = 'none';
     });
-    
-    // Handle connection hitbox dragging (move or delete lines)
+
     document.addEventListener('mousemove', (e) => {
         if (!draggedConnectionHitbox) return;
-        
-        const canvasRect = document.getElementById('workflowCanvas').getBoundingClientRect();
-        const screenX = e.clientX - canvasRect.left;
-        const screenY = e.clientY - canvasRect.top;
-        const currentX = (screenX / zoomLevel) + panX;
-        const currentY = (screenY / zoomLevel) + panY;
-        
-        // Create or update preview line
-        let previewLine = document.getElementById('workflowCanvas').querySelector('[data-connection-preview-line]');
+
+        const canvas = document.getElementById('workflowCanvas');
+        const pos = clientToCanvas(e.clientX, e.clientY, canvas);
+
+        let previewLine = canvas.querySelector('[data-connection-preview-line]');
         if (!previewLine) {
             previewLine = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
             previewLine.setAttribute('data-connection-preview-line', 'true');
-            previewLine.style.cssText = `
-                position: absolute;
-                top: 0;
-                left: 0;
-                width: 100%;
-                height: 100%;
-                pointer-events: none;
-                z-index: 1;
-            `;
-            document.getElementById('workflowCanvas').appendChild(previewLine);
+            previewLine.style.cssText = `position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 1;`;
+            canvas.appendChild(previewLine);
         }
-        
-        const path = createCurvedPath(draggedConnectionStartPoint.x, draggedConnectionStartPoint.y, 'bottom', currentX, currentY, 'bottom');
+
+        const path = createCurvedPath(draggedConnectionStartPoint.x, draggedConnectionStartPoint.y, 'bottom', pos.x, pos.y, 'bottom');
         previewLine.innerHTML = `<path d="${path}" stroke="#707070" stroke-width="2" fill="none" stroke-dasharray="5,5"/>`;
     });
-    
+
     document.addEventListener('mouseup', (e) => {
         if (!draggedConnectionHitbox) return;
-        
+
         draggedConnectionHitbox = null;
         const canvas = document.getElementById('workflowCanvas');
-        
-        // Remove preview line
+
         const previewLine = canvas.querySelector('[data-connection-preview-line]');
         if (previewLine) previewLine.remove();
-        
-        // Check what we dropped on
-        const canvasRect = canvas.getBoundingClientRect();
-        const dropX = e.clientX;
-        const dropY = e.clientY;
-        
-        const dropTarget = detectDropTarget(canvas, dropX, dropY);
+
+        const dropTarget = detectDropTarget(canvas, e.clientX, e.clientY);
         const droppedOnStep = dropTarget.droppedOnStep;
         const droppedOnNode = dropTarget.droppedOnNode;
-        
-        // If dropped on valid target, reattach; otherwise delete the line
+
         if (droppedOnStep || droppedOnNode) {
-            // Reattach to new target
             if (draggedConnectionSourceType === 'case') {
                 const transition = currentTransitions.find(t => t.id === draggedConnectionSourceId);
                 if (transition) {
-                    // Remove old target from transition
                     if (draggedConnectionTargetType === 'step') {
                         transition.targetSteps = transition.targetSteps.filter(s => s !== draggedConnectionTargetId);
                     } else if (draggedConnectionTargetType === 'node') {
                         transition.targetNodes = transition.targetNodes.filter(n => n !== draggedConnectionTargetId);
                     }
-                    
-                    // Add new target
+
                     if (droppedOnStep) {
-                        if (!transition.targetSteps.includes(droppedOnStep)) {
-                            transition.targetSteps.push(droppedOnStep);
-                        }
+                        if (!transition.targetSteps.includes(droppedOnStep)) transition.targetSteps.push(droppedOnStep);
                     } else if (droppedOnNode) {
                         if (!transition.targetNodes) transition.targetNodes = [];
-                        if (!transition.targetNodes.includes(droppedOnNode)) {
-                            transition.targetNodes.push(droppedOnNode);
-                        }
+                        if (!transition.targetNodes.includes(droppedOnNode)) transition.targetNodes.push(droppedOnNode);
                     }
-                    
-                    // Remove old line element
-                    if (draggedConnectionLineElement) {
-                        draggedConnectionLineElement.remove();
-                    }
-                    
-                    // Create new line
+
+                    if (draggedConnectionLineElement) draggedConnectionLineElement.remove();
+
                     const lineUUID = generateId();
                     const newLine = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
                     newLine.setAttribute('data-transition-connection-line', lineUUID);
                     newLine.setAttribute('data-from-transition', draggedConnectionSourceId);
-                    if (droppedOnStep) {
-                        newLine.setAttribute('data-to-step', droppedOnStep);
-                    } else {
-                        newLine.setAttribute('data-to-node', droppedOnNode);
-                    }
+                    if (droppedOnStep) newLine.setAttribute('data-to-step', droppedOnStep);
+                    else newLine.setAttribute('data-to-node', droppedOnNode);
                     newLine.style.cssText = `position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 1;`;
                     canvas.appendChild(newLine);
-                    
-                    const frame = currentTransitionFrames.find(f => f.conditions.includes(draggedConnectionSourceId));
-                    const caseColor = transition ? getTransitionTheme(transition.type).color : getTransitionTheme('Success').color;
-                    drawConnectionLine(newLine, draggedConnectionSourceId, 'case', droppedOnStep || droppedOnNode, droppedOnStep ? 'step' : 'node', canvas, caseColor, false, frame);
-                    
+
+                    const srcStep = currentSteps.find(s => s.id === transition.parentStepId);
+                    const caseColor = getTransitionTheme(transition.type).color;
+                    drawConnectionLine(newLine, draggedConnectionSourceId, 'case', droppedOnStep || droppedOnNode, droppedOnStep ? 'step' : 'node', canvas, caseColor, false, srcStep);
+
                     syncTransitionCasesToStep();
                     recheckFlaggedSteps();
                     updatePreview();
@@ -1446,50 +1325,36 @@ function setupCanvasDragDrop() {
             } else if (draggedConnectionSourceType === 'node') {
                 const sourceNode = currentNodes.find(n => n.id === draggedConnectionSourceId);
                 if (sourceNode) {
-                    // Remove old target
                     if (draggedConnectionTargetType === 'step') {
                         sourceNode.targetSteps = sourceNode.targetSteps.filter(s => s !== draggedConnectionTargetId);
                     } else if (draggedConnectionTargetType === 'node') {
                         sourceNode.targetNodes = sourceNode.targetNodes.filter(n => n !== draggedConnectionTargetId);
                     }
-                    
-                    // Add new target
+
                     if (droppedOnStep) {
-                        if (!sourceNode.targetSteps.includes(droppedOnStep)) {
-                            sourceNode.targetSteps.push(droppedOnStep);
-                        }
+                        if (!sourceNode.targetSteps.includes(droppedOnStep)) sourceNode.targetSteps.push(droppedOnStep);
                     } else if (droppedOnNode) {
-                        if (!sourceNode.targetNodes.includes(droppedOnNode)) {
-                            sourceNode.targetNodes.push(droppedOnNode);
-                        }
+                        if (!sourceNode.targetNodes.includes(droppedOnNode)) sourceNode.targetNodes.push(droppedOnNode);
                     }
-                    
-                    // Remove old line
-                    if (draggedConnectionLineElement) {
-                        draggedConnectionLineElement.remove();
-                    }
-                    
-                    // Create new line
+
+                    if (draggedConnectionLineElement) draggedConnectionLineElement.remove();
+
                     const lineUUID = generateId();
                     const newLine = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
                     newLine.setAttribute('data-node-connection-line', lineUUID);
                     newLine.setAttribute('data-from-node', draggedConnectionSourceId);
-                    if (droppedOnStep) {
-                        newLine.setAttribute('data-to-step', droppedOnStep);
-                    } else {
-                        newLine.setAttribute('data-to-node', droppedOnNode);
-                    }
+                    if (droppedOnStep) newLine.setAttribute('data-to-step', droppedOnStep);
+                    else newLine.setAttribute('data-to-node', droppedOnNode);
                     newLine.style.cssText = `position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 1;`;
                     canvas.appendChild(newLine);
-                    
+
                     drawConnectionLine(newLine, draggedConnectionSourceId, 'node', droppedOnStep || droppedOnNode, droppedOnStep ? 'step' : 'node', canvas, '#707070', true);
-                    
+
                     recheckFlaggedSteps();
                     updatePreview();
                 }
             }
         } else {
-            // Dropped in empty space - delete the line
             if (draggedConnectionSourceType === 'case') {
                 const transition = currentTransitions.find(t => t.id === draggedConnectionSourceId);
                 if (transition) {
@@ -1514,133 +1379,82 @@ function setupCanvasDragDrop() {
                     updatePreview();
                 }
             }
-            
-            // Remove the line element
-            if (draggedConnectionLineElement) {
-                draggedConnectionLineElement.remove();
-            }
+            if (draggedConnectionLineElement) draggedConnectionLineElement.remove();
         }
-        
+
         draggedConnectionLineElement = null;
         draggedConnectionSourceType = null;
         draggedConnectionSourceId = null;
         draggedConnectionTargetType = null;
         draggedConnectionTargetId = null;
     });
-    
+
+    // ── Transition arrow drag (draw new case lines) ───────────────────────────
+    let isDrawingFromTransition = false;
+    let fromTransitionId = null;
+    let transitionStartX = 0;
+    let transitionStartY = 0;
+
     document.addEventListener('mousedown', (e) => {
-        // Original transition arrow handler
-        // Check if clicking on a triangle
         const triangle = e.target.closest('[data-transition-arrow]');
         if (!triangle) return;
-        
+
         const canvas = document.getElementById('workflowCanvas');
-        if (!canvas) {
-            return;
-        }
-        
+        if (!canvas) return;
+
         e.stopPropagation();
         isDrawingFromTransition = true;
         fromTransitionId = triangle.getAttribute('data-transition-arrow');
-        
-        const canvasRect = canvas.getBoundingClientRect();
-        
-        // Get the condition box element to calculate start point consistently with finished line
-        const conditionId = triangle.getAttribute('data-transition-arrow');
+
+        const conditionId = fromTransitionId;
         const conditionBox = canvas.querySelector(`[data-condition-id="${conditionId}"]`);
         if (!conditionBox) return;
-        
-        // Find the frame and wrapper to calculate absolute position
-        const wrapper = conditionBox.parentElement;
-        const frame = wrapper?.closest('[data-transition-frame]');
-        if (!frame) return;
-        
-        const frameX = parseInt(frame.style.left);
-        const frameY = parseInt(frame.style.top);
-        const wrapperOffsetX = wrapper ? wrapper.offsetLeft : 0;
-        const wrapperOffsetY = wrapper ? wrapper.offsetTop : 0;
-        const conditionOffsetX = conditionBox.offsetLeft;
-        const conditionOffsetY = conditionBox.offsetTop;
-        const conditionWidth = conditionBox.offsetWidth;
-        const conditionHeight = conditionBox.offsetHeight;
-        
-        // Calculate start point using same logic as finished line
-        const frameData = currentTransitionFrames.find(f => f.id === frame.getAttribute('data-transition-frame'));
-        let screenStartX, screenStartY;
-        
-        // Use same calculation for both layouts: always include wrapperOffsetX
-        const conditionAbsX = frameX + wrapperOffsetX + conditionOffsetX;
-        
-        if (frameData && frameData.verticalLayout) {
-            const conditionAbsY = frameY + wrapperOffsetY + conditionOffsetY;
-            screenStartX = conditionAbsX + conditionWidth + 10;
-            screenStartY = conditionAbsY + 13;
-        } else {
-            const conditionAbsY = frameY + conditionOffsetY;
-            screenStartX = conditionAbsX + conditionWidth / 2 + 2;
-            screenStartY = conditionAbsY + conditionHeight + 40;
-        }
-        
-        // Use canvas space coordinates directly (same as finished line), no zoom/pan conversion
-        transitionStartX = screenStartX;
-        transitionStartY = screenStartY;
-        
+
+        const stepElement = conditionBox.closest('[data-step-uuid]');
+        if (!stepElement) return;
+
+        const stepY = parseInt(stepElement.style.top);
+        const stepHeight = parseInt(stepElement.style.height);
+
+        // Start point via offsetLeft chain — no getBoundingClientRect
+        transitionStartX = conditionBoxCenterX(conditionBox, stepElement);
+        transitionStartY = stepY + stepHeight - 1;
+
         const handleTransitionMouseMove = (e) => {
             if (!isDrawingFromTransition) return;
-            
-            const canvasRect = canvas.getBoundingClientRect();
-            const screenCurrentX = e.clientX - canvasRect.left;
-            const screenCurrentY = e.clientY - canvasRect.top;
-            // Convert to canvas space by dividing by zoom (SVG is scaled by zoomLevel)
-            const currentX = screenCurrentX / zoomLevel;
-            const currentY = screenCurrentY / zoomLevel;
-            
+
+            const pos = clientToCanvas(e.clientX, e.clientY, canvas);
+
             let line = canvas.querySelector('[data-transition-preview-line]');
             if (!line) {
                 line = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
                 line.setAttribute('data-transition-preview-line', 'true');
-                line.style.cssText = `
-                    position: absolute;
-                    top: 0;
-                    left: 0;
-                    width: 100%;
-                    height: 100%;
-                    pointer-events: none;
-                    z-index: 1;
-                `;
+                line.style.cssText = `position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 1;`;
                 canvas.appendChild(line);
             }
-            
-            line.innerHTML = `<line x1="${transitionStartX}" y1="${transitionStartY}" x2="${currentX}" y2="${currentY}" stroke="#707070" stroke-width="2"/>`;
+
+            line.innerHTML = `<line x1="${transitionStartX}" y1="${transitionStartY}" x2="${pos.x}" y2="${pos.y}" stroke="#707070" stroke-width="2"/>`;
         };
-        
+
         const handleTransitionMouseUp = (e) => {
             if (!isDrawingFromTransition) return;
-            
-            const savedTransitionId = fromTransitionId; // Save before resetting
+
+            const savedTransitionId = fromTransitionId;
             isDrawingFromTransition = false;
             fromTransitionId = null;
             document.removeEventListener('mousemove', handleTransitionMouseMove);
             document.removeEventListener('mouseup', handleTransitionMouseUp);
-            
+
             const previewLine = canvas.querySelector('[data-transition-preview-line]');
             if (previewLine) previewLine.remove();
-            
-            const canvasRect = canvas.getBoundingClientRect();
-            const screenEndX = e.clientX - canvasRect.left;
-            const screenEndY = e.clientY - canvasRect.top;
-            // Use canvas space coordinates (same as start point) for distance check
-            const canvasEndX = screenEndX;
-            const canvasEndY = screenEndY;
-            const gridEndX = (screenEndX / zoomLevel) + panX;
-            const gridEndY = (screenEndY / zoomLevel) + panY;
-            
-            // Check if we dropped on a step
-            const targetStep = document.elementFromPoint(e.clientX, e.clientY);
-            let stepElement = targetStep?.closest('[data-step-id]');
+
+            // Convert drop position to canvas CSS pixels for distance check
+            const endPos = clientToCanvas(e.clientX, e.clientY, canvas);
+            const dragDistance = Math.hypot(endPos.x - transitionStartX, endPos.y - transitionStartY);
+
+            let stepElement = document.elementFromPoint(e.clientX, e.clientY)?.closest('[data-step-id]');
             let nodeElement = null;
-            
-            // If not found directly, use universal drop detection with 50px margin
+
             if (!stepElement) {
                 const dropTarget = detectDropTarget(canvas, e.clientX, e.clientY);
                 if (dropTarget.droppedOnStep) {
@@ -1650,117 +1464,69 @@ function setupCanvasDragDrop() {
                     nodeElement = canvas.querySelector(`[data-node-id="${dropTarget.droppedOnNode}"]`);
                 }
             }
-            
-            // If not on a step directly, check if we're on an attached transition frame
-            if (!stepElement) {
-                const frameElement = targetStep?.closest('[data-transition-frame]');
-                if (frameElement) {
-                    const frameId = frameElement.getAttribute('data-transition-frame');
-                    const attachedFrame = currentTransitionFrames.find(f => f.id === frameId);
-                    if (attachedFrame && attachedFrame.attachedToStepId) {
-                        stepElement = canvas.querySelector(`[data-step-id][data-step-uuid="${attachedFrame.attachedToStepId}"]`);
-                    }
-                }
-            }
-            
+
             const transition = currentTransitions.find(t => t.id === savedTransitionId);
-            
-            const dragDistance = Math.hypot(canvasEndX - transitionStartX, canvasEndY - transitionStartY);
-            
+
             if (stepElement && dragDistance >= MIN_DRAG_DISTANCE) {
                 const targetStepId = stepElement.getAttribute('data-step-uuid');
                 const targetStep = currentSteps.find(s => s.id === targetStepId);
-                
-                // Don't allow connections to BEGIN step
-                if (targetStep && targetStep.type === 'Begin') {
-                    return;
-                }
-                
+                if (targetStep && targetStep.type === 'Begin') return;
+
                 if (transition && targetStepId) {
-                    // Add target step to the transition
                     if (!transition.targetSteps.includes(targetStepId)) {
                         transition.targetSteps.push(targetStepId);
                     }
-                    
-                    // Create green connection line
+
                     const lineUUID = generateId();
                     const connectionLine = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
                     connectionLine.setAttribute('data-transition-connection-line', lineUUID);
                     connectionLine.setAttribute('data-from-transition', savedTransitionId);
                     connectionLine.setAttribute('data-to-step', targetStepId);
-                    connectionLine.style.cssText = `
-                        position: absolute;
-                        top: 0;
-                        left: 0;
-                        width: 100%;
-                        height: 100%;
-                        pointer-events: none;
-                        z-index: 1;
-                    `;
+                    connectionLine.style.cssText = `position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 1;`;
                     canvas.appendChild(connectionLine);
-                    
-                    // Use standard case line rendering
-                    const frame = currentTransitionFrames.find(f => f.conditions.includes(savedTransitionId));
-                    const caseColor = transition ? getTransitionTheme(transition.type).color : getTransitionTheme('Success').color;
-                    drawConnectionLine(connectionLine, savedTransitionId, 'case', targetStepId, 'step', canvas, caseColor, false, frame);
-                    
+
+                    const srcStep = currentSteps.find(s => s.id === transition.parentStepId);
+                    const caseColor = getTransitionTheme(transition.type).color;
+                    drawConnectionLine(connectionLine, savedTransitionId, 'case', targetStepId, 'step', canvas, caseColor, false, srcStep);
+
                     syncTransitionCasesToStep();
                     recheckFlaggedSteps();
                     updatePreview();
                 }
-            } else if (nodeElement && Math.hypot(canvasEndX - transitionStartX, canvasEndY - transitionStartY) >= MIN_DRAG_DISTANCE) {
-                // Dropped on a node - create connection to it
+            } else if (nodeElement && dragDistance >= MIN_DRAG_DISTANCE) {
                 const targetNodeId = nodeElement.getAttribute('data-node-id');
-                
+
                 if (transition && targetNodeId) {
-                    // Add target node to the transition
-                    if (!transition.targetNodes) {
-                        transition.targetNodes = [];
-                    }
+                    if (!transition.targetNodes) transition.targetNodes = [];
                     if (!transition.targetNodes.includes(targetNodeId)) {
                         transition.targetNodes.push(targetNodeId);
                     }
-                    
-                    // Create connection line to node
+
                     const lineUUID = generateId();
                     const connectionLine = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
                     connectionLine.setAttribute('data-transition-connection-line', lineUUID);
                     connectionLine.setAttribute('data-from-transition', savedTransitionId);
                     connectionLine.setAttribute('data-to-node', targetNodeId);
-                    connectionLine.style.cssText = `
-                        position: absolute;
-                        top: 0;
-                        left: 0;
-                        width: 100%;
-                        height: 100%;
-                        pointer-events: none;
-                        z-index: 1;
-                    `;
+                    connectionLine.style.cssText = `position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 1;`;
                     canvas.appendChild(connectionLine);
-                    
-                    // Use standard case line rendering
-                    const frame = currentTransitionFrames.find(f => f.conditions.includes(savedTransitionId));
-                    const caseColor = transition ? getTransitionTheme(transition.type).color : getTransitionTheme('Success').color;
-                    drawConnectionLine(connectionLine, savedTransitionId, 'case', targetNodeId, 'node', canvas, caseColor, false, frame);
-                    
+
+                    const srcStep = currentSteps.find(s => s.id === transition.parentStepId);
+                    const caseColor = getTransitionTheme(transition.type).color;
+                    drawConnectionLine(connectionLine, savedTransitionId, 'case', targetNodeId, 'node', canvas, caseColor, false, srcStep);
+
                     syncTransitionCasesToStep();
                     recheckFlaggedSteps();
                     updatePreview();
                 }
-            } else if (Math.hypot(canvasEndX - transitionStartX, canvasEndY - transitionStartY) >= MIN_DRAG_DISTANCE) {
-                // Dropped on empty space - create a new node
+            } else if (dragDistance >= MIN_DRAG_DISTANCE) {
+                // Dropped on empty space — create a new node at drop position
                 if (transition) {
                     const newNodeId = generateNodeId();
-                    
-                    // Snap to 15px grid in canvas space
-                    const snappedX = Math.round((canvasEndX / zoomLevel) / 15) * 15;
-                    const snappedY = Math.round((canvasEndY / zoomLevel) / 15) * 15;
-                    
-                    // Convert to grid units (30px per unit)
-                    const gridUnitX = snappedX / 30;
-                    const gridUnitY = snappedY / 30;
-                    
-                    // Create node data
+
+                    const snappedX = Math.round((endPos.x - HG) / HG) * HG;
+                    const snappedY = Math.round((endPos.y - HG) / HG) * HG;
+                    const { gx: gridUnitX, gy: gridUnitY } = pixelToGrid(snappedX, snappedY);
+
                     const newNodeData = {
                         id: newNodeId,
                         position: `${gridUnitX},${gridUnitY}`,
@@ -1768,56 +1534,41 @@ function setupCanvasDragDrop() {
                         targetNodes: []
                     };
                     currentNodes.push(newNodeData);
-                    
-                    // Verify we're adding to the correct transition by checking savedTransitionId
-                    const trans1 = currentTransitions.find(t => t.id === '1');
-                    const trans2 = currentTransitions.find(t => t.id === '2');
-                    if (savedTransitionId !== transition.id) {
-                        console.error('ERROR: Transition ID mismatch! savedTransitionId:', savedTransitionId, 'transition.id:', transition.id);
-                    }
-                    
-                    // Add connection from transition to new node - ONLY to the specific transition being dragged from
+
                     if (!transition.targetNodes) transition.targetNodes = [];
                     if (!transition.targetNodes.includes(newNodeId)) {
                         transition.targetNodes.push(newNodeId);
                     }
-                    syncTransitionCasesToStep();
                     updateSaveButtonState();
                     updatePreview();
-                    
-                    // Render the new node
+
                     renderNode(newNodeData);
-                    
-                    // Create case line to new node
+
                     const newLine = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
                     newLine.setAttribute('data-transition-connection-line', 'true');
                     newLine.setAttribute('data-from-transition', savedTransitionId);
                     newLine.setAttribute('data-to-node', newNodeId);
                     newLine.style.cssText = `position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 5;`;
                     canvas.appendChild(newLine);
-                    
-                    // Add mousedown listener
+
                     newLine.addEventListener('mousedown', (e) => {
-                        if (e.target.closest('[data-case-arrow-hitbox]')) {
-                            e.stopPropagation();
-                        }
+                        if (e.target.closest('[data-case-arrow-hitbox]')) e.stopPropagation();
                     });
-                    
-                    // Render the case line to the new node
-                    const frame = currentTransitionFrames.find(f => f.conditions.includes(savedTransitionId));
-                    const caseColor = transition ? getTransitionTheme(transition.type).color : getTransitionTheme('Success').color;
-                    drawConnectionLine(newLine, savedTransitionId, 'case', newNodeId, 'node', canvas, caseColor, false, frame);
-                    
+
+                    const srcStep = currentSteps.find(s => s.id === transition.parentStepId);
+                    const caseColor = getTransitionTheme(transition.type).color;
+                    drawConnectionLine(newLine, savedTransitionId, 'case', newNodeId, 'node', canvas, caseColor, false, srcStep);
+
                     updatePreview();
                 }
             }
         };
-        
+
         document.addEventListener('mousemove', handleTransitionMouseMove);
         document.addEventListener('mouseup', handleTransitionMouseUp);
     });
-    
-    // Click on empty canvas to deselect steps and transitions
+
+    // ── Canvas click (deselect) ───────────────────────────────────────────────
     canvas.addEventListener('click', (e) => {
         if (e.target === canvas) {
             clearSelection();
@@ -1835,7 +1586,7 @@ function setupCanvasDragDrop() {
         }
     });
 
-    // ── CONTEXT MENU ─────────────────────────────────────────────────────────
+    // ── Context menu ──────────────────────────────────────────────────────────
     const ctxMenu = document.createElement('div');
     ctxMenu.id = 'canvasContextMenu';
     ctxMenu.style.cssText = `
@@ -1878,7 +1629,6 @@ function setupCanvasDragDrop() {
         ctxMenu.style.left = x + 'px';
         ctxMenu.style.top = y + 'px';
         ctxMenu.style.display = 'block';
-        // Nudge back into viewport if needed
         const rect = ctxMenu.getBoundingClientRect();
         if (rect.right > window.innerWidth) ctxMenu.style.left = (x - rect.width) + 'px';
         if (rect.bottom > window.innerHeight) ctxMenu.style.top = (y - rect.height) + 'px';
@@ -1891,11 +1641,8 @@ function setupCanvasDragDrop() {
         e.preventDefault();
         e.stopPropagation();
 
-        const canvasRect = canvas.getBoundingClientRect();
-        const canvasX = (e.clientX - canvasRect.left) / zoomLevel;
-        const canvasY = (e.clientY - canvasRect.top) / zoomLevel;
-        const gridX = Math.round(canvasX / 30);
-        const gridY = Math.round(canvasY / 30);
+        // Convert to canvas CSS pixels for placing elements
+        const pos = clientToCanvas(e.clientX, e.clientY, canvas);
 
         const stepEl = e.target.closest('[data-step-uuid]');
         const nodeEl = e.target.closest('[data-node-id]');
@@ -1926,36 +1673,155 @@ function setupCanvasDragDrop() {
             if (!selectedElements.has('frame:' + frameId)) { clearSelection(); addToSelection(frameId, 'frame', frameEl); }
             items.push(ctxItem('Copy', () => copySelection()));
         } else {
-            items.push(ctxItem('Add Node', () => placeNode(canvasX, canvasY)));
-            items.push(ctxItem('Paste', () => pasteClipboard(canvasX, canvasY)));
+            items.push(ctxItem('Add Node', () => placeNode(pos.x, pos.y)));
+            items.push(ctxItem('Paste', () => pasteClipboard(pos.x, pos.y)));
         }
 
         showCtxMenu(e.clientX, e.clientY, items);
     });
 }
 
-        // ============================================================================
-        // CANVAS UI CONTROLS - Zoom, Panel Toggle
-        // ============================================================================
+/**
+ * Initialize canvas DOM properties from configuration constants.
+ * Called once on page load from initWorkflowEditor().
+ * Ensures all grid-derived sizes come from GU/CANVAS_SIZE, not hardcoded HTML.
+ */
+function initCanvas() {
+    const container = document.getElementById('canvasContainer');
+    if (!container) return;
+
+    // Create the canvas element programmatically
+    const canvas = document.createElement('div');
+    canvas.id = 'workflowCanvas';
+    canvas.style.cssText = `
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: ${CANVAS_SIZE}px;
+        height: ${CANVAS_SIZE}px;
+        transform-origin: 0 0;
+        background: transparent;
+        background-image: linear-gradient(rgba(128, 128, 128, 0.15) 1px, transparent 1px),
+                          linear-gradient(90deg, rgba(128, 128, 128, 0.15) 1px, transparent 1px);
+        background-size: ${GU}px ${GU}px;
+    `;
+
+    // Placeholder text shown before any steps are added
+    const placeholder = document.createElement('div');
+    placeholder.style.cssText = `
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        color: var(--text-muted);
+        text-align: center;
+        font-size: 0.9rem;
+        white-space: nowrap;
+        user-select: none;
+        pointer-events: none;
+    `;
+    placeholder.textContent = 'Drag step types here to create steps';
+    canvas.appendChild(placeholder);
+
+    container.appendChild(canvas);
+
+    // Tools panel — positioned absolute over canvas, top-right
+    const toolsPanel = document.createElement('div');
+    toolsPanel.id = 'toolsPanel';
+    toolsPanel.style.cssText = `
+        position: absolute;
+        top: 6px;
+        right: 6px;
+        width: 90px;
+        background: var(--bg-panel2);
+        border: 1px solid var(--border-primary);
+        border-radius: 4px;
+        padding: 0;
+        display: flex;
+        flex-direction: column;
+        z-index: 15;
+    `;
+
+    const toolsHeader = document.createElement('div');
+    toolsHeader.setAttribute('onclick', 'toggleToolsPanel()');
+    toolsHeader.style.cssText = `
+        height: 15px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        background: var(--bg-panel1);
+        border-bottom: 1px solid var(--border-primary);
+        padding: 0 4px;
+        box-sizing: border-box;
+        cursor: pointer;
+    `;
+    toolsHeader.innerHTML = `
+        <span style="font-size: 0.65rem; font-weight: 600; color: var(--text-primary); flex: 1;">TOOLS</span>
+        <button id="toolsCollapseBtn" style="background: transparent; border: none; color: var(--text-primary); cursor: pointer; font-size: 10px; padding: 0; width: 12px; height: 12px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; pointer-events: none;">▼</button>
+    `;
+    toolsPanel.appendChild(toolsHeader);
+
+    const toolsButtonsContainer = document.createElement('div');
+    toolsButtonsContainer.id = 'toolsButtonsContainer';
+    toolsButtonsContainer.style.cssText = `display: none; padding: 0;`;
+    toolsButtonsContainer.innerHTML = `
+        <button id="toolShape" style="flex: 1; background: transparent; border: 1px solid var(--border-primary); border-right: 1px solid var(--border-primary); padding: 0; cursor: pointer; display: flex; align-items: center; justify-content: center; color: var(--text-primary); font-size: 18px; transition: background 0.2s;" title="Draw Shape">
+            <svg width="20" height="20" viewBox="0 0 24 24" style="stroke: currentColor; fill: none;"><use xlink:href="/img/icons.svg#i-shape"></use></svg>
+        </button>
+        <button id="toolNode" style="flex: 1; background: transparent; border: 1px solid var(--border-primary); border-right: 1px solid var(--border-primary); padding: 0; cursor: pointer; display: flex; align-items: center; justify-content: center; color: var(--text-primary); font-size: 18px; transition: background 0.2s;" title="Click and drag to place node">
+            <svg width="20" height="20" viewBox="0 0 24 24" style="stroke: currentColor; fill: none;"><use xlink:href="/img/icons.svg#i-node"></use></svg>
+        </button>
+        <button id="toolNote" style="flex: 1; background: transparent; border: 1px solid var(--border-primary); padding: 0; cursor: pointer; display: flex; align-items: center; justify-content: center; color: var(--text-primary); font-size: 18px; transition: background 0.2s;" title="Add Note">
+            <svg width="20" height="20" viewBox="0 0 24 24" style="stroke: currentColor; fill: none;"><use xlink:href="/img/icons.svg#i-note"></use></svg>
+        </button>
+    `;
+    toolsPanel.appendChild(toolsButtonsContainer);
+    container.appendChild(toolsPanel);
+
+    // Zoom control — positioned absolute over canvas, bottom-right
+    const zoomControl = document.createElement('div');
+    zoomControl.style.cssText = `
+        position: absolute;
+        bottom: 6px;
+        right: 6px;
+        background: var(--bg-panel1);
+        border: 1px solid var(--border-primary);
+        border-radius: 4px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        user-select: none;
+        z-index: 100;
+    `;
+    zoomControl.innerHTML = `
+        <button onclick="zoomOut()" style="background: transparent; border: none; color: var(--text-primary); cursor: pointer; font-size: 1.2rem; display: flex; align-items: center; justify-content: center; width: 24px; height: 24px;">-</button>
+        <span id="zoomDisplay" style="color: var(--text-primary); background: var(--bg-input); border: 1px solid var(--border-primary); border-radius: 6px; font-size: 0.9rem; width: 41px; text-align: center;">100%</span>
+        <button onclick="zoomIn()" style="background: transparent; border: none; color: var(--text-primary); cursor: pointer; font-size: 1.2rem; display: flex; align-items: center; justify-content: center; width: 24px; height: 24px;">+</button>
+        <button onclick="resetZoom()" style="background: transparent; border: none; color: var(--text-primary); cursor: pointer; font-size: 1rem; display: flex; align-items: center; justify-content: center; width: 24px; height: 24px;">&#8635;</button>
+    `;
+    container.appendChild(zoomControl);
+}
+
+// ============================================================================
+// CANVAS UI CONTROLS - Zoom, Panel Toggle
+// ============================================================================
 
 function toggleToolsPanel() {
-  const container = document.getElementById('toolsButtonsContainer');
-  const btn = document.getElementById('toolsCollapseBtn');
-  const panel = document.getElementById('toolsPanel');
-  
-  toolsPanelCollapsed = !toolsPanelCollapsed;
-  
-  if (toolsPanelCollapsed) {
-    // Collapse
-    container.style.display = 'none';
-    btn.textContent = '▼';
-    panel.style.width = '90px';
-  } else {
-    // Expand
-    container.style.display = 'flex';
-    btn.textContent = '▲';
-    panel.style.width = '90px';
-  }
+    const container = document.getElementById('toolsButtonsContainer');
+    const btn = document.getElementById('toolsCollapseBtn');
+    const panel = document.getElementById('toolsPanel');
+
+    toolsPanelCollapsed = !toolsPanelCollapsed;
+
+    if (toolsPanelCollapsed) {
+        container.style.display = 'none';
+        btn.textContent = '▼';
+        panel.style.width = '90px';
+    } else {
+        container.style.display = 'flex';
+        btn.textContent = '▲';
+        panel.style.width = '90px';
+    }
 }
 
 function updateZoomDisplay() {
@@ -1971,9 +1837,8 @@ function toggleStepTypesPanel() {
     const button = document.getElementById('stepTypesToggle');
     const title = document.getElementById('stepTypesTitle');
     const header = document.getElementById('stepTypeHeader');
-    
+
     if (panel.style.width === '20px') {
-        // Expand
         panel.style.width = '150px';
         list.style.display = 'flex';
         button.textContent = '◀';
@@ -1982,7 +1847,6 @@ function toggleStepTypesPanel() {
         title.style.transform = 'none';
         header.style.flexDirection = 'row';
     } else {
-        // Collapse
         panel.style.width = '20px';
         list.style.display = 'none';
         button.textContent = '▶';
@@ -1997,28 +1861,22 @@ function zoomIn() {
     const canvas = document.getElementById('workflowCanvas');
     const container = document.getElementById('canvasContainer');
     if (!canvas || !container) return;
-    
+
+    // getBoundingClientRect used only for container dimensions (viewport sizing)
     const rect = container.getBoundingClientRect();
     const centerX = rect.width / 2;
     const centerY = rect.height / 2;
-    
+
     const newZoom = Math.min(2, zoomLevel + 0.05);
-    
-    // Adjust pan to zoom toward center
     panX = centerX / newZoom + (panX * zoomLevel / newZoom) - centerX / newZoom;
     panY = centerY / newZoom + (panY * zoomLevel / newZoom) - centerY / newZoom;
-    
     zoomLevel = newZoom;
-    
-    // Clamp pan
-    const containerWidth = rect.width;
-    const containerHeight = rect.height;
-    const GRID_SIZE_PX = 5000;
-    const maxPanX = GRID_SIZE_PX - (containerWidth / zoomLevel);
-    const maxPanY = GRID_SIZE_PX - (containerHeight / zoomLevel);
+
+    const maxPanX = CANVAS_SIZE - (rect.width / zoomLevel);
+    const maxPanY = CANVAS_SIZE - (rect.height / zoomLevel);
     panX = Math.min(panX, maxPanX);
     panY = Math.min(panY, maxPanY);
-    
+
     canvas.style.transform = `scale(${zoomLevel}) translate(${-panX}px, ${-panY}px)`;
     updateZoomDisplay();
     updatePreview();
@@ -2028,28 +1886,21 @@ function zoomOut() {
     const canvas = document.getElementById('workflowCanvas');
     const container = document.getElementById('canvasContainer');
     if (!canvas || !container) return;
-    
+
     const rect = container.getBoundingClientRect();
     const centerX = rect.width / 2;
     const centerY = rect.height / 2;
-    
+
     const newZoom = Math.max(0.55, zoomLevel - 0.05);
-    
-    // Adjust pan to zoom toward center
     panX = centerX / newZoom + (panX * zoomLevel / newZoom) - centerX / newZoom;
     panY = centerY / newZoom + (panY * zoomLevel / newZoom) - centerY / newZoom;
-    
     zoomLevel = newZoom;
-    
-    // Clamp pan
-    const containerWidth = rect.width;
-    const containerHeight = rect.height;
-    const GRID_SIZE_PX = 5000;
-    const maxPanX = GRID_SIZE_PX - (containerWidth / zoomLevel);
-    const maxPanY = GRID_SIZE_PX - (containerHeight / zoomLevel);
+
+    const maxPanX = CANVAS_SIZE - (rect.width / zoomLevel);
+    const maxPanY = CANVAS_SIZE - (rect.height / zoomLevel);
     panX = Math.min(panX, maxPanX);
     panY = Math.min(panY, maxPanY);
-    
+
     canvas.style.transform = `scale(${zoomLevel}) translate(${-panX}px, ${-panY}px)`;
     updateZoomDisplay();
     updatePreview();
@@ -2058,15 +1909,16 @@ function zoomOut() {
 function resetZoom() {
     const canvas = document.getElementById('workflowCanvas');
     if (!canvas) return;
-    
+
     zoomLevel = 1;
     panX = 0;
     panY = 0;
-    
+
     canvas.style.transform = `scale(1) translate(0px, 0px)`;
     updateZoomDisplay();
     updatePreview();
 }
+
 function deleteSelection() {
     const toDelete = [...selectedElements].filter(key => {
         const [type] = key.split(':');
@@ -2093,13 +1945,11 @@ function copySelection() {
         if (type === 'step') {
             const step = currentSteps.find(s => s.id === id);
             if (step) {
-                const frame = currentTransitionFrames.find(f => f.parentStepId === id);
-                const transitions = frame
-                    ? frame.conditions.map(cid => currentTransitions.find(t => t.id === cid)).filter(Boolean)
-                    : [];
+                const transitions = (step.transition && step.transition.cases || [])
+                    .map(c => currentTransitions.find(t => t.id === c._conditionId))
+                    .filter(Boolean);
                 steps.push({
                     step: JSON.parse(JSON.stringify(step)),
-                    frame: frame ? JSON.parse(JSON.stringify(frame)) : null,
                     transitions: JSON.parse(JSON.stringify(transitions))
                 });
             }
@@ -2145,7 +1995,6 @@ function pasteClipboard(canvasX, canvasY) {
 }
 
 function executePaste(steps, nodes, canvasX, canvasY) {
-    // Find anchor: lowest Y, then lowest X
     const allPositions = [
         ...steps.map(s => s.step.position),
         ...nodes.map(n => n.position)
@@ -2155,65 +2004,57 @@ function executePaste(steps, nodes, canvasX, canvasY) {
         (b.y < a.y || (b.y === a.y && b.x < a.x)) ? b : a
     );
 
-    const pasteGridX = canvasX / 30;
-    const pasteGridY = canvasY / 30;
+    // canvasX/Y are in CSS pixels; convert to grid for offset math
+    const { gx: pasteGridX, gy: pasteGridY } = pixelToGrid(canvasX, canvasY);
     const dx = pasteGridX - anchor.x;
     const dy = pasteGridY - anchor.y;
 
-    // Build ID remap: old -> new for steps and nodes
     const idMap = {};
     steps.forEach(({ step }) => { idMap[step.id] = generateId(); });
     nodes.forEach(node => { idMap[node.id] = generateNodeId(); });
 
-    const pastedFrameIds = [];
-    steps.forEach(({ step, frame, transitions }) => {
+    const newSteps = [];
+    steps.forEach(({ step, transitions }) => {
         const newStep = JSON.parse(JSON.stringify(step));
         newStep.id = idMap[step.id];
 
         const [sx, sy] = step.position.split(',').map(Number);
         newStep.position = `${Math.round(sx + dx)},${Math.round(sy + dy)}`;
 
-        // Remap transition.cases targets within copied group
         if (newStep.transition && newStep.transition.cases) {
-            newStep.transition.cases.forEach(c => {
+            const condIdMap = {};
+            (transitions || []).forEach(t => {
+                transitionCounter = (transitionCounter || 0) + 1;
+                condIdMap[t.id] = String(transitionCounter);
+            });
+
+            newStep.transition.cases.forEach((c, i) => {
+                const oldCondId = c._conditionId;
+                const newCondId = condIdMap[oldCondId] || (() => {
+                    transitionCounter = (transitionCounter || 0) + 1;
+                    return String(transitionCounter);
+                })();
+                c._conditionId = newCondId;
                 if (c.targetSteps) c.targetSteps = c.targetSteps.filter(id => idMap[id]).map(id => idMap[id]);
                 if (c.targetNodes) c.targetNodes = c.targetNodes.filter(id => idMap[id]).map(id => idMap[id]);
-            });
-            const [tx, ty] = (newStep.transition.position || step.position).split(',').map(Number);
-            newStep.transition.position = `${Math.round(tx + dx)},${Math.round(ty + dy)}`;
-        }
 
-        currentSteps.push(newStep);
-
-        if (frame) {
-            const newFrame = JSON.parse(JSON.stringify(frame));
-            newFrame.id = generateId('frame');
-            newFrame.parentStepId = newStep.id;
-            newFrame.attachedToStepId = newStep.id;
-            const [fx, fy] = frame.position.split(',').map(Number);
-            newFrame.position = `${Math.round(fx + dx)},${Math.round(fy + dy)}`;
-
-            // Remap condition IDs and push transition entries
-            const condIdMap = {};
-            newFrame.conditions = frame.conditions.map(cid => {
-                const newCid = generateId();
-                condIdMap[cid] = newCid;
-                return newCid;
-            });
-
-            // Push remapped transition entries
-            transitions.forEach(t => {
-                const newT = JSON.parse(JSON.stringify(t));
-                newT.id = condIdMap[t.id] || generateId();
+                const origT = (transitions || []).find(t => t.id === oldCondId);
+                const newT = origT ? JSON.parse(JSON.stringify(origT)) : { type: 'Success', conditions: '', order: i + 1 };
+                newT.id = newCondId;
+                newT.parentStepId = newStep.id;
                 if (newT.targetSteps) newT.targetSteps = newT.targetSteps.filter(id => idMap[id]).map(id => idMap[id]);
                 if (newT.targetNodes) newT.targetNodes = newT.targetNodes.filter(id => idMap[id]).map(id => idMap[id]);
                 currentTransitions.push(newT);
             });
 
-            currentTransitionFrames.push(newFrame);
-            pastedFrameIds.push({ id: newFrame.id, vertical: newFrame.verticalLayout });
+            if (newStep.transition.position) {
+                const [tx, ty] = newStep.transition.position.split(',').map(Number);
+                newStep.transition.position = `${Math.round(tx + dx)},${Math.round(ty + dy)}`;
+            }
         }
 
+        currentSteps.push(newStep);
+        newSteps.push(newStep);
         renderStep(newStep);
     });
 
@@ -2228,48 +2069,45 @@ function executePaste(steps, nodes, canvasX, canvasY) {
         renderNode(newNode);
     });
 
-    // Render all frames after all steps and nodes are in the DOM
-    // so drawConnectionLine can find their target elements
-    pastedFrameIds.forEach(({ id, vertical }) => renderTransitionFrame(id, vertical));
-
     updateSaveButtonState();
     updatePreview();
 
-    // Defer connection line rendering until DOM is ready
-    const pastedFrames = pastedFrameIds.map(({ id }) => currentTransitionFrames.find(f => f.id === id)).filter(Boolean);
     setTimeout(() => {
         requestAnimationFrame(() => {
             const canvas = document.getElementById('workflowCanvas');
-            pastedFrames.forEach(frame => {
-                frame.conditions.forEach(conditionId => {
+            newSteps.forEach(newStep => {
+                if (!newStep.transition || !newStep.transition.cases) return;
+                newStep.transition.cases.forEach(caseData => {
+                    const conditionId = caseData._conditionId;
+                    if (!conditionId) return;
                     const transition = currentTransitions.find(t => t.id === conditionId);
-                    if (transition) {
-                        if (transition.targetSteps) {
-                            transition.targetSteps.forEach(targetStepId => {
-                                const lineUUID = generateId();
-                                const caseLine = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-                                caseLine.setAttribute('data-transition-connection-line', lineUUID);
-                                caseLine.setAttribute('data-from-transition', conditionId);
-                                caseLine.setAttribute('data-to-step', targetStepId);
-                                caseLine.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:5;';
-                                canvas.appendChild(caseLine);
-                                const caseColor = getTransitionTheme(transition.type).color;
-                                drawConnectionLine(caseLine, conditionId, 'case', targetStepId, 'step', canvas, caseColor, false, frame);
-                            });
-                        }
-                        if (transition.targetNodes) {
-                            transition.targetNodes.forEach(targetNodeId => {
-                                const lineUUID = generateId();
-                                const caseLine = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-                                caseLine.setAttribute('data-transition-connection-line', lineUUID);
-                                caseLine.setAttribute('data-from-transition', conditionId);
-                                caseLine.setAttribute('data-to-node', targetNodeId);
-                                caseLine.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:5;';
-                                canvas.appendChild(caseLine);
-                                const caseColor = getTransitionTheme(transition.type).color;
-                                drawConnectionLine(caseLine, conditionId, 'case', targetNodeId, 'node', canvas, caseColor, false, frame);
-                            });
-                        }
+                    if (!transition) return;
+
+                    if (transition.targetSteps) {
+                        transition.targetSteps.forEach(targetStepId => {
+                            const lineUUID = generateId();
+                            const caseLine = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+                            caseLine.setAttribute('data-transition-connection-line', lineUUID);
+                            caseLine.setAttribute('data-from-transition', conditionId);
+                            caseLine.setAttribute('data-to-step', targetStepId);
+                            caseLine.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:5;';
+                            canvas.appendChild(caseLine);
+                            const caseColor = getTransitionTheme(transition.type).color;
+                            drawConnectionLine(caseLine, conditionId, 'case', targetStepId, 'step', canvas, caseColor, false, newStep);
+                        });
+                    }
+                    if (transition.targetNodes) {
+                        transition.targetNodes.forEach(targetNodeId => {
+                            const lineUUID = generateId();
+                            const caseLine = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+                            caseLine.setAttribute('data-transition-connection-line', lineUUID);
+                            caseLine.setAttribute('data-from-transition', conditionId);
+                            caseLine.setAttribute('data-to-node', targetNodeId);
+                            caseLine.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:5;';
+                            canvas.appendChild(caseLine);
+                            const caseColor = getTransitionTheme(transition.type).color;
+                            drawConnectionLine(caseLine, conditionId, 'case', targetNodeId, 'node', canvas, caseColor, false, newStep);
+                        });
                     }
                 });
             });
@@ -2277,14 +2115,8 @@ function executePaste(steps, nodes, canvasX, canvasY) {
     }, 300);
 }
 
-/**
- * Update the data model position for an element during multi-select drag.
- * Steps handle their own position in wf-render.js mousemove.
- * This handles nodes and frames.
- */
 function updateElementPosition(id, type, px, py) {
-    const gridX = px / 30;
-    const gridY = py / 30;
+    const { gx: gridX, gy: gridY } = pixelToGrid(px, py);
     if (type === 'node') {
         const node = currentNodes.find(n => n.id === id);
         if (node) node.position = `${gridX},${gridY}`;
@@ -2292,7 +2124,6 @@ function updateElementPosition(id, type, px, py) {
         const frame = currentTransitionFrames.find(f => f.id === id);
         if (frame) {
             frame.position = `${gridX},${gridY}`;
-            // Sync to owning step's transition position if detached
             const owningStep = currentSteps.find(s => s.transition && currentTransitionFrames.find(f2 => f2.id === id && f2.parentStepId === s.id));
             if (owningStep && owningStep.transition) {
                 owningStep.transition.position = `${gridX},${gridY}`;
@@ -2300,7 +2131,22 @@ function updateElementPosition(id, type, px, py) {
         }
     }
 }
+
+// ============================================================================
+// WINDOW EXPORTS
+// ============================================================================
+window.CANVAS_SIZE = CANVAS_SIZE;
+window.GU = GU;
+window.HG = HG;
+window.BORDER = BORDER;
+window.I_CONT_H = I_CONT_H;
+window.initCanvas = initCanvas;
+window.clientToCanvas = clientToCanvas;
+window.gridToPixel = gridToPixel;
+window.pixelToGrid = pixelToGrid;
+window.conditionBoxCenterX = conditionBoxCenterX;
 window.createCurvedPath = createCurvedPath;
+window.createOrthogonalPath = createOrthogonalPath;
 window.createStepOnCanvas = createStepOnCanvas;
 window.detectDropTarget = detectDropTarget;
 window.drawConnectionLine = drawConnectionLine;

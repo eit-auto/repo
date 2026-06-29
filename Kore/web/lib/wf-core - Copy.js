@@ -1,4 +1,3 @@
-import '/lib/wf-canvas.js';
 import '/lib/wf-exec.js';
 import '/lib/wf-render.js';
 import '/lib/wf-canvas.js';
@@ -322,13 +321,14 @@ function initializeNodeTool() {
       // If we were dragging and mouse is over canvas, place node
       if (isDraggingFromButton) {
         const canvasRect = canvas.getBoundingClientRect();
-        const isOverCanvas =
+        const isOverCanvas = 
           endEvent.clientX >= canvasRect.left && endEvent.clientX <= canvasRect.right &&
           endEvent.clientY >= canvasRect.top && endEvent.clientY <= canvasRect.bottom;
-
+        
         if (isOverCanvas) {
-          const pos = clientToCanvas(endEvent.clientX, endEvent.clientY, canvas);
-          placeNode(pos.x, pos.y);
+          const x = (endEvent.clientX - canvasRect.left) / zoomLevel + panX;
+          const y = (endEvent.clientY - canvasRect.top) / zoomLevel + panY;
+          placeNode(x, y);
           cancelNodePlacement();
         }
       }
@@ -384,8 +384,11 @@ document.body.appendChild(nodePreview);
   // Handle canvas clicks to place node
   const handleCanvasClick = (e) => {
     if (isNodePlacementActive && nodePreview && e.target === canvas) {
-      const pos = clientToCanvas(e.clientX, e.clientY, canvas);
-      placeNode(pos.x, pos.y);
+      // Place the node
+      const canvasRect = canvas.getBoundingClientRect();
+      const x = (e.clientX - canvasRect.left) / zoomLevel + panX;
+      const y = (e.clientY - canvasRect.top) / zoomLevel + panY;
+      placeNode(x, y);
       cancelNodePlacement();
     }
   };
@@ -719,8 +722,25 @@ function showJSONModal() {
     rebuildInputVariablesFromForm();
     rebuildOutputVariablesFromForm();
     
-    // Sort cases and strip runtime fields for display
-    const stepsForExport = normalizeStepsForComparison(currentSteps);
+    // Sort cases by order within each transition
+    const stepsForExport = currentSteps.map(step => {
+        const exported = {
+            ...step,
+            transition: step.transition ? {
+                ...step.transition,
+                cases: Array.isArray(step.transition.cases) ? [...step.transition.cases].sort((a, b) => (a.order || 1) - (b.order || 1)) : []
+            } : undefined
+        };
+        // Strip taskInputs from non-Plugin steps
+        if (exported.type !== 'Plugin') delete exported.taskInputs;
+        // Strip workflowInputs/loopMode/loopConfig from non-Workflow steps
+        if (exported.type !== 'Workflow') {
+            delete exported.workflowInputs;
+            delete exported.loopMode;
+            delete exported.loopConfig;
+        }
+        return exported;
+    });
     
     const workflowData = {
         id: currentWorkflowId,
@@ -728,7 +748,7 @@ function showJSONModal() {
         version: currentVersion,
         view: {
             zoom: zoomLevel,
-            pan: `${(panX / GU).toFixed(2)},${(panY / GU).toFixed(2)}`
+            pan: `${(panX / 30).toFixed(2)},${(panY / 30).toFixed(2)}`
         },
         metadata: currentMetadata,
         description: currentDefinition.description || '',
@@ -744,77 +764,86 @@ function showJSONModal() {
 }
 
 
-/**
- * Add a new case to a step's transition strip.
- * Replaces the old addConditionToFrame which operated on frame objects.
- * @param {string} stepId - The step's UUID
- */
-function addCaseToStep(stepId) {
-    const step = currentSteps.find(s => s.id === stepId);
-    if (!step) return;
-
-    if (!step.transition) {
-        step.transition = { mode: 'First', cases: [] };
-    }
-    if (!step.transition.cases) {
-        step.transition.cases = [];
-    }
-
-    transitionCounter = (transitionCounter || 0) + 1;
-    const newConditionId = String(transitionCounter);
-    const order = step.transition.cases.length + 1;
-
-    const newConditionData = {
-        id: newConditionId,
-        name: '',
-        type: 'Success',
-        conditions: '',
-        targetSteps: [],
-        targetNodes: [],
-        order: order,
-        parentStepId: stepId
-    };
-
-    currentTransitions.push(newConditionData);
-
-    step.transition.cases.push({
-        type: 'Success',
-        conditions: '',
-        targetSteps: [],
-        targetNodes: [],
-        order: order,
-        _conditionId: newConditionId
-    });
-
-    // Re-render the case strip inside the step element
-    const canvas = document.getElementById('workflowCanvas');
-    const stepElement = canvas ? canvas.querySelector(`[data-step-uuid="${stepId}"]`) : null;
-    if (stepElement) {
-        // Expand step width if cases + add button slot overflow content area.
-        // Step layout: 2px border + 24px icon + 2px margin + Npx content + 2px border = width
-        // Content width = step width - 30px (borders + icon + margin)
-        // Each case: 30px. Add button slot: 30px (14px margin + 16px button).
-        const caseCount = step.transition.cases.length;
-        const requiredContentWidth = caseCount * GU + GU;
-        const currentWidth = parseInt(stepElement.style.width) || 120;
-        const currentContentWidth = currentWidth - GU;
-
-        if (requiredContentWidth > currentContentWidth) {
-            const newWidth = currentWidth + GU;
-            stepElement.style.width = newWidth + 'px';
-            step.width = newWidth / GU;
-        }
-
-        renderCaseStrip(stepElement, step, canvas);
-    }
-
-    updatePreview();
-}
-
-// Preserved for compatibility — was the old frame-based add condition.
-// Now a no-op since frames are replaced by the inline case strip.
 function addConditionToFrame(frameUUID, conditionsContainer) {
-    return () => {};
+    return (e) => {
+        e.stopPropagation();
+        
+        // Don't add if we just dragged the frame
+        const frameElement = document.querySelector(`[data-transition-frame="${frameUUID}"]`);
+        if (frameElement && frameElement._isFrameDragging) {
+            frameElement._isFrameDragging = false;
+            return;
+        }
+        
+        const frame = currentTransitionFrames.find(f => f.id === frameUUID);
+        if (!frame) return;
+        
+        // Create new condition
+        transitionCounter++;
+        const newConditionId = String(transitionCounter);
+        // Calculate order based on how many conditions are already in this frame
+        const order = frame.conditions.length + 1;
+        const newConditionData = {
+            id: newConditionId,
+            name: '',
+            type: 'Success',
+            conditions: '',
+            targetSteps: [],
+            targetNodes: [],
+            order: order
+        };
+        
+        // Add to frame and global list
+        frame.conditions.push(newConditionId);
+        currentTransitions.push(newConditionData);
+        
+        // Add the case to the step that owns this transition frame
+        if (frame.attachedToStepId) {
+            const ownerStep = currentSteps.find(s => s.id === frame.attachedToStepId);
+            if (ownerStep && ownerStep.transition) {
+                if (!ownerStep.transition.cases) {
+                    ownerStep.transition.cases = [];
+                }
+                // Add the new case ONLY to the step that owns this frame
+                ownerStep.transition.cases.push({
+                    type: newConditionData.type,
+                    conditions: newConditionData.conditions,
+                    targetSteps: newConditionData.targetSteps,
+                    targetNodes: newConditionData.targetNodes || [],
+                    order: newConditionData.order
+                });
+            }
+        }
+        
+        // Re-render the frame to include the new condition
+        const vertical = currentSteps.some(step => 
+            step.transition && step.transition.vertical
+        );
+        renderTransitionFrame(frameUUID, vertical);
+        
+        // If frame is attached to a step, check if step needs to expand
+        const attachedStep = currentSteps.find(s => s.id === frame.attachedToStepId);
+        if (attachedStep) {
+            setTimeout(() => {
+                const canvas = document.getElementById('workflowCanvas');
+                const stepElement = canvas.querySelector(`[data-step-uuid="${attachedStep.id}"]`);
+                const frameElement = canvas.querySelector(`[data-transition-frame="${frameUUID}"]`);
+                
+                if (stepElement && frameElement) {
+                    const stepWidth = parseInt(stepElement.style.width);
+                    const frameWidth = parseInt(frameElement.style.width);
+                    
+                    // If frame is now wider than step, expand step
+                    if (frameWidth > stepWidth) {
+                        stepElement.style.width = frameWidth + 'px';
+                        stepElement.style.borderRadius = '4px 4px 0px 0px';
+                    }
+                }
+            }, 0);
+        }
+        
+        updatePreview();
+    };
 }
 
 function applyFrameLayout(frameUUID, verticalLayout) {
@@ -848,19 +877,24 @@ function detachFrameFromStep(frameUUID) {
     
     // Recalculate step width based on text
     const tempDiv = document.createElement('div');
-    tempDiv.style.cssText = `position: absolute; visibility: hidden; font-size: ${Math.round(GU / 3)}px; white-space: nowrap;`;
+    tempDiv.style.cssText = `
+        position: absolute;
+        visibility: hidden;
+        font-size: 0.9rem;
+        white-space: nowrap;
+    `;
     tempDiv.textContent = attachedStep.name || `${attachedStep.type} Step`;
     document.body.appendChild(tempDiv);
     const textWidth = tempDiv.offsetWidth;
     document.body.removeChild(tempDiv);
     
-    let width = STEP_MIN_W;
-    if (textWidth > STEP_MIN_W - GU - BORDER * 2) {
-        const gridSpaces = Math.ceil((textWidth - (STEP_MIN_W - GU - BORDER * 2)) / GU);
-        width = STEP_MIN_W + (gridSpaces * GU);
+    let width = 120;  // Default 4 grid units
+    if (textWidth > 80) {
+        const gridSpaces = Math.ceil((textWidth - 80) / 30);
+        width = 120 + (gridSpaces * 30);
     }
     stepElement.style.width = width + 'px';
-    attachedStep.width = width / GU;
+    attachedStep.width = width / 30;
     attachedStep.overrideSize = false;
     
     // Position frame below step
@@ -1131,28 +1165,28 @@ function applyStepSizeOverride(stepUUID) {
     
     if (step.overrideSize) {
         // Use override values
-        newWidth = Math.max(2, step.width || 3) * GU;  // Convert grid units to pixels
-        newHeight = Math.max(1, step.height || 1) * GU;
+        newWidth = Math.max(2, step.width || 3) * 30;  // Convert grid units to pixels
+        newHeight = Math.max(1, step.height || 1) * 30;
     } else {
         // Auto-calculate width from text, height is 1 grid unit
-        const tempDiv = document.createElement('div');
-        tempDiv.style.cssText = `position: absolute; visibility: hidden; font-size: ${Math.round(GU / 3)}px; white-space: nowrap;`;
-        tempDiv.textContent = step.name || step.type;
-        document.body.appendChild(tempDiv);
-        const textWidth = tempDiv.offsetWidth;
-        document.body.removeChild(tempDiv);
-        let requiredWidth = STEP_MIN_W;
-        if (textWidth > STEP_MIN_W - GU - BORDER * 2) {
-            const gridSpaces = Math.ceil((textWidth - (STEP_MIN_W - GU - BORDER * 2)) / GU);
-            requiredWidth = STEP_MIN_W + (gridSpaces * GU);
+        const textDiv = stepElement.querySelector('div');
+        if (textDiv) {
+            const textWidth = textDiv.offsetWidth;
+            let requiredWidth = 90; // Start with minimum (3 grid units)
+            if (textWidth > 82) {
+                const gridSpaces = Math.ceil((textWidth - 82) / 30);
+                requiredWidth = 90 + (gridSpaces * 30);
+            }
+            newWidth = requiredWidth;
+        } else {
+            newWidth = 90;
         }
-        newWidth = requiredWidth;
-        newHeight = GU; // 1 grid unit
+        newHeight = 30; // 1 grid unit
     }
     
     // Update step data with final width/height values (in grid units for storage)
-    step.width = newWidth / GU;
-    step.height = newHeight / GU;
+    step.width = newWidth / 30;
+    step.height = newHeight / 30;
     
     // Apply sizing to element
     stepElement.style.width = newWidth + 'px';
@@ -1333,29 +1367,147 @@ function showStepProperties(stepUUID) {
                 // Update display text on canvas
                 const stepElement = document.querySelector(`[data-step-uuid="${stepUUID}"]`);
                 if (stepElement) {
-                    // Update only the label div, not the whole content area
-                    const contentArea = stepElement.querySelector('[data-content-area]');
-                    const label = contentArea ? contentArea.firstElementChild : null;
-                    if (label) label.textContent = step.name;
-
-                    // Measure text width with a temporary element at the correct font size
-                    let requiredWidth = STEP_MIN_W;
-                    const tempDiv = document.createElement('div');
-                    tempDiv.style.cssText = `position: absolute; visibility: hidden; font-size: ${Math.round(GU / 3)}px; white-space: nowrap;`;
-                    tempDiv.textContent = step.name;
-                    document.body.appendChild(tempDiv);
-                    const textWidth = tempDiv.offsetWidth;
-                    document.body.removeChild(tempDiv);
-
-                    if (textWidth > STEP_MIN_W - GU - BORDER * 2) {
-                        const gridSpaces = Math.ceil((textWidth - (STEP_MIN_W - GU - BORDER * 2)) / GU);
-                        requiredWidth = STEP_MIN_W + (gridSpaces * GU);
+                    // Get the content area - it's the div with flex: 1 and background color (not transparent)
+                    const contentArea = Array.from(stepElement.children).find(child => 
+                        child.tagName === 'DIV' && 
+                        child.style.background !== 'transparent' && 
+                        child.style.flex === '1 1 0%'
+                    );
+                    let requiredWidth = 120; // Declare outside if block so it's available later
+                    if (contentArea) {
+                        contentArea.textContent = step.name;
+                        
+                        // Measure text width with a temporary element
+                        const tempDiv = document.createElement('div');
+                        tempDiv.style.cssText = `
+                            position: absolute;
+                            visibility: hidden;
+                            font-size: 0.9rem;
+                            white-space: nowrap;
+                        `;
+                        tempDiv.textContent = step.name;
+                        document.body.appendChild(tempDiv);
+                        const textWidth = tempDiv.offsetWidth;
+                        document.body.removeChild(tempDiv);
+                        
+                        // Calculate required width
+                        if (textWidth > 80) {
+                            const gridSpaces = Math.ceil((textWidth - 80) / 30);
+                            requiredWidth = 120 + (gridSpaces * 30);
+                        } else {
+                            requiredWidth = 120; // Minimum size
+                        }
                     }
-
-                    if (requiredWidth !== parseInt(stepElement.style.width)) {
+                    
+                    const currentWidth = stepElement.offsetWidth;
+                    
+                    // Update width if needed (both expanding and shrinking)
+                    if (requiredWidth !== currentWidth) {
                         stepElement.style.width = requiredWidth + 'px';
-                        step.width = requiredWidth / GU;
-                        updateConnectedLines(stepUUID, 'step');
+                        
+                        // Get canvas reference
+                        const canvas = document.getElementById('workflowCanvas');
+                        const stepId = stepElement.getAttribute('data-step-id');
+                        
+                        // Recalculate all connection lines for this step
+                        const stepRect = stepElement.getBoundingClientRect();
+                        const stepCanvasX = stepRect.left - canvas.getBoundingClientRect().left;
+                        const stepCanvasY = stepRect.top - canvas.getBoundingClientRect().top;
+                        
+                        // Update blue lines from this step
+                        const transitionLines = canvas.querySelectorAll(`[data-connection-line][data-from-step="${stepId}"]`);
+                        transitionLines.forEach(line => {
+                            const fromPoint = line.getAttribute('data-from-point');
+                            const toTransitionId = line.getAttribute('data-to-transition');
+                            const toTransition = canvas.querySelector(`[data-transition-uuid="${toTransitionId}"]`);
+                            
+                            if (toTransition) {
+                                const stepWidth = stepElement.offsetWidth;
+                                const stepCenterX = stepCanvasX + (stepWidth / 2);
+                                
+                                let lineStartX = stepCenterX;
+                                let lineStartY = stepCanvasY + 15;
+                                
+                                if (fromPoint === 'top') {
+                                    lineStartX = stepCenterX;
+                                    lineStartY = stepCanvasY;
+                                } else if (fromPoint === 'bottom') {
+                                    lineStartX = stepCenterX;
+                                    lineStartY = stepCanvasY + 30;
+                                } else if (fromPoint === 'left') {
+                                    lineStartX = stepCanvasX;
+                                    lineStartY = stepCanvasY + 15;
+                                } else if (fromPoint === 'right') {
+                                    lineStartX = stepCanvasX + stepWidth;
+                                    lineStartY = stepCanvasY + 15;
+                                }
+                                
+                                const transitionRect = toTransition.getBoundingClientRect();
+                                const transitionActualX = transitionRect.left - canvas.getBoundingClientRect().left;
+                                const transitionActualY = transitionRect.top - canvas.getBoundingClientRect().top;
+                                
+                                const sideCenters = [
+                                    { x: transitionActualX + 30, y: transitionActualY, name: 'top' },
+                                    { x: transitionActualX + 30, y: transitionActualY + 30, name: 'bottom' },
+                                    { x: transitionActualX, y: transitionActualY + 15, name: 'left' },
+                                    { x: transitionActualX + 60, y: transitionActualY + 15, name: 'right' }
+                                ];
+                                
+                                let nearestSide = sideCenters[0];
+                                let minDistance = Infinity;
+                                sideCenters.forEach(side => {
+                                    const distance = Math.hypot(lineStartX - side.x, lineStartY - side.y);
+                                    if (distance < minDistance) {
+                                        minDistance = distance;
+                                        nearestSide = side;
+                                    }
+                                });
+                                
+                                // Offset endpoint 15px away from edge
+                                const offsetEnd = offsetPointFromEdge(nearestSide.x, nearestSide.y, nearestSide.name, 15);
+                                const transitionCurvePath = createCurvedPath(lineStartX, lineStartY, fromPoint, offsetEnd.x, offsetEnd.y, nearestSide.name);
+                                line.innerHTML = `<path d="${transitionCurvePath}" stroke="#3a7a99" stroke-width="2" fill="none"/>`;
+                            }
+                        });
+                        
+                        // Update green lines pointing to this step
+                        const greenLines = canvas.querySelectorAll(`[data-to-step="${stepId}"]`);
+                        greenLines.forEach(line => {
+                            const fromTransitionId = line.getAttribute('data-from-transition');
+                            const fromTransition = canvas.querySelector(`[data-transition-uuid="${fromTransitionId}"]`);
+                            
+                            if (fromTransition) {
+                                const transitionRect = fromTransition.getBoundingClientRect();
+                                const transitionCanvasX = transitionRect.left - canvas.getBoundingClientRect().left;
+                                const transitionCanvasY = transitionRect.top - canvas.getBoundingClientRect().top;
+                                const x1 = transitionCanvasX + 30;
+                                const y1 = transitionCanvasY + 30;
+                                
+                                const stepWidth = stepElement.offsetWidth;
+                                const stepCenterX = stepCanvasX + (stepWidth / 2);
+                                const sideCenters = [
+                                    { x: stepCenterX, y: stepCanvasY, name: 'top' },
+                                    { x: stepCenterX, y: stepCanvasY + 30, name: 'bottom' },
+                                    { x: stepCanvasX, y: stepCanvasY + 15, name: 'left' },
+                                    { x: stepCanvasX + stepWidth, y: stepCanvasY + 15, name: 'right' }
+                                ];
+                                
+                                let nearestSide = sideCenters[0];
+                                let minDistance = Infinity;
+                                sideCenters.forEach(side => {
+                                    const distance = Math.hypot(x1 - side.x, y1 - side.y);
+                                    if (distance < minDistance) {
+                                        minDistance = distance;
+                                        nearestSide = side;
+                                    }
+                                });
+                            
+                                const greenCurvePath = createCurvedPath(x1, y1, 'bottom', nearestSide.x, nearestSide.y, nearestSide.name);
+                                const transitionData = currentTransitions.find(t => t.id === fromTransitionId);
+                                const transitionColors = getTransitionTheme(transitionData ? transitionData.type : 'Success');
+                                line.innerHTML = `<defs><marker id="greenArrowhead" markerWidth="10" markerHeight="10" refX="0" refY="3" orient="auto"><polygon points="0 0, 6 3, 0 6" fill="${transitionColors.color}"/></marker></defs><path d="${greenCurvePath}" stroke="${transitionColors.color}" stroke-width="2" fill="none" marker-end="url(#greenArrowhead)"/>`;
+                            }
+                        });
                     }
                 }
                 updatePreview();
@@ -2333,35 +2485,51 @@ function showNodeProperties(nodeId) {
 }
 
 function rebuildTransitionsFromUI() {
-    // Sync type from DOM condition boxes back to currentTransitions
+    // Update currentTransitions from the condition boxes in the UI
     document.querySelectorAll('[data-condition-id]').forEach(element => {
         const conditionId = element.getAttribute('data-condition-id');
         const transition = currentTransitions.find(t => t.id === conditionId);
+        
         if (transition) {
+            // Get the type from the element's data attribute
             const typeAttr = element.getAttribute('data-transition-type');
-            if (typeAttr) transition.type = typeAttr;
+            if (typeAttr) {
+                transition.type = typeAttr;
+            }
         }
     });
 }
 
 function syncTransitionCasesToStep() {
-    // Cases now live directly on step.transition.cases.
-    // Sync currentTransitions data (type, conditions, targets) back into the case objects.
+    // Rebuild transitions from UI first
     rebuildTransitionsFromUI();
-
+    
+    // Sync all transition frames and their cases back to the step data
     currentSteps.forEach(step => {
-        if (!step.transition || !step.transition.cases) return;
-        step.transition.cases.forEach(caseData => {
-            const conditionId = caseData._conditionId;
-            if (!conditionId) return;
-            const tr = currentTransitions.find(t => t.id === conditionId);
-            if (!tr) return;
-            caseData.type = tr.type;
-            caseData.conditions = tr.conditions;
-            caseData.targetSteps = tr.targetSteps ? [...tr.targetSteps] : [];
-            caseData.targetNodes = tr.targetNodes ? [...tr.targetNodes] : [];
-            caseData.order = tr.order;
-        });
+        if (step.transition) {
+            // Find the frame for this step using parentStepId
+            let frame = currentTransitionFrames.find(f => f.parentStepId === step.id);
+            if (frame) {
+                // Set attached flag based on whether frame has attachedToStepId
+                step.transition.attached = frame.attachedToStepId !== null && frame.attachedToStepId !== undefined;
+                
+                // Sync frame position and layout
+                step.transition.position = frame.position;
+                step.transition.vertical = frame.verticalLayout || false;
+                
+                // Rebuild cases from the current conditions in the frame
+                step.transition.cases = frame.conditions.map(conditionId => {
+                    const caseObj = currentTransitions.find(t => t.id === conditionId);
+                    return caseObj ? {
+                        type: caseObj.type,
+                        conditions: caseObj.conditions,
+                        targetSteps: caseObj.targetSteps ? [...caseObj.targetSteps] : [],
+                        targetNodes: caseObj.targetNodes ? [...caseObj.targetNodes] : [],
+                        order: caseObj.order
+                    } : null;
+                }).filter(Boolean);
+            }
+        }
     });
 }
 
@@ -2369,7 +2537,8 @@ function syncTransitionCasesToStep() {
  * Normalize steps for comparison/export: sorts transition cases and strips
  * type-irrelevant fields. Used by both updatePreview and loadWorkflow so that
  * the baseline and the current state are always structurally identical.
- * Also strips the runtime _conditionId field before comparison/save.
+ * @param {Array} steps - Raw steps array
+ * @returns {Array} Normalized steps array
  */
 function normalizeStepsForComparison(steps) {
     return steps.map(step => {
@@ -2377,10 +2546,8 @@ function normalizeStepsForComparison(steps) {
             ...step,
             transition: step.transition ? {
                 ...step.transition,
-                cases: [...(step.transition.cases || [])].sort((a, b) => (a.order || 1) - (b.order || 1)).map(c => {
-                    const { _conditionId, ...rest } = c;
-                    return rest;
-                })
+                attached: step.transition.attached === true,
+                cases: [...step.transition.cases].sort((a, b) => (a.order || 1) - (b.order || 1))
             } : undefined
         };
         if (exported.type !== 'Plugin') delete exported.taskInputs;
@@ -2405,7 +2572,13 @@ function updatePreview() {
     const previewElement = document.getElementById('preview');
     
     try {
+        // Sort cases by order within each transition
         const stepsForExport = normalizeStepsForComparison(currentSteps);
+        
+        // Log what's being exported for BEGIN step
+        const beginStepExport = stepsForExport.find(s => s.type === 'Begin');
+        if (beginStepExport && beginStepExport.transition) {
+        }
         
         const payload = { 
             id: currentWorkflowId,
@@ -2413,7 +2586,7 @@ function updatePreview() {
             version: currentVersion,
             view: {
                 zoom: zoomLevel,
-                pan: `${(panX / GU).toFixed(2)},${(panY / GU).toFixed(2)}`
+                pan: `${(panX / 30).toFixed(2)},${(panY / 30).toFixed(2)}`
             },
             metadata: currentMetadata,
             description: document.getElementById('workflowDescription')?.value || currentDefinition?.description || '',
@@ -2497,63 +2670,122 @@ function deleteElement(elementId, elementType, options = {}) {
                 const step = currentSteps.find(s => s.id === elementId);
                 if (!step) return;
                 
-                // Remove all case transitions belonging to this step
-                if (step.transition && step.transition.cases) {
-                    step.transition.cases.forEach(caseData => {
-                        const conditionId = caseData._conditionId;
-                        if (conditionId) {
-                            document.querySelectorAll(`[data-from-transition="${conditionId}"]`).forEach(el => el.remove());
-                            currentTransitions = currentTransitions.filter(t => t.id !== conditionId);
-                        }
+                // Delete all transitions of this step
+                if (step.transitions) {
+                    step.transitions.forEach(transition => {
+                        const transitionUUID = transition.id;
+                        document.querySelectorAll(`[data-transition-uuid="${transitionUUID}"]`).forEach(el => el.remove());
+                        document.querySelectorAll(`[data-from-transition="${transitionUUID}"]`).forEach(el => el.remove());
+                        document.querySelectorAll(`[data-to-transition="${transitionUUID}"]`).forEach(el => el.remove());
+                        currentTransitions = currentTransitions.filter(t => t.id !== transitionUUID);
                     });
                 }
+                
+                // Remove transition frame(s) for this step
+                const framesToRemove = currentTransitionFrames.filter(f => f.parentStepId === elementId);
+                framesToRemove.forEach(frame => {
+                    // Remove all case lines from this frame's conditions
+                    frame.conditions.forEach(conditionId => {
+                        document.querySelectorAll(`[data-from-transition="${conditionId}"]`).forEach(el => el.remove());
+                    });
+                    const frameElement = canvas.querySelector(`[data-transition-frame="${frame.id}"]`);
+                    if (frameElement) frameElement.remove();
+                });
+                currentTransitionFrames = currentTransitionFrames.filter(f => f.parentStepId !== elementId);
                 
                 // Remove from currentSteps
                 currentSteps = currentSteps.filter(s => s.id !== elementId);
                 
-                // Remove this step as a target from all other transitions
+                // Remove references from all transitions
                 currentTransitions.forEach(t => {
-                    if (t.targetSteps) t.targetSteps = t.targetSteps.filter(id => id !== elementId);
+                    if (t.targetSteps) {
+                        t.targetSteps = t.targetSteps.filter(id => id !== elementId);
+                    }
                 });
                 
-                // Remove step DOM element (case strip is inside it, removed automatically)
+                // Remove step DOM element
                 const stepElement = canvas.querySelector(`[data-step-uuid="${elementId}"]`);
                 if (stepElement) stepElement.remove();
                 
-                // Remove connection lines to/from this step
+                // Remove connection lines
                 document.querySelectorAll(`[data-from-step="${elementId}"], [data-to-step="${elementId}"]`).forEach(el => el.remove());
             }
             
             // --- TRANSITION DELETION ---
             else if (elementType === 'transition') {
-                // Find the owning step
-                const ownerStep = currentSteps.find(s =>
-                    s.transition && s.transition.cases &&
-                    s.transition.cases.some(c => c._conditionId === elementId)
-                );
-
-                // Must have at least one case — prevent deleting the last one
-                if (ownerStep && ownerStep.transition.cases.length === 1) {
-                    alert('A step must have at least one transition case.');
+                // Check if only condition in frame
+                const frame = currentTransitionFrames.find(f => f.conditions.includes(elementId));
+                if (frame && frame.conditions.length === 1) {
+                    alert('A transition frame must have at least one condition. Delete the frame instead.');
                     return;
                 }
-
-                // Remove from step's cases
-                if (ownerStep) {
-                    ownerStep.transition.cases = ownerStep.transition.cases.filter(c => c._conditionId !== elementId);
+                
+                // Remove from frame's conditions
+                if (frame) {
+                    frame.conditions = frame.conditions.filter(c => c !== elementId);
                 }
-
+                
+                // Remove from steps' transitions arrays
+                currentSteps.forEach(step => {
+                    if (step.transitions) {
+                        step.transitions = step.transitions.filter(t => t.id !== elementId);
+                    }
+                });
+                
                 // Remove from currentTransitions
                 currentTransitions = currentTransitions.filter(t => t.id !== elementId);
-
-                // Remove connection lines from this transition
+                
+                // Remove transition DOM element
+                const transitionElement = document.querySelector(`[data-condition-id="${elementId}"]`);
+                if (transitionElement) {
+                    transitionElement.parentElement.remove();
+                }
+                
+                // Remove connection lines
                 document.querySelectorAll(`[data-from-transition="${elementId}"]`).forEach(el => el.remove());
-
-                // Re-render the case strip for the owning step
-                if (ownerStep) {
-                    const canvas = document.getElementById('workflowCanvas');
-                    const stepElement = canvas ? canvas.querySelector(`[data-step-uuid="${ownerStep.id}"]`) : null;
-                    if (stepElement) renderCaseStrip(stepElement, ownerStep, canvas);
+                
+                // Re-render frame if it exists
+                if (frame) {
+                    renderTransitionFrame(frame.id, frame.verticalLayout);
+                    
+                    // Handle step width adjustment after frame re-renders
+                    setTimeout(() => {
+                        const attachedStep = currentSteps.find(s => s.id === frame.attachedToStepId);
+                        if (attachedStep) {
+                            const stepElement = canvas.querySelector(`[data-step-uuid="${attachedStep.id}"]`);
+                            const frameElement = canvas.querySelector(`[data-transition-frame="${frame.id}"]`);
+                            if (stepElement && frameElement) {
+                                const currentStepWidth = parseInt(stepElement.style.width);
+                                const frameWidth = parseInt(frameElement.style.width);
+                                
+                                // Calculate original step width
+                                const tempDiv = document.createElement('div');
+                                tempDiv.style.cssText = `position: absolute; visibility: hidden; font-size: 0.9rem; white-space: nowrap;`;
+                                tempDiv.textContent = attachedStep.name || `${attachedStep.type} Step`;
+                                document.body.appendChild(tempDiv);
+                                const textWidth = tempDiv.offsetWidth;
+                                document.body.removeChild(tempDiv);
+                                
+                                let originalWidth = 120;
+                                if (textWidth > 80) {
+                                    const gridSpaces = Math.ceil((textWidth - 80) / 30);
+                                    originalWidth = 120 + (gridSpaces * 30);
+                                }
+                                
+                                if (currentStepWidth > frameWidth) {
+                                    const newWidth = Math.max(originalWidth, currentStepWidth - 30);
+                                    stepElement.style.width = newWidth + 'px';
+                                    attachedStep.width = newWidth / 30;
+                                    
+                                    if (newWidth > frameWidth) {
+                                        stepElement.style.borderRadius = '4px 4px 4px 0px';
+                                    } else {
+                                        stepElement.style.borderRadius = '4px 4px 0px 0px';
+                                    }
+                                }
+                            }
+                        }
+                    }, 50);
                 }
             }
             
@@ -2589,10 +2821,44 @@ function deleteElement(elementId, elementType, options = {}) {
                 document.querySelectorAll(`[data-to-node="${elementId}"]`).forEach(el => el.remove());
             }
             
-            // --- FRAME DELETION --- (DISABLED: frames replaced by inline case strip)
+            // --- FRAME DELETION ---
             else if (elementType === 'frame') {
-                // Frames no longer exist as separate elements.
-                // This branch is preserved for compatibility but does nothing.
+                const frame = currentTransitionFrames.find(f => f.id === elementId);
+                if (!frame) return;
+                
+                // Remove all conditions in the frame
+                frame.conditions.forEach(conditionId => {
+                    currentTransitions = currentTransitions.filter(t => t.id !== conditionId);
+                });
+                
+                // Remove transition from steps that reference this frame
+                currentSteps.forEach(step => {
+                    if (step.transition && step.transition.position === frame.position) {
+                        delete step.transition;
+                    }
+                });
+                
+                // Remove from currentTransitionFrames
+                currentTransitionFrames = currentTransitionFrames.filter(f => f.id !== elementId);
+                
+                // Remove frame DOM element
+                const frameElement = canvas.querySelector(`[data-transition-frame="${elementId}"]`);
+                if (frameElement) frameElement.remove();
+                
+                // Remove connection lines
+                document.querySelectorAll(`[data-to-frame="${elementId}"]`).forEach(el => el.remove());
+                document.querySelectorAll(`[data-connection-line="${elementId}"]`).forEach(el => el.remove());
+                
+                // Remove orphaned case lines
+                document.querySelectorAll('[data-transition-connection-line]').forEach(line => {
+                    const conditionId = line.getAttribute('data-from-transition');
+                    const targetStepId = line.getAttribute('data-to-step');
+                    const conditionExists = currentTransitions.some(t => t.id === conditionId);
+                    const stepExists = currentSteps.some(s => s.id === targetStepId);
+                    if (!conditionExists || !stepExists) {
+                        line.remove();
+                    }
+                });
             }
             
             // Common cleanup
@@ -2627,6 +2893,23 @@ async function handleTestWorkflow() {
         return;
     }
 
+    // Sync frame.conditions back to step.transition.cases before testing
+    currentTransitionFrames.forEach(frame => {
+        const step = currentSteps.find(s => s.id === frame.parentStepId);
+        if (step && step.transition) {
+            step.transition.cases = frame.conditions.map(conditionId => {
+                const transition = currentTransitions.find(t => t.id === conditionId);
+                return {
+                    type: transition?.type || 'Success',
+                    conditions: transition?.conditions || '',
+                    targetSteps: transition?.targetSteps || [],
+                    targetNodes: transition?.targetNodes || [],
+                    order: transition?.order || 1
+                };
+            });
+        }
+    });
+
     // Update currentDefinition from current state
     currentDefinition = {
         id: currentWorkflowId,
@@ -2634,7 +2917,7 @@ async function handleTestWorkflow() {
         version: currentVersion,
         view: {
             zoom: zoomLevel,
-            pan: `${(panX / GU).toFixed(2)},${(panY / GU).toFixed(2)}`
+            pan: `${(panX / 30).toFixed(2)},${(panY / 30).toFixed(2)}`
         },
         metadata: currentMetadata,
         description: document.getElementById('workflowDescription')?.value || '',
@@ -2671,6 +2954,23 @@ async function saveWorkflow() {
         return;
     }
 
+    // Sync frame.conditions back to step.transition.cases before saving
+    currentTransitionFrames.forEach(frame => {
+        const step = currentSteps.find(s => s.id === frame.parentStepId);
+        if (step && step.transition) {
+            step.transition.cases = frame.conditions.map(conditionId => {
+                const transition = currentTransitions.find(t => t.id === conditionId);
+                return {
+                    type: transition?.type || 'Success',
+                    conditions: transition?.conditions || '',
+                    targetSteps: transition?.targetSteps || [],
+                    targetNodes: transition?.targetNodes || [],
+                    order: transition?.order || 1
+                };
+            });
+        }
+    });
+
     // Update currentDefinition from current state
     currentDefinition = {
         id: currentWorkflowId,
@@ -2678,7 +2978,7 @@ async function saveWorkflow() {
         version: currentVersion,
         view: {
             zoom: zoomLevel,
-            pan: `${(panX / GU).toFixed(2)},${(panY / GU).toFixed(2)}`
+            pan: `${(panX / 30).toFixed(2)},${(panY / 30).toFixed(2)}`
         },
         metadata: currentMetadata,
         description: document.getElementById('workflowDescription')?.value || '',
@@ -3039,13 +3339,13 @@ async function performSave(newVersion) {
             version: newVersion,
             view: {
                 zoom: zoomLevel,
-                pan: `${(panX / GU).toFixed(2)},${(panY / GU).toFixed(2)}`
+                pan: `${(panX / 30).toFixed(2)},${(panY / 30).toFixed(2)}`
             },
             metadata: currentMetadata,
             description: document.getElementById('workflowDescription')?.value || '',
             inputVariables: currentInputVariables,
             outputVariables: currentOutputVariables,
-            steps: normalizeStepsForComparison(currentSteps)
+            steps: currentSteps
         };
         
         // Proceed with save - changes already verified in saveWorkflow
@@ -3058,13 +3358,13 @@ async function performSave(newVersion) {
                 version: newVersion,
                 view: {
                     zoom: zoomLevel,
-                    pan: `${(panX / GU).toFixed(2)},${(panY / GU).toFixed(2)}`
+                    pan: `${(panX / 30).toFixed(2)},${(panY / 30).toFixed(2)}`
                 },
                 metadata: currentMetadata,
                 description: document.getElementById('workflowDescription')?.value || '',
                 inputVariables: currentInputVariables,
                 outputVariables: currentOutputVariables,
-                steps: normalizeStepsForComparison(currentSteps),
+                steps: currentSteps,
                 nodes: currentNodes
             }
         };
@@ -3102,7 +3402,7 @@ async function performSave(newVersion) {
                 version: newVersion,
                 view: {
                     zoom: zoomLevel,
-                    pan: `${(panX / GU).toFixed(2)},${(panY / GU).toFixed(2)}`
+                    pan: `${(panX / 30).toFixed(2)},${(panY / 30).toFixed(2)}`
                 },
                 metadata: currentMetadata,
                 inputVariables: currentInputVariables,
@@ -3118,7 +3418,7 @@ async function performSave(newVersion) {
                 version: newVersion,
                 view: {
                     zoom: zoomLevel,
-                    pan: `${(panX / GU).toFixed(2)},${(panY / GU).toFixed(2)}`
+                    pan: `${(panX / 30).toFixed(2)},${(panY / 30).toFixed(2)}`
                 },
                 metadata: currentMetadata,
                 inputVariables: currentInputVariables,
@@ -3274,14 +3574,16 @@ async function loadWorkflow() {
         // Clean up any stale references to deleted nodes/steps
         cleanupStaleReferences();
         
-        // Build definition object for unsaved changes tracking
+        // Build definition object for unsaved changes tracking.
+        // Steps must be normalized the same way updatePreview does it so that
+        // deepEqual comparisons are valid (same key set, same sort order).
         const workflowDefinition = {
             id: currentWorkflowId,
             name: currentWorkflowName,
             version: currentVersion,
             view: {
                 zoom: zoomLevel,
-                pan: `${(panX / GU).toFixed(2)},${(panY / GU).toFixed(2)}`
+                pan: `${(panX / 30).toFixed(2)},${(panY / 30).toFixed(2)}`
             },
             metadata: currentMetadata,
             description: definition.description || '',
@@ -3326,14 +3628,6 @@ async function loadWorkflow() {
 
 
 function initWorkflowEditor() {
-    // Initialize canvas dimensions and grid from configuration constants
-    initCanvas();
-
-    // Size step type sidebar items to match one grid unit
-    document.querySelectorAll('.step-type-item').forEach(item => {
-        item.style.height = GU + 'px';
-    });
-
     // Set up preview toggle UI
     const previewToggle = document.getElementById('previewToggle');
     const previewBox = document.getElementById('preview');
@@ -3504,7 +3798,6 @@ function closeWorkflowSettingsModal() {
 
 // Expose functions to global scope
 window.activateNodePlacementMode = activateNodePlacementMode;
-window.addCaseToStep = addCaseToStep;
 window.addConditionToFrame = addConditionToFrame;
 window.applyFrameLayout = applyFrameLayout;
 window.applyStepSizeOverride = applyStepSizeOverride;

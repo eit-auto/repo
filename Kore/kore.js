@@ -14,14 +14,20 @@
  *   GET  /nodes               - List MeshCentral nodes
  *   POST /api-cwm             - ConnectWise Manage API passthrough
  * 
- * Persephone Automation Engine:
+ * Resources Module (Workflow CRUD):
  *   POST   /kore/workflows               - Create new workflow
  *   GET    /kore/workflows/:id           - Get latest workflow version
  *   GET    /kore/workflows/:id/:version  - Get specific workflow version
  *   DELETE /kore/workflows/:id/:version  - Archive workflow version
- *   POST   /kore/execute                 - Execute workflow
- *   GET    /kore/executions/:executionId - Get execution status
- *   POST   /kore/executions/:executionId/cancel - Cancel execution
+ * 
+ * Persephone Execution Engine:
+ *   POST   /engine/execute                    - Execute workflow
+ *   GET    /engine/executions                 - List executions
+ *   GET    /engine/executions/:executionId    - Get execution status
+ *   POST   /engine/executions/:executionId/cancel - Cancel execution
+ *   GET    /engine/filters                    - List all filters
+ *   GET    /engine/filters/:filterName        - Get specific filter
+ *   POST   /engine/render-template            - Render Jinja2 template
  * 
  * @version 0.500 - [KORE_VERSION_INCREMENT_ON_UPDATE]
  */
@@ -39,6 +45,8 @@ const Web = require('./web/web');
 const Plugins = require('./plugins/plugins');
 const CryptoUtils = require('./crypto-utils');
 const Auth = require('./auth/auth');
+const API = require('./api/api');
+const { routeApiRequest } = require('./api/api');
 const { validateUserSessionToken, isProtectedStaticFile, getSessionTokenFromCookies, getRefreshTokenFromCookies } = require('./auth/auth');
 
 // Load environment variables from .env
@@ -63,6 +71,52 @@ function getTimestamp() {
 
 // Export to global so auth.js can use it
 global.getTimestamp = getTimestamp;
+
+/**
+ * Log level mapping
+ * String levels from config map to numeric levels for filtering
+ */
+const LOG_LEVELS = {
+    'ERROR': 1,
+    'WARN': 2,
+    'INFO': 3,
+    'DEBUG': 4
+};
+
+/**
+ * Global console logging function with level filtering
+ * Only logs if messageLevel <= global.logLevel
+ * 
+ * @param {string} subsystem - Subsystem name (e.g., 'API', 'Auth', 'Web')
+ * @param {string} message - Log message
+ * @param {number} messageLevel - Message level (1=ERROR, 2=WARN, 3=INFO, 4=DEBUG)
+ */
+function consoleLog(subsystem, message, messageLevel) {
+    // Check if this message should be logged based on configured level
+    if (messageLevel > global.logLevel) {
+        return;
+    }
+    
+    const timestamp = getTimestamp();
+    const logMessage = `[${timestamp}] [${subsystem}] ${message}`;
+    
+    // Determine console method based on message level
+    let method = 'log';
+    if (messageLevel === 1) {
+        method = 'error';
+    } else if (messageLevel === 2) {
+        method = 'warn';
+    }
+    
+    console[method](logMessage);
+}
+
+// Export to global so subsystems can use it
+global.consoleLog = consoleLog;
+global.LOG_LEVELS = LOG_LEVELS;
+
+// Default log level (will be overridden at startup)
+global.logLevel = LOG_LEVELS['INFO'];
 
 // ========== SECURITY CONFIGURATION ==========
 // IP Whitelist (no rate limits applied)
@@ -168,10 +222,10 @@ async function logAudit(action, targetType, targetId, targetName, performedBy, d
             ipAddress
         ]);
         
-        console.log(`[${getTimestamp()}] AUDIT: ${action} on ${targetType}:${targetId} by ${performedBy}`);
+        global.consoleLog('Kore', `AUDIT: ${action} on ${targetType}:${targetId} by ${performedBy}`, 3);
         return true;
     } catch (err) {
-        console.error(`[${getTimestamp()}] ERROR logging audit:`, err.message);
+        global.consoleLog('Kore', `ERROR logging audit: ${err.message}`, 1);
         return false;
     }
 }
@@ -278,7 +332,7 @@ function initializeLogging() {
         }
     };
     
-    console.log(`[${getTimestamp()}] Kore logging initialized - ${getLogFilePath()}`);
+    global.consoleLog('Kore', `Kore logging initialized - ${getLogFilePath()}`, 3);
 }
 
 // Initialize logging before anything else
@@ -290,6 +344,7 @@ const MESHCENTRAL_PORT = 1138;
 const PROXY_PORT = 1139;
 const SESSIONS_FILE = 'D:\\Kore\\sessions.json';
 const LOG_FILE = 'D:\\Kore\\proxy-errors.log';
+const ENABLE_MESHCENTRAL = false;  // Scream test - disable to test if Kore works without MeshCentral
 
 // API Members cache (loaded from database at startup)
 let apiMembersCache = null;
@@ -330,7 +385,7 @@ async function processSessionWriteQueue() {
         await fs.promises.writeFile(SESSIONS_FILE, JSON.stringify(data, null, 2));
         resolve(true);
     } catch (error) {
-        console.error(`[${getTimestamp()}] Error writing sessions:`, error.message);
+        global.consoleLog('Kore', `Error writing sessions: ${error.message}`, 1);
         resolve(false);
     }
     
@@ -360,26 +415,28 @@ let mysqlPool = null;    // Rewst database pool
 let cwaPool = null;      // CWA/LabTech database pool
 let korePool = null;     // Kore database pool (Persephone)
 
-console.log(`[${getTimestamp()}] Starting MeshCentral WebSocket Proxy`);
-console.log(`[${getTimestamp()}] MeshCentral: ${MESHCENTRAL_HOST}:${MESHCENTRAL_PORT}`);
-console.log(`[${getTimestamp()}] Proxy listening: 0.0.0.0:${PROXY_PORT}`);
+if (ENABLE_MESHCENTRAL) {
+    console.log(`[${getTimestamp()}] Starting MeshCentral WebSocket Proxy`);
+    console.log(`[${getTimestamp()}] MeshCentral: ${MESHCENTRAL_HOST}:${MESHCENTRAL_PORT}`);
+    console.log(`[${getTimestamp()}] Proxy listening: 0.0.0.0:${PROXY_PORT}`);
+}
 
 // Watchdog timer - logs health every 30 seconds to detect hangs
 setInterval(() => {
     const poolCount = Object.keys(wsConnectionPool).length;
     const pendingCount = Object.keys(pendingResponses).length;
     const logMsg = `[${getTimestamp()}] [WATCHDOG] Proxy responsive. Pool users: ${poolCount}, Pending responses: ${pendingCount}`;
-    console.log(logMsg);
+    global.consoleLog('Kore', logMsg.replace(/^\[.*?\] /, ''), 4);
 }, 30000);
 
 // Global error handlers for service stability
 process.on('uncaughtException', (err) => {
     const logMsg = `[${getTimestamp()}] FATAL UNCAUGHT EXCEPTION: ${err.message}\n${err.stack}\n`;
-    console.error(logMsg);
+    global.consoleLog('Kore', logMsg.replace(/^\[.*?\] /, ''), 1);
     try {
         fs.appendFileSync('D:\\Kore\\error.log', logMsg);
     } catch (e) {
-        console.error('Failed to write error.log:', e.message);
+        global.consoleLog('Kore', `Failed to write error.log: ${e.message}`, 1);
     }
 });
 
@@ -459,6 +516,10 @@ async function getSessionCookie(username = null, password = null) {
  * Connect to MeshCentral WebSocket with session cookie
  */
 async function connectToMeshCentral(cookie) {
+    if (!ENABLE_MESHCENTRAL) {
+        return Promise.reject(new Error('MeshCentral is disabled'));
+    }
+    
     return new Promise((resolve, reject) => {
         const meshUrl = `wss://${MESHCENTRAL_HOST}:${MESHCENTRAL_PORT}/control.ashx`;
         const agent = new https.Agent({ rejectUnauthorized: false });
@@ -540,12 +601,12 @@ async function initializeMySQLPool() {
         if (!process.env.JWT_SIGNING_KEY) {
             throw new Error('Missing required environment variable: JWT_SIGNING_KEY');
         }
-
-        console.log(`[${getTimestamp()}] Loading configuration from environment variables`);
         
         // Initialize crypto utilities for database credential encryption
         global.cryptoUtils = new CryptoUtils(process.env.ENCRYPTION_KEY);
-        console.log(`[${getTimestamp()}] Encryption utilities initialized`);
+        
+        // Set temporary logLevel to DEBUG until system_config is loaded
+        global.logLevel = LOG_LEVELS['DEBUG'];
         
         // Create Kore connection pool (kore_sys database) from environment variables
         korePool = mysql.createPool({
@@ -561,35 +622,63 @@ async function initializeMySQLPool() {
             multipleStatements: true
         });
         
-        console.log(`[${getTimestamp()}] Kore MySQL connection pool created (${process.env.KORE_DB_HOST}:${process.env.KORE_DB_PORT}/${process.env.KORE_DB_NAME})`);
-        
         // Load system configuration from database
         const [systemConfig] = await korePool.query('SELECT * FROM system_config WHERE id = 1');
         if (systemConfig && systemConfig.length > 0) {
             global.systemConfig = systemConfig[0];
-            console.log(`[${getTimestamp()}] System configuration loaded from database`);
-            console.log(`[${getTimestamp()}] Data database: ${global.systemConfig.data_database_name}, Environment: ${global.systemConfig.environment}`);
             
             // Load timezone for logging
             global.timezone = global.systemConfig.timezone || 'UTC';
-            console.log(`[${getTimestamp()}] Timezone set to: ${global.timezone}`);
+            
+            // Load logging configuration FIRST so global.logLevel is set before other logs
+            let logLevelStr = 'INFO';
+            try {
+                const loggingConfig = global.systemConfig.logging_config;
+                let config = null;
+                
+                if (typeof loggingConfig === 'string') {
+                    config = JSON.parse(loggingConfig);
+                } else if (typeof loggingConfig === 'object' && loggingConfig !== null) {
+                    config = loggingConfig;
+                }
+                
+                if (config && config.log_level) {
+                    logLevelStr = config.log_level.toUpperCase();
+                    global.logLevel = LOG_LEVELS[logLevelStr] || LOG_LEVELS['INFO'];
+                } else {
+                    global.logLevel = LOG_LEVELS['INFO'];
+                }
+            } catch (error) {
+                global.consoleLog('Kore', `WARNING: Could not parse logging_config: ${error.message}`, 2);
+                global.logLevel = LOG_LEVELS['INFO'];
+            }
+            
+            // NOW log startup messages with correct log level
+            global.consoleLog('Kore', `MySQL connection pool created (${process.env.KORE_DB_HOST}:${process.env.KORE_DB_PORT}/${process.env.KORE_DB_NAME})`, 3);
+            global.consoleLog('Kore', 'System configuration loaded from database', 3);
+            global.consoleLog('Kore', `Data database: ${global.systemConfig.data_database_name}, Environment: ${global.systemConfig.environment}`, 3);
+            global.consoleLog('Kore', `Timezone set to: ${global.timezone}`, 3);
+            global.consoleLog('Kore', `Logging level set to: ${logLevelStr} (${global.logLevel})`, 1);
         } else {
             throw new Error('system_config table is empty - please insert default row');
         }
     } catch (error) {
-        console.error(`[${getTimestamp()}] ERROR initializing system:`, error.message);
-        console.error(`[${getTimestamp()}] Please verify .env file exists with required variables`);
+        global.consoleLog('Kore', `ERROR initializing system: ${error.message}`, 1);
+        global.consoleLog('Kore', 'Please verify .env file exists with required variables', 1);
         process.exit(1);  // Exit on critical configuration error
     }
 }
 
 /**
  * Load API members from database into cache
+ * DEPRECATED: Will be moved to API subsystem
+ * This function loads API credentials from the kore database for use by the handleAuthRequest endpoint
+ * Once API subsystem has its own auth handler, this can be removed
  */
 async function loadApiMembersCache() {
     try {
         if (!korePool) {
-            console.warn(`[${getTimestamp()}] WARNING: Kore pool not available, cannot load API members cache`);
+            global.consoleLog('Kore', 'WARNING: Kore pool not available, cannot load API members cache', 2);
             return;
         }
         
@@ -597,18 +686,18 @@ async function loadApiMembersCache() {
         try {
             const [rows] = await connection.query('SELECT * FROM `api-members` WHERE enabled = true');
             apiMembersCache = rows;
-            console.log(`[${getTimestamp()}] API members cache loaded: ${rows.length} active members`);
         } finally {
             connection.release();
         }
     } catch (error) {
-        console.error(`[${getTimestamp()}] ERROR loading API members cache:`, error.message);
+        global.consoleLog('Kore', `ERROR loading API members cache: ${error.message}`, 1);
         // Don't exit - auth is still functional with empty cache (will deny all requests)
     }
 }
 
 /**
  * Get API member from cache by key, origin, and domain
+ * DEPRECATED: Will be moved to API subsystem
  */
 function getApiMember(key, origin, domain) {
     if (!apiMembersCache) {
@@ -872,7 +961,7 @@ async function validateSessionAndGetCredentials(sessionToken, user) {
             const sessionsJson = await fs.promises.readFile(SESSIONS_FILE, 'utf8');
             sessionsData = JSON.parse(sessionsJson);
         } catch (error) {
-            console.error(`[${getTimestamp()}] Error loading sessions file:`, error.message);
+            global.consoleLog('Kore', `Error loading sessions file: ${error.message}`, 1);
             return { valid: false, error: 'Server configuration error' };
         }
         
@@ -893,12 +982,12 @@ async function validateSessionAndGetCredentials(sessionToken, user) {
         
         // Verify user matches
         if (session.user !== user) {
-            console.log(`[${getTimestamp()}] Session validation failed: user mismatch`);
+            global.consoleLog('Kore', 'Session validation failed: user mismatch', 2);
             return { valid: false, error: 'User mismatch' };
         }
         
         // Session is valid - return hardcoded MeshCentral credentials
-        console.log(`[${getTimestamp()}] Session validated for user: ${session.user}`);
+        global.consoleLog('Kore', `Session validated for user: ${session.user}`, 3);
         return {
             valid: true,
             meshUser: MESHCENTRAL_USER,
@@ -907,7 +996,7 @@ async function validateSessionAndGetCredentials(sessionToken, user) {
         };
         
     } catch (error) {
-        console.error(`[${getTimestamp()}] Session validation error:`, error.message);
+        global.consoleLog('Kore', `Session validation error: ${error.message}`, 1);
         return { valid: false, error: 'Internal server error' };
     }
 }
@@ -928,12 +1017,12 @@ async function getOrCreatePooledConnection(user, meshUser, meshPass) {
     }
 
     const userPool = wsConnectionPool[user];
-    console.log(`[${getTimestamp()}] [POOL] Getting connection for user: ${user}, current pool size: ${userPool.length}`);
+    global.consoleLog('Kore', `[POOL] Getting connection for user: ${user}, current pool size: ${userPool.length}`, 4);
 
     // Check for existing available connection
     for (const pooledConn of userPool) {
         if (pooledConn.ws && pooledConn.ws.readyState === WebSocket.OPEN && !pooledConn.isBusy) {
-            console.log(`[${getTimestamp()}] [POOL] Reusing pooled connection for user: ${user}`);
+            global.consoleLog('Kore', `[POOL] Reusing pooled connection for user: ${user}`, 4);
             pooledConn.lastActivity = Date.now();
             return pooledConn;
         }
@@ -941,7 +1030,11 @@ async function getOrCreatePooledConnection(user, meshUser, meshPass) {
 
     // Create new connection if under limit
     if (userPool.length < POOL_MAX_CONNECTIONS_PER_USER) {
-        console.log(`[${getTimestamp()}] [POOL] Creating new pooled connection for user: ${user} (${userPool.length + 1}/${POOL_MAX_CONNECTIONS_PER_USER})`);
+        if (!ENABLE_MESHCENTRAL) {
+            throw new Error('MeshCentral is disabled - cannot create connection');
+        }
+        
+        global.consoleLog('Kore', `[POOL] Creating new pooled connection for user: ${user} (${userPool.length + 1}/${POOL_MAX_CONNECTIONS_PER_USER})`, 4);
         
         const cookie = await getSessionCookie(meshUser, meshPass);
         const ws = await connectToMeshCentral(cookie);
@@ -957,7 +1050,7 @@ async function getOrCreatePooledConnection(user, meshUser, meshPass) {
         };
 
         userPool.push(pooledConn);
-        console.log(`[${getTimestamp()}] [POOL] New connection created: ${pooledConn.id}`);
+        global.consoleLog('Kore', `[POOL] New connection created: ${pooledConn.id}`, 4);
         
         // Set up idle timeout cleanup
         pooledConn.idleTimeout = setTimeout(() => {
@@ -968,7 +1061,7 @@ async function getOrCreatePooledConnection(user, meshUser, meshPass) {
     }
 
     // If at limit, return first connection (will queue)
-    console.log(`[${getTimestamp()}] [POOL] Connection pool at limit for user: ${user}, queuing on existing connection`);
+    global.consoleLog('Kore', `[POOL] Connection pool at limit for user: ${user}, queuing on existing connection`, 4);
     return userPool[0];
 }
 
@@ -982,7 +1075,7 @@ function closePooledConnection(connectionId) {
         
         if (index !== -1) {
             const pooledConn = userPool[index];
-            console.log(`[${getTimestamp()}] Closing pooled connection: ${connectionId}`);
+            global.consoleLog('Kore', `Closing pooled connection: ${connectionId}`, 4);
             
             if (pooledConn.idleTimeout) {
                 clearTimeout(pooledConn.idleTimeout);
@@ -992,7 +1085,7 @@ function closePooledConnection(connectionId) {
                 try {
                     pooledConn.ws.close();
                 } catch (err) {
-                    console.error(`[${getTimestamp()}] Error closing pooled connection:`, err.message);
+                    global.consoleLog('Kore', `Error closing pooled connection: ${err.message}`, 1);
                 }
             }
             
@@ -1022,14 +1115,14 @@ async function queueCommandOnConnection(pooledConn, commandParams) {
         };
 
         pooledConn.commandQueue.push(queuedCmd);
-        console.log(`[${getTimestamp()}] [QUEUE] Command queued for user ${pooledConn.user}. Queue length: ${pooledConn.commandQueue.length}, isBusy: ${pooledConn.isBusy}`);
+        global.consoleLog('Kore', `[QUEUE] Command queued for user ${pooledConn.user}. Queue length: ${pooledConn.commandQueue.length}, isBusy: ${pooledConn.isBusy}`, 4);
 
         // If not busy, execute immediately
         if (!pooledConn.isBusy) {
-            console.log(`[${getTimestamp()}] [QUEUE] Connection idle, executing queued command immediately`);
+            global.consoleLog('Kore', '[QUEUE] Connection idle, executing queued command immediately', 4);
             executeNextCommandInQueue(pooledConn);
         } else {
-            console.log(`[${getTimestamp()}] [QUEUE] Connection busy, command will wait. Queue length: ${pooledConn.commandQueue.length}`);
+            global.consoleLog('Kore', `[QUEUE] Connection busy, command will wait. Queue length: ${pooledConn.commandQueue.length}`, 4);
         }
     });
 }
@@ -1039,7 +1132,7 @@ async function queueCommandOnConnection(pooledConn, commandParams) {
  */
 async function executeNextCommandInQueue(pooledConn) {
     if (pooledConn.commandQueue.length === 0) {
-        console.log(`[${getTimestamp()}] [EXEC] Queue empty, marking connection idle for user: ${pooledConn.user}`);
+        global.consoleLog('Kore', `[EXEC] Queue empty, marking connection idle for user: ${pooledConn.user}`, 4);
         pooledConn.isBusy = false;
         
         // Reset idle timeout
@@ -1057,16 +1150,16 @@ async function executeNextCommandInQueue(pooledConn) {
     const queuedCmd = pooledConn.commandQueue.shift();
 
     try {
-        console.log(`[${getTimestamp()}] [EXEC] Executing command from queue. Remaining: ${pooledConn.commandQueue.length}, User: ${pooledConn.user}`);
+        global.consoleLog('Kore', `[EXEC] Executing command from queue. Remaining: ${pooledConn.commandQueue.length}, User: ${pooledConn.user}`, 4);
         
         const result = await sendRunCommands(pooledConn.ws, queuedCmd.commandParams);
-        console.log(`[${getTimestamp()}] [EXEC] Command completed successfully for user: ${pooledConn.user}`);
+        global.consoleLog('Kore', `[EXEC] Command completed successfully for user: ${pooledConn.user}`, 4);
         queuedCmd.resolve(result);
         
         // Execute next command in queue
         executeNextCommandInQueue(pooledConn);
     } catch (error) {
-        console.error(`[${getTimestamp()}] [EXEC] Command execution error: ${error.message}`);
+        global.consoleLog('Kore', `[EXEC] Command execution error: ${error.message}`, 1);
         queuedCmd.reject(error);
         
         // Try next command despite error
@@ -1077,6 +1170,13 @@ async function executeNextCommandInQueue(pooledConn) {
 /**
  * Authenticate client and validate credentials
  * POST /auth
+ */
+/**
+ * DEPRECATED: handleAuthRequest is deprecated for future removal
+ * Will be moved to API subsystem as part of /api/auth/validate endpoint
+ * 
+ * Validates API keys from x-kore-token or x-proxy-token headers
+ * Checks origin and domain against api-members cache
  */
 function handleAuthRequest(req, res) {
     const clientIP = req.socket.remoteAddress;
@@ -1097,7 +1197,7 @@ function handleAuthRequest(req, res) {
     if (!isIPWhitelisted(clientIP)) {
         const rateLimitCheck = checkRateLimit(clientIP, '/auth');
         if (!rateLimitCheck.allowed) {
-            console.log(`[${getTimestamp()}] Rate limit exceeded for IP ${clientIP} on /auth (limit: 10/min, reset in: ${rateLimitCheck.resetIn}s)`);
+            global.consoleLog('Kore', `Rate limit exceeded for IP ${clientIP} on /auth (limit: 10/min, reset in: ${rateLimitCheck.resetIn}s)`, 2);
             res.writeHead(429, { 
                 'Content-Type': 'application/json',
                 'Retry-After': rateLimitCheck.resetIn
@@ -1115,11 +1215,11 @@ function handleAuthRequest(req, res) {
     
     // Log deprecation warning if using legacy header
     if (req.headers['x-proxy-token'] && !req.headers['x-kore-token']) {
-        console.log(`[${getTimestamp()}] WARNING: x-proxy-token header is deprecated, please use x-kore-token instead`);
+        global.consoleLog('Kore', 'WARNING: x-proxy-token header is deprecated, please use x-kore-token instead', 2);
     }
     
-    console.log(`[${getTimestamp()}] === AUTH REQUEST ===`);
-    console.log(`[${getTimestamp()}] API Key header present: ${!!apiKeyFromHeader}`);
+    global.consoleLog('Kore', '=== AUTH REQUEST ===', 4);
+    global.consoleLog('Kore', `API Key header present: ${!!apiKeyFromHeader}`, 4);
     
     // Read request body
     let body = '';
@@ -1133,22 +1233,22 @@ function handleAuthRequest(req, res) {
             const originFromBody = data.origin;
             const userFromBody = data.user;
             
-            console.log(`[${getTimestamp()}] Origin from body: ${originFromBody}`);
-            console.log(`[${getTimestamp()}] User from body: ${userFromBody}`);
+            global.consoleLog('Kore', `Origin from body: ${originFromBody}`, 4);
+            global.consoleLog('Kore', `User from body: ${userFromBody}`, 4);
             
             // Extract domain from user (e.g., bradf@equinoxits.com -> equinoxits.com)
             let userDomain = null;
             if (userFromBody && userFromBody.includes('@')) {
                 userDomain = userFromBody.split('@')[1];
-                console.log(`[${getTimestamp()}] Extracted user domain: ${userDomain}`);
+                global.consoleLog('Kore', `Extracted user domain: ${userDomain}`, 4);
             }
             
             // Find matching credential from cache
             const validCred = getApiMember(apiKeyFromHeader, originFromBody, userDomain);
             
             if (!validCred) {
-                console.log(`[${getTimestamp()}] Auth failed: invalid key/origin/domain combination`);
-                console.log(`[${getTimestamp()}] Provided key: ${apiKeyFromHeader}, origin: ${originFromBody}, domain: ${userDomain}`);
+                global.consoleLog('Kore', 'Auth failed: invalid key/origin/domain combination', 2);
+                global.consoleLog('Kore', `Provided key: ${apiKeyFromHeader}, origin: ${originFromBody}, domain: ${userDomain}`, 4);
                 res.writeHead(401, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify({ error: 'Invalid credentials' }));
                 return;
@@ -1178,7 +1278,7 @@ function handleAuthRequest(req, res) {
                     sessionsData = JSON.parse(sessionsJson);
                 }
             } catch (error) {
-                console.log(`[${getTimestamp()}] Note: Creating new sessions file`);
+                global.consoleLog('Kore', 'Note: Creating new sessions file', 3);
             }
             
             // Add new session
@@ -1187,16 +1287,16 @@ function handleAuthRequest(req, res) {
             // Save sessions to file
             try {
                 await queueSessionWrite(sessionsData);
-                console.log(`[${getTimestamp()}] Session saved for user: ${userFromBody}`);
+                global.consoleLog('Kore', `Session saved for user: ${userFromBody}`, 3);
             } catch (error) {
-                console.error(`[${getTimestamp()}] Error saving session:`, error.message);
+                global.consoleLog('Kore', `Error saving session: ${error.message}`, 1);
                 res.writeHead(500, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify({ error: 'Failed to create session' }));
                 return;
             }
             
             // Auth successful
-            console.log(`[${getTimestamp()}] Auth successful for: ${validCred.name} (user: ${userFromBody})`);
+            global.consoleLog('Kore', `Auth successful for: ${validCred.name} (user: ${userFromBody})`, 3);
             
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ 
@@ -1207,7 +1307,7 @@ function handleAuthRequest(req, res) {
             }));
             
         } catch (error) {
-            console.error(`[${getTimestamp()}] Auth error:`, error.message);
+            global.consoleLog('Kore', `Auth error: ${error.message}`, 1);
             res.writeHead(400, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ error: 'Invalid request' }));
         }
@@ -1215,8 +1315,13 @@ function handleAuthRequest(req, res) {
 }
 
 /**
- * Validate session token
- * POST /validate
+ * DEPRECATED: /validate endpoint is deprecated for future removal
+ * New code should use: POST /api/auth/validate-token (in auth.js)
+ * 
+ * Validates session tokens from x-session-token headers
+ * Uses legacy session file storage instead of JWT validation
+ * 
+ * Will be consolidated with auth.js JWT validation when external systems are migrated
  */
 function handleValidateSession(req, res) {
     // Set CORS headers
@@ -1233,8 +1338,8 @@ function handleValidateSession(req, res) {
     
     const sessionTokenFromHeader = req.headers['x-session-token'];
     
-    console.log(`[${getTimestamp()}] === VALIDATE SESSION REQUEST ===`);
-    console.log(`[${getTimestamp()}] Session Token header present: ${!!sessionTokenFromHeader}`);
+    global.consoleLog('Kore', '=== VALIDATE SESSION REQUEST ===', 4);
+    global.consoleLog('Kore', `Session Token header present: ${!!sessionTokenFromHeader}`, 4);
     
     // Read request body
     let body = '';
@@ -1247,13 +1352,13 @@ function handleValidateSession(req, res) {
             const data = JSON.parse(body);
             const userFromBody = data.user;
             
-            console.log(`[${getTimestamp()}] User from body: ${userFromBody}`);
+            global.consoleLog('Kore', `User from body: ${userFromBody}`, 4);
             
             if (!sessionTokenFromHeader) {
-                console.log(`[${getTimestamp()}] Validation failed: no session token provided`);
+                global.consoleLog('Kore', 'Validation failed: no session token provided', 2);
                 res.writeHead(401, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify({ error: 'No session token provided' }));
-                console.log(`[${getTimestamp()}] Error response sent (no token)`);
+                global.consoleLog('Kore', 'Error response sent (no token)', 4);
                 return;
             }
             
@@ -1263,10 +1368,10 @@ function handleValidateSession(req, res) {
                 const sessionsJson = await fs.promises.readFile(SESSIONS_FILE, 'utf8');
                 sessionsData = JSON.parse(sessionsJson);
             } catch (error) {
-                console.error(`[${getTimestamp()}] Error loading sessions file:`, error.message);
+                global.consoleLog('Kore', `Error loading sessions file: ${error.message}`, 1);
                 res.writeHead(500, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify({ error: 'Server configuration error' }));
-                console.log(`[${getTimestamp()}] Error response sent (file error)`);
+                global.consoleLog('Kore', 'Error response sent (file error)', 4);
                 return;
             }
             
@@ -1274,36 +1379,36 @@ function handleValidateSession(req, res) {
             const session = sessionsData.sessions.find(s => s.token === sessionTokenFromHeader);
             
             if (!session) {
-                console.log(`[${getTimestamp()}] Validation failed: session token not found`);
+                global.consoleLog('Kore', 'Validation failed: session token not found', 2);
                 res.writeHead(401, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify({ error: 'Invalid session token' }));
-                console.log(`[${getTimestamp()}] Error response sent (token not found)`);
+                global.consoleLog('Kore', 'Error response sent (token not found)', 4);
                 return;
             }
             
             // Check if session has expired
             const now = Date.now();
             if (now > session.expiresAt) {
-                console.log(`[${getTimestamp()}] Validation failed: session token expired`);
+                global.consoleLog('Kore', 'Validation failed: session token expired', 2);
                 res.writeHead(401, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify({ error: 'Session token has expired' }));
-                console.log(`[${getTimestamp()}] Error response sent (expired)`);
+                global.consoleLog('Kore', 'Error response sent (expired)', 4);
                 return;
             }
             
             // Verify user matches
             if (session.user !== userFromBody) {
-                console.log(`[${getTimestamp()}] Validation failed: user mismatch`);
-                console.log(`[${getTimestamp()}] Expected: ${session.user}, Got: ${userFromBody}`);
+                global.consoleLog('Kore', 'Validation failed: user mismatch', 2);
+                global.consoleLog('Kore', `Expected: ${session.user}, Got: ${userFromBody}`, 4);
                 res.writeHead(401, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify({ error: 'User mismatch' }));
-                console.log(`[${getTimestamp()}] Error response sent (user mismatch)`);
+                global.consoleLog('Kore', 'Error response sent (user mismatch)', 4);
                 return;
             }
             
             // Session is valid
             const remainingTime = Math.floor((session.expiresAt - now) / 1000);
-            console.log(`[${getTimestamp()}] Session validation successful for user: ${session.user} (${remainingTime}s remaining)`);
+            global.consoleLog('Kore', `Session validation successful for user: ${session.user} (${remainingTime}s remaining)`, 3);
             
             const responseData = { 
                 status: 'Valid',
@@ -1312,15 +1417,15 @@ function handleValidateSession(req, res) {
                 expiresIn: remainingTime
             };
             
-            console.log(`[${getTimestamp()}] Sending response:`, JSON.stringify(responseData));
+            global.consoleLog('Kore', `Sending response: ${JSON.stringify(responseData)}`, 4);
             
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify(responseData));
             
-            console.log(`[${getTimestamp()}] Response sent to client`);
+            global.consoleLog('Kore', 'Response sent to client', 4);
             
         } catch (error) {
-            console.error(`[${getTimestamp()}] Validation error:`, error.message);
+            global.consoleLog('Kore', `Validation error: ${error.message}`, 1);
             res.writeHead(400, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ error: 'Invalid request' }));
         }
@@ -1332,8 +1437,13 @@ function handleValidateSession(req, res) {
  * POST /kore/admin/reload-api-members
  */
 /**
- * POST /kore/admin/reload-auth
- * Reload Auth module with fresh security config
+ * POST /kore/admin/reload-subsystem
+ * Reload one or more subsystems (resources, auth, web, persephone, plugins, or all)
+ * 
+ * Each subsystem's initialize() function handles:
+ * - Draining active operations (if any)
+ * - Clearing require.cache
+ * - Reloading and reinitializing
  */
 async function handleReloadSubsystem(req, res) {
     res.setHeader('Access-Control-Allow-Origin', '*');
@@ -1346,7 +1456,7 @@ async function handleReloadSubsystem(req, res) {
         const subsystem = parsedUrl.query.subsystem || 'auth'; // Default to auth for backwards compatibility
         
         // Validate subsystem
-        const validSubsystems = ['resources', 'auth', 'web', 'persephone', 'plugins', 'all'];
+        const validSubsystems = ['resources', 'auth', 'api', 'web', 'persephone', 'plugins', 'all'];
         if (!validSubsystems.includes(subsystem)) {
             res.writeHead(400);
             res.end(JSON.stringify({ 
@@ -1356,80 +1466,128 @@ async function handleReloadSubsystem(req, res) {
             return;
         }
         
-        const reloadedSubsystems = [];
+        const results = {
+            succeeded: [],
+            failed: [],
+            warnings: []
+        };
         
-        // Helper function to reload individual subsystem
-        const reloadSingleSubsystem = async (name) => {
-            console.log(`[${getTimestamp()}] Reloading ${name} subsystem...`);
+        // Helper to track results and initialize subsystems
+        const initializeSubsystem = async (name) => {
+            global.consoleLog('Kore', `Reloading ${name} subsystem...`, 1);
             
-            if (name === 'auth') {
-                // Load fresh security config
-                const [configRows] = await korePool.query('SELECT security_config FROM system_config WHERE id = 1');
-                const securityConfig = configRows[0]?.security_config || {};
+            try {
+                switch (name) {
+                    case 'resources':
+                        delete require.cache[require.resolve('./resources/resources')];
+                        global.Resources = require('./resources/resources');
+                        await global.Resources.initialize();
+                        results.succeeded.push(name);
+                        break;
+                        
+                    case 'auth':
+                        const [configRows] = await korePool.query('SELECT security_config FROM system_config WHERE id = 1');
+                        const securityConfig = configRows[0]?.security_config || {};
+                        delete require.cache[require.resolve('./auth/auth')];
+                        const Auth = require('./auth/auth');
+                        global.auth = new Auth(korePool, global.cryptoUtils, securityConfig, logAudit, process.env.JWT_SIGNING_KEY);
+                        await global.auth.initialize();
+                        results.succeeded.push(name);
+                        break;
+                        
+                    case 'api':
+                        delete require.cache[require.resolve('./api/api')];
+                        const API = require('./api/api');
+                        global.API = new API(korePool);
+                        await global.API.initialize();
+                        results.succeeded.push(name);
+                        break;
+                        
+                    case 'web':
+                        delete require.cache[require.resolve('./web/web')];
+                        const Web = require('./web/web');
+                        global.Web = Web;
+                        await global.Web.initialize(korePool);
+                        results.succeeded.push(name);
+                        break;
+                        
+                    case 'persephone':
+                        delete require.cache[require.resolve('./persephone/persephone')];
+                        const Persephone = require('./persephone/persephone');
+                        global.Persephone = Persephone;
+                        await global.Persephone.initialize(korePool, global.Plugins);
+                        global.Persephone.initialized = true;
+                        results.succeeded.push(name);
+                        break;
+                        
+                    case 'plugins':
+                        delete require.cache[require.resolve('./plugins/plugins')];
+                        const Plugins = require('./plugins/plugins');
+                        global.Plugins = Plugins;
+                        await global.Plugins.initialize(korePool, getTimestamp, isIPWhitelisted, checkRateLimit);
+                        await global.Plugins.loadAllPlugins();
+                        results.succeeded.push(name);
+                        break;
+                }
                 
-                // Reinitialize Auth
-                delete require.cache[require.resolve('./auth/auth')];
-                const Auth = require('./auth/auth');
-                global.auth = new Auth(korePool, global.cryptoUtils, securityConfig, logAudit, process.env.JWT_SIGNING_KEY);
-                reloadedSubsystems.push('auth');
+                global.consoleLog('Kore', `Successfully reloaded ${name} subsystem`, 1);
                 
-            } else if (name === 'web') {
-                // Reinitialize Web module
-                delete require.cache[require.resolve('./web/web')];
-                const Web = require('./web/web');
-                global.Web = Web;
-                await Web.initialize(korePool);
-                reloadedSubsystems.push('web');
-
-            } else if (name === 'resources') {
-                delete require.cache[require.resolve('./resources/resources')];
-                global.Resources = require('./resources/resources');
-                reloadedSubsystems.push('resources');
-                
-            } else if (name === 'persephone') {
-                // Reinitialize Persephone automation engine
-                delete require.cache[require.resolve('./persephone/persephone')];
-                const Persephone = require('./persephone/persephone');
-                global.Persephone = Persephone;
-                await Persephone.initialize(korePool, mysqlPool, cwaPool);
-                global.Persephone.initialized = true;
-                reloadedSubsystems.push('persephone');
-                
-            } else if (name === 'plugins') {
-                // Reinitialize Plugins module
-                delete require.cache[require.resolve('./plugins/plugins')];
-                const Plugins = require('./plugins/plugins');
-                global.Plugins = Plugins;
-                await Plugins.initialize(korePool, getTimestamp, isIPWhitelisted, checkRateLimit);
-                await Plugins.loadAllPlugins();
-                reloadedSubsystems.push('plugins');
+            } catch (error) {
+                const errorMsg = error.message || 'Unknown error';
+                results.failed.push({
+                    subsystem: name,
+                    error: errorMsg
+                });
+                global.consoleLog('Kore', `ERROR reloading ${name} subsystem: ${errorMsg}`, 1);
             }
         };
         
-        // Reload subsystem(s) in startup order: Resources -> Auth -> Web -> Persephone -> Plugins
+        // Reload subsystem(s) in startup order: Resources -> Auth -> API -> Web -> Persephone -> Plugins
         if (subsystem === 'all') {
-            await reloadSingleSubsystem('resources');
-            await reloadSingleSubsystem('auth');
-            await reloadSingleSubsystem('web');
-            await reloadSingleSubsystem('persephone');
-            await reloadSingleSubsystem('plugins');
+            await initializeSubsystem('resources');
+            await initializeSubsystem('auth');
+            await initializeSubsystem('api');
+            await initializeSubsystem('web');
+            await initializeSubsystem('persephone');
+            await initializeSubsystem('plugins');
         } else {
-            await reloadSingleSubsystem(subsystem);
+            await initializeSubsystem(subsystem);
         }
         
-        res.writeHead(200);
+        // Determine response status based on results
+        const hasSuccesses = results.succeeded.length > 0;
+        const hasFailures = results.failed.length > 0;
+        
+        let httpStatus = 200;
+        let statusMessage = 'success';
+        
+        if (hasFailures && !hasSuccesses) {
+            httpStatus = 500;
+            statusMessage = 'error';
+        } else if (hasFailures && hasSuccesses) {
+            httpStatus = 207; // 207 Multi-Status
+            statusMessage = 'partial_success';
+        }
+        
+        res.writeHead(httpStatus);
         res.end(JSON.stringify({ 
-            status: 'success',
-            message: `${reloadedSubsystems.length} subsystem(s) reloaded: ${reloadedSubsystems.join(', ')}`,
-            reloadedSubsystems: reloadedSubsystems
+            status: statusMessage,
+            message: hasFailures && !hasSuccesses 
+                ? `Failed to reload subsystem(s)`
+                : `${results.succeeded.length} subsystem(s) reloaded${hasFailures ? ` (${results.failed.length} failed)` : ''}`,
+            results: {
+                succeeded: results.succeeded,
+                failed: results.failed,
+                warnings: results.warnings.length > 0 ? results.warnings : undefined
+            }
         }));
         
     } catch (error) {
-        console.error(`[${getTimestamp()}] ERROR reloading subsystem:`, error.message);
+        global.consoleLog('Kore', `CRITICAL ERROR in handleReloadSubsystem: ${error.message}`, 1);
         res.writeHead(500);
         res.end(JSON.stringify({ 
             status: 'error',
-            message: error.message
+            message: `Critical error during reload: ${error.message}`
         }));
     }
 }
@@ -1519,7 +1677,7 @@ async function handleSystemHealthModules(req, res) {
         }));
         
     } catch (error) {
-        console.error(`[${getTimestamp()}] ERROR getting module list:`, error.message);
+        global.consoleLog('Kore', `ERROR getting module list: ${error.message}`, 1);
         res.writeHead(500);
         res.end(JSON.stringify({
             status: 'error',
@@ -1663,7 +1821,7 @@ async function handleSystemHealth(req, res) {
         }));
         
     } catch (error) {
-        console.error(`[${getTimestamp()}] ERROR getting system health:`, error.message);
+        global.consoleLog('Kore', `ERROR getting system health: ${error.message}`, 1);
         res.writeHead(500);
         res.end(JSON.stringify({
             status: 'error',
@@ -1678,7 +1836,7 @@ async function handleSystemHealth(req, res) {
     res.setHeader('Content-Type', 'application/json');
     
     try {
-        console.log(`[${getTimestamp()}] Reloading API members cache...`);
+        global.consoleLog('Kore', 'Reloading API members cache...', 3);
         await loadApiMembersCache();
         
         res.writeHead(200);
@@ -1688,7 +1846,7 @@ async function handleSystemHealth(req, res) {
             cachedMembers: apiMembersCache ? apiMembersCache.length : 0
         }));
     } catch (error) {
-        console.error(`[${getTimestamp()}] ERROR reloading API members:`, error.message);
+        global.consoleLog('Kore', `ERROR reloading API members: ${error.message}`, 1);
         res.writeHead(500);
         res.end(JSON.stringify({ 
             status: 'error',
@@ -1720,13 +1878,13 @@ async function handleLoadPlugin(req, res) {
             return;
         }
         
-        console.log(`[${getTimestamp()}] Loading plugin: ${pluginName}`);
+        global.consoleLog('Kore', `Loading plugin: ${pluginName}`, 3);
         const result = await global.Plugins.loadPlugin(pluginName);
         
         res.writeHead(200);
         res.end(JSON.stringify(result));
     } catch (error) {
-        console.error(`[${getTimestamp()}] ERROR loading plugin:`, error.message);
+        global.consoleLog('Kore', `ERROR loading plugin: ${error.message}`, 1);
         res.writeHead(500);
         res.end(JSON.stringify({ 
             status: 'error',
@@ -1744,13 +1902,13 @@ async function handleReloadAllPlugins(req, res) {
     res.setHeader('Content-Type', 'application/json');
     
     try {
-        console.log(`[${getTimestamp()}] Reloading all plugins...`);
+        global.consoleLog('Kore', 'Reloading all plugins...', 3);
         const result = await global.Plugins.reloadAllPlugins();
         
         res.writeHead(200);
         res.end(JSON.stringify(result));
     } catch (error) {
-        console.error(`[${getTimestamp()}] ERROR reloading all plugins:`, error.message);
+        global.consoleLog('Kore', `ERROR reloading all plugins: ${error.message}`, 1);
         res.writeHead(500);
         res.end(JSON.stringify({ 
             status: 'error',
@@ -1828,7 +1986,7 @@ async function handleGetPluginDetails(req, res, helpers) {
             connection.release();
         }
     } catch (error) {
-        console.error(`[${getTimestamp()}] ERROR getting plugin details:`, error.message);
+        global.consoleLog('Kore', `ERROR getting plugin details: ${error.message}`, 1);
         res.writeHead(500);
         res.end(JSON.stringify({
             error: error.message
@@ -1952,9 +2110,9 @@ async function handleAddPlugin(req, res) {
             // Load the plugin into memory
             try {
                 await global.Plugins.loadPlugin(name);
-                console.log(`[${getTimestamp()}] New plugin created and loaded: ${name} (ID: ${pluginId})`);
+                global.consoleLog('Kore', `New plugin created and loaded: ${name} (ID: ${pluginId})`, 3);
             } catch (loadError) {
-                console.warn(`[${getTimestamp()}] Plugin created but failed to load: ${name} - ${loadError.message}`);
+                global.consoleLog('Kore', `Plugin created but failed to load: ${name} - ${loadError.message}`, 2);
                 // Plugin is created in DB even if it fails to load
             }
 
@@ -1983,7 +2141,7 @@ async function handleAddPlugin(req, res) {
             }));
 
         } catch (error) {
-            console.error(`[${getTimestamp()}] Error creating plugin:`, error.message);
+            global.consoleLog('Kore', `Error creating plugin: ${error.message}`, 1);
             res.writeHead(500);
             res.end(JSON.stringify({ error: error.message }));
         } finally {
@@ -2104,7 +2262,7 @@ async function handleUpdatePlugin(req, res) {
 
             // Execute update
             const query = `UPDATE plugins SET ${updateFields.join(', ')} WHERE name = ?`;
-            console.log(`[${getTimestamp()}] Updating plugin: ${pluginName}`);
+            global.consoleLog('Kore', `Updating plugin: ${pluginName}`, 3);
             
             const [result] = await connection.query(query, updateValues);
 
@@ -2153,13 +2311,13 @@ async function handleUpdatePlugin(req, res) {
                         origConfig.updated_by
                     ];
 
-                    console.log(`[${getTimestamp()}] DEBUG: Saving plugin_history for ${pluginName} v${origConfig.version}`);
+                    global.consoleLog('Kore', `DEBUG: Saving plugin_history for ${pluginName} v${origConfig.version}`, 4);
 
                     try {
                         await connection.query(historyQuery, historyValues);
-                        console.log(`[${getTimestamp()}] Plugin history saved for ${pluginName} v${origConfig.version}`);
+                        global.consoleLog('Kore', `Plugin history saved for ${pluginName} v${origConfig.version}`, 3);
                     } catch (historyError) {
-                        console.error(`[${getTimestamp()}] Warning: Failed to save plugin history:`, historyError.message);
+                        global.consoleLog('Kore', `Warning: Failed to save plugin history: ${historyError.message}`, 2);
                         // Don't fail the entire request if history save fails, just log it
                     }
                 }
@@ -2172,9 +2330,9 @@ async function handleUpdatePlugin(req, res) {
                 timestamp: getTimestamp()
             }));
 
-            console.log(`[${getTimestamp()}] Plugin ${pluginName} updated by ${updates.updated_by}`);
+            global.consoleLog('Kore', `Plugin ${pluginName} updated by ${updates.updated_by}`, 3);
         } catch (error) {
-            console.error(`[${getTimestamp()}] ERROR updating plugin:`, error.message);
+            global.consoleLog('Kore', `ERROR updating plugin: ${error.message}`, 1);
             res.writeHead(500);
             res.end(JSON.stringify({
                 error: error.message,
@@ -2204,7 +2362,7 @@ function handleListPlugins(req, res) {
             plugins: plugins
         }));
     } catch (error) {
-        console.error(`[${getTimestamp()}] ERROR listing plugins:`, error.message);
+        global.consoleLog('Kore', `ERROR listing plugins: ${error.message}`, 1);
         res.writeHead(500);
         res.end(JSON.stringify({ 
             status: 'error',
@@ -2298,7 +2456,7 @@ async function handleSendEmail(req, res) {
             );
 
             if (!configRows || configRows.length === 0) {
-                console.error(`[${getTimestamp()}] Email config not found in system_config`);
+                global.consoleLog('Kore', 'Email config not found in system_config', 1);
                 res.writeHead(500);
                 res.end(JSON.stringify({
                     error: 'Email service configuration not available'
@@ -2311,7 +2469,7 @@ async function handleSendEmail(req, res) {
                 const configData = configRows[0].email_config;
                 emailConfig = typeof configData === 'string' ? JSON.parse(configData) : configData;
             } catch (parseError) {
-                console.error(`[${getTimestamp()}] Failed to parse email config:`, parseError.message);
+                global.consoleLog('Kore', `Failed to parse email config: ${parseError.message}`, 1);
                 res.writeHead(500);
                 res.end(JSON.stringify({
                     error: 'Invalid email configuration'
@@ -2321,7 +2479,7 @@ async function handleSendEmail(req, res) {
 
             // Find the requested SMTP profile
             if (!emailConfig.smtp_profiles || !Array.isArray(emailConfig.smtp_profiles)) {
-                console.error(`[${getTimestamp()}] No SMTP profiles found in email config`);
+                global.consoleLog('Kore', 'No SMTP profiles found in email config', 1);
                 res.writeHead(500);
                 res.end(JSON.stringify({
                     error: 'No SMTP profiles configured'
@@ -2383,7 +2541,7 @@ try {
 }
 `;
 
-            console.log(`[${getTimestamp()}] Sending email to ${to} with subject: ${subject}`);
+            global.consoleLog('Kore', `Sending email to ${to} with subject: ${subject}`, 3);
 
             try {
                 // Spawn PowerShell process
@@ -2403,7 +2561,7 @@ try {
                 // Set timeout for PowerShell execution (30 seconds)
                 const timeout = setTimeout(() => {
                     timedOut = true;
-                    console.error(`[${getTimestamp()}] PowerShell email send timeout after 30s`);
+                    global.consoleLog('Kore', 'PowerShell email send timeout after 30s', 1);
                     ps.kill();
                 }, 30000);
 
@@ -2428,7 +2586,7 @@ try {
                         return;
                     }
                     if (code === 0 && !stderr) {
-                        console.log(`[${getTimestamp()}] Email sent successfully to ${to}`);
+                        global.consoleLog('Kore', `Email sent successfully to ${to}`, 3);
 
                         res.writeHead(200);
                         res.end(JSON.stringify({
@@ -2450,7 +2608,7 @@ try {
                             }
                         }
                         
-                        console.error(`[${getTimestamp()}] PowerShell SMTP failed: ${errorMsg}`);
+                        global.consoleLog('Kore', `PowerShell SMTP failed: ${errorMsg}`, 1);
                         
                         res.writeHead(500);
                         res.end(JSON.stringify({
@@ -2462,7 +2620,7 @@ try {
                 });
 
                 ps.on('error', (err) => {
-                    console.error(`[${getTimestamp()}] PowerShell spawn error:`, err.message);
+                    global.consoleLog('Kore', `PowerShell spawn error: ${err.message}`, 1);
                     
                     res.writeHead(500);
                     res.end(JSON.stringify({
@@ -2473,7 +2631,7 @@ try {
                 });
 
             } catch (psError) {
-                console.error(`[${getTimestamp()}] Email handler error:`, psError.message);
+                global.consoleLog('Kore', `Email handler error: ${psError.message}`, 1);
                 res.writeHead(500);
                 res.end(JSON.stringify({
                     success: false,
@@ -2484,7 +2642,7 @@ try {
 
                 
         } catch (error) {
-            console.error(`[${getTimestamp()}] Email handler error:`, error.message);
+            global.consoleLog('Kore', `Email handler error: ${error.message}`, 1);
 
             const statusCode = error.code === 'ECONNREFUSED' || error.code === 'ETIMEDOUT' ? 503 : 500;
 
@@ -2505,14 +2663,14 @@ async function handlePluginRequest(req, res) {
     const clientIP = req.socket.remoteAddress;
     const route = req.url.split('?')[0]; // Remove query params
     
-    console.log(`[${getTimestamp()}] === PLUGIN REQUEST ===`);
-    console.log(`[${getTimestamp()}] Route: ${route}`);
+    global.consoleLog('Kore', '=== PLUGIN REQUEST ===', 4);
+    global.consoleLog('Kore', `Route: ${route}`, 4);
     
     // Get the plugin handler for this route
     const pluginHandler = global.Plugins.getHandler(route);
     
     if (!pluginHandler) {
-        console.log(`[${getTimestamp()}] No plugin handler found for ${route}`);
+        global.consoleLog('Kore', `No plugin handler found for ${route}`, 2);
         res.writeHead(404, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: 'Plugin not found' }));
         return;
@@ -2525,7 +2683,7 @@ async function handlePluginRequest(req, res) {
         const rateLimitEndpoint = route;
         const rateLimitCheck = checkRateLimit(clientIP, rateLimitEndpoint);
         if (!rateLimitCheck.allowed) {
-            console.log(`[${getTimestamp()}] Rate limit exceeded for IP ${clientIP} on ${route}`);
+            global.consoleLog('Kore', `Rate limit exceeded for IP ${clientIP} on ${route}`, 2);
             res.writeHead(429, { 
                 'Content-Type': 'application/json',
                 'Retry-After': rateLimitCheck.resetIn
@@ -2541,7 +2699,7 @@ async function handlePluginRequest(req, res) {
     // Get operation manager for this plugin
     const manager = global.Plugins.getOperationManager(plugin.name);
     if (!manager) {
-        console.error(`[${getTimestamp()}] No operation manager for plugin ${plugin.name}`);
+        global.consoleLog('Kore', `No operation manager for plugin ${plugin.name}`, 1);
         res.writeHead(500, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: 'Plugin manager not initialized' }));
         return;
@@ -2549,7 +2707,7 @@ async function handlePluginRequest(req, res) {
 
     // If reload is queued or reloading, reject the operation
     if (manager.reloadQueued || manager.isReloading) {
-        console.log(`[${getTimestamp()}] Operation rejected for ${plugin.name} due to pending reload`);
+        global.consoleLog('Kore', `Operation rejected for ${plugin.name} due to pending reload`, 2);
         res.writeHead(503, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ 
             error: 'Plugin is reloading',
@@ -2573,7 +2731,7 @@ async function handlePluginRequest(req, res) {
         // Call the plugin handler
         await handler(req, res, helpers);
     } catch (error) {
-        console.error(`[${getTimestamp()}] ERROR in plugin ${plugin.name}:`, error.message);
+        global.consoleLog('Kore', `ERROR in plugin ${plugin.name}: ${error.message}`, 1);
         if (!res.headersSent) {
             res.writeHead(500, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({
@@ -3061,24 +3219,24 @@ function filterNodesByQuery(nodesData, queryString) {
  * POST /nodes
  */
 async function handleNodesRequest(req, res) {
-    console.log(`[${getTimestamp()}] === ENTERING handleNodesRequest ===`);
-    console.log(`[${getTimestamp()}] Method: ${req.method}, URL: ${req.url}`);
+    global.consoleLog('Kore', '=== ENTERING handleNodesRequest ===', 4);
+    global.consoleLog('Kore', `Method: ${req.method}, URL: ${req.url}`, 4);
     
     // CORS headers
-    console.log(`[${getTimestamp()}] Setting CORS headers`);
+    global.consoleLog('Kore', 'Setting CORS headers', 4);
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Session-Token');
 
     if (req.method === 'OPTIONS') {
-        console.log(`[${getTimestamp()}] Handling OPTIONS request`);
+        global.consoleLog('Kore', 'Handling OPTIONS request', 4);
         res.writeHead(200);
         res.end();
         return;
     }
 
     if (req.method !== 'POST') {
-        console.log(`[${getTimestamp()}] Error: Non-POST method: ${req.method}`);
+        global.consoleLog('Kore', `Error: Non-POST method: ${req.method}`, 2);
         res.writeHead(405, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: 'Method not allowed. Use POST.' }));
         return;
@@ -3107,39 +3265,45 @@ async function handleNodesRequest(req, res) {
             const validation = await validateSessionAndGetCredentials(sessionToken, params.user);
             
             if (!validation.valid) {
-                console.log(`[${getTimestamp()}] Nodes request rejected: ${validation.error}`);
+                global.consoleLog('Kore', `Nodes request rejected: ${validation.error}`, 2);
                 res.writeHead(401, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify({ error: validation.error }));
                 return;
             }
 
-            console.log(`[${getTimestamp()}] Nodes request from user: ${validation.user}`);
+            global.consoleLog('Kore', `Nodes request from user: ${validation.user}`, 3);
 
             // Get or create WebSocket connection
+            if (!ENABLE_MESHCENTRAL) {
+                res.writeHead(503);
+                res.end(JSON.stringify({ error: 'MeshCentral is disabled' }));
+                return;
+            }
+            
             if (!global.meshWS || global.meshWS.readyState !== WebSocket.OPEN) {
-                console.log(`[${getTimestamp()}] Creating new WebSocket connection for nodes request...`);
+                global.consoleLog('Kore', 'Creating new WebSocket connection for nodes request...', 4);
                 const cookie = await getSessionCookie(validation.meshUser, validation.meshPass);
-                console.log(`[${getTimestamp()}] Got session cookie, connecting WebSocket...`);
+                global.consoleLog('Kore', 'Got session cookie, connecting WebSocket...', 4);
                 global.meshWS = await connectToMeshCentral(cookie);
-                console.log(`[${getTimestamp()}] WebSocket connected, setting up message handler...`);
+                global.consoleLog('Kore', 'WebSocket connected, setting up message handler...', 4);
                 try {
                     setupMessageHandler(global.meshWS);
-                    console.log(`[${getTimestamp()}] [IMMEDIATE] setupMessageHandler returned, now proceeding`);
+                    global.consoleLog('Kore', '[IMMEDIATE] setupMessageHandler returned, now proceeding', 4);
                 } catch (e) {
-                    console.error(`[${getTimestamp()}] [ERROR] Exception in setupMessageHandler:`, e.message, e.stack);
+                    global.consoleLog('Kore', `[ERROR] Exception in setupMessageHandler: ${e.message} ${e.stack}`, 1);
                     throw e;
                 }
             } else {
-                console.log(`[${getTimestamp()}] Reusing existing WebSocket connection`);
+                global.consoleLog('Kore', 'Reusing existing WebSocket connection', 4);
             }
 
-            console.log(`[${getTimestamp()}] [CHECKPOINT 1] Past setupMessageHandler, about to send nodes request`);
+            global.consoleLog('Kore', '[CHECKPOINT 1] Past setupMessageHandler, about to send nodes request', 4);
             
             // Request nodes list (required)
             try {
-                console.log(`[${getTimestamp()}] [CHECKPOINT 2] Calling sendNodesRequest`);
+                global.consoleLog('Kore', '[CHECKPOINT 2] Calling sendNodesRequest', 4);
                 const nodesResult = await sendNodesRequest(global.meshWS);
-                console.log(`[${getTimestamp()}] [CHECKPOINT 3] Got nodes response`);
+                global.consoleLog('Kore', '[CHECKPOINT 3] Got nodes response', 4);
                 
                 // Extract the nodes from the response
                 let nodesData = nodesResult.nodes || nodesResult;
@@ -3147,51 +3311,51 @@ async function handleNodesRequest(req, res) {
                 // Try to get mesh metadata (non-blocking, optional)
                 let meshesResult = null;
                 try {
-                    console.log(`[${getTimestamp()}] Requesting mesh metadata...`);
+                    global.consoleLog('Kore', 'Requesting mesh metadata...', 4);
                     meshesResult = await Promise.race([
                         sendMeshesRequest(global.meshWS),
                         new Promise((_, reject) => setTimeout(() => reject(new Error('Meshes timeout')), 5000))
                     ]);
-                    console.log(`[${getTimestamp()}] Got meshes response`);
+                    global.consoleLog('Kore', 'Got meshes response', 4);
                 } catch (meshError) {
-                    console.warn(`[${getTimestamp()}] Mesh enrichment failed (non-fatal):`, meshError.message);
+                    global.consoleLog('Kore', `Mesh enrichment failed (non-fatal): ${meshError.message}`, 2);
                     meshesResult = null;
                 }
                 
                 // Enrich nodes with mesh metadata if available
                 if (meshesResult) {
-                    console.log(`[${getTimestamp()}] Enriching nodes with mesh metadata`);
+                    global.consoleLog('Kore', 'Enriching nodes with mesh metadata', 4);
                     nodesData = enrichNodesWithMeshData(nodesData, meshesResult);
-                    console.log(`[${getTimestamp()}] Nodes enriched successfully`);
+                    global.consoleLog('Kore', 'Nodes enriched successfully', 4);
                 } else {
-                    console.log(`[${getTimestamp()}] Skipping mesh enrichment (no mesh data available)`);
+                    global.consoleLog('Kore', 'Skipping mesh enrichment (no mesh data available)', 4);
                 }
                 
                 // Apply query filter if provided
                 if (params.query) {
-                    console.log(`[${getTimestamp()}] Applying query filter: ${params.query.substring(0, 100)}...`);
+                    global.consoleLog('Kore', `Applying query filter: ${params.query.substring(0, 100)}...`, 4);
                     nodesData = filterNodesByQuery(nodesData, params.query);
-                    console.log(`[${getTimestamp()}] Query filter applied successfully`);
+                    global.consoleLog('Kore', 'Query filter applied successfully', 4);
                 }
                 
-                console.log(`[${getTimestamp()}] Writing response header (200)`);
+                global.consoleLog('Kore', 'Writing response header (200)', 4);
                 res.writeHead(200, { 'Content-Type': 'application/json' });
-                console.log(`[${getTimestamp()}] Sending response body`);
+                global.consoleLog('Kore', 'Sending response body', 4);
                 res.end(JSON.stringify({
                     success: true,
                     result: nodesData,
                     timestamp: getTimestamp()
                 }));
-                console.log(`[${getTimestamp()}] Response sent successfully`);
+                global.consoleLog('Kore', 'Response sent successfully', 3);
             } catch (nodeError) {
-                console.error(`[${getTimestamp()}] [ERROR] Exception during nodes request:`, nodeError.message, nodeError.stack);
+                global.consoleLog('Kore', `[ERROR] Exception during nodes request: ${nodeError.message} ${nodeError.stack}`, 1);
                 throw nodeError;
             }
         } catch (error) {
-            console.error(`[${getTimestamp()}] Nodes request error:`, error.message);
-            console.error(`[${getTimestamp()}] Error stack:`, error.stack);
+            global.consoleLog('Kore', `Nodes request error: ${error.message}`, 1);
+            global.consoleLog('Kore', `Error stack: ${error.stack}`, 1);
             
-            console.log(`[${getTimestamp()}] Writing error response (500)`);
+            global.consoleLog('Kore', 'Writing error response (500)', 4);
             res.writeHead(500, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({
                 error: error.message,
@@ -3343,9 +3507,9 @@ try {
     let ca = null;
     try {
         ca = fs.readFileSync(caPath, 'utf8');
-        console.log(`[${getTimestamp()}] CA bundle loaded from ${caPath}`);
+        global.consoleLog('Kore', `CA bundle loaded from ${caPath}`, 3);
     } catch (caErr) {
-        console.warn(`[${getTimestamp()}] WARNING: CA bundle not found at ${caPath} - cert chain may be incomplete`);
+        global.consoleLog('Kore', `WARNING: CA bundle not found at ${caPath} - cert chain may be incomplete`, 2);
     }
     
     serverOptions = {
@@ -3358,11 +3522,11 @@ try {
         serverOptions.ca = ca;
     }
     
-    console.log(`[${getTimestamp()}] SSL certificate loaded from ZeroSSL (app.equinoxits.com)`);
+    global.consoleLog('Kore', 'SSL certificate loaded from ZeroSSL (app.equinoxits.com)', 3);
 } catch (err) {
-    console.error(`[${getTimestamp()}] ERROR: Could not load certificate: ${err.message}`);
-    console.error(`[${getTimestamp()}] Cert path: ${certPath}`);
-    console.error(`[${getTimestamp()}] Key path: ${keyPath}`);
+    global.consoleLog('Kore', `ERROR: Could not load certificate: ${err.message}`, 1);
+    global.consoleLog('Kore', `Cert path: ${certPath}`, 1);
+    global.consoleLog('Kore', `Key path: ${keyPath}`, 1);
     process.exit(1);
 }
 
@@ -3481,10 +3645,35 @@ const requestHandler = async (req, res) => {
         return;
     }
 
+    // Route API requests (new /api/* endpoints)
+    if (routeApiRequest(req, res)) {
+        return;
+    }
+
     // Route requests
     if (req.url === '/auth' || req.url.startsWith('/auth?')) {
+        /**
+         * DEPRECATED: /auth endpoint is deprecated for future removal
+         * New code should use: POST /api/auth/validate
+         * 
+         * This endpoint validates API keys for external systems.
+         * It will be moved to the API subsystem and the /auth route will be removed
+         * once all external callers have been migrated to /api/auth/validate
+         * 
+         * Current behavior: Validates x-kore-token or x-proxy-token header + origin/domain
+         */
         handleAuthRequest(req, res);
     } else if (req.url === '/validate' || req.url.startsWith('/validate?')) {
+        /**
+         * DEPRECATED: /validate endpoint is deprecated for future removal
+         * New code should use: POST /api/auth/validate-token
+         * 
+         * This endpoint validates session tokens using legacy file-based storage.
+         * It will be removed once all external callers have migrated to JWT-based
+         * authentication via auth.js or /api/auth/validate-token
+         * 
+         * Current behavior: Validates x-session-token header against sessions.json
+         */
         handleValidateSession(req, res);
     } else if (req.url === '/status') {
         handleStatusRequest(req, res);
@@ -3545,8 +3734,9 @@ const requestHandler = async (req, res) => {
         handlePluginRequest(req, res);
     } else if (global.Resources.handleRoute(req, res)) {
         // Route handled by Resources module (workflows, forms, etc.)
-    } else if (Persephone.handleRegisteredRoute(req, res)) {
-        // Route was handled by Persephone registry
+    } else if (req.url.startsWith('/engine/')) {
+        // Route to Persephone execution engine
+        global.Persephone.handleRequest(req, res);
     } else if (await Web.handleRoute(req, res)) {
         // Route handled by web module (dynamic pages, static files, libraries)
     } else {
@@ -3560,50 +3750,50 @@ const server = https.createServer(serverOptions, requestHandler);
 const server443 = https.createServer(serverOptions, requestHandler);
 
 server.on('connection', (socket) => {
-    console.log(`[${getTimestamp()}] *** NEW CONNECTION ATTEMPT (1139) ***`);
-    console.log(`[${getTimestamp()}] Remote: ${socket.remoteAddress}:${socket.remotePort}`);
+    global.consoleLog('Kore', '*** NEW CONNECTION ATTEMPT (1139) ***', 4);
+    global.consoleLog('Kore', `Remote: ${socket.remoteAddress}:${socket.remotePort}`, 4);
 });
 
 server443.on('connection', (socket) => {
-    console.log(`[${getTimestamp()}] *** NEW CONNECTION ATTEMPT (443) ***`);
-    console.log(`[${getTimestamp()}] Remote: ${socket.remoteAddress}:${socket.remotePort}`);
+    global.consoleLog('Kore', '*** NEW CONNECTION ATTEMPT (443) ***', 4);
+    global.consoleLog('Kore', `Remote: ${socket.remoteAddress}:${socket.remotePort}`, 4);
 });
 
 server443.on('tlsClientHello', (hello) => {
     const serverName = hello.servername || 'unknown';
     const cipherSuites = hello.cipherSuites ? hello.cipherSuites.length : 0;
     const tlsVersion = hello.tlsVersion ? `TLS ${hello.tlsVersion}` : 'unknown';
-    console.log(`[${getTimestamp()}] TLS ClientHello (443) - Server: ${serverName}, Ciphers: ${cipherSuites}, Version: ${tlsVersion}`);
+    global.consoleLog('Kore', `TLS ClientHello (443) - Server: ${serverName}, Ciphers: ${cipherSuites}, Version: ${tlsVersion}`, 4);
 });
 
 server.on('clientError', (err, socket) => {
-    console.error(`[${getTimestamp()}] *** CLIENT ERROR (1139) ***`);
-    console.error(`[${getTimestamp()}] Error Code: ${err.code}`);
-    console.error(`[${getTimestamp()}] Error Message: ${err.message}`);
-    console.error(`[${getTimestamp()}] Remote Address: ${socket.remoteAddress}:${socket.remotePort}`);
-    console.error(`[${getTimestamp()}] Full Error:`, err);
+    global.consoleLog('Kore', '*** CLIENT ERROR (1139) ***', 1);
+    global.consoleLog('Kore', `Error Code: ${err.code}`, 1);
+    global.consoleLog('Kore', `Error Message: ${err.message}`, 1);
+    global.consoleLog('Kore', `Remote Address: ${socket.remoteAddress}:${socket.remotePort}`, 1);
+    global.consoleLog('Kore', `Full Error: ${JSON.stringify(err)}`, 1);
     if (socket.writable) {
         socket.end('HTTP/1.1 400 Bad Request\r\n\r\n');
     }
 });
 
 server443.on('clientError', (err, socket) => {
-    console.error(`[${getTimestamp()}] *** CLIENT ERROR (443) ***`);
-    console.error(`[${getTimestamp()}] Error Code: ${err.code}`);
-    console.error(`[${getTimestamp()}] Error Message: ${err.message}`);
-    console.error(`[${getTimestamp()}] Remote Address: ${socket.remoteAddress}:${socket.remotePort}`);
-    console.error(`[${getTimestamp()}] Full Error:`, err);
+    global.consoleLog('Kore', '*** CLIENT ERROR (443) ***', 1);
+    global.consoleLog('Kore', `Error Code: ${err.code}`, 1);
+    global.consoleLog('Kore', `Error Message: ${err.message}`, 1);
+    global.consoleLog('Kore', `Remote Address: ${socket.remoteAddress}:${socket.remotePort}`, 1);
+    global.consoleLog('Kore', `Full Error: ${JSON.stringify(err)}`, 1);
     if (socket.writable) {
         socket.end('HTTP/1.1 400 Bad Request\r\n\r\n');
     }
 });
 
 server.on('secureConnection', (tlsSocket) => {
-    console.log(`[${getTimestamp()}] TLS connection established (1139) from ${tlsSocket.remoteAddress}:${tlsSocket.remotePort}`);
+    global.consoleLog('Kore', `TLS connection established (1139) from ${tlsSocket.remoteAddress}:${tlsSocket.remotePort}`, 3);
     
     // Set socket timeout to 90 seconds to allow slow internal HTTP requests to MeshCentral
     tlsSocket.setTimeout(90000, () => {
-        console.error(`[${getTimestamp()}] Socket timeout from ${tlsSocket.remoteAddress} - destroying`);
+        global.consoleLog('Kore', `Socket timeout from ${tlsSocket.remoteAddress} - destroying`, 1);
         tlsSocket.destroy();
     });
     
@@ -3612,20 +3802,20 @@ server.on('secureConnection', (tlsSocket) => {
     });
     
     tlsSocket.on('error', (err) => {
-        console.error(`[${getTimestamp()}] TLS socket error (1139):`, err.message);
+        global.consoleLog('Kore', `TLS socket error (1139): ${err.message}`, 1);
     });
     
     tlsSocket.on('close', () => {
-        console.log(`[${getTimestamp()}] TLS socket closed (1139)`);
+        global.consoleLog('Kore', 'TLS socket closed (1139)', 3);
     });
 });
 
 server443.on('secureConnection', (tlsSocket) => {
-    console.log(`[${getTimestamp()}] TLS connection established (443) from ${tlsSocket.remoteAddress}:${tlsSocket.remotePort}`);
+    global.consoleLog('Kore', `TLS connection established (443) from ${tlsSocket.remoteAddress}:${tlsSocket.remotePort}`, 3);
     
     // Set socket timeout to 90 seconds to allow slow internal HTTP requests to MeshCentral
     tlsSocket.setTimeout(90000, () => {
-        console.error(`[${getTimestamp()}] Socket timeout from ${tlsSocket.remoteAddress} - destroying`);
+        global.consoleLog('Kore', `Socket timeout from ${tlsSocket.remoteAddress} - destroying`, 1);
         tlsSocket.destroy();
     });
     
@@ -3634,77 +3824,103 @@ server443.on('secureConnection', (tlsSocket) => {
     });
     
     tlsSocket.on('error', (err) => {
-        console.error(`[${getTimestamp()}] TLS socket error (443):`, err.message);
+        global.consoleLog('Kore', `TLS socket error (443): ${err.message}`, 1);
     });
     
     tlsSocket.on('close', () => {
-        console.log(`[${getTimestamp()}] TLS socket closed (443)`);
+        global.consoleLog('Kore', 'TLS socket closed (443)', 3);
     });
 });
 
 // Start servers on both ports
 server.listen(PROXY_PORT, '0.0.0.0', async () => {
-    console.log(`[${getTimestamp()}] Proxy server listening on HTTPS://0.0.0.0:${PROXY_PORT} (1139)`);
+    global.consoleLog('Kore', `Proxy server listening on HTTPS://0.0.0.0:${PROXY_PORT} (1139)`, 3);
     
     // Initialize MySQL pool
     await initializeMySQLPool();
     
-    // Load API members cache from database
+    // Helper to initialize subsystems (used for startup and reload)
+    const initializeSubsystem = async (name) => {
+        try {
+            switch (name) {
+                case 'resources':
+                    delete require.cache[require.resolve('./resources/resources')];
+                    global.Resources = require('./resources/resources');
+                    await global.Resources.initialize();
+                    break;
+                    
+                case 'auth':
+                    delete require.cache[require.resolve('./auth/auth')];
+                    const [configRows] = await korePool.query('SELECT security_config FROM system_config WHERE id = 1');
+                    const securityConfig = configRows[0]?.security_config || {};
+                    const Auth = require('./auth/auth');
+                    global.auth = new Auth(korePool, global.cryptoUtils, securityConfig, logAudit, process.env.JWT_SIGNING_KEY);
+                    await global.auth.initialize();
+                    break;
+                    
+                case 'api':
+                    delete require.cache[require.resolve('./api/api')];
+                    const API = require('./api/api');
+                    global.API = new API(korePool);
+                    await global.API.initialize();
+                    break;
+                    
+                case 'web':
+                    const Web = require('./web/web');
+                    global.Web = Web;
+                    await global.Web.initialize(korePool);
+                    break;
+                    
+                case 'persephone':
+                    const Persephone = require('./persephone/persephone');
+                    global.Persephone = Persephone;
+                    await global.Persephone.initialize(korePool, global.Plugins);
+                    global.Persephone.initialized = true;
+                    break;
+                    
+                case 'plugins':
+                    const Plugins = require('./plugins/plugins');
+                    global.Plugins = Plugins;
+                    await global.Plugins.initialize(korePool, getTimestamp, isIPWhitelisted, checkRateLimit);
+                    await global.Plugins.loadAllPlugins();
+                    break;
+            }
+            
+            return { success: true, subsystem: name };
+            
+        } catch (err) {
+            global.consoleLog('Kore', `ERROR initializing ${name}: ${err.message}`, 1);
+            return { success: false, subsystem: name, error: err.message };
+        }
+    };
+    
+    // Initialize all subsystems in dependency order: Resources -> Auth -> API -> Web -> Persephone -> Plugins
+    const initResults = [];
+    initResults.push(await initializeSubsystem('resources'));
+    
+    // Load API members cache after resources is initialized (so korePool exists)
     await loadApiMembersCache();
     
-    // Initialize Plugins module
-    try {
-        global.Plugins = Plugins;
-        await Plugins.initialize(korePool, getTimestamp, isIPWhitelisted, checkRateLimit);
-        await Plugins.loadAllPlugins();
-        console.log(`[${getTimestamp()}] Plugins module initialized`);
-    } catch (err) {
-        console.error(`[${getTimestamp()}] ERROR initializing Plugins:`, err.message);
-    }
-
-    // Initialize Resources module (stateless, no async init needed)
-    try {
-        global.Resources = require('./resources/resources');
-        console.log(`[${getTimestamp()}] Resources module initialized`);
-    } catch (err) {
-        console.error(`[${getTimestamp()}] ERROR initializing Resources module:`, err.message);
-    }
-
-    // Initialize Persephone automation engine
-    try {
-        global.Persephone = Persephone;
-        await Persephone.initialize(korePool, mysqlPool, cwaPool);
-        global.Persephone.initialized = true;
-        console.log(`[${getTimestamp()}] Persephone automation engine initialized`);
-    } catch (err) {
-        console.error(`[${getTimestamp()}] ERROR initializing Persephone:`, err.message);
-    }
+    initResults.push(await initializeSubsystem('auth'));
+    initResults.push(await initializeSubsystem('api'));
+    initResults.push(await initializeSubsystem('web'));
+    initResults.push(await initializeSubsystem('persephone'));
+    initResults.push(await initializeSubsystem('plugins'));
     
-    // Initialize Web module (dynamic page generation)
-    try {
-        global.Web = Web;
-        await Web.initialize(korePool);
-        console.log(`[${getTimestamp()}] Web module initialized`);
-    } catch (err) {
-        console.error(`[${getTimestamp()}] ERROR initializing Web module:`, err.message);
-    }
+    // Log summary
+    const succeeded = initResults.filter(r => r.success).map(r => r.subsystem);
+    const failed = initResults.filter(r => !r.success).map(r => r.subsystem);
     
-    // Initialize Auth system
-    try {
-        // Load security config from system_config
-        const [configRows] = await korePool.query('SELECT security_config FROM system_config WHERE id = 1');
-        const securityConfig = configRows[0]?.security_config || {};
-        
-        // Initialize Auth with dependencies
-        global.auth = new Auth(korePool, global.cryptoUtils, securityConfig, logAudit, process.env.JWT_SIGNING_KEY);
-        console.log(`[${getTimestamp()}] Auth system initialized`);
-    } catch (err) {
-        console.error(`[${getTimestamp()}] ERROR initializing Auth:`, err.message);
+    if (failed.length === 0) {
+        global.consoleLog('Kore', `✓ All ${succeeded.length} subsystems initialized: ${succeeded.join(', ')}`, 3);
+    } else {
+        global.consoleLog('Kore', `✓ ${succeeded.length} subsystems initialized: ${succeeded.join(', ')}`, 3);
+        global.consoleLog('Kore', `✗ ${failed.length} subsystems failed: ${failed.join(', ')}`, 1);
     }
 });
 
 server443.listen(443, '0.0.0.0', () => {
-    console.log(`[${getTimestamp()}] Proxy server listening on HTTPS://0.0.0.0:443`);
+    global.consoleLog('Kore', 'Proxy server listening on HTTPS://0.0.0.0:443', 3);
 });
 
 // ===== DIAGNOSTIC SERVER ON PORT 1140 (Testing with Rewst support - can be removed) =====
@@ -3719,14 +3935,14 @@ const server1140 = https.createServer(serverOptions, (req, res) => {
 });
 
 server1140.listen(1140, '0.0.0.0', () => {
-    console.log(`[${getTimestamp()}] Diagnostic server listening on HTTPS://0.0.0.0:1140`);
+    global.consoleLog('Kore', 'Diagnostic server listening on HTTPS://0.0.0.0:1140', 3);
 });
 
 server1140.timeout = 120000;
 server1140.keepAliveTimeout = 120000;
 
 server1140.on('error', (err) => {
-    console.error(`[${getTimestamp()}] Server (1140) error:`, err);
+    global.consoleLog('Kore', `Server (1140) error: ${JSON.stringify(err)}`, 1);
 });
 // ===== END DIAGNOSTIC SERVER =====
 
@@ -3737,30 +3953,30 @@ server443.timeout = 120000;
 server443.keepAliveTimeout = 120000;
 
 server.on('error', (err) => {
-    console.error(`[${getTimestamp()}] Server (1139) error:`, err);
+    global.consoleLog('Kore', `Server (1139) error: ${JSON.stringify(err)}`, 1);
     process.exit(1);
 });
 
 server443.on('error', (err) => {
-    console.error(`[${getTimestamp()}] Server (443) error:`, err);
+    global.consoleLog('Kore', `Server (443) error: ${JSON.stringify(err)}`, 1);
     process.exit(1);
 });
 
 // Global error handlers
 process.on('uncaughtException', (err) => {
-    console.error(`[${getTimestamp()}] UNCAUGHT EXCEPTION:`, err);
+    global.consoleLog('Kore', `UNCAUGHT EXCEPTION: ${JSON.stringify(err)}`, 1);
     process.exit(1);
 });
 
 process.on('unhandledRejection', (reason, promise) => {
-    console.error(`[${getTimestamp()}] UNHANDLED REJECTION:`, reason);
+    global.consoleLog('Kore', `UNHANDLED REJECTION: ${JSON.stringify(reason)}`, 1);
 });
 process.on('SIGTERM', () => {
-    console.log(`[${getTimestamp()}] SIGTERM received, shutting down...`);
+    global.consoleLog('Kore', 'SIGTERM received, shutting down...', 3);
     
     // Force exit after 5 seconds if graceful shutdown takes too long
     const forceExitTimeout = setTimeout(() => {
-        console.error(`[${getTimestamp()}] Forced exit after shutdown timeout`);
+        global.consoleLog('Kore', 'Forced exit after shutdown timeout', 1);
         process.exit(1);
     }, 5000);
     
@@ -3779,13 +3995,13 @@ process.on('SIGTERM', () => {
             if (mysqlPool) mysqlPool.end();
             if (cwaPool) cwaPool.end();
             if (korePool) korePool.end();
-            console.log(`[${getTimestamp()}] Shutdown complete`);
+            global.consoleLog('Kore', 'Shutdown complete', 3);
             process.exit(0);
         }
     };
     
     server.close(() => {
-        console.log(`[${getTimestamp()}] Server (1139) closed`);
+        global.consoleLog('Kore', 'Server (1139) closed', 3);
         checkAllClosed();
     });
     
@@ -3800,7 +4016,7 @@ process.on('SIGINT', () => {
     
     // Force exit after 5 seconds if graceful shutdown takes too long
     const forceExitTimeout = setTimeout(() => {
-        console.error(`[${getTimestamp()}] Forced exit after shutdown timeout`);
+        global.consoleLog('Kore', 'Forced exit after shutdown timeout', 1);
         process.exit(1);
     }, 5000);
     
@@ -3819,13 +4035,13 @@ process.on('SIGINT', () => {
             if (mysqlPool) mysqlPool.end();
             if (cwaPool) cwaPool.end();
             if (korePool) korePool.end();
-            console.log(`[${getTimestamp()}] Shutdown complete`);
+            global.consoleLog('Kore', 'Shutdown complete', 3);
             process.exit(0);
         }
     };
     
     server.close(() => {
-        console.log(`[${getTimestamp()}] Server (1139) closed`);
+        global.consoleLog('Kore', 'Server (1139) closed', 3);
         checkAllClosed();
     });
     

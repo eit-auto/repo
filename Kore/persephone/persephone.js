@@ -426,41 +426,33 @@ const Persephone = (() => {
                 }
             }
             
-            // Determine final workflow status based on step results
+            // Determine final workflow status
             let finalStatus = 'success';  // Default: all succeeded
-            
-            // Check if any steps failed
-            const failedSteps = Object.entries(results).filter(([stepId, result]) => {
-                return result && result.state === 'Failure';
-            });
-            
-            if (failedSteps.length > 0) {
-                // Find the last step(s) executed (those with no successors)
-                const lastSteps = workflow.definition.steps.filter(step => {
-                    // A step is "last" if no other step targets it as a successor
-                    const isTargeted = workflow.definition.steps.some(otherStep => {
-                        if (!otherStep.transition || !otherStep.transition.cases) return false;
-                        return otherStep.transition.cases.some(caseObj => {
-                            if (caseObj.targetSteps && caseObj.targetSteps.includes(step.id)) return true;
-                            if (caseObj.targetNodes) {
-                                return caseObj.targetNodes.some(nodeId => {
-                                    const node = nodeLookup[nodeId];
-                                    return node && node.targetSteps && node.targetSteps.includes(step.id);
-                                });
-                            }
-                            return false;
-                        });
-                    });
-                    return !isTargeted;
-                });
-                
-                // Check if any of the last steps failed
-                const lastStepFailed = lastSteps.some(step => {
-                    const result = results[step.name];
-                    return result && result.state === 'Failure';
-                });
-                
-                finalStatus = lastStepFailed ? 'failure' : 'warning';
+
+            if (errors.length > 0) {
+                // Any errors → at least warning
+                finalStatus = 'warning';
+
+                // Check if the last step that actually ran was a failure or warning
+                const [lastStepRows] = await conn.execute(
+                    `SELECT status FROM workflow_exec_steps 
+                     WHERE execution_id = ? 
+                     ORDER BY execution_sequence DESC 
+                     LIMIT 1`,
+                    [executionId]
+                );
+                if (lastStepRows.length > 0 && lastStepRows[0].status === 'failure') {
+                    finalStatus = 'failure';
+                }
+            } else {
+                // No errors in errors[] — check if any step output carries a warning or failure status
+                const hasWarning = Object.values(results).some(r => r && r.status === 'warning');
+                const hasFailure = Object.values(results).some(r => r && r.status === 'failure');
+                if (hasFailure) {
+                    finalStatus = 'failure';
+                } else if (hasWarning) {
+                    finalStatus = 'warning';
+                }
             }
             
             // Check if execution was cancelled - if so, override final status
@@ -491,7 +483,7 @@ const Persephone = (() => {
         } catch (err) {
             // Update execution as failed
             const duration = Date.now() - startTime;
-            errors.push({ workflow: 'fatal', error: err.message });
+            errors.push({ type: 'failure', workflow: 'fatal', error: err.message });
             
             const fullContext = {
                 CTX: variables,
@@ -671,6 +663,9 @@ const Persephone = (() => {
                 case 'Kore':
                     stepOutput = await executeKore(step, variables, executionId);
                     break;
+                case 'Workflow':
+                    stepOutput = await executeWorkflowStep(step, variables, executionId);
+                    break;
                 default:
                     throw new Error(`Unknown step type: ${step.type}`);
             }
@@ -712,7 +707,16 @@ const Persephone = (() => {
             }
 
             const stepDuration = Date.now() - stepStartTime;
-            await recordStepExecution(conn, executionId, stepId, step.type, 'success', stepOutput, null, stepDuration, stepNewContext, step.name, null, stepExecutionId);
+            const stepState = stepOutput && stepOutput.status === 'failure' ? 'Failure'
+                : stepOutput && stepOutput.status === 'warning' ? 'Warning'
+                : 'Success';
+
+            // Propagate sub-workflow errors into parent errors array
+            if ((stepState === 'Warning' || stepState === 'Failure') && stepOutput.subErrors && stepOutput.subErrors.length > 0) {
+                stepOutput.subErrors.forEach(e => errors.push({ type: stepState.toLowerCase(), step: stepId, ...e }));
+            }
+
+            await recordStepExecution(conn, executionId, stepId, step.type, stepState.toLowerCase(), stepOutput, null, stepDuration, stepNewContext, step.name, null, stepExecutionId);
 
             // Update main execution context if step added new variables
             if (Object.keys(stepNewContext).length > 0) {
@@ -743,9 +747,8 @@ const Persephone = (() => {
 
             global.consoleLog('Persephone', `Step completed: ${stepId}`, 4);
 
-            // Return step state (Success by default, Failure if error, Always matches everything)
             return {
-                state: 'Success',
+                state: stepState,
                 output: stepOutput
             };
 
@@ -757,7 +760,7 @@ const Persephone = (() => {
             const stepStatus = isCancelled ? 'cancelled' : 'failure';
             
             if (!isCancelled) {
-                errors.push({ step: stepId, error: errorMsg });
+                errors.push({ type: 'failure', step: stepId, error: errorMsg });
             }
             
             try {
@@ -1077,6 +1080,287 @@ const Persephone = (() => {
     }
 
     /**
+     * Wait for a sub-workflow execution to complete by polling the DB directly
+     */
+    async function waitForExecution(subExecutionId) {
+        const pollInterval = 500;
+        const maxWait = 3600000;
+        const deadline = Date.now() + maxWait;
+        const conn = await pools.kore_sys.getConnection();
+        try {
+            while (Date.now() < deadline) {
+                const [rows] = await conn.execute(
+                    'SELECT status, results, context, errors FROM workflow_exec WHERE execution_id = ?',
+                    [subExecutionId]
+                );
+                if (!rows.length) throw new Error('Sub-workflow execution not found: ' + subExecutionId);
+                const row = rows[0];
+                if (!['running', 'pending'].includes(row.status)) {
+                    return {
+                        status: row.status,
+                        context: row.context ? (typeof row.context === 'string' ? JSON.parse(row.context) : row.context) : null,
+                        errors: row.errors ? (typeof row.errors === 'string' ? JSON.parse(row.errors) : row.errors) : null
+                    };
+                }
+                await new Promise(resolve => setTimeout(resolve, pollInterval));
+            }
+            throw new Error('Sub-workflow execution timed out: ' + subExecutionId);
+        } finally {
+            conn.release();
+        }
+    }
+
+    /**
+     * Resolve workflowInputs mapping against current variables, returning a plain parameters object
+     */
+    async function resolveWorkflowInputs(workflowInputs, renderContext) {
+        const params = {};
+        if (!workflowInputs || !Array.isArray(workflowInputs)) return params;
+        for (const input of workflowInputs) {
+            if (!input.name) continue;
+            const val = input.value || '';
+            if (val === '') {
+                params[input.name] = '';
+                continue;
+            }
+            const rendered = await renderTemplate(val, renderContext);
+            params[input.name] = rendered.success ? rendered.result : '';
+        }
+        return params;
+    }
+
+    /**
+     * Extract output variables from a completed sub-workflow's final CTX
+     */
+    function extractSubWorkflowOutputs(subWorkflowDef, finalCTX) {
+        const outputs = {};
+        const outputVars = subWorkflowDef.definition && subWorkflowDef.definition.outputVariables
+            ? subWorkflowDef.definition.outputVariables : [];
+        for (const v of outputVars) {
+            if (v.name && finalCTX && v.name in finalCTX) {
+                outputs[v.name] = finalCTX[v.name];
+            }
+        }
+        return outputs;
+    }
+
+    /**
+     * Create and start a sub-workflow execution, returning subExecutionId and workflow definition
+     */
+    async function createSubWorkflowExecution(workflowId, workflowVersion, parameters, parentExecutionId) {
+        const conn = await pools.kore_sys.getConnection();
+        try {
+            const workflow = await Resources.getWorkflow(workflowId, workflowVersion);
+
+            // Build input variables: workflow defaults merged with mapped parameters
+            const inputVars = {};
+            const inputVariables = workflow.definition.inputVariables || [];
+            inputVariables.forEach(function(v) {
+                inputVars[v.name] = v.value !== undefined ? v.value : '';
+            });
+            Object.assign(inputVars, parameters);
+
+            const variables = Object.assign({}, inputVars, {
+                _workflowId: workflowId,
+                _workflowVersion: workflow.version,
+                _startedAt: global.getTimestamp()
+            });
+
+            const initialCTX = {};
+            for (const k in variables) {
+                if (!k.startsWith('_') && k !== 'steps') initialCTX[k] = variables[k];
+            }
+            const initialContext = {
+                CTX: initialCTX,
+                STEPS: {},
+                WORKFLOW: { workflowId: workflowId, workflowVersion: workflow.version, startedAt: global.getTimestamp() }
+            };
+
+            const insertSQL = 'INSERT INTO workflow_exec ' +
+                '(workflow_id, workflow_version, triggered_by, triggered_by_user, variables, context, status, triggered_at, parent_execution_id) ' +
+                'VALUES (?, ?, ?, ?, ?, ?, ?, NOW(), ?)';
+            const [okPacket] = await conn.execute(insertSQL, [
+                workflowId,
+                workflow.version,
+                'subworkflow',
+                'system',
+                JSON.stringify(variables),
+                JSON.stringify(initialContext),
+                'running',
+                parentExecutionId
+            ]);
+
+            const subExecutionId = okPacket.insertId;
+            variables._executionId = subExecutionId;
+            activeExecutions[subExecutionId] = { cancelled: false };
+
+            // Fire off execution asynchronously
+            executeWorkflowSteps(subExecutionId, workflow, variables).catch(function(err) {
+                global.consoleLog('Persephone', 'Sub-workflow execution failed: ' + subExecutionId + ' ' + err.message, 1);
+            });
+
+            return { subExecutionId: subExecutionId, workflow: workflow };
+        } finally {
+            conn.release();
+        }
+    }
+
+    /**
+     * Execute a Workflow step — single run or loop run
+     */
+    async function executeWorkflowStep(step, variables, parentExecutionId) {
+        const workflowId = step.action;
+        if (!workflowId) throw new Error('Workflow step has no workflow selected');
+
+        const renderContext = { CTX: variables, STEPS: variables.steps || {} };
+
+        if (!step.loopMode) {
+            // ── SINGLE RUN ──────────────────────────────────────────────
+            const params = await resolveWorkflowInputs(step.workflowInputs, renderContext);
+            const created = await createSubWorkflowExecution(workflowId, null, params, parentExecutionId);
+            const subExecutionId = created.subExecutionId;
+            const workflow = created.workflow;
+
+            global.consoleLog('Persephone', 'Sub-workflow started: ' + subExecutionId, 3);
+
+            const completed = await waitForExecution(subExecutionId);
+            const finalCTX = (completed.context && completed.context.CTX) ? completed.context.CTX : {};
+            const outputs = extractSubWorkflowOutputs(workflow, finalCTX);
+
+            if (completed.status === 'failure') {
+                global.consoleLog('Persephone', 'Sub-workflow ' + subExecutionId + ' failed', 2);
+                return { result: outputs, executionId: subExecutionId, status: 'failure', subErrors: completed.errors || [] };
+            }
+
+            if (completed.status === 'warning') {
+                global.consoleLog('Persephone', 'Sub-workflow ' + subExecutionId + ' completed with warnings', 2);
+            }
+
+            return { result: outputs, executionId: subExecutionId, status: completed.status, subErrors: completed.errors || [] };
+
+        } else {
+            // ── LOOP RUN ─────────────────────────────────────────────────
+            const cfg = step.loopConfig || {};
+            const executionMode = cfg.executionMode || 'concurrent';
+            const maxConcurrent = Math.max(1, parseInt(cfg.maxConcurrent) || 1);
+            const onItemFailure = cfg.onItemFailure || 'continue';
+
+            if (!cfg.sourceArray) throw new Error('Loop mode requires a sourceArray');
+            const arrayResult = await renderTemplate(cfg.sourceArray, renderContext);
+            if (!arrayResult.success) throw new Error('Failed to resolve sourceArray: ' + arrayResult.error);
+            const sourceArray = Array.isArray(arrayResult.result) ? arrayResult.result : [];
+
+            global.consoleLog('Persephone', 'Loop run over ' + sourceArray.length + ' items (' + executionMode + ')', 3);
+
+            const combinedResults = [];
+            let hasFailure = false;
+
+            if (executionMode === 'sequential') {
+                for (let i = 0; i < sourceArray.length; i++) {
+                    if (hasFailure && onItemFailure === 'stop') break;
+
+                    const item = sourceArray[i];
+                    const itemContext = { CTX: Object.assign({}, variables, { item: item }), STEPS: variables.steps || {} };
+                    const params = await resolveWorkflowInputs(step.workflowInputs, itemContext);
+                    const startedAt = Date.now();
+
+                    try {
+                        const created = await createSubWorkflowExecution(workflowId, null, params, parentExecutionId);
+                        const completed = await waitForExecution(created.subExecutionId);
+                        const finalCTX = (completed.context && completed.context.CTX) ? completed.context.CTX : {};
+                        const outputs = extractSubWorkflowOutputs(created.workflow, finalCTX);
+
+                        combinedResults.push({
+                            index: i,
+                            executionId: created.subExecutionId,
+                            status: completed.status,
+                            duration: Date.now() - startedAt,
+                            outputs: outputs
+                        });
+
+                        if (completed.status === 'failure') {
+                            hasFailure = true;
+                            global.consoleLog('Persephone', 'Loop item ' + i + ' failed (sub-execution ' + created.subExecutionId + ')', 2);
+                        }
+                    } catch (err) {
+                        hasFailure = true;
+                        combinedResults.push({
+                            index: i,
+                            executionId: null,
+                            status: 'failure',
+                            duration: Date.now() - startedAt,
+                            outputs: {},
+                            error: err.message
+                        });
+                        global.consoleLog('Persephone', 'Loop item ' + i + ' error: ' + err.message, 2);
+                    }
+                }
+            } else {
+                // Concurrent — batched by maxConcurrent
+                for (let i = 0; i < sourceArray.length; i += maxConcurrent) {
+                    if (hasFailure && onItemFailure === 'stop') break;
+
+                    const batch = sourceArray.slice(i, i + maxConcurrent);
+                    const batchPromises = batch.map(async function(item, batchIdx) {
+                        const globalIdx = i + batchIdx;
+                        const itemContext = { CTX: Object.assign({}, variables, { item: item }), STEPS: variables.steps || {} };
+                        const params = await resolveWorkflowInputs(step.workflowInputs, itemContext);
+                        const startedAt = Date.now();
+                        try {
+                            const created = await createSubWorkflowExecution(workflowId, null, params, parentExecutionId);
+                            const completed = await waitForExecution(created.subExecutionId);
+                            const finalCTX = (completed.context && completed.context.CTX) ? completed.context.CTX : {};
+                            const outputs = extractSubWorkflowOutputs(created.workflow, finalCTX);
+                            return {
+                                index: globalIdx,
+                                executionId: created.subExecutionId,
+                                status: completed.status,
+                                duration: Date.now() - startedAt,
+                                outputs: outputs
+                            };
+                        } catch (err) {
+                            return {
+                                index: globalIdx,
+                                executionId: null,
+                                status: 'failure',
+                                duration: Date.now() - startedAt,
+                                outputs: {},
+                                error: err.message
+                            };
+                        }
+                    });
+
+                    const batchResults = await Promise.all(batchPromises);
+                    batchResults.sort(function(a, b) { return a.index - b.index; });
+                    combinedResults.push.apply(combinedResults, batchResults);
+
+                    if (batchResults.some(function(r) { return r.status === 'failure'; })) {
+                        hasFailure = true;
+                        global.consoleLog('Persephone', 'One or more loop items in batch failed', 2);
+                    }
+                }
+            }
+
+            if (hasFailure) {
+                global.consoleLog('Persephone', 'Loop run completed with one or more failed items', 2);
+            }
+
+            const hasWarning = combinedResults.some(function(r) { return r.status === 'warning'; });
+            if (hasWarning) {
+                global.consoleLog('Persephone', 'Loop run completed with one or more warnings', 2);
+            }
+
+            // Collect sub-errors from warning/failure items
+            const subErrors = combinedResults
+                .filter(function(r) { return r.error || r.status === 'warning' || r.status === 'failure'; })
+                .map(function(r) { return { index: r.index, executionId: r.executionId, error: r.error || ('Sub-workflow ' + r.executionId + ' completed with ' + r.status) }; });
+
+            const overallStatus = hasFailure ? 'failure' : (hasWarning ? 'warning' : 'success');
+            return { combined_results: combinedResults, status: overallStatus, subErrors: subErrors };
+        }
+    }
+
+        /**
      * Record or update step execution in database
      * If stepExecutionId is provided, updates existing record
      * If stepExecutionId is not provided, inserts new record and returns the ID
@@ -1339,6 +1623,7 @@ const Persephone = (() => {
             const offset = parseInt(query.offset || '0', 10);
             const status = query.status;  // Optional: filter by status
             const workflowId = query.workflowId;  // Optional: filter by workflow
+            const showSubworkflows = query.showSubworkflows === 'true';  // Default: exclude subworkflows
 
             const conn = await pools.kore_sys.getConnection();
             try {
@@ -1353,6 +1638,9 @@ const Persephone = (() => {
                 if (workflowId) {
                     whereConditions.push('workflow_id = ?');
                     params.push(workflowId);
+                }
+                if (!showSubworkflows) {
+                    whereConditions.push('parent_execution_id IS NULL');
                 }
 
                 const whereClause = whereConditions.length > 0 
@@ -1513,8 +1801,19 @@ const Persephone = (() => {
                 return '{%' + inner.replace(/\s*\n\s*/g, ' ').trim() + '%}';
             });
 
+        // Rewrite empty literal comparisons and in/not-in with [] or {} BEFORE autoJsonFilter
+        // — autoJsonFilter injects | auto_json which breaks these pattern matches
+        // == [] / != [] / == {} / != {}
+        const preRewritten = collapsedTemplate
+            .replace(/([^\s|({]+(?:\s*\|[^=!<>%}]+)?)\s*==\s*\[\s*\]/g, '$1 | deep_eq([])')
+            .replace(/([^\s|({]+(?:\s*\|[^=!<>%}]+)?)\s*!=\s*\[\s*\]/g, '$1 | not_deep_eq([])')
+            .replace(/([^\s|({]+(?:\s*\|[^=!<>%}]+)?)\s*==\s*\{\s*\}/g, '$1 | deep_eq({})')
+            .replace(/([^\s|({]+(?:\s*\|[^=!<>%}]+)?)\s*!=\s*\{\s*\}/g, '$1 | not_deep_eq({})')
+            .replace(/([^\s%}(]+(?:\s*\|[^%}]+?)?)\s+not\s+in\s+(\[[^\]]*(?:\[\s*\]|\{\s*\})[^\]]*\])/g, '$1 | not_in_list($2)')
+            .replace(/([^\s%}(]+(?:\s*\|[^%}]+?)?)\s+in\s+(\[[^\]]*(?:\[\s*\]|\{\s*\})[^\]]*\])/g, '$1 | in_list($2)');
+
         // Auto-apply json filter to object/array outputs resolvable from context
-        let processedTemplate = autoJsonFilter(collapsedTemplate, context);
+        let processedTemplate = autoJsonFilter(preRewritten, context);
 
         // Normalize bare | d and | d() to | d(none) so the core default filter
         // receives an explicit null argument when none is specified
@@ -1570,7 +1869,7 @@ const Persephone = (() => {
 
         // If solo expression and no | auto_json already applied, inject | auto_json before the closing }}
         // auto_json only serializes objects/arrays, passes strings/primitives through unchanged
-        if (isSoloExpression && !strippedForCheck.includes('| auto_json') && !strippedForCheck.includes('| json') && !strippedForCheck.includes('|json')) {
+        if (isSoloExpression && !strippedForCheck.includes('| auto_json') && !strippedForCheck.includes('| json') && !strippedForCheck.includes('|json') && !strippedForCheck.includes('| in_list') && !strippedForCheck.includes('| not_in_list') && !strippedForCheck.includes('| deep_eq') && !strippedForCheck.includes('| not_deep_eq') && !strippedForCheck.includes('| is_empty')) {
             processedTemplate = processedTemplate.replace(
                 /(\{\{-?\s*)([^}]+?)(\s*-?\}\})/,
                 '$1$2 | auto_json$3'

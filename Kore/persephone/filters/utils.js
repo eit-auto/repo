@@ -345,8 +345,65 @@ function count(value) {
   return 0;
 }
 
+/**
+ * is_empty - returns true for "", [], {}, null, undefined
+ * Intentionally does NOT treat 0 or false as empty.
+ * Usage: {% if CTX.errors_html | is_empty %}
+ */
+function is_empty(value) {
+  if (value === null || value === undefined) return true;
+  if (typeof value === 'string') return value === '';
+  if (Array.isArray(value)) return value.length === 0;
+  if (typeof value === 'object') return Object.keys(value).length === 0;
+  return false;
+}
+
+/**
+ * deep_eq - deep equality comparison using JSON.stringify
+ * Used by preprocessor to rewrite == [] and == {} comparisons
+ * Usage: {{ CTX.foo | deep_eq([]) }}
+ */
+function deep_eq(value, other) {
+  try {
+    return JSON.stringify(value) === JSON.stringify(other);
+  } catch (e) {
+    return false;
+  }
+}
+
+/**
+ * in_list - proper list membership check using deep equality
+ * Used by preprocessor to rewrite "x in [[], ...]" comparisons
+ * Usage: {{ CTX.foo | in_list([[], '', none]) }}
+ */
+function in_list(value, list) {
+  if (!Array.isArray(list)) return false;
+  const valStr = JSON.stringify(value);
+  return list.some(item => JSON.stringify(item) === valStr);
+}
+
+/**
+ * not_deep_eq - inverse of deep_eq, for use with != [] and != {} rewrites
+ */
+function not_deep_eq(value, other) {
+  return !deep_eq(value, other);
+}
+
+/**
+ * not_in_list - inverse of in_list, for use with "not in" rewrites
+ * Usage: {{ CTX.foo | not_in_list([[], '', none]) }}
+ */
+function not_in_list(value, list) {
+  return !in_list(value, list);
+}
+
 // Export filter functions
 module.exports = {
+  is_empty,
+  deep_eq,
+  not_deep_eq,
+  in_list,
+  not_in_list,
   json,
   auto_json,
   default: default_filter,

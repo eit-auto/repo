@@ -1,1230 +1,1347 @@
 {
-  "filters": [
-    {
-      "name": "abs",
-      "category": "math",
-      "description": "Returns the absolute value of a number.",
-      "parameters": [],
-      "examples": [
-        {
-          "template": "{{ -5 | abs }}",
-          "output": "5"
-        },
-        {
-          "template": "{{ 3.14 | abs }}",
-          "output": "3.14"
-        }
-      ],
-      "source": "nunjucks-core"
-    },
-    {
-      "name": "capitalize",
-      "category": "string",
-      "description": "Capitalizes the first character of a string and makes all other characters lowercase.",
-      "parameters": [],
-      "examples": [
-        {
-          "template": "{{ 'hello world' | capitalize }}",
-          "output": "Hello world"
-        },
-        {
-          "template": "{{ 'HELLO' | capitalize }}",
-          "output": "Hello"
-        }
-      ],
-      "source": "nunjucks-core"
-    },
-    {
-      "name": "center",
-      "category": "string",
-      "description": "Centers a string in a field of a given width by padding it with a character on both sides.",
-      "parameters": [
-        {
-          "name": "width",
-          "type": "number",
-          "description": "The total width of the resulting string"
-        },
-        {
-          "name": "fillChar",
-          "type": "string",
-          "description": "Optional character to use for padding (default is space)"
-        }
-      ],
-      "examples": [
-        {
-          "template": "{{ 'hello' | center(11) }}",
-          "output": "'   hello   '"
-        },
-        {
-          "template": "{{ 'hello' | center(11, '-') }}",
-          "output": "'---hello---'"
-        }
-      ],
-      "source": "nunjucks-core"
-    },
-    {
-      "name": "default",
-      "category": "conditional",
-      "description": "Returns a default value if the input is undefined. If the second parameter is true, also returns default for falsy values (0, false, empty string, etc).",
-      "parameters": [
-        {
-          "name": "defaultValue",
-          "type": "any",
-          "description": "The value to return if input is undefined"
-        },
-        {
-          "name": "boolean",
-          "type": "boolean",
-          "description": "Optional flag to treat falsy values as undefined (default: false)"
-        }
-      ],
-      "examples": [
-        {
-          "template": "{{ undefinedVar | default('N/A') }}",
-          "output": "N/A"
-        },
-        {
-          "template": "{{ '' | default('empty', true) }}",
-          "output": "empty"
-        },
-        {
-          "template": "{{ 'hello' | default('fallback') }}",
-          "output": "hello"
-        }
-      ],
-      "source": "nunjucks-core"
-    },
-    {
-      "name": "dump",
-      "category": "conversion",
-      "description": "Converts a value to a JSON string. Useful for debugging or outputting data structures.",
-      "parameters": [
-        {
-          "name": "indent",
-          "type": "number",
-          "description": "Optional number of spaces for indentation (for pretty-printing)"
-        }
-      ],
-      "examples": [
-        {
-          "template": "{{ {a: 1, b: 2} | dump }}",
-          "output": "{\"a\":1,\"b\":2}"
-        },
-        {
-          "template": "{{ {a: 1, b: 2} | dump(2) }}",
-          "output": "{\n  \"a\": 1,\n  \"b\": 2\n}"
-        }
-      ],
-      "source": "nunjucks-core"
-    },
-    {
-      "name": "escape",
-      "category": "html",
-      "description": "Escapes HTML special characters (&, <, >, ', \") so they can be safely displayed in HTML without being interpreted as markup. Alias: e",
-      "parameters": [],
-      "examples": [
-        {
-          "template": "{{ '<script>alert(1)</script>' | escape }}",
-          "output": "&lt;script&gt;alert(1)&lt;/script&gt;"
-        },
-        {
-          "template": "{{ '<div>hello</div>' | e }}",
-          "output": "&lt;div&gt;hello&lt;/div&gt;"
-        }
-      ],
-      "source": "nunjucks-core"
-    },
-    {
-      "name": "first",
-      "category": "array",
-      "description": "Returns the first item from a sequence.",
-      "parameters": [],
-      "examples": [
-        {
-          "template": "{{ [1, 2, 3] | first }}",
-          "output": "1"
-        },
-        {
-          "template": "{{ 'hello' | first }}",
-          "output": "h"
-        }
-      ],
-      "source": "nunjucks-core"
-    },
-    {
-      "name": "float",
-      "category": "conversion",
-      "description": "Converts a value to a floating point number. Returns 0.0 if conversion fails, unless a default is provided.",
-      "parameters": [
-        {
-          "name": "default",
-          "type": "number",
-          "description": "Optional default value if conversion fails (default: 0.0)"
-        }
-      ],
-      "examples": [
-        {
-          "template": "{{ '3.14' | float }}",
-          "output": "3.14"
-        },
-        {
-          "template": "{{ 'abc' | float }}",
-          "output": "0.0"
-        },
-        {
-          "template": "{{ 'abc' | float(1.5) }}",
-          "output": "1.5"
-        }
-      ],
-      "source": "nunjucks-core"
-    },
-    {
-      "name": "forceescape",
-      "category": "html",
-      "description": "Enforces HTML escaping by escaping already-escaped content. May result in double-escaping.",
-      "parameters": [],
-      "examples": [
-        {
-          "template": "{{ '&lt;div&gt;' | forceescape }}",
-          "output": "&amp;lt;div&amp;gt;"
-        }
-      ],
-      "source": "nunjucks-core"
-    },
-    {
-      "name": "indent",
-      "category": "string",
-      "description": "Indents every line of a string. The first line and blank lines are not indented by default.",
-      "parameters": [
-        {
-          "name": "width",
-          "type": "number|string",
-          "description": "Number of spaces or a string to indent by"
-        },
-        {
-          "name": "first",
-          "type": "boolean",
-          "description": "Whether to indent the first line (default: false)"
-        },
-        {
-          "name": "blank",
-          "type": "boolean",
-          "description": "Whether to indent empty lines (default: false)"
-        }
-      ],
-      "examples": [
-        {
-          "template": "{{ 'line1\\nline2' | indent(4) }}",
-          "output": "line1\n    line2"
-        },
-        {
-          "template": "{{ 'line1\\nline2' | indent('  ', true, true) }}",
-          "output": "  line1\n  line2"
-        }
-      ],
-      "source": "nunjucks-core"
-    },
-    {
-      "name": "int",
-      "category": "conversion",
-      "description": "Converts a value to an integer. Returns 0 if conversion fails, unless a default is provided. The base (2-36) can be overridden for strings with prefixes like 0b, 0o, 0x.",
-      "parameters": [
-        {
-          "name": "default",
-          "type": "number",
-          "description": "Optional default value if conversion fails (default: 0)"
-        },
-        {
-          "name": "base",
-          "type": "number",
-          "description": "Optional base for conversion (default: 10)"
-        }
-      ],
-      "examples": [
-        {
-          "template": "{{ '42' | int }}",
-          "output": "42"
-        },
-        {
-          "template": "{{ 3.14 | int }}",
-          "output": "3"
-        },
-        {
-          "template": "{{ 'abc' | int(0) }}",
-          "output": "0"
-        }
-      ],
-      "source": "nunjucks-core"
-    },
-    {
-      "name": "join",
-      "category": "array",
-      "description": "Joins a list of strings with a separator. Can optionally extract an attribute from a list of objects.",
-      "parameters": [
-        {
-          "name": "separator",
-          "type": "string",
-          "description": "String to insert between items (default: empty string)"
-        },
-        {
-          "name": "attribute",
-          "type": "string",
-          "description": "Optional attribute name to extract from objects before joining"
-        }
-      ],
-      "examples": [
-        {
-          "template": "{{ ['a', 'b', 'c'] | join(', ') }}",
-          "output": "a, b, c"
-        },
-        {
-          "template": "{{ [1, 2, 3] | join('-') }}",
-          "output": "1-2-3"
-        }
-      ],
-      "source": "nunjucks-core"
-    },
-    {
-      "name": "last",
-      "category": "array",
-      "description": "Returns the last item from a sequence.",
-      "parameters": [],
-      "examples": [
-        {
-          "template": "{{ [1, 2, 3] | last }}",
-          "output": "3"
-        },
-        {
-          "template": "{{ 'hello' | last }}",
-          "output": "o"
-        }
-      ],
-      "source": "nunjucks-core"
-    },
-    {
-      "name": "length",
-      "category": "array",
-      "description": "Returns the number of items in a container (list, string, object, etc).",
-      "parameters": [],
-      "examples": [
-        {
-          "template": "{{ 'hello' | length }}",
-          "output": "5"
-        },
-        {
-          "template": "{{ [1, 2, 3] | length }}",
-          "output": "3"
-        },
-        {
-          "template": "{{ {a: 1, b: 2} | length }}",
-          "output": "2"
-        }
-      ],
-      "source": "nunjucks-core"
-    },
-    {
-      "name": "list",
-      "category": "conversion",
-      "description": "Converts an iterable (string, object, etc) to a list.",
-      "parameters": [],
-      "examples": [
-        {
-          "template": "{{ 'abc' | list }}",
-          "output": "['a', 'b', 'c']"
-        },
-        {
-          "template": "{{ range(3) | list }}",
-          "output": "[0, 1, 2]"
-        }
-      ],
-      "source": "nunjucks-core"
-    },
-    {
-      "name": "lower",
-      "category": "string",
-      "description": "Converts a string to lowercase.",
-      "parameters": [],
-      "examples": [
-        {
-          "template": "{{ 'HELLO' | lower }}",
-          "output": "hello"
-        },
-        {
-          "template": "{{ 'HeLLo WoRLd' | lower }}",
-          "output": "hello world"
-        }
-      ],
-      "source": "nunjucks-core"
-    },
-    {
-      "name": "nl2br",
-      "category": "html",
-      "description": "Replaces newline characters with HTML <br> tags.",
-      "parameters": [],
-      "examples": [
-        {
-          "template": "{{ 'line1\\nline2' | nl2br }}",
-          "output": "line1<br>\nline2"
-        }
-      ],
-      "source": "nunjucks-core"
-    },
-    {
-      "name": "random",
-      "category": "array",
-      "description": "Returns a random item from a sequence.",
-      "parameters": [],
-      "examples": [
-        {
-          "template": "{{ ['red', 'blue', 'green'] | random }}",
-          "output": "red (or blue or green)"
-        }
-      ],
-      "source": "nunjucks-core"
-    },
-    {
-      "name": "reject",
-      "category": "array",
-      "description": "Filters a sequence by rejecting items that pass a test. If no test is specified, falsy items are rejected.",
-      "parameters": [
-        {
-          "name": "test",
-          "type": "string",
-          "description": "Optional test name like 'odd', 'even', 'defined', etc"
-        }
-      ],
-      "examples": [
-        {
-          "template": "{{ [1, 2, 3, 4, 5] | reject('odd') | list }}",
-          "output": "[2, 4]"
-        }
-      ],
-      "source": "nunjucks-core"
-    },
-    {
-      "name": "rejectattr",
-      "category": "array",
-      "description": "Filters a sequence of objects by rejecting those where a specified attribute passes a test.",
-      "parameters": [
-        {
-          "name": "attribute",
-          "type": "string",
-          "description": "The attribute to test"
-        },
-        {
-          "name": "test",
-          "type": "string",
-          "description": "Optional test name"
-        }
-      ],
-      "examples": [
-        {
-          "template": "{{ users | rejectattr('active') | map(attribute='name') | list }}",
-          "output": "Users with active=false"
-        }
-      ],
-      "source": "nunjucks-core"
-    },
-    {
-      "name": "replace",
-      "category": "string",
-      "description": "Replaces all occurrences of a substring with another string. Optionally limit to the first N replacements.",
-      "parameters": [
-        {
-          "name": "old",
-          "type": "string",
-          "description": "The substring to find"
-        },
-        {
-          "name": "new",
-          "type": "string",
-          "description": "The string to replace it with"
-        },
-        {
-          "name": "count",
-          "type": "number",
-          "description": "Optional maximum number of replacements"
-        }
-      ],
-      "examples": [
-        {
-          "template": "{{ 'hello world' | replace('world', 'universe') }}",
-          "output": "hello universe"
-        },
-        {
-          "template": "{{ 'aaa' | replace('a', 'b', 2) }}",
-          "output": "bba"
-        }
-      ],
-      "source": "nunjucks-core"
-    },
-    {
-      "name": "reverse",
-      "category": "array",
-      "description": "Reverses a sequence or returns an iterator that reverses the order.",
-      "parameters": [],
-      "examples": [
-        {
-          "template": "{{ [1, 2, 3] | reverse | list }}",
-          "output": "[3, 2, 1]"
-        },
-        {
-          "template": "{{ 'hello' | reverse | list }}",
-          "output": "['o', 'l', 'l', 'e', 'h']"
-        }
-      ],
-      "source": "nunjucks-core"
-    },
-    {
-      "name": "round",
-      "category": "math",
-      "description": "Rounds a number to a given precision. The rounding method can be 'common' (round half up), 'ceil' (always up), or 'floor' (always down).",
-      "parameters": [
-        {
-          "name": "precision",
-          "type": "number",
-          "description": "Number of decimal places (default: 0)"
-        },
-        {
-          "name": "method",
-          "type": "string",
-          "description": "Rounding method: 'common', 'ceil', or 'floor' (default: 'common')"
-        }
-      ],
-      "examples": [
-        {
-          "template": "{{ 3.14159 | round(2) }}",
-          "output": "3.14"
-        },
-        {
-          "template": "{{ 3.14159 | round(2, 'ceil') }}",
-          "output": "3.15"
-        },
-        {
-          "template": "{{ 3.9 | round(0, 'floor') }}",
-          "output": "3"
-        }
-      ],
-      "source": "nunjucks-core"
-    },
-    {
-      "name": "safe",
-      "category": "html",
-      "description": "Marks a string as safe for direct output, bypassing HTML escaping. Use with caution!",
-      "parameters": [],
-      "examples": [
-        {
-          "template": "{{ '<b>bold</b>' | safe }}",
-          "output": "<b>bold</b>"
-        }
-      ],
-      "source": "nunjucks-core"
-    },
-    {
-      "name": "select",
-      "category": "array",
-      "description": "Filters a sequence by selecting only items that pass a test. If no test is specified, truthy items are selected.",
-      "parameters": [
-        {
-          "name": "test",
-          "type": "string",
-          "description": "Optional test name like 'odd', 'even', 'defined', etc"
-        }
-      ],
-      "examples": [
-        {
-          "template": "{{ [1, 2, 3, 4, 5] | select('even') | list }}",
-          "output": "[2, 4]"
-        }
-      ],
-      "source": "nunjucks-core"
-    },
-    {
-      "name": "selectattr",
-      "category": "array",
-      "description": "Filters a sequence of objects by selecting those where a specified attribute passes a test.",
-      "parameters": [
-        {
-          "name": "attribute",
-          "type": "string",
-          "description": "The attribute to test"
-        },
-        {
-          "name": "test",
-          "type": "string",
-          "description": "Optional test name"
-        }
-      ],
-      "examples": [
-        {
-          "template": "{{ users | selectattr('active') | map(attribute='name') | list }}",
-          "output": "Users with active=true"
-        }
-      ],
-      "source": "nunjucks-core"
-    },
-    {
-      "name": "slice",
-      "category": "array",
-      "description": "Slices an iterator and returns a list of lists containing those items. If you pass a second argument, it's used to fill missing values on the last iteration.",
-      "parameters": [
-        {
-          "name": "size",
-          "type": "number",
-          "description": "The number of items per slice"
-        },
-        {
-          "name": "fillValue",
-          "type": "any",
-          "description": "Optional value to pad the final slice if incomplete"
-        }
-      ],
-      "examples": [
-        {
-          "template": "{% for items in [1, 2, 3, 4, 5] | slice(2) %}{{ items }}{% endfor %}",
-          "output": "[1, 2]\n[3, 4]\n[5]"
-        }
-      ],
-      "source": "nunjucks-core"
-    },
-    {
-      "name": "string",
-      "category": "conversion",
-      "description": "Converts an object to a string representation if it isn't already. Preserves Markup strings.",
-      "parameters": [],
-      "examples": [
-        {
-          "template": "{{ 123 | string }}",
-          "output": "'123'"
-        },
-        {
-          "template": "{{ true | string }}",
-          "output": "'True'"
-        }
-      ],
-      "source": "nunjucks-core"
-    },
-    {
-      "name": "striptags",
-      "category": "html",
-      "description": "Removes HTML/XML tags from a string, leaving only the content inside.",
-      "parameters": [
-        {
-          "name": "preserve_linebreaks",
-          "type": "boolean",
-          "description": "Optional flag to preserve line breaks (default: false)"
-        }
-      ],
-      "examples": [
-        {
-          "template": "{{ '<p>Hello <b>world</b></p>' | striptags }}",
-          "output": "Hello world"
-        }
-      ],
-      "source": "nunjucks-core"
-    },
-    {
-      "name": "title",
-      "category": "string",
-      "description": "Returns a titlecased version of the string where the first character of each word is uppercase and remaining characters are lowercase.",
-      "parameters": [],
-      "examples": [
-        {
-          "template": "{{ 'hello world' | title }}",
-          "output": "Hello World"
-        },
-        {
-          "template": "{{ 'the quick brown fox' | title }}",
-          "output": "The Quick Brown Fox"
-        }
-      ],
-      "source": "nunjucks-core"
-    },
-    {
-      "name": "trim",
-      "category": "string",
-      "description": "Strips leading and trailing characters from a string. By default removes whitespace.",
-      "parameters": [
-        {
-          "name": "chars",
-          "type": "string",
-          "description": "Optional characters to strip (default: whitespace)"
-        }
-      ],
-      "examples": [
-        {
-          "template": "{{ '  hello  ' | trim }}",
-          "output": "'hello'"
-        },
-        {
-          "template": "{{ 'xxxhelloxxx' | trim('x') }}",
-          "output": "'hello'"
-        }
-      ],
-      "source": "nunjucks-core"
-    },
-    {
-      "name": "truncate",
-      "category": "string",
-      "description": "Truncates a string to a specified length. By default, cuts at word boundaries and adds an ellipsis.",
-      "parameters": [
-        {
-          "name": "length",
-          "type": "number",
-          "description": "Maximum length of the string (default: 255)"
-        },
-        {
-          "name": "killwords",
-          "type": "boolean",
-          "description": "If true, cut the text at exactly length instead of at word boundaries (default: false)"
-        },
-        {
-          "name": "end",
-          "type": "string",
-          "description": "String to append at the end (default: '...')"
-        },
-        {
-          "name": "leeway",
-          "type": "number",
-          "description": "Tolerance in characters before truncating (default: 5)"
-        }
-      ],
-      "examples": [
-        {
-          "template": "{{ 'This is a long sentence.' | truncate(10) }}",
-          "output": "This is..."
-        },
-        {
-          "template": "{{ 'This is a long sentence.' | truncate(10, true) }}",
-          "output": "This is a ..."
-        }
-      ],
-      "source": "nunjucks-core"
-    },
-    {
-      "name": "upper",
-      "category": "string",
-      "description": "Converts a string to uppercase.",
-      "parameters": [],
-      "examples": [
-        {
-          "template": "{{ 'hello' | upper }}",
-          "output": "HELLO"
-        },
-        {
-          "template": "{{ 'HeLLo WoRLd' | upper }}",
-          "output": "HELLO WORLD"
-        }
-      ],
-      "source": "nunjucks-core"
-    },
-    {
-      "name": "urlencode",
-      "category": "string",
-      "description": "Quotes data for use in a URL. For strings, escapes special characters. For dicts/iterables, creates a query string.",
-      "parameters": [],
-      "examples": [
-        {
-          "template": "{{ 'hello world' | urlencode }}",
-          "output": "hello%20world"
-        },
-        {
-          "template": "{{ {name: 'John', age: 30} | urlencode }}",
-          "output": "name=John&age=30"
-        }
-      ],
-      "source": "nunjucks-core"
-    },
-    {
-      "name": "urlize",
-      "category": "html",
-      "description": "Converts URLs in text into clickable links. Works with http://, https://, www., mailto:, and email addresses.",
-      "parameters": [
-        {
-          "name": "trim_url_limit",
-          "type": "number",
-          "description": "Shorten displayed URL values to this length"
-        },
-        {
-          "name": "nofollow",
-          "type": "boolean",
-          "description": "Add rel=nofollow attribute to links"
-        },
-        {
-          "name": "target",
-          "type": "string",
-          "description": "Add target attribute to links (e.g., '_blank')"
-        }
-      ],
-      "examples": [
-        {
-          "template": "{{ 'Visit http://example.com' | urlize }}",
-          "output": "Visit <a href=\"http://example.com\">http://example.com</a>"
-        }
-      ],
-      "source": "nunjucks-core"
-    },
-    {
-      "name": "wordcount",
-      "category": "string",
-      "description": "Counts the number of words in a string.",
-      "parameters": [],
-      "examples": [
-        {
-          "template": "{{ 'one two three' | wordcount }}",
-          "output": "3"
-        },
-        {
-          "template": "{{ 'hello world' | wordcount }}",
-          "output": "2"
-        }
-      ],
-      "source": "nunjucks-core"
-    },
-    {
-      "name": "wordwrap",
-      "category": "string",
-      "description": "Wraps a string to the given width, breaking lines at word boundaries. Existing newlines are treated as paragraph breaks.",
-      "parameters": [
-        {
-          "name": "width",
-          "type": "number",
-          "description": "Maximum line width (default: 79)"
-        },
-        {
-          "name": "break_long_words",
-          "type": "boolean",
-          "description": "Break words longer than width (default: true)"
-        },
-        {
-          "name": "break_on_hyphens",
-          "type": "boolean",
-          "description": "Allow breaking on hyphens (default: true)"
-        }
-      ],
-      "examples": [
-        {
-          "template": "{{ 'Hello world from Jinja' | wordwrap(8) }}",
-          "output": "Hello\nworld\nfrom\nJinja"
-        }
-      ],
-      "source": "nunjucks-core"
-    },
-    {
-      "name": "as_timezone",
-      "category": "datetime",
-      "description": "Convert a datetime to a specified timezone.",
-      "source": "datetime.js",
-      "parameters": [
-        {
-          "name": "tzName",
-          "type": "string",
-          "description": "Timezone name (e.g., 'America/New_York', 'UTC', 'Europe/London')"
-        }
-      ],
-      "examples": [
-        {
-          "template": "{{ '2025-05-04T14:30:00Z' | as_timezone('America/New_York') }}",
-          "output": "2025-05-04T10:30:00.000-04:00"
-        },
-        {
-          "template": "{{ '2025-05-04T14:30:00Z' | as_timezone('Asia/Tokyo') }}",
-          "output": "2025-05-04T23:30:00.000+09:00"
-        }
-      ]
-    },
-    {
-      "name": "convert_from_epoch",
-      "category": "datetime",
-      "description": "Convert an epoch timestamp to a datetime string.",
-      "source": "datetime.js",
-      "parameters": [
-        {
-          "name": "unit",
-          "type": "string",
-          "description": "Unit of timestamp: 'seconds' (default) or 'milliseconds'"
-        }
-      ],
-      "examples": [
-        {
-          "template": "{{ 1714838400 | convert_from_epoch('seconds') }}",
-          "output": "2024-05-04T12:00:00.000Z"
-        },
-        {
-          "template": "{{ 1714838400000 | convert_from_epoch('milliseconds') }}",
-          "output": "2024-05-04T12:00:00.000Z"
-        }
-      ]
-    },
-    {
-      "name": "datedelta",
-      "category": "datetime",
-      "description": "Add or subtract a time interval from a datetime.",
-      "source": "datetime.js",
-      "parameters": [
-        {
-          "name": "unit",
-          "type": "string",
-          "description": "Time unit: 'years', 'months', 'days', 'hours', 'minutes', or 'seconds'"
-        },
-        {
-          "name": "amount",
-          "type": "number",
-          "description": "Amount to add (negative to subtract)"
-        }
-      ],
-      "examples": [
-        {
-          "template": "{{ '2025-05-04T14:30:00Z' | datedelta('days', 7) }}",
-          "output": "2025-05-11T14:30:00.000Z"
-        },
-        {
-          "template": "{{ '2025-05-04T14:30:00Z' | datedelta('hours', -2) }}",
-          "output": "2025-05-04T12:30:00.000Z"
-        }
-      ]
-    },
-    {
-      "name": "format_datetime",
-      "category": "datetime",
-      "description": "Format a datetime using Luxon format tokens.",
-      "source": "datetime.js",
-      "parameters": [
-        {
-          "name": "format",
-          "type": "string",
-          "description": "Luxon format string (e.g., 'yyyy-MM-dd', 'DDD', 'MMMM d, yyyy')"
-        }
-      ],
-      "examples": [
-        {
-          "template": "{{ '2025-05-04T14:30:00Z' | format_datetime('yyyy-MM-dd') }}",
-          "output": "2025-05-04"
-        },
-        {
-          "template": "{{ '2025-05-04T14:30:00Z' | format_datetime('MMMM d, yyyy HH:mm') }}",
-          "output": "May 4, 2025 14:30"
-        }
-      ]
-    },
-    {
-      "name": "parse_datetime",
-      "category": "datetime",
-      "description": "Parse a datetime string with a specified format string.",
-      "source": "datetime.js",
-      "parameters": [
-        {
-          "name": "format",
-          "type": "string",
-          "description": "Luxon format string to use for parsing (e.g., 'yyyy-MM-dd', 'MM/dd/yyyy HH:mm')"
-        }
-      ],
-      "examples": [
-        {
-          "template": "{{ '05/04/2025' | parse_datetime('MM/dd/yyyy') }}",
-          "output": "2025-05-04T00:00:00.000Z"
-        },
-        {
-          "template": "{{ 'May 4, 2025 2:30 PM' | parse_datetime('MMMM d, yyyy h:mm a') }}",
-          "output": "2025-05-04T14:30:00.000Z"
-        }
-      ]
-    },
-    {
-      "name": "time_delta",
-      "category": "datetime",
-      "description": "Add a duration to a datetime (alias for datedelta).",
-      "source": "datetime.js",
-      "parameters": [
-        {
-          "name": "unit",
-          "type": "string",
-          "description": "Time unit: 'years', 'months', 'days', 'hours', 'minutes', or 'seconds'"
-        },
-        {
-          "name": "amount",
-          "type": "number",
-          "description": "Amount to add (negative to subtract)"
-        }
-      ],
-      "examples": [
-        {
-          "template": "{{ '2025-05-04T14:30:00Z' | time_delta('days', 3) }}",
-          "output": "2025-05-07T14:30:00.000Z"
-        },
-        {
-          "template": "{{ '2025-05-04T14:30:00Z' | time_delta('hours', 12) }}",
-          "output": "2025-05-05T02:30:00.000Z"
-        }
-      ]
-    },
-    {
-      "name": "json",
-      "category": "conversion",
-      "description": "Converts a value to a formatted JSON string. Objects and arrays are pretty-printed with 2-space indentation.",
-      "source": "utils.js",
-      "parameters": [],
-      "examples": [
-        {
-          "template": "{{ {a: 1, b: 2} | json }}",
-          "output": "{\n  \"a\": 1,\n  \"b\": 2\n}"
-        },
-        {
-          "template": "{{ [1, 2, 3] | json }}",
-          "output": "[\n  1,\n  2,\n  3\n]"
-        }
-      ]
-    },
-    {
-      "name": "reject_empty",
-      "category": "list",
-      "description": "Rejects items from a list where the specified attribute is empty (null, undefined, empty array, or empty string).",
-      "parameters": [
-        {
-          "name": "attr",
-          "type": "string",
-          "description": "The attribute name to check for emptiness"
-        }
-      ],
-      "examples": [
-        {
-          "template": "{{ timesheets | reject_empty('entries') }}",
-          "output": "Items where entries is not null, undefined, [], or ''"
-        }
-      ],
-      "source": "utils.js"
-    },
-    {
-      "name": "map",
-      "category": "list",
-      "description": "Extracts an attribute from each item in a list, or applies a transformation.",
-      "parameters": [
-        {
-          "name": "attribute",
-          "type": "string",
-          "description": "The attribute name to extract from each item. Supports dot notation for nested attributes."
-        }
-      ],
-      "examples": [
-        {
-          "template": "{{ items | map(attribute='id') | list }}",
-          "output": "[1, 2, 3]"
-        },
-        {
-          "template": "{{ items | map(attribute='user.name') | list }}",
-          "output": "['Alice', 'Bob']"
-        }
-      ],
-      "source": "utils.js"
-    },
-    {
-      "name": "unique",
-      "category": "list",
-      "description": "Returns only unique values from a list. Optionally deduplicate by a specific attribute.",
-      "parameters": [
-        {
-          "name": "attribute",
-          "type": "string",
-          "description": "Optional attribute name to use for uniqueness comparison."
-        }
-      ],
-      "examples": [
-        {
-          "template": "{{ [1, 2, 2, 3] | unique | list }}",
-          "output": "[1, 2, 3]"
-        },
-        {
-          "template": "{{ items | unique(attribute='id') | list }}",
-          "output": "Items with unique id values"
-        }
-      ],
-      "source": "utils.js"
-    },
-    {
-      "name": "max",
-      "category": "list",
-      "description": "Returns the maximum value from a list. Use attribute keyword to compare by object attribute.",
-      "parameters": [
-        {
-          "name": "attribute",
-          "type": "string",
-          "description": "Optional attribute to compare by"
-        }
-      ],
-      "examples": [
-        {
-          "template": "{{ [1, 3, 2] | max }}",
-          "output": "3"
-        },
-        {
-          "template": "{{ items | max(attribute='actualHours') }}",
-          "output": "Item with highest actualHours"
-        }
-      ],
-      "source": "utils.js"
-    },
-    {
-      "name": "min",
-      "category": "list",
-      "description": "Returns the minimum value from a list. Use attribute keyword to compare by object attribute.",
-      "parameters": [
-        {
-          "name": "attribute",
-          "type": "string",
-          "description": "Optional attribute to compare by"
-        }
-      ],
-      "examples": [
-        {
-          "template": "{{ [1, 3, 2] | min }}",
-          "output": "1"
-        },
-        {
-          "template": "{{ items | min(attribute='actualHours') }}",
-          "output": "Item with lowest actualHours"
-        }
-      ],
-      "source": "utils.js"
-    },
-    {
-      "name": "sum",
-      "category": "list",
-      "description": "Sums values in a list. Use attribute keyword to sum by object attribute.",
-      "parameters": [
-        {
-          "name": "attribute",
-          "type": "string",
-          "description": "Optional attribute to sum by"
-        }
-      ],
-      "examples": [
-        {
-          "template": "{{ [1, 2, 3] | sum }}",
-          "output": "6"
-        },
-        {
-          "template": "{{ items | sum(attribute='actualHours') }}",
-          "output": "Total hours"
-        }
-      ],
-      "source": "utils.js"
-    },
-    {
-      "name": "groupby",
-      "category": "list",
-      "description": "Groups a list of objects by an attribute. Returns list of {grouper, list} objects.",
-      "parameters": [
-        {
-          "name": "attribute",
-          "type": "string",
-          "description": "Attribute to group by"
-        }
-      ],
-      "examples": [
-        {
-          "template": "{% for group in items | groupby('type') %}{{ group.grouper }}: {{ group.list | length }}{% endfor %}",
-          "output": "type1: 3, type2: 2"
-        }
-      ],
-      "source": "utils.js"
-    },
-    {
-      "name": "dictsort",
-      "category": "list",
-      "description": "Sorts a dictionary by key or value, returning a list of [key, value] pairs.",
-      "parameters": [
-        {
-          "name": "case_sensitive",
-          "type": "boolean",
-          "description": "Whether sort is case sensitive (default: false)"
-        },
-        {
-          "name": "by",
-          "type": "string",
-          "description": "Sort by 'key' or 'value' (default: 'key')"
-        }
-      ],
-      "examples": [
-        {
-          "template": "{% for k, v in mydict | dictsort %}{{ k }}: {{ v }}{% endfor %}",
-          "output": "Sorted key-value pairs"
-        }
-      ],
-      "source": "utils.js"
-    },
-    {
-      "name": "batch",
-      "category": "list",
-      "description": "Slices a list into batches of n items.",
-      "parameters": [
-        {
-          "name": "n",
-          "type": "number",
-          "description": "Batch size"
-        },
-        {
-          "name": "fill",
-          "type": "any",
-          "description": "Optional fill value for incomplete last batch"
-        }
-      ],
-      "examples": [
-        {
-          "template": "{{ [1,2,3,4,5] | batch(2) | list }}",
-          "output": "[[1,2],[3,4],[5]]"
-        }
-      ],
-      "source": "utils.js"
-    },
-    {
-      "name": "sort",
-      "category": "list",
-      "description": "Sort a list, optionally by attribute. Supports reverse and case_sensitive options.",
-      "parameters": [
-        {
-          "name": "attribute",
-          "type": "string",
-          "description": "Attribute to sort by (supports dot notation)"
-        },
-        {
-          "name": "reverse",
-          "type": "boolean",
-          "description": "Sort in descending order (default: false)"
-        },
-        {
-          "name": "case_sensitive",
-          "type": "boolean",
-          "description": "Case-sensitive sort (default: false)"
-        }
-      ],
-      "examples": [
-        {
-          "template": "{{ items | sort(attribute='timeStart') }}",
-          "output": "Items sorted by timeStart"
-        },
-        {
-          "template": "{{ items | sort(attribute='name', reverse=true) }}",
-          "output": "Items sorted by name descending"
-        }
-      ],
-      "source": "utils.js"
-    },
-    {
-      "name": "count",
-      "category": "list",
-      "description": "Returns the number of items in a list, string, or object. Alias for length.",
-      "parameters": [],
-      "examples": [
-        {
-          "template": "{{ [1, 2, 3] | count }}",
-          "output": "3"
-        },
-        {
-          "template": "{{ 'hello' | count }}",
-          "output": "5"
-        }
-      ],
-      "source": "utils.js"
-    }
-  ]
+    "filters": [
+        {
+            "name": "abs",
+            "category": "math",
+            "description": "Returns the absolute value of a number.",
+            "parameters": [],
+            "examples": [
+                {
+                    "template": "{{ -5 | abs }}",
+                    "output": "5"
+                },
+                {
+                    "template": "{{ 3.14 | abs }}",
+                    "output": "3.14"
+                }
+            ],
+            "source": "nunjucks-core"
+        },
+        {
+            "name": "capitalize",
+            "category": "string",
+            "description": "Capitalizes the first character of a string and makes all other characters lowercase.",
+            "parameters": [],
+            "examples": [
+                {
+                    "template": "{{ 'hello world' | capitalize }}",
+                    "output": "Hello world"
+                },
+                {
+                    "template": "{{ 'HELLO' | capitalize }}",
+                    "output": "Hello"
+                }
+            ],
+            "source": "nunjucks-core"
+        },
+        {
+            "name": "center",
+            "category": "string",
+            "description": "Centers a string in a field of a given width by padding it with a character on both sides.",
+            "parameters": [
+                {
+                    "name": "width",
+                    "type": "number",
+                    "description": "The total width of the resulting string"
+                },
+                {
+                    "name": "fillChar",
+                    "type": "string",
+                    "description": "Optional character to use for padding (default is space)"
+                }
+            ],
+            "examples": [
+                {
+                    "template": "{{ 'hello' | center(11) }}",
+                    "output": "'   hello   '"
+                },
+                {
+                    "template": "{{ 'hello' | center(11, '-') }}",
+                    "output": "'---hello---'"
+                }
+            ],
+            "source": "nunjucks-core"
+        },
+        {
+            "name": "default",
+            "category": "conditional",
+            "description": "Returns a default value if the input is undefined. If the second parameter is true, also returns default for falsy values (0, false, empty string, etc).",
+            "parameters": [
+                {
+                    "name": "defaultValue",
+                    "type": "any",
+                    "description": "The value to return if input is undefined"
+                },
+                {
+                    "name": "boolean",
+                    "type": "boolean",
+                    "description": "Optional flag to treat falsy values as undefined (default: false)"
+                }
+            ],
+            "examples": [
+                {
+                    "template": "{{ undefinedVar | default('N/A') }}",
+                    "output": "N/A"
+                },
+                {
+                    "template": "{{ '' | default('empty', true) }}",
+                    "output": "empty"
+                },
+                {
+                    "template": "{{ 'hello' | default('fallback') }}",
+                    "output": "hello"
+                }
+            ],
+            "source": "nunjucks-core"
+        },
+        {
+            "name": "dump",
+            "category": "conversion",
+            "description": "Converts a value to a JSON string. Useful for debugging or outputting data structures.",
+            "parameters": [
+                {
+                    "name": "indent",
+                    "type": "number",
+                    "description": "Optional number of spaces for indentation (for pretty-printing)"
+                }
+            ],
+            "examples": [
+                {
+                    "template": "{{ {a: 1, b: 2} | dump }}",
+                    "output": "{\"a\":1,\"b\":2}"
+                },
+                {
+                    "template": "{{ {a: 1, b: 2} | dump(2) }}",
+                    "output": "{\n  \"a\": 1,\n  \"b\": 2\n}"
+                }
+            ],
+            "source": "nunjucks-core"
+        },
+        {
+            "name": "escape",
+            "category": "html",
+            "description": "Escapes HTML special characters (&, <, >, ', \") so they can be safely displayed in HTML without being interpreted as markup. Alias: e",
+            "parameters": [],
+            "examples": [
+                {
+                    "template": "{{ '<script>alert(1)</script>' | escape }}",
+                    "output": "&lt;script&gt;alert(1)&lt;/script&gt;"
+                },
+                {
+                    "template": "{{ '<div>hello</div>' | e }}",
+                    "output": "&lt;div&gt;hello&lt;/div&gt;"
+                }
+            ],
+            "source": "nunjucks-core"
+        },
+        {
+            "name": "first",
+            "category": "array",
+            "description": "Returns the first item from a sequence.",
+            "parameters": [],
+            "examples": [
+                {
+                    "template": "{{ [1, 2, 3] | first }}",
+                    "output": "1"
+                },
+                {
+                    "template": "{{ 'hello' | first }}",
+                    "output": "h"
+                }
+            ],
+            "source": "nunjucks-core"
+        },
+        {
+            "name": "float",
+            "category": "conversion",
+            "description": "Converts a value to a floating point number. Returns 0.0 if conversion fails, unless a default is provided.",
+            "parameters": [
+                {
+                    "name": "default",
+                    "type": "number",
+                    "description": "Optional default value if conversion fails (default: 0.0)"
+                }
+            ],
+            "examples": [
+                {
+                    "template": "{{ '3.14' | float }}",
+                    "output": "3.14"
+                },
+                {
+                    "template": "{{ 'abc' | float }}",
+                    "output": "0.0"
+                },
+                {
+                    "template": "{{ 'abc' | float(1.5) }}",
+                    "output": "1.5"
+                }
+            ],
+            "source": "nunjucks-core"
+        },
+        {
+            "name": "forceescape",
+            "category": "html",
+            "description": "Enforces HTML escaping by escaping already-escaped content. May result in double-escaping.",
+            "parameters": [],
+            "examples": [
+                {
+                    "template": "{{ '&lt;div&gt;' | forceescape }}",
+                    "output": "&amp;lt;div&amp;gt;"
+                }
+            ],
+            "source": "nunjucks-core"
+        },
+        {
+            "name": "indent",
+            "category": "string",
+            "description": "Indents every line of a string. The first line and blank lines are not indented by default.",
+            "parameters": [
+                {
+                    "name": "width",
+                    "type": "number|string",
+                    "description": "Number of spaces or a string to indent by"
+                },
+                {
+                    "name": "first",
+                    "type": "boolean",
+                    "description": "Whether to indent the first line (default: false)"
+                },
+                {
+                    "name": "blank",
+                    "type": "boolean",
+                    "description": "Whether to indent empty lines (default: false)"
+                }
+            ],
+            "examples": [
+                {
+                    "template": "{{ 'line1\\nline2' | indent(4) }}",
+                    "output": "line1\n    line2"
+                },
+                {
+                    "template": "{{ 'line1\\nline2' | indent('  ', true, true) }}",
+                    "output": "  line1\n  line2"
+                }
+            ],
+            "source": "nunjucks-core"
+        },
+        {
+            "name": "int",
+            "category": "conversion",
+            "description": "Converts a value to an integer. Returns 0 if conversion fails, unless a default is provided. The base (2-36) can be overridden for strings with prefixes like 0b, 0o, 0x.",
+            "parameters": [
+                {
+                    "name": "default",
+                    "type": "number",
+                    "description": "Optional default value if conversion fails (default: 0)"
+                },
+                {
+                    "name": "base",
+                    "type": "number",
+                    "description": "Optional base for conversion (default: 10)"
+                }
+            ],
+            "examples": [
+                {
+                    "template": "{{ '42' | int }}",
+                    "output": "42"
+                },
+                {
+                    "template": "{{ 3.14 | int }}",
+                    "output": "3"
+                },
+                {
+                    "template": "{{ 'abc' | int(0) }}",
+                    "output": "0"
+                }
+            ],
+            "source": "nunjucks-core"
+        },
+        {
+            "name": "join",
+            "category": "array",
+            "description": "Joins a list of strings with a separator. Can optionally extract an attribute from a list of objects.",
+            "parameters": [
+                {
+                    "name": "separator",
+                    "type": "string",
+                    "description": "String to insert between items (default: empty string)"
+                },
+                {
+                    "name": "attribute",
+                    "type": "string",
+                    "description": "Optional attribute name to extract from objects before joining"
+                }
+            ],
+            "examples": [
+                {
+                    "template": "{{ ['a', 'b', 'c'] | join(', ') }}",
+                    "output": "a, b, c"
+                },
+                {
+                    "template": "{{ [1, 2, 3] | join('-') }}",
+                    "output": "1-2-3"
+                }
+            ],
+            "source": "nunjucks-core"
+        },
+        {
+            "name": "last",
+            "category": "array",
+            "description": "Returns the last item from a sequence.",
+            "parameters": [],
+            "examples": [
+                {
+                    "template": "{{ [1, 2, 3] | last }}",
+                    "output": "3"
+                },
+                {
+                    "template": "{{ 'hello' | last }}",
+                    "output": "o"
+                }
+            ],
+            "source": "nunjucks-core"
+        },
+        {
+            "name": "length",
+            "category": "array",
+            "description": "Returns the number of items in a container (list, string, object, etc).",
+            "parameters": [],
+            "examples": [
+                {
+                    "template": "{{ 'hello' | length }}",
+                    "output": "5"
+                },
+                {
+                    "template": "{{ [1, 2, 3] | length }}",
+                    "output": "3"
+                },
+                {
+                    "template": "{{ {a: 1, b: 2} | length }}",
+                    "output": "2"
+                }
+            ],
+            "source": "nunjucks-core"
+        },
+        {
+            "name": "list",
+            "category": "conversion",
+            "description": "Converts an iterable (string, object, etc) to a list.",
+            "parameters": [],
+            "examples": [
+                {
+                    "template": "{{ 'abc' | list }}",
+                    "output": "['a', 'b', 'c']"
+                },
+                {
+                    "template": "{{ range(3) | list }}",
+                    "output": "[0, 1, 2]"
+                }
+            ],
+            "source": "nunjucks-core"
+        },
+        {
+            "name": "lower",
+            "category": "string",
+            "description": "Converts a string to lowercase.",
+            "parameters": [],
+            "examples": [
+                {
+                    "template": "{{ 'HELLO' | lower }}",
+                    "output": "hello"
+                },
+                {
+                    "template": "{{ 'HeLLo WoRLd' | lower }}",
+                    "output": "hello world"
+                }
+            ],
+            "source": "nunjucks-core"
+        },
+        {
+            "name": "nl2br",
+            "category": "html",
+            "description": "Replaces newline characters with HTML <br> tags.",
+            "parameters": [],
+            "examples": [
+                {
+                    "template": "{{ 'line1\\nline2' | nl2br }}",
+                    "output": "line1<br>\nline2"
+                }
+            ],
+            "source": "nunjucks-core"
+        },
+        {
+            "name": "random",
+            "category": "array",
+            "description": "Returns a random item from a sequence.",
+            "parameters": [],
+            "examples": [
+                {
+                    "template": "{{ ['red', 'blue', 'green'] | random }}",
+                    "output": "red (or blue or green)"
+                }
+            ],
+            "source": "nunjucks-core"
+        },
+        {
+            "name": "reject",
+            "category": "array",
+            "description": "Filters a sequence by rejecting items that pass a test. If no test is specified, falsy items are rejected.",
+            "parameters": [
+                {
+                    "name": "test",
+                    "type": "string",
+                    "description": "Optional test name like 'odd', 'even', 'defined', etc"
+                }
+            ],
+            "examples": [
+                {
+                    "template": "{{ [1, 2, 3, 4, 5] | reject('odd') | list }}",
+                    "output": "[2, 4]"
+                }
+            ],
+            "source": "nunjucks-core"
+        },
+        {
+            "name": "rejectattr",
+            "category": "array",
+            "description": "Filters a sequence of objects by rejecting those where a specified attribute passes a test.",
+            "parameters": [
+                {
+                    "name": "attribute",
+                    "type": "string",
+                    "description": "The attribute to test"
+                },
+                {
+                    "name": "test",
+                    "type": "string",
+                    "description": "Optional test name"
+                }
+            ],
+            "examples": [
+                {
+                    "template": "{{ users | rejectattr('active') | map(attribute='name') | list }}",
+                    "output": "Users with active=false"
+                }
+            ],
+            "source": "nunjucks-core"
+        },
+        {
+            "name": "replace",
+            "category": "string",
+            "description": "Replaces all occurrences of a substring with another string. Optionally limit to the first N replacements.",
+            "parameters": [
+                {
+                    "name": "old",
+                    "type": "string",
+                    "description": "The substring to find"
+                },
+                {
+                    "name": "new",
+                    "type": "string",
+                    "description": "The string to replace it with"
+                },
+                {
+                    "name": "count",
+                    "type": "number",
+                    "description": "Optional maximum number of replacements"
+                }
+            ],
+            "examples": [
+                {
+                    "template": "{{ 'hello world' | replace('world', 'universe') }}",
+                    "output": "hello universe"
+                },
+                {
+                    "template": "{{ 'aaa' | replace('a', 'b', 2) }}",
+                    "output": "bba"
+                }
+            ],
+            "source": "nunjucks-core"
+        },
+        {
+            "name": "reverse",
+            "category": "array",
+            "description": "Reverses a sequence or returns an iterator that reverses the order.",
+            "parameters": [],
+            "examples": [
+                {
+                    "template": "{{ [1, 2, 3] | reverse | list }}",
+                    "output": "[3, 2, 1]"
+                },
+                {
+                    "template": "{{ 'hello' | reverse | list }}",
+                    "output": "['o', 'l', 'l', 'e', 'h']"
+                }
+            ],
+            "source": "nunjucks-core"
+        },
+        {
+            "name": "round",
+            "category": "math",
+            "description": "Rounds a number to a given precision. The rounding method can be 'common' (round half up), 'ceil' (always up), or 'floor' (always down).",
+            "parameters": [
+                {
+                    "name": "precision",
+                    "type": "number",
+                    "description": "Number of decimal places (default: 0)"
+                },
+                {
+                    "name": "method",
+                    "type": "string",
+                    "description": "Rounding method: 'common', 'ceil', or 'floor' (default: 'common')"
+                }
+            ],
+            "examples": [
+                {
+                    "template": "{{ 3.14159 | round(2) }}",
+                    "output": "3.14"
+                },
+                {
+                    "template": "{{ 3.14159 | round(2, 'ceil') }}",
+                    "output": "3.15"
+                },
+                {
+                    "template": "{{ 3.9 | round(0, 'floor') }}",
+                    "output": "3"
+                }
+            ],
+            "source": "nunjucks-core"
+        },
+        {
+            "name": "safe",
+            "category": "html",
+            "description": "Marks a string as safe for direct output, bypassing HTML escaping. Use with caution!",
+            "parameters": [],
+            "examples": [
+                {
+                    "template": "{{ '<b>bold</b>' | safe }}",
+                    "output": "<b>bold</b>"
+                }
+            ],
+            "source": "nunjucks-core"
+        },
+        {
+            "name": "select",
+            "category": "array",
+            "description": "Filters a sequence by selecting only items that pass a test. If no test is specified, truthy items are selected.",
+            "parameters": [
+                {
+                    "name": "test",
+                    "type": "string",
+                    "description": "Optional test name like 'odd', 'even', 'defined', etc"
+                }
+            ],
+            "examples": [
+                {
+                    "template": "{{ [1, 2, 3, 4, 5] | select('even') | list }}",
+                    "output": "[2, 4]"
+                }
+            ],
+            "source": "nunjucks-core"
+        },
+        {
+            "name": "selectattr",
+            "category": "array",
+            "description": "Filters a sequence of objects by selecting those where a specified attribute passes a test.",
+            "parameters": [
+                {
+                    "name": "attribute",
+                    "type": "string",
+                    "description": "The attribute to test"
+                },
+                {
+                    "name": "test",
+                    "type": "string",
+                    "description": "Optional test name"
+                }
+            ],
+            "examples": [
+                {
+                    "template": "{{ users | selectattr('active') | map(attribute='name') | list }}",
+                    "output": "Users with active=true"
+                }
+            ],
+            "source": "nunjucks-core"
+        },
+        {
+            "name": "slice",
+            "category": "array",
+            "description": "Slices an iterator and returns a list of lists containing those items. If you pass a second argument, it's used to fill missing values on the last iteration.",
+            "parameters": [
+                {
+                    "name": "size",
+                    "type": "number",
+                    "description": "The number of items per slice"
+                },
+                {
+                    "name": "fillValue",
+                    "type": "any",
+                    "description": "Optional value to pad the final slice if incomplete"
+                }
+            ],
+            "examples": [
+                {
+                    "template": "{% for items in [1, 2, 3, 4, 5] | slice(2) %}{{ items }}{% endfor %}",
+                    "output": "[1, 2]\n[3, 4]\n[5]"
+                }
+            ],
+            "source": "nunjucks-core"
+        },
+        {
+            "name": "string",
+            "category": "conversion",
+            "description": "Converts an object to a string representation if it isn't already. Preserves Markup strings.",
+            "parameters": [],
+            "examples": [
+                {
+                    "template": "{{ 123 | string }}",
+                    "output": "'123'"
+                },
+                {
+                    "template": "{{ true | string }}",
+                    "output": "'True'"
+                }
+            ],
+            "source": "nunjucks-core"
+        },
+        {
+            "name": "striptags",
+            "category": "html",
+            "description": "Removes HTML/XML tags from a string, leaving only the content inside.",
+            "parameters": [
+                {
+                    "name": "preserve_linebreaks",
+                    "type": "boolean",
+                    "description": "Optional flag to preserve line breaks (default: false)"
+                }
+            ],
+            "examples": [
+                {
+                    "template": "{{ '<p>Hello <b>world</b></p>' | striptags }}",
+                    "output": "Hello world"
+                }
+            ],
+            "source": "nunjucks-core"
+        },
+        {
+            "name": "title",
+            "category": "string",
+            "description": "Returns a titlecased version of the string where the first character of each word is uppercase and remaining characters are lowercase.",
+            "parameters": [],
+            "examples": [
+                {
+                    "template": "{{ 'hello world' | title }}",
+                    "output": "Hello World"
+                },
+                {
+                    "template": "{{ 'the quick brown fox' | title }}",
+                    "output": "The Quick Brown Fox"
+                }
+            ],
+            "source": "nunjucks-core"
+        },
+        {
+            "name": "trim",
+            "category": "string",
+            "description": "Strips leading and trailing characters from a string. By default removes whitespace.",
+            "parameters": [
+                {
+                    "name": "chars",
+                    "type": "string",
+                    "description": "Optional characters to strip (default: whitespace)"
+                }
+            ],
+            "examples": [
+                {
+                    "template": "{{ '  hello  ' | trim }}",
+                    "output": "'hello'"
+                },
+                {
+                    "template": "{{ 'xxxhelloxxx' | trim('x') }}",
+                    "output": "'hello'"
+                }
+            ],
+            "source": "nunjucks-core"
+        },
+        {
+            "name": "truncate",
+            "category": "string",
+            "description": "Truncates a string to a specified length. By default, cuts at word boundaries and adds an ellipsis.",
+            "parameters": [
+                {
+                    "name": "length",
+                    "type": "number",
+                    "description": "Maximum length of the string (default: 255)"
+                },
+                {
+                    "name": "killwords",
+                    "type": "boolean",
+                    "description": "If true, cut the text at exactly length instead of at word boundaries (default: false)"
+                },
+                {
+                    "name": "end",
+                    "type": "string",
+                    "description": "String to append at the end (default: '...')"
+                },
+                {
+                    "name": "leeway",
+                    "type": "number",
+                    "description": "Tolerance in characters before truncating (default: 5)"
+                }
+            ],
+            "examples": [
+                {
+                    "template": "{{ 'This is a long sentence.' | truncate(10) }}",
+                    "output": "This is..."
+                },
+                {
+                    "template": "{{ 'This is a long sentence.' | truncate(10, true) }}",
+                    "output": "This is a ..."
+                }
+            ],
+            "source": "nunjucks-core"
+        },
+        {
+            "name": "upper",
+            "category": "string",
+            "description": "Converts a string to uppercase.",
+            "parameters": [],
+            "examples": [
+                {
+                    "template": "{{ 'hello' | upper }}",
+                    "output": "HELLO"
+                },
+                {
+                    "template": "{{ 'HeLLo WoRLd' | upper }}",
+                    "output": "HELLO WORLD"
+                }
+            ],
+            "source": "nunjucks-core"
+        },
+        {
+            "name": "urlencode",
+            "category": "string",
+            "description": "Quotes data for use in a URL. For strings, escapes special characters. For dicts/iterables, creates a query string.",
+            "parameters": [],
+            "examples": [
+                {
+                    "template": "{{ 'hello world' | urlencode }}",
+                    "output": "hello%20world"
+                },
+                {
+                    "template": "{{ {name: 'John', age: 30} | urlencode }}",
+                    "output": "name=John&age=30"
+                }
+            ],
+            "source": "nunjucks-core"
+        },
+        {
+            "name": "urlize",
+            "category": "html",
+            "description": "Converts URLs in text into clickable links. Works with http://, https://, www., mailto:, and email addresses.",
+            "parameters": [
+                {
+                    "name": "trim_url_limit",
+                    "type": "number",
+                    "description": "Shorten displayed URL values to this length"
+                },
+                {
+                    "name": "nofollow",
+                    "type": "boolean",
+                    "description": "Add rel=nofollow attribute to links"
+                },
+                {
+                    "name": "target",
+                    "type": "string",
+                    "description": "Add target attribute to links (e.g., '_blank')"
+                }
+            ],
+            "examples": [
+                {
+                    "template": "{{ 'Visit http://example.com' | urlize }}",
+                    "output": "Visit <a href=\"http://example.com\">http://example.com</a>"
+                }
+            ],
+            "source": "nunjucks-core"
+        },
+        {
+            "name": "wordcount",
+            "category": "string",
+            "description": "Counts the number of words in a string.",
+            "parameters": [],
+            "examples": [
+                {
+                    "template": "{{ 'one two three' | wordcount }}",
+                    "output": "3"
+                },
+                {
+                    "template": "{{ 'hello world' | wordcount }}",
+                    "output": "2"
+                }
+            ],
+            "source": "nunjucks-core"
+        },
+        {
+            "name": "wordwrap",
+            "category": "string",
+            "description": "Wraps a string to the given width, breaking lines at word boundaries. Existing newlines are treated as paragraph breaks.",
+            "parameters": [
+                {
+                    "name": "width",
+                    "type": "number",
+                    "description": "Maximum line width (default: 79)"
+                },
+                {
+                    "name": "break_long_words",
+                    "type": "boolean",
+                    "description": "Break words longer than width (default: true)"
+                },
+                {
+                    "name": "break_on_hyphens",
+                    "type": "boolean",
+                    "description": "Allow breaking on hyphens (default: true)"
+                }
+            ],
+            "examples": [
+                {
+                    "template": "{{ 'Hello world from Jinja' | wordwrap(8) }}",
+                    "output": "Hello\nworld\nfrom\nJinja"
+                }
+            ],
+            "source": "nunjucks-core"
+        },
+        {
+            "name": "as_timezone",
+            "category": "datetime",
+            "description": "Convert a datetime to a specified timezone.",
+            "source": "datetime.js",
+            "parameters": [
+                {
+                    "name": "tzName",
+                    "type": "string",
+                    "description": "Timezone name (e.g., 'America/New_York', 'UTC', 'Europe/London')"
+                }
+            ],
+            "examples": [
+                {
+                    "template": "{{ '2025-05-04T14:30:00Z' | as_timezone('America/New_York') }}",
+                    "output": "2025-05-04T10:30:00.000-04:00"
+                },
+                {
+                    "template": "{{ '2025-05-04T14:30:00Z' | as_timezone('Asia/Tokyo') }}",
+                    "output": "2025-05-04T23:30:00.000+09:00"
+                }
+            ]
+        },
+        {
+            "name": "convert_from_epoch",
+            "category": "datetime",
+            "description": "Convert an epoch timestamp to a datetime string.",
+            "source": "datetime.js",
+            "parameters": [
+                {
+                    "name": "unit",
+                    "type": "string",
+                    "description": "Unit of timestamp: 'seconds' (default) or 'milliseconds'"
+                }
+            ],
+            "examples": [
+                {
+                    "template": "{{ 1714838400 | convert_from_epoch('seconds') }}",
+                    "output": "2024-05-04T12:00:00.000Z"
+                },
+                {
+                    "template": "{{ 1714838400000 | convert_from_epoch('milliseconds') }}",
+                    "output": "2024-05-04T12:00:00.000Z"
+                }
+            ]
+        },
+        {
+            "name": "datedelta",
+            "category": "datetime",
+            "description": "Add or subtract a time interval from a datetime.",
+            "source": "datetime.js",
+            "parameters": [
+                {
+                    "name": "unit",
+                    "type": "string",
+                    "description": "Time unit: 'years', 'months', 'days', 'hours', 'minutes', or 'seconds'"
+                },
+                {
+                    "name": "amount",
+                    "type": "number",
+                    "description": "Amount to add (negative to subtract)"
+                }
+            ],
+            "examples": [
+                {
+                    "template": "{{ '2025-05-04T14:30:00Z' | datedelta('days', 7) }}",
+                    "output": "2025-05-11T14:30:00.000Z"
+                },
+                {
+                    "template": "{{ '2025-05-04T14:30:00Z' | datedelta('hours', -2) }}",
+                    "output": "2025-05-04T12:30:00.000Z"
+                }
+            ]
+        },
+        {
+            "name": "format_datetime",
+            "category": "datetime",
+            "description": "Format a datetime using Luxon format tokens.",
+            "source": "datetime.js",
+            "parameters": [
+                {
+                    "name": "format",
+                    "type": "string",
+                    "description": "Luxon format string (e.g., 'yyyy-MM-dd', 'DDD', 'MMMM d, yyyy')"
+                }
+            ],
+            "examples": [
+                {
+                    "template": "{{ '2025-05-04T14:30:00Z' | format_datetime('yyyy-MM-dd') }}",
+                    "output": "2025-05-04"
+                },
+                {
+                    "template": "{{ '2025-05-04T14:30:00Z' | format_datetime('MMMM d, yyyy HH:mm') }}",
+                    "output": "May 4, 2025 14:30"
+                }
+            ]
+        },
+        {
+            "name": "parse_datetime",
+            "category": "datetime",
+            "description": "Parse a datetime string with a specified format string.",
+            "source": "datetime.js",
+            "parameters": [
+                {
+                    "name": "format",
+                    "type": "string",
+                    "description": "Luxon format string to use for parsing (e.g., 'yyyy-MM-dd', 'MM/dd/yyyy HH:mm')"
+                }
+            ],
+            "examples": [
+                {
+                    "template": "{{ '05/04/2025' | parse_datetime('MM/dd/yyyy') }}",
+                    "output": "2025-05-04T00:00:00.000Z"
+                },
+                {
+                    "template": "{{ 'May 4, 2025 2:30 PM' | parse_datetime('MMMM d, yyyy h:mm a') }}",
+                    "output": "2025-05-04T14:30:00.000Z"
+                }
+            ]
+        },
+        {
+            "name": "time_delta",
+            "category": "datetime",
+            "description": "Add a duration to a datetime (alias for datedelta).",
+            "source": "datetime.js",
+            "parameters": [
+                {
+                    "name": "unit",
+                    "type": "string",
+                    "description": "Time unit: 'years', 'months', 'days', 'hours', 'minutes', or 'seconds'"
+                },
+                {
+                    "name": "amount",
+                    "type": "number",
+                    "description": "Amount to add (negative to subtract)"
+                }
+            ],
+            "examples": [
+                {
+                    "template": "{{ '2025-05-04T14:30:00Z' | time_delta('days', 3) }}",
+                    "output": "2025-05-07T14:30:00.000Z"
+                },
+                {
+                    "template": "{{ '2025-05-04T14:30:00Z' | time_delta('hours', 12) }}",
+                    "output": "2025-05-05T02:30:00.000Z"
+                }
+            ]
+        },
+        {
+            "name": "json",
+            "category": "conversion",
+            "description": "Converts a value to a formatted JSON string. Objects and arrays are pretty-printed with 2-space indentation.",
+            "source": "utils.js",
+            "parameters": [],
+            "examples": [
+                {
+                    "template": "{{ {a: 1, b: 2} | json }}",
+                    "output": "{\n  \"a\": 1,\n  \"b\": 2\n}"
+                },
+                {
+                    "template": "{{ [1, 2, 3] | json }}",
+                    "output": "[\n  1,\n  2,\n  3\n]"
+                }
+            ]
+        },
+        {
+            "name": "reject_empty",
+            "category": "list",
+            "description": "Rejects items from a list where the specified attribute is empty (null, undefined, empty array, or empty string).",
+            "parameters": [
+                {
+                    "name": "attr",
+                    "type": "string",
+                    "description": "The attribute name to check for emptiness"
+                }
+            ],
+            "examples": [
+                {
+                    "template": "{{ timesheets | reject_empty('entries') }}",
+                    "output": "Items where entries is not null, undefined, [], or ''"
+                }
+            ],
+            "source": "utils.js"
+        },
+        {
+            "name": "map",
+            "category": "list",
+            "description": "Extracts an attribute from each item in a list, or applies a transformation.",
+            "parameters": [
+                {
+                    "name": "attribute",
+                    "type": "string",
+                    "description": "The attribute name to extract from each item. Supports dot notation for nested attributes."
+                }
+            ],
+            "examples": [
+                {
+                    "template": "{{ items | map(attribute='id') | list }}",
+                    "output": "[1, 2, 3]"
+                },
+                {
+                    "template": "{{ items | map(attribute='user.name') | list }}",
+                    "output": "['Alice', 'Bob']"
+                }
+            ],
+            "source": "utils.js"
+        },
+        {
+            "name": "unique",
+            "category": "list",
+            "description": "Returns only unique values from a list. Optionally deduplicate by a specific attribute.",
+            "parameters": [
+                {
+                    "name": "attribute",
+                    "type": "string",
+                    "description": "Optional attribute name to use for uniqueness comparison."
+                }
+            ],
+            "examples": [
+                {
+                    "template": "{{ [1, 2, 2, 3] | unique | list }}",
+                    "output": "[1, 2, 3]"
+                },
+                {
+                    "template": "{{ items | unique(attribute='id') | list }}",
+                    "output": "Items with unique id values"
+                }
+            ],
+            "source": "utils.js"
+        },
+        {
+            "name": "max",
+            "category": "list",
+            "description": "Returns the maximum value from a list. Use attribute keyword to compare by object attribute.",
+            "parameters": [
+                {
+                    "name": "attribute",
+                    "type": "string",
+                    "description": "Optional attribute to compare by"
+                }
+            ],
+            "examples": [
+                {
+                    "template": "{{ [1, 3, 2] | max }}",
+                    "output": "3"
+                },
+                {
+                    "template": "{{ items | max(attribute='actualHours') }}",
+                    "output": "Item with highest actualHours"
+                }
+            ],
+            "source": "utils.js"
+        },
+        {
+            "name": "min",
+            "category": "list",
+            "description": "Returns the minimum value from a list. Use attribute keyword to compare by object attribute.",
+            "parameters": [
+                {
+                    "name": "attribute",
+                    "type": "string",
+                    "description": "Optional attribute to compare by"
+                }
+            ],
+            "examples": [
+                {
+                    "template": "{{ [1, 3, 2] | min }}",
+                    "output": "1"
+                },
+                {
+                    "template": "{{ items | min(attribute='actualHours') }}",
+                    "output": "Item with lowest actualHours"
+                }
+            ],
+            "source": "utils.js"
+        },
+        {
+            "name": "sum",
+            "category": "list",
+            "description": "Sums values in a list. Use attribute keyword to sum by object attribute.",
+            "parameters": [
+                {
+                    "name": "attribute",
+                    "type": "string",
+                    "description": "Optional attribute to sum by"
+                }
+            ],
+            "examples": [
+                {
+                    "template": "{{ [1, 2, 3] | sum }}",
+                    "output": "6"
+                },
+                {
+                    "template": "{{ items | sum(attribute='actualHours') }}",
+                    "output": "Total hours"
+                }
+            ],
+            "source": "utils.js"
+        },
+        {
+            "name": "groupby",
+            "category": "list",
+            "description": "Groups a list of objects by an attribute. Returns list of {grouper, list} objects.",
+            "parameters": [
+                {
+                    "name": "attribute",
+                    "type": "string",
+                    "description": "Attribute to group by"
+                }
+            ],
+            "examples": [
+                {
+                    "template": "{% for group in items | groupby('type') %}{{ group.grouper }}: {{ group.list | length }}{% endfor %}",
+                    "output": "type1: 3, type2: 2"
+                }
+            ],
+            "source": "utils.js"
+        },
+        {
+            "name": "dictsort",
+            "category": "list",
+            "description": "Sorts a dictionary by key or value, returning a list of [key, value] pairs.",
+            "parameters": [
+                {
+                    "name": "case_sensitive",
+                    "type": "boolean",
+                    "description": "Whether sort is case sensitive (default: false)"
+                },
+                {
+                    "name": "by",
+                    "type": "string",
+                    "description": "Sort by 'key' or 'value' (default: 'key')"
+                }
+            ],
+            "examples": [
+                {
+                    "template": "{% for k, v in mydict | dictsort %}{{ k }}: {{ v }}{% endfor %}",
+                    "output": "Sorted key-value pairs"
+                }
+            ],
+            "source": "utils.js"
+        },
+        {
+            "name": "batch",
+            "category": "list",
+            "description": "Slices a list into batches of n items.",
+            "parameters": [
+                {
+                    "name": "n",
+                    "type": "number",
+                    "description": "Batch size"
+                },
+                {
+                    "name": "fill",
+                    "type": "any",
+                    "description": "Optional fill value for incomplete last batch"
+                }
+            ],
+            "examples": [
+                {
+                    "template": "{{ [1,2,3,4,5] | batch(2) | list }}",
+                    "output": "[[1,2],[3,4],[5]]"
+                }
+            ],
+            "source": "utils.js"
+        },
+        {
+            "name": "sort",
+            "category": "list",
+            "description": "Sort a list, optionally by attribute. Supports reverse and case_sensitive options.",
+            "parameters": [
+                {
+                    "name": "attribute",
+                    "type": "string",
+                    "description": "Attribute to sort by (supports dot notation)"
+                },
+                {
+                    "name": "reverse",
+                    "type": "boolean",
+                    "description": "Sort in descending order (default: false)"
+                },
+                {
+                    "name": "case_sensitive",
+                    "type": "boolean",
+                    "description": "Case-sensitive sort (default: false)"
+                }
+            ],
+            "examples": [
+                {
+                    "template": "{{ items | sort(attribute='timeStart') }}",
+                    "output": "Items sorted by timeStart"
+                },
+                {
+                    "template": "{{ items | sort(attribute='name', reverse=true) }}",
+                    "output": "Items sorted by name descending"
+                }
+            ],
+            "source": "utils.js"
+        },
+        {
+            "name": "count",
+            "category": "list",
+            "description": "Returns the number of items in a list, string, or object. Alias for length.",
+            "parameters": [],
+            "examples": [
+                {
+                    "template": "{{ [1, 2, 3] | count }}",
+                    "output": "3"
+                },
+                {
+                    "template": "{{ 'hello' | count }}",
+                    "output": "5"
+                }
+            ],
+            "source": "utils.js"
+        },
+        {
+            "name": "is_empty",
+            "category": "utility",
+            "description": "Returns true if the value is empty: \"\", [], {}, null, or undefined. Does not treat 0 or false as empty.",
+            "parameters": [],
+            "examples": [
+                {
+                    "template": "{% if CTX.errors_html | is_empty %}no errors{% endif %}",
+                    "output": "no errors (when errors_html is \"\", [], {}, or none)"
+                },
+                {
+                    "template": "{{ [] | is_empty }}",
+                    "output": "true"
+                },
+                {
+                    "template": "{{ 0 | is_empty }}",
+                    "output": "false"
+                }
+            ],
+            "source": "utils.js"
+        },
+        {
+            "name": "deep_eq",
+            "category": "utility",
+            "description": "Deep equality comparison using JSON serialization. Useful for comparing arrays and objects, where Nunjucks == does reference equality. The preprocessor automatically rewrites == [] and == {} to use this filter.",
+            "parameters": [
+                {
+                    "name": "other",
+                    "type": "any",
+                    "description": "Value to compare against"
+                }
+            ],
+            "examples": [
+                {
+                    "template": "{{ CTX.my_list | deep_eq([]) }}",
+                    "output": "true (when my_list is [])"
+                },
+                {
+                    "template": "{{ CTX.my_obj | deep_eq({}) }}",
+                    "output": "true (when my_obj is {})"
+                },
+                {
+                    "template": "{% if CTX.results != [] %}...{% endif %}",
+                    "output": "(preprocessor rewrites != [] to | deep_eq([]) | not automatically)"
+                }
+            ],
+            "source": "utils.js"
+        },
+        {
+            "name": "in_list",
+            "category": "utility",
+            "description": "Checks if a value is a member of a list using deep equality. Replaces the built-in \"in\" operator when the list contains [] or {} literals, which Nunjucks cannot match correctly. The preprocessor automatically rewrites \"in [... [] ...]\" to use this filter.",
+            "parameters": [
+                {
+                    "name": "list",
+                    "type": "array",
+                    "description": "List to check membership against"
+                }
+            ],
+            "examples": [
+                {
+                    "template": "{{ CTX.errors_html | in_list([\"\", [], none]) }}",
+                    "output": "true (when errors_html is \"\", [], or none)"
+                },
+                {
+                    "template": "{% if CTX.val not in [[], \"\", none] %}...{% endif %}",
+                    "output": "(preprocessor rewrites to in_list automatically when [] is in the list)"
+                }
+            ],
+            "source": "utils.js"
+        },
+        {
+            "name": "not_deep_eq",
+            "category": "utility",
+            "description": "Inverse of deep_eq. Used by the preprocessor to rewrite != [] and != {} comparisons.",
+            "parameters": [
+                {
+                    "name": "other",
+                    "type": "any",
+                    "description": "Value to compare against"
+                }
+            ],
+            "examples": [
+                {
+                    "template": "{{ CTX.my_list | not_deep_eq([]) }}",
+                    "output": "true (when my_list is not [])"
+                },
+                {
+                    "template": "{% if CTX.results != [] %}...{% endif %}",
+                    "output": "(preprocessor rewrites != [] automatically)"
+                }
+            ],
+            "source": "utils.js"
+        },
+        {
+            "name": "not_in_list",
+            "category": "utility",
+            "description": "Inverse of in_list. Used by the preprocessor to rewrite \"not in\" when the list contains [] or {} literals.",
+            "parameters": [
+                {
+                    "name": "list",
+                    "type": "array",
+                    "description": "List to check membership against"
+                }
+            ],
+            "examples": [
+                {
+                    "template": "{{ CTX.errors_html | not_in_list([\"\", [], none]) }}",
+                    "output": "true (when errors_html has content)"
+                },
+                {
+                    "template": "{% if CTX.val not in [[], \"\", none] %}...{% endif %}",
+                    "output": "(preprocessor rewrites automatically)"
+                }
+            ],
+            "source": "utils.js"
+        }
+    ]
 }

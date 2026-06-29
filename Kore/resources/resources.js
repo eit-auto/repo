@@ -45,8 +45,14 @@
 
 'use strict';
 
-const { v4: uuidv4 } = require('uuid');
 const { validateUserSessionToken, getSessionTokenFromCookies } = require('../auth/auth');
+
+function generateId(prefix = '') {
+    const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+    let id = prefix ? prefix + '-' : '';
+    for (let i = 0; i < 6; i++) id += chars[Math.floor(Math.random() * chars.length)];
+    return id;
+}
 
 // ============================================================
 // HELPERS
@@ -133,21 +139,40 @@ async function getFolders(tableName) {
  * Create a folder
  * @param {string} tableName - Table name
  * @param {object} folderData - Folder data (should include name, may include id and parent_id)
- * @param {boolean} generateId - If true, generate UUID; if false, expect id in folderData
+ * @param {boolean} autoGenerateId - If true, generate ID; if false, expect id in folderData
  */
-async function createFolder(tableName, folderData, generateId = false) {
+async function createFolder(tableName, folderData, autoGenerateId = false) {
     const { name, parent_id } = folderData;
     if (!name) throw new Error('name is required');
 
-    const folderId = generateId ? uuidv4() : folderData.id;
-    if (!folderId) throw new Error('id is required');
-
     const conn = await getPool().getConnection();
     try {
-        await conn.execute(
-            `INSERT INTO kore_sys.${tableName} (id, name, parent_id) VALUES (?, ?, ?)`,
-            [folderId, name, parent_id || null]
-        );
+        let folderId = autoGenerateId ? null : folderData.id;
+        if (!folderId) throw new Error('id is required');
+
+        if (autoGenerateId) {
+            let inserted = false;
+            for (let attempt = 0; attempt < 5; attempt++) {
+                folderId = generateId();
+                try {
+                    await conn.execute(
+                        `INSERT INTO kore_sys.${tableName} (id, name, parent_id) VALUES (?, ?, ?)`,
+                        [folderId, name, parent_id || null]
+                    );
+                    inserted = true;
+                    break;
+                } catch (err) {
+                    if (err.code === 'ER_DUP_ENTRY') continue;
+                    throw err;
+                }
+            }
+            if (!inserted) throw new Error('Failed to generate unique folder ID after 5 attempts');
+        } else {
+            await conn.execute(
+                `INSERT INTO kore_sys.${tableName} (id, name, parent_id) VALUES (?, ?, ?)`,
+                [folderId, name, parent_id || null]
+            );
+        }
         return { id: folderId, name, parent_id: parent_id || null };
     } finally {
         conn.release();
@@ -281,7 +306,6 @@ async function validateWorkflow(definition) {
  * @param {string|null} allowedIPs
  */
 async function createResource(resourceType, table, histTable, histFkCol, definition, name, userId, folder_id, allowedIPs) {
-    const id = uuidv4();
     const version = '1.0';
     const now = new Date().toISOString();
 
@@ -297,10 +321,22 @@ async function createResource(resourceType, table, histTable, histFkCol, definit
 
     const conn = await getPool().getConnection();
     try {
-        await conn.execute(
-            `INSERT INTO ${table} (id, name, version, definition, allowedIPs, folder_id) VALUES (?, ?, ?, ?, ?, ?)`,
-            [id, name, version, JSON.stringify(definitionToStore), allowedIPs || null, folder_id || null]
-        );
+        let id, inserted = false;
+        for (let attempt = 0; attempt < 5; attempt++) {
+            id = generateId();
+            try {
+                await conn.execute(
+                    `INSERT INTO ${table} (id, name, version, definition, allowedIPs, folder_id) VALUES (?, ?, ?, ?, ?, ?)`,
+                    [id, name, version, JSON.stringify(definitionToStore), allowedIPs || null, folder_id || null]
+                );
+                inserted = true;
+                break;
+            } catch (err) {
+                if (err.code === 'ER_DUP_ENTRY') continue;
+                throw err;
+            }
+        }
+        if (!inserted) throw new Error(`Failed to generate unique ID for ${resourceType} after 5 attempts`);
         await conn.execute(
             `INSERT INTO ${histTable} (${histFkCol}, version, definition) VALUES (?, ?, ?)`,
             [id, version, JSON.stringify(definitionToStore)]
@@ -418,7 +454,7 @@ async function createWorkflow(workflowData, userId) {
         name,
         view: { pan: '0,0', zoom: 1 },
         steps: [{
-            id: uuidv4(),
+            id: generateId(),
             name: 'BEGIN',
             type: 'Begin',
             width: 3,
