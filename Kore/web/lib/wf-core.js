@@ -1301,6 +1301,14 @@ function showStepProperties(stepUUID) {
         </div>
         
         <div style="border-top: 1px solid #3a7a99; padding-top: 10px;">
+            <label style="display: block; font-size: 0.8rem; color: #b0b0b0; margin-bottom: 5px;">Transition Mode</label>
+            <select id="transitionModeSelect" class="form-field-input" style="width: 100%; padding: 6px; box-sizing: border-box; font-size: 0.85rem;">
+                <option value="First" ${(step.transitionMode || 'First') === 'First' ? 'selected' : ''}>First</option>
+                <option value="All" ${step.transitionMode === 'All' ? 'selected' : ''}>All</option>
+            </select>
+        </div>
+        
+        <div style="border-top: 1px solid #3a7a99; padding-top: 10px;">
             <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
                 <input type="checkbox" id="overrideSizeCheckbox" ${step.overrideSize ? 'checked' : ''} style="cursor: pointer;">
                 <span style="font-size: 0.85rem; color: #b0b0b0;">Override Size</span>
@@ -2251,6 +2259,14 @@ function showStepProperties(stepUUID) {
             });
         }
         
+        const transitionModeSelect = container.querySelector('#transitionModeSelect');
+        if (transitionModeSelect) {
+            transitionModeSelect.addEventListener('change', (e) => {
+                step.transitionMode = e.target.value;
+                updatePreview();
+            });
+        }
+        
         const overrideSizeCheckbox = container.querySelector('#overrideSizeCheckbox');
         const sizeOverrideInputs = container.querySelector('#sizeOverrideInputs');
         const overrideWidthInput = container.querySelector('#overrideWidth');
@@ -2356,6 +2372,7 @@ function syncTransitionCasesToStep() {
             if (!conditionId) return;
             const tr = currentTransitions.find(t => t.id === conditionId);
             if (!tr) return;
+            caseData.name = tr.name || '';
             caseData.type = tr.type;
             caseData.conditions = tr.conditions;
             caseData.targetSteps = tr.targetSteps ? [...tr.targetSteps] : [];
@@ -3388,13 +3405,21 @@ async function testWorkflow() {
     // Collect input variable values from form if available
     const parameters = {};
     if (currentInputVariables && currentInputVariables.length > 0) {
-        const fields = currentInputVariables.map(v => ({
-            type: 'text',
-            name: v.name,
-            label: v.name,
-            value: v.value || '',
-            placeholder: `Enter value for ${v.name}`
-        }));
+        const fields = currentInputVariables.map(v => {
+            const varType = v.type || 'string';
+            const baseField = { name: v.name, label: v.name };
+            if (varType === 'boolean') {
+                const val = v.value === 'true' ? 'true' : 'false';
+                return { ...baseField, type: 'select', options: ['false', 'true'], value: val };
+            } else if (varType === 'multi-line' || varType === 'array' || varType === 'object') {
+                return { ...baseField, type: 'textarea', value: v.value || '', placeholder: `Enter value for ${v.name}` };
+            } else if (varType === 'integer' || varType === 'float') {
+                return { ...baseField, type: 'number', value: v.value || '', placeholder: `Enter value for ${v.name}` };
+            } else {
+                // string, jinja, default
+                return { ...baseField, type: 'text', value: v.value || '', placeholder: `Enter value for ${v.name}` };
+            }
+        });
 
         // Show form to collect parameters
         return new Promise((resolve) => {
@@ -3404,9 +3429,30 @@ async function testWorkflow() {
                 async (formData) => {
                     // Clean up previous execution state
                     if (window.cleanupPreviousExecution) window.cleanupPreviousExecution();
-                    
-                    // User submitted the form
-                    Object.assign(parameters, formData);
+
+                    // Coerce form string values to proper JS types based on variable type
+                    currentInputVariables.forEach(v => {
+                        const varType = v.type || 'string';
+                        const raw = formData[v.name];
+                        if (varType === 'boolean') {
+                            parameters[v.name] = raw === 'true';
+                        } else if (varType === 'integer') {
+                            const n = parseInt(raw, 10);
+                            parameters[v.name] = isNaN(n) ? raw : n;
+                        } else if (varType === 'float') {
+                            const n = parseFloat(raw);
+                            parameters[v.name] = isNaN(n) ? raw : n;
+                        } else if (varType === 'array' || varType === 'object') {
+                            try {
+                                parameters[v.name] = JSON.parse(raw);
+                            } catch (e) {
+                                parameters[v.name] = raw;
+                            }
+                        } else {
+                            parameters[v.name] = raw;
+                        }
+                    });
+
                     await executeWorkflow(parameters);
                     // Auto-open execution details after a brief delay
                     setTimeout(() => {
@@ -3414,7 +3460,7 @@ async function testWorkflow() {
                     }, 100);
                     resolve();
                 },
-                false,  // readOnly - set to false to show Save button
+                false,  // readOnly
                 false,  // resizable
                 false,  // suppressBodyScroll
                 'Start Test'  // submitButtonLabel
@@ -3437,69 +3483,243 @@ async function testWorkflow() {
         window.initWorkflowEditor = initWorkflowEditor;
 
 function showWorkflowSettingsModal() {
-    // Variables to store the working copies from the modal
-    let modalInputVariables = [];
-    let modalOutputVariables = [];
+    // Working copies — only committed on Save
+    const modalInputVariables  = JSON.parse(JSON.stringify(currentInputVariables));
+    const modalOutputVariables = JSON.parse(JSON.stringify(currentOutputVariables));
 
-    const fields = [
-        {
-            type: 'text',
-            name: 'workflowName',
-            label: 'Workflow Name',
-            value: currentWorkflowName,
-            placeholder: 'Enter workflow name',
-            required: true
-        },
-        {
-            type: 'textarea',
-            name: 'workflowDescription',
-            label: 'Description',
-            value: currentDefinition.description || '',
-            placeholder: 'Enter workflow description',
-            rows: 4
-        }
-    ];
+    // Set working variable references so addVariable / renderVariablesInContainer use these copies
+    setWorkingVariables(modalInputVariables, modalOutputVariables);
 
-    showFormModal(
-        'Workflow Settings',
-        fields,
-        (formData) => {
-            // Commit variable changes from the modal
-            currentInputVariables = modalInputVariables;
-            currentOutputVariables = modalOutputVariables;
-            
-            currentWorkflowName = formData.workflowName.trim();
-            currentDefinition.name = formData.workflowName.trim();
-            document.getElementById('workflowNameDisplay').textContent = formData.workflowName.trim();
-            currentDefinition.description = formData.workflowDescription;
-            closeWorkflowSettingsModal();
-            showStatusBanner('Workflow settings saved', 'success');
-            updatePreview();
-        },
-        false,
-        false,
-        true
-    );
+    // ── TAB DEFINITIONS ──────────────────────────────────────────────────────
+    const TABS = ['General', 'Inputs', 'Outputs', 'Triggers', 'Info'];
 
-    // Wait for modal to render, then inject variable sections
-    setTimeout(() => {
-        const modal = document.querySelector('.modal-container');
-        if (modal) {
-            // Use COPIES of the variables so changes only commit on Save
-            modalInputVariables = JSON.parse(JSON.stringify(currentInputVariables));
-            modalOutputVariables = JSON.parse(JSON.stringify(currentOutputVariables));
-            
-            renderWorkflowVariablesSection(modal, modalInputVariables, modalOutputVariables, updatePreview);
-        }
-    }, 150);
+    // ── BUILD CONTENT ELEMENT ─────────────────────────────────────────────────
+    const wrapper = document.createElement('div');
+    wrapper.style.cssText = 'display: flex; flex-direction: column; height: 100%; min-height: 0;';
+
+    // Tab bar
+    const tabBar = document.createElement('div');
+    tabBar.style.cssText = 'display: flex; gap: 0; border-bottom: 1px solid var(--border-primary); margin-bottom: 16px; flex-shrink: 0;';
+
+    // Tab panels container
+    const panelsContainer = document.createElement('div');
+    panelsContainer.style.cssText = 'flex: 1; min-height: 0; overflow-y: auto;';
+
+    // Create tabs and panels
+    const tabEls = {};
+    const panelEls = {};
+
+    TABS.forEach((name, i) => {
+        // Tab button
+        const tab = document.createElement('button');
+        tab.type = 'button';
+        tab.textContent = name;
+        tab.dataset.tab = name;
+        tab.style.cssText = `
+            background: none; border: none; border-bottom: 2px solid transparent;
+            padding: 8px 16px; font-size: 0.85rem; cursor: pointer;
+            color: var(--text-muted); transition: color 0.15s, border-color 0.15s;
+            margin-bottom: -1px;
+        `;
+        tabEls[name] = tab;
+        tabBar.appendChild(tab);
+
+        // Panel
+        const panel = document.createElement('div');
+        panel.dataset.panel = name;
+        panel.style.cssText = 'display: none;';
+        panelEls[name] = panel;
+        panelsContainer.appendChild(panel);
+    });
+
+    // ── TAB ACTIVATION ────────────────────────────────────────────────────────
+    function activateTab(name) {
+        TABS.forEach(t => {
+            const isActive = t === name;
+            tabEls[t].style.color = isActive ? 'var(--text-primary)' : 'var(--text-muted)';
+            tabEls[t].style.borderBottomColor = isActive ? 'var(--brand-light, #3a9fd1)' : 'transparent';
+            tabEls[t].style.fontWeight = isActive ? '600' : 'normal';
+            panelEls[t].style.display = isActive ? 'block' : 'none';
+        });
+    }
+
+    TABS.forEach(name => {
+        tabEls[name].addEventListener('click', () => activateTab(name));
+    });
+
+    // ── GENERAL TAB ───────────────────────────────────────────────────────────
+    panelEls['General'].innerHTML = `
+        <div style="margin-bottom: 14px;">
+            <label style="display: block; font-size: 0.8rem; color: var(--text-muted); margin-bottom: 5px; font-weight: 600;">Workflow Name</label>
+            <input type="text" id="wfSettingsName" class="form-field-input"
+                value="${(currentWorkflowName || '').replace(/"/g, '&quot;')}"
+                placeholder="Enter workflow name"
+                style="width: 100%; padding: 6px; box-sizing: border-box; font-size: 0.85rem;">
+        </div>
+        <div>
+            <label style="display: block; font-size: 0.8rem; color: var(--text-muted); margin-bottom: 5px; font-weight: 600;">Description</label>
+            <textarea id="wfSettingsDescription" class="form-field-input"
+                placeholder="Enter workflow description"
+                style="width: 100%; padding: 6px; box-sizing: border-box; font-size: 0.85rem; min-height: 100px; resize: vertical;">${(currentDefinition.description || '').replace(/</g, '&lt;')}</textarea>
+        </div>
+    `;
+
+    // ── INPUTS TAB ────────────────────────────────────────────────────────────
+    const inputsPanel = panelEls['Inputs'];
+
+    const inputHeader = document.createElement('div');
+    inputHeader.style.cssText = 'display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;';
+    inputHeader.innerHTML = `
+        <label style="color: var(--text-muted); font-size: 0.85rem; font-weight: 600; margin: 0;">Input Variables</label>
+    `;
+    const addInputBtn = document.createElement('button');
+    addInputBtn.type = 'button';
+    addInputBtn.className = 'btn';
+    addInputBtn.setAttribute('data-color', 'green');
+    addInputBtn.setAttribute('data-size', 'sm');
+    addInputBtn.textContent = '+ Add Input Variable';
+    inputHeader.appendChild(addInputBtn);
+
+    const inputListContainer = document.createElement('div');
+    inputListContainer.id = 'inputVariablesList';
+    inputListContainer.style.cssText = 'display: flex; flex-direction: column; gap: 0;';
+
+    inputsPanel.appendChild(inputHeader);
+    inputsPanel.appendChild(inputListContainer);
+
+    addInputBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        modalInputVariables.push({ name: '', value: '', type: 'string', order: modalInputVariables.length });
+        renderVariablesInContainer(inputListContainer, modalInputVariables, 'input', updatePreview);
+    });
+
+    // ── OUTPUTS TAB ───────────────────────────────────────────────────────────
+    const outputsPanel = panelEls['Outputs'];
+
+    const outputHeader = document.createElement('div');
+    outputHeader.style.cssText = 'display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;';
+    outputHeader.innerHTML = `
+        <label style="color: var(--text-muted); font-size: 0.85rem; font-weight: 600; margin: 0;">Output Variables</label>
+    `;
+    const addOutputBtn = document.createElement('button');
+    addOutputBtn.type = 'button';
+    addOutputBtn.className = 'btn';
+    addOutputBtn.setAttribute('data-color', 'green');
+    addOutputBtn.setAttribute('data-size', 'sm');
+    addOutputBtn.textContent = '+ Add Output Variable';
+    outputHeader.appendChild(addOutputBtn);
+
+    const outputListContainer = document.createElement('div');
+    outputListContainer.id = 'outputVariablesList';
+    outputListContainer.style.cssText = 'display: flex; flex-direction: column; gap: 0;';
+
+    outputsPanel.appendChild(outputHeader);
+    outputsPanel.appendChild(outputListContainer);
+
+    addOutputBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        modalOutputVariables.push({ name: '', value: '', order: modalOutputVariables.length });
+        renderVariablesInContainer(outputListContainer, modalOutputVariables, 'output', updatePreview);
+    });
+
+    // ── TRIGGERS TAB ─────────────────────────────────────────────────────────
+    panelEls['Triggers'].innerHTML = `
+        <div style="color: var(--text-muted); font-size: 0.85rem; padding: 16px 0;">
+            Triggers coming soon.
+        </div>
+    `;
+
+    // ── INFO TAB ─────────────────────────────────────────────────────────────
+    const meta = currentMetadata || {};
+    const formatDate = (iso) => iso ? new Date(iso).toLocaleString() : '—';
+    panelEls['Info'].innerHTML = `
+        <div style="display: flex; flex-direction: column; gap: 10px; font-size: 0.85rem;">
+            <div>
+                <span style="color: var(--text-muted); font-weight: 600;">Workflow ID</span>
+                <div style="color: var(--text-primary); margin-top: 2px; word-break: break-all;">${currentWorkflowId || '—'}</div>
+            </div>
+            <div style="border-top: 1px solid var(--border-primary); padding-top: 10px;">
+                <span style="color: var(--text-muted); font-weight: 600;">Version</span>
+                <div style="color: var(--text-primary); margin-top: 2px;">${currentVersion || '—'}</div>
+            </div>
+            <div style="border-top: 1px solid var(--border-primary); padding-top: 10px;">
+                <span style="color: var(--text-muted); font-weight: 600;">Created</span>
+                <div style="color: var(--text-primary); margin-top: 2px;">${formatDate(meta.created_at)}</div>
+            </div>
+            <div style="border-top: 1px solid var(--border-primary); padding-top: 10px;">
+                <span style="color: var(--text-muted); font-weight: 600;">Created By</span>
+                <div style="color: var(--text-primary); margin-top: 2px;">${meta.created_by || '—'}</div>
+            </div>
+            <div style="border-top: 1px solid var(--border-primary); padding-top: 10px;">
+                <span style="color: var(--text-muted); font-weight: 600;">Last Updated</span>
+                <div style="color: var(--text-primary); margin-top: 2px;">${formatDate(meta.updated_at)}</div>
+            </div>
+            <div style="border-top: 1px solid var(--border-primary); padding-top: 10px;">
+                <span style="color: var(--text-muted); font-weight: 600;">Updated By</span>
+                <div style="color: var(--text-primary); margin-top: 2px;">${meta.updated_by || '—'}</div>
+            </div>
+        </div>
+    `;
+
+    // ── ASSEMBLE ─────────────────────────────────────────────────────────────
+    wrapper.appendChild(tabBar);
+    wrapper.appendChild(panelsContainer);
+
+    // ── SHOW MODAL ────────────────────────────────────────────────────────────
+    showModal({
+        title: 'Workflow Settings',
+        content: wrapper,
+        width: '600px',
+        height: '600px',
+        onClose: () => { setWorkingVariables(null, null); },
+        buttons: [
+            {
+                label: 'Cancel',
+                type: 'secondary',
+                onClick: () => {}   // closeModal is called automatically
+            },
+            {
+                label: 'Save',
+                type: 'success',
+                onClick: () => {
+                    const nameInput = wrapper.querySelector('#wfSettingsName');
+                    const descInput = wrapper.querySelector('#wfSettingsDescription');
+                    const newName = (nameInput?.value || '').trim();
+                    if (!newName) {
+                        showStatusBanner('Workflow name is required', 'error');
+                        activateTab('General');
+                        return false;   // Prevent modal close
+                    }
+
+                    currentInputVariables  = modalInputVariables;
+                    currentOutputVariables = modalOutputVariables;
+
+                    currentWorkflowName = newName;
+                    currentDefinition.name = newName;
+                    document.getElementById('workflowNameDisplay').textContent = newName;
+                    currentDefinition.description = descInput?.value || '';
+
+                    showStatusBanner('Workflow settings saved', 'success');
+                    updatePreview();
+                }
+            }
+        ]
+    });
+
+    // Render variable lists after modal is in the DOM
+    renderVariablesInContainer(inputListContainer,  modalInputVariables,  'input',  updatePreview);
+    renderVariablesInContainer(outputListContainer, modalOutputVariables, 'output', updatePreview);
+
+    // modal-body starts at height:0px — fix it to fill the modal
+    const modalBody = document.querySelector('.modal-container .modal-body');
+    if (modalBody) modalBody.style.height = '100%';
+
+    // Activate first tab
+    activateTab('General');
 }
 
 function closeWorkflowSettingsModal() {
-    // showFormModal modals have their own close mechanism, but keep this for compatibility
-    const modal = document.querySelector('.modal-container');
-    if (modal) {
-        modal.remove();
-    }
+    closeModal();
 }
 
 // Expose functions to global scope

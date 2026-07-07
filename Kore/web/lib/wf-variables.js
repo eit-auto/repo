@@ -457,17 +457,15 @@ function addVariable(variableType, containerId) {
         return;
     }
     
-    dataArray.push({ name: '', value: '', order: dataArray.length });
+    const newVar = variableType === 'input'
+        ? { name: '', value: '', type: 'string', order: dataArray.length }
+        : { name: '', value: '', order: dataArray.length };
+    dataArray.push(newVar);
     
     // Find the container element and use renderVariablesInContainer
     const containerElement = document.getElementById(containerId);
     if (containerElement) {
         renderVariablesInContainer(containerElement, dataArray, variableType, updatePreview);
-        
-        // Resize modal after adding content - allow more time for layout
-        setTimeout(() => {
-            resizeModalToContent();
-        }, 100);
     }
 }
 
@@ -488,6 +486,24 @@ function handleVariableFieldChange(variableType, index, fieldName, newValue, con
         dataArray[index][fieldName] = newValue;
         updatePreview();
     }
+}
+
+/**
+ * Handle type change for input variables
+ * Resets the value field (boolean defaults to 'false', others clear), then re-renders
+ */
+function handleInputTypeChange(index, newType, containerId) {
+    const dataArray = workingInputVariables !== null ? workingInputVariables : currentInputVariables;
+    if (!dataArray || !dataArray[index]) return;
+
+    dataArray[index].type = newType;
+    dataArray[index].value = newType === 'boolean' ? 'false' : '';
+
+    const containerElement = document.getElementById(containerId);
+    if (containerElement) {
+        renderVariablesInContainer(containerElement, dataArray, 'input', updatePreview);
+    }
+    updatePreview();
 }
 
 /**
@@ -653,18 +669,59 @@ function renderVariablesInContainer(containerElement, dataArray, variableType, o
     // Sort by order field before rendering to ensure correct display order
     dataArray.sort((a, b) => a.order - b.order);
 
+    const INPUT_TYPES = ['string', 'boolean', 'integer', 'float', 'array', 'object', 'jinja', 'multi-line'];
+
     dataArray.forEach((variable, index) => {
         const item = document.createElement('div');
-        item.style.cssText = `display: grid; grid-template-columns: 1fr 1fr auto auto auto auto; gap: ${gapSize}; margin-bottom: ${marginSize}; align-items: center;`;
+        const isInput = variableType === 'input';
+        const varType = variable.type || 'string';
+
+        if (isInput) {
+            item.style.cssText = `display: grid; grid-template-columns: 1fr auto 1fr auto auto auto auto; gap: ${gapSize}; margin-bottom: ${marginSize}; align-items: center;`;
+        } else {
+            item.style.cssText = `display: grid; grid-template-columns: 1fr 1fr auto auto auto auto; gap: ${gapSize}; margin-bottom: ${marginSize}; align-items: center;`;
+        }
+
+        // Build type select (input variables only)
+        const typeSelectHtml = isInput ? `
+            <select class="form-field-input" style="padding: ${paddingSize}; font-size: 0.85rem; height: 32px; min-height: 32px; box-sizing: border-box;"
+                data-var-type="${variableType}" data-var-idx="${index}" data-var-field="type"
+                onchange="handleInputTypeChange(${index}, this.value, '${containerElement.id}');">
+                ${INPUT_TYPES.map(t => `<option value="${t}"${t === varType ? ' selected' : ''}>${t}</option>`).join('')}
+            </select>` : '';
+
+        // Build value field — conditional on type for input variables
+        let valueFieldHtml;
+        if (isInput && varType === 'boolean') {
+            const val = variable.value === 'true' ? 'true' : 'false';
+            valueFieldHtml = `
+            <select class="form-field-input" style="padding: ${paddingSize}; font-size: 0.85rem; height: 32px; min-height: 32px; box-sizing: border-box; min-width: 0;"
+                data-var-type="${variableType}" data-var-idx="${index}" data-var-field="value"
+                onchange="handleVariableFieldChange('${variableType}', ${index}, 'value', this.value, '${containerElement.id}');">
+                <option value="false"${val === 'false' ? ' selected' : ''}>false</option>
+                <option value="true"${val === 'true' ? ' selected' : ''}>true</option>
+            </select>`;
+        } else if (isInput && varType === 'multi-line') {
+            valueFieldHtml = `
+            <textarea class="form-field-input" placeholder="Value"
+                style="padding: ${paddingSize}; font-size: 0.85rem; min-width: 0; box-sizing: border-box; height: 32px; min-height: 32px; resize: vertical; line-height: 1.3;"
+                data-var-type="${variableType}" data-var-idx="${index}" data-var-field="value"
+                onchange="handleVariableFieldChange('${variableType}', ${index}, 'value', this.value, '${containerElement.id}');">${escapeHtml(variable.value || '')}</textarea>`;
+        } else {
+            valueFieldHtml = `
+            <input type="text" value="${escapeHtml(variable.value || '')}" placeholder="Value"
+                class="form-field-input" style="padding: ${paddingSize}; font-size: 0.85rem; min-width: 0; box-sizing: border-box; height: 32px; min-height: 32px;"
+                data-var-type="${variableType}" data-var-idx="${index}" data-var-field="value"
+                onchange="handleVariableFieldChange('${variableType}', ${index}, 'value', this.value, '${containerElement.id}');">`;
+        }
+
         item.innerHTML = `
             <input type="text" value="${escapeHtml(variable.name || '')}" placeholder="Name" 
                 class="form-field-input" style="padding: ${paddingSize}; font-size: 0.85rem; min-width: 0; box-sizing: border-box; height: 32px; min-height: 32px;"
                 data-var-type="${variableType}" data-var-idx="${index}" data-var-field="name"
                 onchange="handleVariableFieldChange('${variableType}', ${index}, 'name', this.value, '${containerElement.id}');">
-            <input type="text" value="${escapeHtml(variable.value || '')}" placeholder="Value"
-                class="form-field-input" style="padding: ${paddingSize}; font-size: 0.85rem; min-width: 0; box-sizing: border-box; height: 32px; min-height: 32px;"
-                data-var-type="${variableType}" data-var-idx="${index}" data-var-field="value"
-                onchange="handleVariableFieldChange('${variableType}', ${index}, 'value', this.value, '${containerElement.id}');">
+            ${typeSelectHtml}
+            ${valueFieldHtml}
             ${createVariableButtons(index, variableType)}
         `;
         containerElement.appendChild(item);
@@ -726,6 +783,16 @@ function renderVariablesInContainer(containerElement, dataArray, variableType, o
 function renderStepOutputVariables(containerElement, variablesArray, onUpdateCallback) {
     renderVariablesInContainer(containerElement, variablesArray, 'step', onUpdateCallback);
 }
+
+/**
+ * Set the working variable arrays used by addVariable / handleVariableFieldChange
+ * during modal editing. Call with (null, null) to clear after modal closes.
+ */
+function setWorkingVariables(inputVars, outputVars) {
+    workingInputVariables  = inputVars;
+    workingOutputVariables = outputVars;
+}
+
 // ============================================================================
 // EXPORTS TO WINDOW
 // ============================================================================
@@ -742,9 +809,11 @@ window.findBeginStep = findBeginStep;
 window.getAvailableVariables = getAvailableVariables;
 window.getReachableSteps = getReachableSteps;
 window.getVariableContextForStep = getVariableContextForStep;
+window.handleInputTypeChange = handleInputTypeChange;
 window.handleVariableFieldChange = handleVariableFieldChange;
 window.rebuildInputVariablesFromForm = rebuildInputVariablesFromForm;
 window.rebuildOutputVariablesFromForm = rebuildOutputVariablesFromForm;
 window.renderStepOutputVariables = renderStepOutputVariables;
 window.renderVariablesInContainer = renderVariablesInContainer;
 window.renderWorkflowVariablesSection = renderWorkflowVariablesSection;
+window.setWorkingVariables = setWorkingVariables;

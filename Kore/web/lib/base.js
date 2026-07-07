@@ -27,15 +27,24 @@ window.fetch = async function(url, options = {}) {
         
         try {
             await refreshPromise;
+            // Update window.sessionToken from cookie so retry uses the new token
+            window.sessionToken = getSessionTokenFromCookie();
+            // Rebuild options with updated token if it was in the headers
+            if (options.headers && options.headers['X-Session-Token']) {
+                options.headers['X-Session-Token'] = window.sessionToken;
+            }
             // Retry original request with new token
             response = await originalFetch(url, options);
         } catch (err) {
             console.error('Token refresh failed:', err.message);
+            isRefreshing = false;
+            refreshPromise = null;
             // Refresh failed, redirect to login
             window.location.href = '/login';
             return response;
-            isRefreshing = false;
         }
+        isRefreshing = false;
+        refreshPromise = null;
     }
     
     // Reset counter on successful response

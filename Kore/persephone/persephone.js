@@ -336,11 +336,31 @@ const Persephone = (() => {
     }
 
     /**
+     * Get a pool connection with a timeout — rejects cleanly if no connection
+     * is available within the given ms rather than waiting indefinitely.
+     */
+    function getConnectionWithTimeout(pool, timeoutMs = 10000) {
+        return new Promise(function(resolve, reject) {
+            const timer = setTimeout(function() {
+                reject(new Error('Database connection timeout: pool exhausted after ' + timeoutMs + 'ms'));
+            }, timeoutMs);
+            pool.getConnection()
+                .then(function(conn) {
+                    clearTimeout(timer);
+                    resolve(conn);
+                })
+                .catch(function(err) {
+                    clearTimeout(timer);
+                    reject(err);
+                });
+        });
+    }
+
+    /**
      * Execute workflow steps using graph traversal
      * Follows transitions to execute steps concurrently across paths
      */
     async function executeWorkflowSteps(executionId, workflow, variables) {
-        const conn = await pools.kore_sys.getConnection();
         const startTime = Date.now();
         const results = {};
         const errors = [];
@@ -387,7 +407,6 @@ const Persephone = (() => {
                 nodeLookup,
                 results,
                 errors,
-                conn,
                 executionId,
                 inDegree,
                 completedPredecessors,
@@ -409,7 +428,7 @@ const Persephone = (() => {
                 if (beginNextSteps.length > 0) {
                     // Launch all successor paths in parallel
                     const pathPromises = beginNextSteps.map(stepId =>
-                        executePath(stepId, variables, stepLookup, nodeLookup, results, errors, conn, executionId, inDegree, completedPredecessors, sequenceCounter)
+                        executePath(stepId, variables, stepLookup, nodeLookup, results, errors, executionId, inDegree, completedPredecessors, sequenceCounter)
                     );
                     await Promise.allSettled(pathPromises);
                 }
@@ -434,7 +453,7 @@ const Persephone = (() => {
                 finalStatus = 'warning';
 
                 // Check if the last step that actually ran was a failure or warning
-                const [lastStepRows] = await conn.execute(
+                const [lastStepRows] = await pools.kore_sys.execute(
                     `SELECT status FROM workflow_exec_steps 
                      WHERE execution_id = ? 
                      ORDER BY execution_sequence DESC 
@@ -471,7 +490,7 @@ const Persephone = (() => {
                     duration: duration
                 }
             };
-            await conn.execute(
+            await pools.kore_sys.execute(
                 `UPDATE workflow_exec 
                  SET status = ?, results = ?, errors = ?, context = ?, duration_ms = ?, completed_at = NOW()
                  WHERE execution_id = ?`,
@@ -497,7 +516,7 @@ const Persephone = (() => {
                 }
             };
 
-            await conn.execute(
+            await pools.kore_sys.execute(
                 `UPDATE workflow_exec 
                  SET status = 'failure', errors = ?, context = ?, duration_ms = ?, completed_at = NOW()
                  WHERE execution_id = ?`,
@@ -508,7 +527,6 @@ const Persephone = (() => {
         } finally {
             // Clean up execution tracking
             delete activeExecutions[executionId];
-            conn.release();
         }
     }
 
@@ -615,7 +633,7 @@ const Persephone = (() => {
     /**
      * Execute a step and record its result
      */
-    async function executeStepInWorkflow(stepId, variables, stepLookup, nodeLookup, results, errors, conn, executionId, inDegree, completedPredecessors, sequenceCounter) {
+    async function executeStepInWorkflow(stepId, variables, stepLookup, nodeLookup, results, errors, executionId, inDegree, completedPredecessors, sequenceCounter) {
         const step = stepLookup[stepId];
         const stepStartTime = Date.now();
 
@@ -632,7 +650,7 @@ const Persephone = (() => {
             
             // Record step as running at the start of execution
             stepExecutionId = await recordStepExecution(
-                conn, executionId, stepId, step.type, 'running', null, null, null, null, step.name, ++sequenceCounter.value
+                executionId, stepId, step.type, 'running', null, null, null, null, step.name, ++sequenceCounter.value
             );
 
             let stepOutput;
@@ -716,7 +734,7 @@ const Persephone = (() => {
                 stepOutput.subErrors.forEach(e => errors.push({ type: stepState.toLowerCase(), step: stepId, ...e }));
             }
 
-            await recordStepExecution(conn, executionId, stepId, step.type, stepState.toLowerCase(), stepOutput, null, stepDuration, stepNewContext, step.name, null, stepExecutionId);
+            await recordStepExecution(executionId, stepId, step.type, stepState.toLowerCase(), stepOutput, null, stepDuration, stepNewContext, step.name, null, stepExecutionId);
 
             // Update main execution context if step added new variables
             if (Object.keys(stepNewContext).length > 0) {
@@ -737,7 +755,7 @@ const Persephone = (() => {
                 };
                 
                 // Update execution record with new context
-                await conn.execute(
+                await pools.kore_sys.execute(
                     `UPDATE workflow_exec SET context = ? WHERE execution_id = ?`,
                     [JSON.stringify(fullContext), executionId]
                 );
@@ -764,7 +782,7 @@ const Persephone = (() => {
             }
             
             try {
-                await recordStepExecution(conn, executionId, stepId, step.type, stepStatus, null, isCancelled ? null : errorMsg, stepDuration, null, step.name, null, stepExecutionId);
+                await recordStepExecution(executionId, stepId, step.type, stepStatus, null, isCancelled ? null : errorMsg, stepDuration, null, step.name, null, stepExecutionId);
             } catch (dbErr) {
                 global.consoleLog('Persephone', `Step DB update FAILED: stepExecutionId=${stepExecutionId} error=${dbErr.message}`, 1);
             }
@@ -783,7 +801,7 @@ const Persephone = (() => {
      * Each path follows its own transitions sequentially
      * Multiple paths execute in parallel
      */
-    async function executePath(stepId, variables, stepLookup, nodeLookup, results, errors, conn, executionId, inDegree, completedPredecessors, sequenceCounter) {
+    async function executePath(stepId, variables, stepLookup, nodeLookup, results, errors, executionId, inDegree, completedPredecessors, sequenceCounter) {
         const step = stepLookup[stepId];
 
         // Execute this step
@@ -794,7 +812,6 @@ const Persephone = (() => {
             nodeLookup,
             results,
             errors,
-            conn,
             executionId,
             inDegree,
             completedPredecessors,
@@ -830,7 +847,7 @@ const Persephone = (() => {
                     // Check if threshold is met
                     if (completed >= required) {
                         global.consoleLog('Persephone', `Threshold met for ${nextStepId} (${completed}/${required}), executing`, 4);
-                        await executePath(nextStepId, variables, stepLookup, nodeLookup, results, errors, conn, executionId, inDegree, completedPredecessors, sequenceCounter);
+                        await executePath(nextStepId, variables, stepLookup, nodeLookup, results, errors, executionId, inDegree, completedPredecessors, sequenceCounter);
                     } else {
                         global.consoleLog('Persephone', `Waiting for predecessors of ${nextStepId} (${completed}/${required})`, 4);
                     }
@@ -1086,28 +1103,23 @@ const Persephone = (() => {
         const pollInterval = 500;
         const maxWait = 3600000;
         const deadline = Date.now() + maxWait;
-        const conn = await pools.kore_sys.getConnection();
-        try {
-            while (Date.now() < deadline) {
-                const [rows] = await conn.execute(
-                    'SELECT status, results, context, errors FROM workflow_exec WHERE execution_id = ?',
-                    [subExecutionId]
-                );
-                if (!rows.length) throw new Error('Sub-workflow execution not found: ' + subExecutionId);
-                const row = rows[0];
-                if (!['running', 'pending'].includes(row.status)) {
-                    return {
-                        status: row.status,
-                        context: row.context ? (typeof row.context === 'string' ? JSON.parse(row.context) : row.context) : null,
-                        errors: row.errors ? (typeof row.errors === 'string' ? JSON.parse(row.errors) : row.errors) : null
-                    };
-                }
-                await new Promise(resolve => setTimeout(resolve, pollInterval));
+        while (Date.now() < deadline) {
+            const [rows] = await pools.kore_sys.execute(
+                'SELECT status, results, context, errors FROM workflow_exec WHERE execution_id = ?',
+                [subExecutionId]
+            );
+            if (!rows.length) throw new Error('Sub-workflow execution not found: ' + subExecutionId);
+            const row = rows[0];
+            if (!['running', 'pending'].includes(row.status)) {
+                return {
+                    status: row.status,
+                    context: row.context ? (typeof row.context === 'string' ? JSON.parse(row.context) : row.context) : null,
+                    errors: row.errors ? (typeof row.errors === 'string' ? JSON.parse(row.errors) : row.errors) : null
+                };
             }
-            throw new Error('Sub-workflow execution timed out: ' + subExecutionId);
-        } finally {
-            conn.release();
+            await new Promise(resolve => setTimeout(resolve, pollInterval));
         }
+        throw new Error('Sub-workflow execution timed out: ' + subExecutionId);
     }
 
     /**
@@ -1296,49 +1308,78 @@ const Persephone = (() => {
                     }
                 }
             } else {
-                // Concurrent — batched by maxConcurrent
-                for (let i = 0; i < sourceArray.length; i += maxConcurrent) {
-                    if (hasFailure && onItemFailure === 'stop') break;
+                // Concurrent — semaphore queue, starts next item as soon as a slot opens
+                let inFlight = 0;
+                let nextIndex = 0;
+                const allResults = [];
 
-                    const batch = sourceArray.slice(i, i + maxConcurrent);
-                    const batchPromises = batch.map(async function(item, batchIdx) {
-                        const globalIdx = i + batchIdx;
-                        const itemContext = { CTX: Object.assign({}, variables, { item: item }), STEPS: variables.steps || {} };
-                        const params = await resolveWorkflowInputs(step.workflowInputs, itemContext);
-                        const startedAt = Date.now();
-                        try {
-                            const created = await createSubWorkflowExecution(workflowId, null, params, parentExecutionId);
-                            const completed = await waitForExecution(created.subExecutionId);
-                            const finalCTX = (completed.context && completed.context.CTX) ? completed.context.CTX : {};
-                            const outputs = extractSubWorkflowOutputs(created.workflow, finalCTX);
-                            return {
-                                index: globalIdx,
-                                executionId: created.subExecutionId,
-                                status: completed.status,
-                                duration: Date.now() - startedAt,
-                                outputs: outputs
-                            };
-                        } catch (err) {
-                            return {
-                                index: globalIdx,
-                                executionId: null,
-                                status: 'failure',
-                                duration: Date.now() - startedAt,
-                                outputs: {},
-                                error: err.message
-                            };
+                await new Promise(function(resolveQueue) {
+                    function tryStart() {
+                        while (inFlight < maxConcurrent && nextIndex < sourceArray.length) {
+                            if (hasFailure && onItemFailure === 'stop') {
+                                if (inFlight === 0) resolveQueue();
+                                return;
+                            }
+
+                            const globalIdx = nextIndex++;
+                            const item = sourceArray[globalIdx];
+                            inFlight++;
+
+                            const itemContext = { CTX: Object.assign({}, variables, { item: item }), STEPS: variables.steps || {} };
+                            const startedAt = Date.now();
+
+                            resolveWorkflowInputs(step.workflowInputs, itemContext)
+                                .then(function(params) {
+                                    return createSubWorkflowExecution(workflowId, null, params, parentExecutionId);
+                                })
+                                .then(function(created) {
+                                    return waitForExecution(created.subExecutionId).then(function(completed) {
+                                        const finalCTX = (completed.context && completed.context.CTX) ? completed.context.CTX : {};
+                                        const outputs = extractSubWorkflowOutputs(created.workflow, finalCTX);
+                                        return {
+                                            index: globalIdx,
+                                            executionId: created.subExecutionId,
+                                            status: completed.status,
+                                            duration: Date.now() - startedAt,
+                                            outputs: outputs
+                                        };
+                                    });
+                                })
+                                .catch(function(err) {
+                                    return {
+                                        index: globalIdx,
+                                        executionId: null,
+                                        status: 'failure',
+                                        duration: Date.now() - startedAt,
+                                        outputs: {},
+                                        error: err.message
+                                    };
+                                })
+                                .then(function(result) {
+                                    allResults.push(result);
+                                    if (result.status === 'failure') {
+                                        hasFailure = true;
+                                        global.consoleLog('Persephone', 'Loop item ' + result.index + ' failed', 2);
+                                    }
+                                    inFlight--;
+                                    if (nextIndex >= sourceArray.length && inFlight === 0) {
+                                        resolveQueue();
+                                    } else {
+                                        tryStart();
+                                    }
+                                });
                         }
-                    });
 
-                    const batchResults = await Promise.all(batchPromises);
-                    batchResults.sort(function(a, b) { return a.index - b.index; });
-                    combinedResults.push.apply(combinedResults, batchResults);
-
-                    if (batchResults.some(function(r) { return r.status === 'failure'; })) {
-                        hasFailure = true;
-                        global.consoleLog('Persephone', 'One or more loop items in batch failed', 2);
+                        if (nextIndex >= sourceArray.length && inFlight === 0) {
+                            resolveQueue();
+                        }
                     }
-                }
+
+                    tryStart();
+                });
+
+                allResults.sort(function(a, b) { return a.index - b.index; });
+                combinedResults.push.apply(combinedResults, allResults);
             }
 
             if (hasFailure) {
@@ -1365,10 +1406,10 @@ const Persephone = (() => {
      * If stepExecutionId is provided, updates existing record
      * If stepExecutionId is not provided, inserts new record and returns the ID
      */
-    async function recordStepExecution(conn, executionId, stepId, stepType, status, output, error, duration, stepContext, stepName, executionSequence, stepExecutionId = null) {
+    async function recordStepExecution(executionId, stepId, stepType, status, output, error, duration, stepContext, stepName, executionSequence, stepExecutionId = null) {
         // If no stepExecutionId provided, this is a new record (INSERT)
         if (!stepExecutionId) {
-            const [okPacket] = await conn.execute(
+            const [okPacket] = await pools.kore_sys.execute(
                 `INSERT INTO workflow_exec_steps
                  (execution_id, step_id, step_name, step_type, status, output, error, duration_ms, context, started_at, completed_at, execution_sequence)
                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW(), ?)`,
@@ -1389,7 +1430,7 @@ const Persephone = (() => {
             stepExecutionId = okPacket.insertId;
         } else {
             // stepExecutionId provided, update existing record
-            await conn.execute(
+            await pools.kore_sys.execute(
                 `UPDATE workflow_exec_steps 
                  SET status = ?, output = ?, error = ?, duration_ms = ?, context = ?, completed_at = NOW()
                  WHERE step_execution_id = ?`,
@@ -2129,6 +2170,19 @@ const Persephone = (() => {
                     isDefault: true
                 };
             }
+        }
+        
+        // If we couldn't confidently identify a specific variable from the template line,
+        // don't mislabel this as an undefined variable error - surface the original
+        // Nunjucks error message instead so the real problem isn't masked.
+        if (variable === 'unknown') {
+            return {
+                message: `${message} (Line ${lineNumber}, Column ${column})`,
+                errorType: 'unrecognized_error',
+                variable: variable,
+                lineNumber: lineNumber,
+                column: column
+            };
         }
         
         // Format error message for truly undefined variable

@@ -516,26 +516,12 @@ function drawConnectionLine(lineElement, sourceId, sourceType, targetId, targetT
         startX = conditionBoxCenterX(sourceEl, stepElement);
         startY = stepY + stepHeight - 1;
         startDir = 'bottom';
-    } else {
-        if (sourceType === 'step') {
-            const sides = [
-                { x: sourceCenterX, y: sourceY, name: 'top' },
-                { x: sourceCenterX, y: sourceY + sourceHeight, name: 'bottom' },
-                { x: sourceX, y: sourceCenterY, name: 'left' },
-                { x: sourceX + sourceWidth, y: sourceCenterY, name: 'right' }
-            ];
-            const nearest = sides.reduce((a, b) =>
-                Math.hypot(a.x - targetCenterX, a.y - targetCenterY) < Math.hypot(b.x - targetCenterX, b.y - targetCenterY) ? a : b
-            );
-            startX = nearest.x;
-            startY = nearest.y;
-            startDir = nearest.name;
-        } else if (sourceType === 'node') {
-            const dx = targetCenterX - sourceCenterX;
-            const dy = targetCenterY - sourceCenterY;
-            const absX = Math.abs(dx);
-            const absY = Math.abs(dy);
-            const diamondPoint = 6;
+    } else if (sourceType === 'node') {
+        const dx = targetCenterX - sourceCenterX;
+        const dy = targetCenterY - sourceCenterY;
+        const absX = Math.abs(dx);
+        const absY = Math.abs(dy);
+        const diamondPoint = 6;
 
             // Target is above source — apply span-based exit direction rules
             if (targetCenterY < sourceCenterY) {
@@ -576,7 +562,6 @@ function drawConnectionLine(lineElement, sourceId, sourceType, targetId, targetT
             }
             // Safety fallback — should never be needed but prevents detachment
             if (startX === undefined) { startX = sourceCenterX; startY = sourceCenterY + diamondPoint; startDir = 'bottom'; }
-        }
     }
 
     let nearestTargetSide;

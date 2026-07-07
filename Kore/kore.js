@@ -124,7 +124,10 @@ const IP_WHITELIST = [
     '3.139.170.31',      // Rewst US
     '13.58.15.14',       // Rewst US
     '18.218.107.198',    // Rewst US
-    '192.168.141.'       // Internal subnet (any 192.168.141.x)
+    '192.168.141.',      // Internal subnet (any 192.168.141.x)
+    '127.0.0.1',         // Localhost IPv4
+    '::1',               // Localhost IPv6
+    'internal'           // Internal server calls (plugins.js mock requests)
 ];
 
 // Rate limiting (requests per minute per IP)
@@ -413,7 +416,7 @@ const POOL_IDLE_TIMEOUT_MS = 60000;  // Close idle connections after 60 seconds
 // MySQL connection pools
 let mysqlPool = null;    // Rewst database pool
 let cwaPool = null;      // CWA/LabTech database pool
-let korePool = null;     // Kore database pool (Persephone)
+let korePool = null;     // Kore database pool
 
 if (ENABLE_MESHCENTRAL) {
     console.log(`[${getTimestamp()}] Starting MeshCentral WebSocket Proxy`);
@@ -616,12 +619,26 @@ async function initializeMySQLPool() {
             user: process.env.KORE_DB_USER,
             password: process.env.KORE_DB_PASS,
             waitForConnections: true,
-            connectionLimit: 10,
-            queueLimit: 0,
+            connectionLimit: 480,
+            queueLimit: 100,
             enableKeepAlive: true,
             multipleStatements: true
         });
-        
+
+        // Wrap getConnection globally so every caller gets a timeout
+        // instead of queuing indefinitely when the pool is exhausted.
+        const _originalGetConnection = korePool.getConnection.bind(korePool);
+        korePool.getConnection = function(timeoutMs = 10000) {
+            return new Promise(function(resolve, reject) {
+                const timer = setTimeout(function() {
+                    reject(new Error('Database connection timeout: pool exhausted after ' + timeoutMs + 'ms'));
+                }, timeoutMs);
+                _originalGetConnection()
+                    .then(function(conn) { clearTimeout(timer); resolve(conn); })
+                    .catch(function(err) { clearTimeout(timer); reject(err); });
+            });
+        };
+
         // Load system configuration from database
         const [systemConfig] = await korePool.query('SELECT * FROM system_config WHERE id = 1');
         if (systemConfig && systemConfig.length > 0) {
