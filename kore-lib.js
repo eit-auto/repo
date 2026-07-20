@@ -492,7 +492,7 @@ const ProxyLib = (() => {
      * Execute MySQL query (routes to rewst database)
      */
     async function executeQuery(sessionToken, user, query, options = {}) {
-        return executeSqlQuery(sessionToken, user, 'rewst', query, options);
+        return executeSqlQuery(sessionToken, user, 'kore_data', query, options);
     }
     
     /**
