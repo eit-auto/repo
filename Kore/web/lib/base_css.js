@@ -22,8 +22,9 @@ if (typeof theme === 'undefined') {
 
     // Background Colors
     bg: {
-      primary: '#191A24',
-      input: '#152030',
+      primary: '#BBBBD0',
+      secondary: '#191A24',
+      input: '#191A24',
       subpanel: '#1d2b3d',
       drawer: '#0d1520',
       titlePod: '#000F23',
@@ -43,6 +44,7 @@ if (typeof theme === 'undefined') {
       muted: '#82acd7',
       header: '#c6def3',
       accent: '#4ade80',
+      input: '#ffffff',
     },
 
     // Border & Divider Colors
@@ -56,6 +58,16 @@ if (typeof theme === 'undefined') {
       background: '#002b59',
       text: '#4cb5ff',
       border: '#0070b9',
+    },
+
+    // Row-highlight colors (config-driven, see dashboard_pods.source_config's
+    // highlight_rules — e.g. the Service/Project Tickets pods). Dark, fully
+    // opaque shades meant to sit behind normal light table text, not the
+    // brighter/translucent tones badge/status colors use.
+    highlight: {
+      red: '#4a1518',
+      orange: '#4a2f10',
+      yellow: '#4a3f14',
     },
   },
 };
@@ -100,26 +112,6 @@ if (typeof componentStyles === 'undefined') {
     height: 100%;
     margin: 0;
     padding: 0;
-    scrollbar-color: var(--brand-light) transparent;
-    scrollbar-width: thin;
-  }
-
-  html::-webkit-scrollbar {
-    width: 8px;
-    height: 8px;
-  }
-
-  html::-webkit-scrollbar-track {
-    background-color: var(--bg-input);
-  }
-
-  html::-webkit-scrollbar-thumb {
-    background-color: var(--brand-light);
-    border-radius: 4px;
-  }
-
-  html::-webkit-scrollbar-thumb:hover {
-    background-color: var(--brand-dark);
   }
 
   body {
@@ -130,6 +122,7 @@ if (typeof componentStyles === 'undefined') {
     height: 100dvh;
     padding-top: var(--header-clearance);
     box-sizing: border-box;
+    overflow: hidden;
   }
 
   .main-container {
@@ -137,8 +130,10 @@ if (typeof componentStyles === 'undefined') {
     display: grid;
     gap: 10px;
     min-height: 100%;
+    height: 100%;
     box-sizing: border-box;
-    scrollbar-color: var(--bg-input) var(--brand-light);
+    overflow-y: auto;
+    scrollbar-color: var(--brand-light) var(--bg-canvas);
     scrollbar-width: thin;
   }
 
@@ -148,16 +143,16 @@ if (typeof componentStyles === 'undefined') {
   }
 
   .main-container::-webkit-scrollbar-track {
-    background-color: var(--brand-light);
+    background-color: var(--bg-canvas);
   }
 
   .main-container::-webkit-scrollbar-thumb {
-    background-color: var(--bg-input);
+    background-color: var(--brand-light);
     border-radius: 4px;
   }
 
   .main-container::-webkit-scrollbar-thumb:hover {
-    background-color: var(--brand-light);
+    background-color: var(--brand-dark);
   }
 
   .panel-level-1 {
@@ -261,8 +256,14 @@ if (typeof componentStyles === 'undefined') {
     text-align: left;
   }
 
-  /* Remove background from flex container elements */
-  .panel-level-2 > div[style*="display: flex"] {
+  /* Remove background from flex container elements - but not from an
+     actual panel-level-N element that happens to also be a direct flex
+     child of panel-level-2 (e.g. a nested panel-level-3 section wrapper).
+     The [style*="display: flex"] match is inherently a fragile substring
+     check rather than a real "is this just a layout div" test, so the
+     :not() here is a deliberate carve-out for anything that's genuinely a
+     styled panel and needs its own background-color to win. */
+  .panel-level-2 > div[style*="display: flex"]:not([class*="panel-level-"]) {
     background-color: transparent !important;
   }
 
@@ -381,26 +382,39 @@ if (typeof componentStyles === 'undefined') {
   input[type="number"],
   input[type="url"],
   input[type="search"],
+  input[type="date"],
+  input[type="datetime-local"],
+  input[type="time"],
   textarea,
   select {
     padding: 6px;
-    background-color: #0f1a26;
+    background-color: var(--bg-input);
     border: 1px solid var(--border-primary);
     border-radius: 4px;
-    color: var(--text-primary);
+    color: var(--text-input);
+    font-weight: 600;
     font-size: 12px;
     font-family: inherit;
     transition: background-color 0.2s ease;
   }
 
+  /* The native calendar/clock picker icon defaults to a dark glyph, which
+     is nearly invisible against our dark --bg-input background. Invert it
+     so it's visible against the theme. */
+  input[type="date"]::-webkit-calendar-picker-indicator,
+  input[type="datetime-local"]::-webkit-calendar-picker-indicator,
+  input[type="time"]::-webkit-calendar-picker-indicator {
+    filter: invert(1);
+    cursor: pointer;
+  }
+
   select {
     appearance: none;
-    background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%234cb5ff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
+    background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
     background-repeat: no-repeat;
     background-position: right 8px center;
     background-size: 18px;
     padding-right: 28px;
-    background-color: #0f1a26;
     cursor: pointer;
   }
 
@@ -410,16 +424,19 @@ if (typeof componentStyles === 'undefined') {
   input[type="number"]:focus,
   input[type="url"]:focus,
   input[type="search"]:focus,
+  input[type="date"]:focus,
+  input[type="datetime-local"]:focus,
+  input[type="time"]:focus,
   textarea:focus,
   select:focus {
     outline: none;
-    background-color: #132035;
+    background-color: var(--bg-input);
     border-color: var(--brand-light);
   }
 
   input[readonly],
   textarea[readonly] {
-    background-color: #0f1a26;
+    background-color: var(--bg-input);
     color: #888;
     cursor: not-allowed;
   }
@@ -433,6 +450,61 @@ if (typeof componentStyles === 'undefined') {
     height: 14px;
     margin: 0;
     vertical-align: middle;
+  }
+
+  /* Custom Checkbox and Radio - scoped to .form-group */
+  .form-group input[type="checkbox"],
+  .form-group input[type="radio"] {
+    appearance: none;
+    -webkit-appearance: none;
+    width: 14px;
+    height: 14px;
+    background-color: var(--bg-input);
+    border: 2px solid var(--border-primary);
+    border-radius: 3px;
+    cursor: pointer;
+    position: relative;
+    flex-shrink: 0;
+    transition: background-color 0.15s ease, border-color 0.15s ease;
+  }
+
+  .form-group input[type="radio"] {
+    border-radius: 50%;
+  }
+
+  .form-group input[type="checkbox"]:checked,
+  .form-group input[type="radio"]:checked {
+    background-color: var(--brand-light);
+    border-color: var(--brand-light);
+  }
+
+  .form-group input[type="checkbox"]:checked::after {
+    content: '';
+    position: absolute;
+    left: 2px;
+    top: -1px;
+    width: 5px;
+    height: 9px;
+    border: 2px solid white;
+    border-top: none;
+    border-left: none;
+    transform: rotate(45deg);
+  }
+
+  .form-group input[type="radio"]:checked::after {
+    content: '';
+    position: absolute;
+    left: 2px;
+    top: 2px;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background-color: white;
+  }
+
+  .form-group input[type="checkbox"]:hover,
+  .form-group input[type="radio"]:hover {
+    border-color: var(--brand-light);
   }
 
   /* Label Styling */
@@ -489,6 +561,32 @@ if (typeof componentStyles === 'undefined') {
     margin-right: 6px;
   }
 
+  /* Radio Group - container for a set of radio options, each option itself
+     styled via .form-group--inline. Default layout is a vertical stack;
+     add --horizontal to lay options out in a wrapping row instead. */
+  .radio-group {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .radio-group--horizontal {
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 15px;
+  }
+
+  /* .form-group--inline is also reused *inside* a field's .form-group
+     wrapper - directly for checkbox fields, or nested under .radio-group
+     for radio options. In both cases the outer .form-group (or
+     .radio-group's own gap) already handles spacing, so the margin-bottom
+     .form-group--inline normally carries (for spacing standalone
+     settings-panel rows apart) needs zeroing out here instead of stacking
+     on top and doubling up the space below the field. */
+  .form-group .form-group--inline {
+    margin-bottom: 0;
+  }
+
   /* Info Icon Tooltip */
   .info-icon {
     position: relative;
@@ -506,6 +604,236 @@ if (typeof componentStyles === 'undefined') {
     border: 1px solid #667eea;
     max-width: 250px;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+  }
+
+  /* Multi-Select Widget - searchable checklist dropdown with removable
+     tags, backed by a hidden native <select multiple> so other code can
+     read its selection the same way as any other select. */
+  .multi-select-container {
+    position: relative;
+  }
+
+  .multi-select-hidden-select {
+    display: none;
+  }
+
+  .multi-select-display {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+    min-height: 16px;
+    padding: 6px 60px 6px 8px;
+    background-color: var(--bg-input);
+    border: 1px solid var(--border-primary);
+    border-radius: 4px;
+    cursor: pointer;
+    position: relative;
+  }
+
+  .multi-select-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    flex: 1;
+    min-width: 0;
+  }
+
+  .multi-select-placeholder {
+    color: var(--text-muted);
+    font-size: 12px;
+  }
+
+  .multi-select-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background-color: var(--brand-light);
+    color: #ffffff;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 3px 6px;
+    border-radius: 3px;
+    white-space: nowrap;
+  }
+
+  .multi-select-tag-remove {
+    background: none;
+    border: none;
+    color: #ffffff;
+    opacity: 0.75;
+    cursor: pointer;
+    font-size: 13px;
+    line-height: 1;
+    padding: 0;
+  }
+
+  .multi-select-tag-remove:hover {
+    opacity: 1;
+  }
+
+  .multi-select-toggle {
+    position: absolute;
+    right: 8px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--text-muted);
+    font-size: 10px;
+    pointer-events: none;
+  }
+
+  .multi-select-clear-all {
+    position: absolute;
+    right: 24px;
+    top: 50%;
+    transform: translateY(-50%);
+    padding: 2px 6px;
+    font-size: 11px;
+    font-weight: 600;
+    background-color: #b8242f;
+    color: #ffffff;
+    border: none;
+    border-radius: 3px;
+    cursor: pointer;
+  }
+
+  .multi-select-clear-all:hover {
+    background-color: #c62828;
+  }
+
+  .multi-select-options {
+    display: none;
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0;
+    right: 0;
+    max-height: 260px;
+    overflow-y: auto;
+    background-color: var(--bg-panel2);
+    border: 1px solid var(--border-primary);
+    border-radius: 4px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+    z-index: 50;
+    padding: 4px 0;
+  }
+
+  .multi-select-options.open {
+    display: block;
+  }
+
+  .multi-select-search {
+    padding: 6px 8px;
+  }
+
+  .multi-select-search-input {
+    width: 100%;
+    padding: 6px;
+    padding-right: 26px;
+    background-color: var(--bg-input);
+    border: 1px solid var(--border-primary);
+    border-radius: 4px;
+    color: var(--text-input);
+    font-size: 12px;
+    box-sizing: border-box;
+  }
+
+  .multi-select-search-clear {
+    position: absolute;
+    right: 8px;
+    top: 50%;
+    transform: translateY(-50%);
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 13px;
+    padding: 0;
+  }
+
+  .multi-select-option {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+    cursor: pointer;
+    font-size: 12px;
+  }
+
+  .multi-select-option:hover {
+    background-color: var(--bg-input);
+  }
+
+  .multi-select-option label {
+    cursor: pointer;
+    margin: 0;
+  }
+
+  .multi-select-separator {
+    border-bottom: 1px solid var(--border-primary);
+    margin: 2px 0;
+  }
+
+  .multi-select-no-matches {
+    padding: 12px 10px;
+    color: var(--text-muted);
+    text-align: center;
+    font-size: 12px;
+  }
+
+  /* Searchable Single-Select Widget - shares the .multi-select-options/
+     .multi-select-search* dropdown panel styling above; only the display
+     area and option-row behavior differ from the multi-select widget. */
+  .single-select-container {
+    position: relative;
+  }
+
+  .single-select-hidden-select {
+    display: none;
+  }
+
+  .single-select-display {
+    display: flex;
+    align-items: center;
+    min-height: 16px;
+    padding: 6px 24px 6px 8px;
+    background-color: var(--bg-input);
+    border: 1px solid var(--border-primary);
+    border-radius: 4px;
+    cursor: pointer;
+    position: relative;
+  }
+
+  .single-select-value {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 12px;
+    color: var(--text-input);
+  }
+
+  .single-select-value.single-select-placeholder {
+    color: var(--text-muted);
+  }
+
+  .single-select-toggle {
+    position: absolute;
+    right: 8px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--text-muted);
+    font-size: 10px;
+    pointer-events: none;
+  }
+
+  .single-select-option {
+    cursor: pointer;
+  }
+
+  .single-select-option--selected {
+    background-color: var(--brand-light);
+    color: #ffffff;
   }
 
   /* Modal Styling */
@@ -532,7 +860,7 @@ if (typeof componentStyles === 'undefined') {
     background-color: var(--bg-panel1);
     border: 1px solid var(--border-primary);
     border-top: 3px solid var(--brand-light);
-    border-radius: 8px;
+    border-radius: 10px;
     max-width: 600px;
     width: 100%;
     max-height: 80vh;
@@ -604,6 +932,30 @@ if (typeof componentStyles === 'undefined') {
     background-color: var(--brand-dark);
   }
 
+  .custom-scrollbar {
+    scrollbar-width: thin;
+    scrollbar-color: var(--brand-light) var(--bg-canvas);
+  }
+
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-track {
+    background-color: var(--bg-canvas);
+    border-radius: 3px;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    background-color: var(--brand-light);
+    border-radius: 3px;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    background-color: var(--brand-dark);
+  }
+
   .modal-footer {
     padding: 10px 20px;
     display: flex;
@@ -672,7 +1024,7 @@ if (typeof componentStyles === 'undefined') {
 
   /* CodeMirror Editor Styles */
   .cm-editor {
-    background-color: var(--bg-input);
+    background-color: var(--bg-canvas);
     height: 100% !important;
   }
 

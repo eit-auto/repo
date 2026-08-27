@@ -2448,9 +2448,9 @@ function openJinjaEditorModal(title, initialValue, onSaveCallback, readOnly = fa
         }
     ];
     
-    showFormModal(title, fields, (formData) => {
+    showFormModal(title, fields, async (formData) => {
         if (onSaveCallback && !readOnly) {
-            onSaveCallback(formData.content);
+            return await onSaveCallback(formData.content);
         }
     }, readOnly, true, true);
 }
@@ -2475,9 +2475,9 @@ function openJsonEditorModal(fieldLabel, initialValue, onSaveCallback, readOnly 
         }
     ];
     
-    showFormModal(modalTitle, fields, (formData) => {
+    showFormModal(modalTitle, fields, async (formData) => {
         if (onSaveCallback && !readOnly) {
-            onSaveCallback(formData.content);
+            return await onSaveCallback(formData.content);
         }
     }, readOnly, true, true);
 }

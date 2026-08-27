@@ -42,9 +42,32 @@ const stepsWithTimersStarted = {};
 // Track which steps have been rendered in their final state (to skip re-rendering)
 const stepsRenderedFinal = {};
 
+// Track the last-rendered loop progress {completed, total} per step, so the
+// early-return skip below (which normally avoids re-rendering a still-running
+// step every poll cycle) can make an exception specifically when there's a
+// genuinely new progress value to show - without this, a loop step's progress
+// line would render once and then freeze until the step actually finishes.
+const lastRenderedLoopProgress = {};
+
 // Track expanded Workflow steps and their sub-execution IDs for polling
 // key: stepId (step-seq-N), value: array of executionIds
 const expandedSubExecutions = {};
+
+// Cache of each terminal execution's rendered output_html (its own dedicated
+// workflow field, not an Output Variable) - key: executionId, populated by
+// renderExecutionDetail whenever present so the "View Output" button's
+// onclick (which can only safely carry a plain
+// executionId, not an arbitrary HTML blob, in an inline attribute) has
+// somewhere to look it up from.
+const executionOutputHtmlCache = {};
+
+// Track which running Workflow steps have already had their sub-execution ID(s)
+// picked up, so the early-return skip below can make an exception the moment a
+// still-running Workflow step's child execution becomes available - without
+// this, a Workflow step would render once with no result yet and then freeze
+// in its non-expandable single-line form for the rest of its run, even after
+// the sub-workflow starts and a child executionId shows up in step.output.
+const stepsWithSubExecAvailable = {};
 
 // Track execution duration timer (for the overall workflow)
 let executionDurationTimer = null;
@@ -67,7 +90,9 @@ function cleanupPreviousExecution() {
     Object.keys(stepDurationTimers).forEach(key => delete stepDurationTimers[key]);
     Object.keys(stepsWithTimersStarted).forEach(key => delete stepsWithTimersStarted[key]);
     Object.keys(stepsRenderedFinal).forEach(key => delete stepsRenderedFinal[key]);
+    Object.keys(lastRenderedLoopProgress).forEach(key => delete lastRenderedLoopProgress[key]);
     Object.keys(expandedSubExecutions).forEach(key => delete expandedSubExecutions[key]);
+    Object.keys(stepsWithSubExecAvailable).forEach(key => delete stepsWithSubExecAvailable[key]);
     
     // Clear execution duration timer
     if (executionDurationTimer) {
@@ -123,13 +148,17 @@ function stopExecutionDurationTimer(finalDuration) {
         durationEl.textContent = formatDuration(finalDuration);
     }
 }
-function startStepDurationTimer(stepId) {
+function startStepDurationTimer(stepId, startedAt) {
     // Clear existing timer if any
     if (stepDurationTimers[stepId]) {
         clearInterval(stepDurationTimers[stepId].timerId);
     }
     
-    const startTime = Date.now();
+    // Use the step's real start time when available (e.g. the page was loaded
+    // or refreshed while the step was already mid-run), same as
+    // startExecutionDurationTimer does with triggeredAt - falling back to "now"
+    // only if for some reason no startedAt was passed in.
+    const startTime = startedAt ? new Date(startedAt).getTime() : Date.now();
     
     const timerId = setInterval(() => {
         try {
@@ -226,9 +255,12 @@ function toggleSection(contentDivId, sectionId, event) {
     const isCurrentlyHidden = contentDiv.style.display === 'none';
     contentDiv.style.display = isCurrentlyHidden ? 'block' : 'none';
     
-    // Update the toggle arrow (find span in the clicked element)
+    // Update the toggle arrow (find span in the clicked element). Prefer a
+    // dedicated [data-chevron] marker when present - some headers (e.g. a
+    // running Workflow step) also contain a spinner span, and a plain
+    // querySelector('span') would grab that instead of the actual chevron.
     const clickedDiv = event.currentTarget;
-    const toggleSpan = clickedDiv.querySelector('span');
+    const toggleSpan = clickedDiv.querySelector('[data-chevron]') || clickedDiv.querySelector('span');
     if (toggleSpan) {
         toggleSpan.textContent = isCurrentlyHidden ? '▼' : '▶';
     }
@@ -335,7 +367,7 @@ async function fetchExecutionDetail(executionId) {
 /**
  * Execute a workflow with given parameters
  */
-async function executeWorkflow(parameters) {
+async function executeWorkflow(parameters, triggerId = null) {
     try {
         showStatusBanner('Starting workflow execution...', 'info');
 
@@ -351,6 +383,7 @@ async function executeWorkflow(parameters) {
             workflowVersion: currentVersion,
             parameters: parameters,
             triggeredBy: 'test',
+            triggerId: triggerId || null,
             timeout: 600000  // 10 minutes
         };
 
@@ -373,6 +406,11 @@ async function executeWorkflow(parameters) {
         if (sessionToken) {
             headers['X-Session-Token'] = sessionToken;
         }
+
+        // PHASE 2: no X-User header. /engine/execute derives attribution from
+        // the authenticated session, so sending an identity here did nothing
+        // except let a caller claim to be someone else in
+        // workflow_exec.triggered_by_user.
 
         const response = await fetch('/engine/execute', {
             method: 'POST',
@@ -508,6 +546,7 @@ function showExecutionResults() {
         // Reset render-skip state so modal always does a full render on open
         lastContextValue = null;
         Object.keys(stepsRenderedFinal).forEach(key => delete stepsRenderedFinal[key]);
+    Object.keys(lastRenderedLoopProgress).forEach(key => delete lastRenderedLoopProgress[key]);
         
         showModal({
             title: '',
@@ -582,6 +621,95 @@ async function generateExecDetailHTML(executionId, container, backButton = false
 }
 
 /**
+ * Show a modal with a finished execution's rendered output_html (its own
+ * dedicated workflow field, not an Output Variable). Called both by the
+ * persistent "View Output" header button (any
+ * time, for any terminal execution that has one) and automatically by
+ * startPollingExecution below (only immediately upon a live running -> terminal
+ * transition someone is actively watching).
+ *
+ * Rendered inside a sandboxed <iframe srcdoc="..."> rather than dropped
+ * straight into the modal's innerHTML. output_html is commonly a FULL HTML
+ * document authored elsewhere (its own <!DOCTYPE>/<head>/<style>, e.g. an
+ * emailed report) - a browser's HTML parser can't keep a <head>/<style> as a
+ * child of a <div> when set via innerHTML, so that styling either gets
+ * silently dropped or ends up unscoped and colliding with the app's own CSS.
+ * An iframe gives it a genuinely separate document context instead, so it
+ * renders exactly as authored and can't leak style either direction.
+ *
+ * Sandboxed with `allow-same-origin` but NOT `allow-scripts` - the report
+ * still can't execute any code or make network calls, but that flag alone
+ * lets the parent page read the iframe's rendered content height (below) so
+ * the iframe/modal can size itself to the actual report instead of a fixed
+ * height that's either too short (forcing an unwanted scrollbar) or too
+ * tall (wasted empty space for a short report).
+ * @param {number|string} executionId
+ */
+function showOutputHtmlModal(executionId) {
+    const html = executionOutputHtmlCache[executionId];
+    if (!html) return;
+
+    // Reasonable default before the actual content height is known (avoids a
+    // near-invisible sliver while the iframe's document is still loading)
+    const iframe = document.createElement('iframe');
+    iframe.setAttribute('sandbox', 'allow-same-origin');
+    iframe.style.cssText = 'width: 100%; height: 300px; display: block; background: #fff; border: 3px solid var(--brand-light); border-radius: 10px; overflow: hidden; box-sizing: border-box;';
+    iframe.srcdoc = html;
+
+    // Resize the iframe (and re-clamp the modal's max-height) to the report's
+    // actual rendered height once it's loaded, capped so a genuinely huge
+    // report gets its own internal scrollbar rather than an unbounded modal.
+    iframe.onload = () => {
+        try {
+            const doc = iframe.contentWindow.document;
+            const contentHeight = Math.max(
+                doc.documentElement ? doc.documentElement.scrollHeight : 0,
+                doc.body ? doc.body.scrollHeight : 0
+            );
+            if (contentHeight > 0) {
+                const cap = Math.floor(window.innerHeight * 0.8);
+                // +20px slack, not just a couple pixels - scrollHeight can
+                // under-measure slightly (body default margins, sub-pixel
+                // rounding), and too little buffer left a hairline internal
+                // scrollbar on the iframe itself even though the report
+                // content visually fit.
+                iframe.style.height = Math.min(contentHeight + 20, cap) + 'px';
+            }
+        } catch (e) {
+            console.warn('[showOutputHtmlModal] Could not measure iframe content height, keeping default:', e.message);
+        }
+    };
+
+    showModal({
+        title: 'Workflow Output',
+        content: iframe,
+        width: '80vw',
+        closeOnBackdrop: true,
+        buttons: [
+            { label: 'Close', type: 'secondary', onClick: () => {} }
+        ]
+    });
+
+    // The width option above only sets inline style.width, which the
+    // .modal-container CSS class's own max-width:600px still constrains -
+    // override that directly too, same pattern used in
+    // openWorkflowJinjaEditorModal, so this report actually gets real room
+    // instead of being squeezed into the default modal size. Height is
+    // deliberately NOT forced here (unlike width) - letting the modal size
+    // itself to its content (header + iframe's own now-dynamic height +
+    // footer) is exactly what avoids the wasted-space/phantom-scroll problem;
+    // max-height still caps how tall that's allowed to grow for a huge report.
+    setTimeout(() => {
+        const allModals = document.querySelectorAll('.modal-container');
+        const modal = allModals[allModals.length - 1];
+        if (modal) {
+            modal.style.maxWidth = '90vw';
+            modal.style.maxHeight = '90vh';
+        }
+    }, 0);
+}
+
+/**
  * Start polling an execution for updates
  * @param {string} executionId - The execution ID to poll
  * @param {HTMLElement} container - The container to update
@@ -598,34 +726,66 @@ function startPollingExecution(executionId, container, backButton) {
             return;
         }
         
+        let fetchedExecution = null;
         try {
-            const execution = await fetchExecutionDetail(executionId);
+            fetchedExecution = await fetchExecutionDetail(executionId);
             
             // Re-render with latest data
-            await renderExecutionDetail(execution, container, backButton);
+            await renderExecutionDetail(fetchedExecution, container, backButton);
 
             // Refresh any expanded sub-executions on Workflow steps
             for (const [stepId, subExecIds] of Object.entries(expandedSubExecutions)) {
                 if (expandedSections['step-' + stepId]) {
                     const subContainer = document.querySelector('#' + stepId + '-subexec');
                     if (subContainer) {
-                        const executionIsTerminal = execution.status !== 'running' && execution.status !== 'pending' && execution.status !== 'cancelling';
+                        const executionIsTerminal = fetchedExecution.status !== 'running' && fetchedExecution.status !== 'pending' && fetchedExecution.status !== 'cancelling';
                         await renderSubExecutionSteps(subExecIds, subContainer, executionIsTerminal);
                     }
                 }
             }
             
             // Stop polling if execution completed or was cancelled (but not cancelling - still in progress)
-            if (execution.status !== 'running' && execution.status !== 'pending' && execution.status !== 'cancelling') {
+            if (fetchedExecution.status !== 'running' && fetchedExecution.status !== 'pending' && fetchedExecution.status !== 'cancelling') {
                 stopPollingExecution(executionId);
                 // Wait for any in-flight step DB writes to complete, then do final render
                 await new Promise(resolve => setTimeout(resolve, 1000));
                 const finalExecution = await fetchExecutionDetail(executionId);
                 await renderExecutionDetail(finalExecution, container, backButton);
+
+                // Auto-popup the output_html modal - this only ever runs from a
+                // live running -> terminal transition someone was actively
+                // watching (startPollingExecution is only ever started in the
+                // first place when the execution began non-terminal; opening the
+                // details page for an already-finished execution never reaches
+                // this code path at all, so it can't double-fire there). Applies
+                // to every terminal state, not just success - a workflow that
+                // only sets output_html on some paths will simply have it come
+                // back empty/missing on the others and this quietly does
+                // nothing in that case. output_html is its own dedicated
+                // workflow field (not an Output Variable), so it lands in its
+                // own top-level context.OUTPUT_HTML, not inside OUTPUT.
+                const outputHtml = finalExecution.context && finalExecution.context.OUTPUT_HTML;
+                if (typeof outputHtml === 'string' && outputHtml.trim().length > 0) {
+                    showOutputHtmlModal(finalExecution.executionId);
+                }
             }
         } catch (error) {
             console.error('[GenerateExecDetail] Polling error:', error);
-            // Continue polling despite errors
+            // A failed render here (e.g. a stale/torn-down DOM element) must not
+            // leave polling running forever if the execution has actually
+            // already finished on the backend -- that makes a workflow that
+            // completed promptly look stuck indefinitely in the UI. We already
+            // have the execution's real status from the fetch above (it's what
+            // was being rendered when the render itself threw), so use that to
+            // decide whether to stop polling even though this render attempt
+            // failed, rather than unconditionally continuing to poll.
+            if (fetchedExecution && fetchedExecution.status !== 'running' && fetchedExecution.status !== 'pending' && fetchedExecution.status !== 'cancelling') {
+                console.warn('[GenerateExecDetail] Execution is already terminal despite render error -- stopping polling anyway:', fetchedExecution.status);
+                stopPollingExecution(executionId);
+            }
+            // Otherwise (fetch itself failed, or execution is genuinely still
+            // running), continue polling despite the error -- unchanged from
+            // before.
         }
     }, 2000); // Poll every 2 seconds
     
@@ -694,6 +854,12 @@ async function renderExecutionDetail(execution, container, backButton = false) {
         warnings.style.display = 'none';
         wrapper.appendChild(warnings);
         
+        // Inputs
+        const inputs = document.createElement('div');
+        inputs.id = 'exec-inputs';
+        inputs.style.display = 'none';
+        wrapper.appendChild(inputs);
+
         // Context
         const context = document.createElement('div');
         context.id = 'exec-context';
@@ -722,9 +888,31 @@ async function renderExecutionDetail(execution, container, backButton = false) {
         : execution.status === 'cancelling'
         ? `<button class="btn" data-size="sm" data-color="slate" disabled>Cancelling...</button>`
         : '';
+
+    // "View Output" button - shown whenever the workflow is finished (any
+    // terminal state: success/warning/failure/cancelled) AND it has a
+    // non-empty rendered output_html. output_html is its own dedicated
+    // workflow field (not an Output Variable, and never sent to a parent
+    // workflow if this one runs as a sub-workflow), so it lands in its own
+    // top-level context.OUTPUT_HTML, not inside OUTPUT. A workflow that only
+    // sets it on some paths (e.g. success only) naturally has it come back
+    // empty/missing on the others, so this button - and the auto-popup in
+    // startPollingExecution below - simply don't appear/fire in that case.
+    const isTerminalStatus = execution.status !== 'running' && execution.status !== 'pending' && execution.status !== 'cancelling';
+    const outputHtml = execution.context && execution.context.OUTPUT_HTML;
+    const hasOutputHtml = typeof outputHtml === 'string' && outputHtml.trim().length > 0;
+    if (hasOutputHtml) {
+        executionOutputHtmlCache[execution.executionId] = outputHtml;
+    }
+    const viewOutputButtonHtml = (isTerminalStatus && hasOutputHtml)
+        ? `<button class="btn" data-size="sm" data-color="blue" onclick="showOutputHtmlModal(${execution.executionId})">View Output</button>`
+        : '';
+
     header.innerHTML = `
         ${backButton ? '<button class="btn" data-size="sm" data-color="slate" onclick="window.history.back()">← Back</button>' : ''}
         <h2 style="margin: 0; flex: 1; font-size: 16px;">Execution Details: ${escapeHtml(String(execution.workflowName || 'Unknown'))}</h2>
+        <span style="font-family: monospace; font-size: 12px; color: var(--text-muted); white-space: nowrap;">Execution ID: ${escapeHtml(String(execution.executionId))}</span>
+        ${viewOutputButtonHtml}
         ${cancelButtonHtml}
     `;
 
@@ -739,12 +927,16 @@ async function renderExecutionDetail(execution, container, backButton = false) {
     }
     
     const statusClass = getStatusClass(execution.status);
+    const triggeredByName = (execution.context && execution.context.USER && execution.context.USER.fullName) || execution.triggeredByUser || execution.triggeredBy || 'System';
+    const formInfo = execution.context && execution.context.WORKFLOW && execution.context.WORKFLOW.formInfo;
+    const workflowTrigger = execution.context && execution.context.WORKFLOW && execution.context.WORKFLOW.trigger;
+    const triggeredFromText = (formInfo && formInfo.form_name)
+        ? 'Form: ' + formInfo.form_name
+        : (workflowTrigger && workflowTrigger.triggerName)
+            ? 'Workflow Trigger: ' + workflowTrigger.triggerName
+            : 'Workflow Trigger: (unspecified)';
     document.getElementById('exec-summary').innerHTML = `
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
-            <div style="display: flex; gap: 4px; align-items: baseline;">
-                <span style="color: var(--text-muted); font-size: 12px;">Execution ID:</span>
-                <span style="font-family: monospace; font-size: 13px; word-break: break-all;">${escapeHtml(String(execution.executionId))}</span>
-            </div>
             <div style="display: flex; gap: 4px; align-items: baseline;">
                 <span style="color: var(--text-muted); font-size: 12px;">Status:</span>
                 <span class="status-badge ${statusClass}">${execution.status}</span>
@@ -754,16 +946,20 @@ async function renderExecutionDetail(execution, container, backButton = false) {
                 <span style="font-size: 13px;">${formatTimestamp(execution.triggeredAt)}</span>
             </div>
             <div style="display: flex; gap: 4px; align-items: baseline;">
-                <span style="color: var(--text-muted); font-size: 12px;">Duration:</span>
-                <span style="font-family: monospace; font-size: 13px;" id="exec-duration-display">${duration}</span>
+                <span style="color: var(--text-muted); font-size: 12px;">Triggered By:</span>
+                <span style="font-size: 13px;">${escapeHtml(String(triggeredByName))}</span>
             </div>
             <div style="display: flex; gap: 4px; align-items: baseline;">
                 <span style="color: var(--text-muted); font-size: 12px;">Completed:</span>
                 <span style="font-size: 13px;">${execution.completedAt ? formatTimestamp(execution.completedAt) : '—'}</span>
             </div>
             <div style="display: flex; gap: 4px; align-items: baseline;">
-                <span style="color: var(--text-muted); font-size: 12px;">Triggered By:</span>
-                <span style="font-size: 13px;">${escapeHtml(String(execution.triggeredByUser || execution.triggeredBy || 'System'))}</span>
+                <span style="color: var(--text-muted); font-size: 12px;">Triggered From:</span>
+                <span style="font-size: 13px;">${escapeHtml(triggeredFromText)}</span>
+            </div>
+            <div style="display: flex; gap: 4px; align-items: baseline;">
+                <span style="color: var(--text-muted); font-size: 12px;">Duration:</span>
+                <span style="font-family: monospace; font-size: 13px;" id="exec-duration-display">${duration}</span>
             </div>
         </div>
     `;
@@ -780,8 +976,24 @@ async function renderExecutionDetail(execution, container, backButton = false) {
     const warningsEl = document.getElementById('exec-warnings');
 
     if (execution.errors && execution.errors.length > 0) {
-        const failureItems = execution.errors.filter(e => !e.type || e.type === 'failure');
-        const warningItems = execution.errors.filter(e => e.type === 'warning');
+        // Build a stepId -> stepName lookup from execution.steps (confirmed field
+        // names directly from the API's getExecutionStatus: stepId: row.step_id,
+        // stepName: row.step_name), so each error/warning's raw step id can be
+        // displayed as "stepName (id)" instead of the bare id alone. Falls back
+        // to the raw value unchanged for entries with no matching step (e.g. a
+        // fatal/workflow-level error, which has no `step` field at all).
+        const stepNameById = {};
+        (execution.steps || []).forEach(s => {
+            if (s.stepId) stepNameById[s.stepId] = s.stepName;
+        });
+        const withReadableStep = e => {
+            if (!e.step) return e;
+            const name = stepNameById[e.step];
+            return name ? Object.assign({}, e, { step: `${name} (${e.step})` }) : e;
+        };
+
+        const failureItems = execution.errors.filter(e => !e.type || e.type === 'failure').map(withReadableStep);
+        const warningItems = execution.errors.filter(e => e.type === 'warning').map(withReadableStep);
 
         if (failureItems.length > 0) {
             errorsEl.innerHTML = `
@@ -790,8 +1002,8 @@ async function renderExecutionDetail(execution, container, backButton = false) {
                         <span style="font-weight: bold;">▶</span>
                         <strong style="color: #ff6b6b;">Errors (${failureItems.length})</strong>
                     </div>
-                    <div id="exec-errors-content" style="display: none; margin-top: 10px;">
-                        <pre style="background: var(--bg-primary); border-radius: 4px; padding: 10px; overflow-x: auto; color: #ff6b6b; margin: 0;">${escapeHtml(formatJson(failureItems))}</pre>
+                    <div id="exec-errors-content" style="display: none; margin-top: 10px; min-height: 100px;">
+                        <div id="exec-errors-editor" style="height: 300px; background: var(--bg-primary); border-radius: 6px; overflow: hidden;"></div>
                     </div>
                 </div>
             `;
@@ -803,6 +1015,8 @@ async function renderExecutionDetail(execution, container, backButton = false) {
                     errorsEl.querySelector('span').textContent = '▼';
                 }
             }
+            const errorsJsonString = JSON.stringify(failureItems, null, 2);
+            await createOutputEditor('exec-errors-editor', errorsJsonString);
         } else {
             errorsEl.style.display = 'none';
         }
@@ -814,8 +1028,8 @@ async function renderExecutionDetail(execution, container, backButton = false) {
                         <span style="font-weight: bold;">▶</span>
                         <strong style="color: #f0a500;">Warnings (${warningItems.length})</strong>
                     </div>
-                    <div id="exec-warnings-content" style="display: none; margin-top: 10px;">
-                        <pre style="background: var(--bg-primary); border-radius: 4px; padding: 10px; overflow-x: auto; color: #f0a500; margin: 0;">${escapeHtml(formatJson(warningItems))}</pre>
+                    <div id="exec-warnings-content" style="display: none; margin-top: 10px; min-height: 100px;">
+                        <div id="exec-warnings-editor" style="height: 300px; background: var(--bg-primary); border-radius: 6px; overflow: hidden;"></div>
                     </div>
                 </div>
             `;
@@ -827,12 +1041,55 @@ async function renderExecutionDetail(execution, container, backButton = false) {
                     warningsEl.querySelector('span').textContent = '▼';
                 }
             }
+            const warningsJsonString = JSON.stringify(warningItems, null, 2);
+            await createOutputEditor('exec-warnings-editor', warningsJsonString);
         } else {
             warningsEl.style.display = 'none';
         }
     } else {
         errorsEl.style.display = 'none';
         warningsEl.style.display = 'none';
+    }
+
+    // Update execution context section
+    const inputsEl = document.getElementById('exec-inputs');
+    if (execution.inputs || execution.context?.WORKFLOW || execution.context?.USER) {
+        const execContext = {
+            INPUT_VARS: execution.inputs?.inputVars || {},
+            TRIGGER_VARS: execution.inputs?.triggerVars || {},
+            USER_INPUTS: execution.inputs?.userInputs || {},
+            ...(execution.context?.WORKFLOW ? { WORKFLOW: execution.context.WORKFLOW } : {}),
+            ...(execution.context?.USER ? { USER: execution.context.USER } : {})
+        };
+        const currentInputsStr = JSON.stringify(execContext);
+        if (inputsEl._lastValue !== currentInputsStr) {
+            inputsEl._lastValue = currentInputsStr;
+            inputsEl.innerHTML = `
+                <div class="panel-level-2" style="padding: 6px; max-width: 100%; overflow: hidden;">
+                    <div data-section-id="inputs" style="display: flex; align-items: center; gap: 10px; cursor: pointer; user-select: none; font-size: 13px;" onclick="toggleSection('exec-inputs-content', 'inputs', event)">
+                        <span style="font-weight: bold;">▶</span>
+                        <strong>Execution Context</strong>
+                    </div>
+                    <div id="exec-inputs-content" style="display: none; margin-top: 10px; min-height: 100px;">
+                        <div id="exec-inputs-editor" style="height: 300px; background: var(--bg-primary); border-radius: 6px; overflow: hidden;"></div>
+                    </div>
+                </div>
+            `;
+            inputsEl.style.display = 'block';
+
+            if (expandedSections['inputs']) {
+                const contentDiv = inputsEl.querySelector('#exec-inputs-content');
+                if (contentDiv) {
+                    contentDiv.style.display = 'block';
+                    inputsEl.querySelector('span').textContent = '▼';
+                }
+            }
+
+            const jsonString = JSON.stringify(execContext, null, 2);
+            await createOutputEditor('exec-inputs-editor', jsonString);
+        }
+    } else {
+        inputsEl.style.display = 'none';
     }
 
     // Update context section
@@ -916,13 +1173,35 @@ async function renderExecutionDetail(execution, container, backButton = false) {
                 const stepStatusClass = getStatusClass(stepStatus);
                 const seq = step.executionSequence ?? '?';
 
+                // "Show Case Name" is a per-step display preference, snapshotted at
+                // execution time into step.output.stepSettings.showCaseName (see
+                // recordStepExecution in persephone.js). When enabled, the matched
+                // case name(s) (step.matchedCases) take the primary/bold spot, with
+                // the step's own name demoted to a secondary "(Step: X)" label -
+                // skips unnamed cases (empty string) since there's nothing
+                // meaningful to show for those, falling back to the plain step name.
+                const showCaseNameSetting = step.output && step.output.stepSettings && step.output.stepSettings.showCaseName;
+                const matchedCaseNames = (step.matchedCases || []).filter(c => c && String(c).trim().length > 0);
+                const displayNameHtml = (showCaseNameSetting && matchedCaseNames.length > 0)
+                    ? '<strong>' + escapeHtml(matchedCaseNames.join(', ')) + '</strong> <span style="color: var(--text-muted); font-weight: normal;">(Step: ' + escapeHtml(stepName) + ')</span>'
+                    : '<strong>' + escapeHtml(stepName) + '</strong>';
+
                 // Key by executionSequence so repeated steps (loops) each get their own element
                 const stepId = `step-seq-${seq}`;
                 let stepEl = stepsContainer.querySelector(`[data-step-seq="${seq}"]`);
 
                 // Get result data
                 let resultData = null;
-                const hasResult = step && step.output;
+                // An interim loop-progress marker (written mid-loop by the engine,
+                // {_loopProgress: {completed, total}}) is NOT a real result - it's a
+                // lightweight, best-effort status write to the same `output` column
+                // a step's real final output eventually occupies. Exclude it from
+                // hasResult explicitly so it doesn't get routed into the full
+                // code-editor/final-result rendering below (which assumes a real
+                // completed shape) - instead it's rendered as a simple progress line
+                // on the still-running display further down.
+                const loopProgress = (step && step.output && step.output._loopProgress) ? step.output._loopProgress : null;
+                const hasResult = step && step.output && !loopProgress;
                 if (hasResult) {
                     resultData = { result: step.output };
                 }
@@ -942,11 +1221,51 @@ async function renderExecutionDetail(execution, container, backButton = false) {
                 }
 
                 const executionIsTerminal = execution.status !== 'running' && execution.status !== 'pending' && execution.status !== 'cancelling';
-                if (stepsWithTimersStarted[stepId] && stepStatus === 'running' && !executionIsTerminal) {
+                const lastProgress = lastRenderedLoopProgress[stepId];
+                const loopProgressChanged = loopProgress && (!lastProgress || lastProgress.completed !== loopProgress.completed || lastProgress.total !== loopProgress.total);
+                const isWorkflowStep = step.stepType === 'Workflow';
+
+                // Determine sub-execution IDs for Workflow steps. This works whether the
+                // step has fully completed (single executionId, or a final combined_results
+                // array), or is still running a loop (the engine writes combined_results
+                // incrementally as iterations finish, the same way it writes _loopProgress) -
+                // so this can be non-empty even while loopProgress is also present.
+                let subExecutionIds = [];
+                if (isWorkflowStep && step.output) {
+                    if (step.output.executionId) {
+                        // Single run
+                        subExecutionIds = [step.output.executionId];
+                    } else if (step.output.combined_results) {
+                        // Loop run (may be partial while still running)
+                        subExecutionIds = step.output.combined_results
+                            .map(r => r.executionId)
+                            .filter(Boolean);
+                    }
+                }
+                const showExpandable = isWorkflowStep && subExecutionIds.length > 0;
+
+                // A finished Plugin-loop step's output is {combined_results: [...]}
+                // with no executionId per item (unlike a Workflow loop) - its full
+                // result is already local, so it gets its own expandable iteration
+                // list rendered directly from that data instead of the raw JSON editor.
+                const isPluginLoopResult = !isWorkflowStep && hasResult && step.output && Array.isArray(step.output.combined_results);
+
+                // A running Workflow step's sub-execution id(s) show up in step.output
+                // partway through - once any become available, we need to break out of
+                // the early-return below so the step switches from its plain single-line
+                // display into the expandable form (loop-progress changes already do this
+                // for the iteration counter; this covers the ids becoming available too).
+                const subExecJustBecameAvailable = showExpandable && !stepsWithSubExecAvailable[stepId];
+                if (stepsWithTimersStarted[stepId] && stepStatus === 'running' && !executionIsTerminal && !loopProgressChanged && !subExecJustBecameAvailable) {
                     return;
                 }
+                if (loopProgress) {
+                    lastRenderedLoopProgress[stepId] = { completed: loopProgress.completed, total: loopProgress.total };
+                }
+                if (showExpandable) {
+                    stepsWithSubExecAvailable[stepId] = true;
+                }
 
-                const isWorkflowStep = step.stepType === 'Workflow';
                 if (stepsRenderedFinal[stepId] && !isWorkflowStep) {
                     return;
                 }
@@ -972,22 +1291,27 @@ async function renderExecutionDetail(execution, container, backButton = false) {
                 const statusBadge = effectiveStatus ? `<span class="status-badge ${effectiveStatusClass}" style="margin-left: auto;">${effectiveStatus}</span>` : '';
                 const seqLabel = `<span style="color: var(--text-muted); font-weight: normal; font-size: 11px;">#${seq}</span>`;
 
-                if (hasResult) {
+                if (hasResult || showExpandable) {
                     const contentId = `${stepId}-content`;
 
-                    // Determine sub-execution IDs for Workflow steps
-                    let subExecutionIds = [];
-                    if (isWorkflowStep && step.output) {
-                        if (step.output.executionId) {
-                            // Single run
-                            subExecutionIds = [step.output.executionId];
-                        } else if (step.output.combined_results) {
-                            // Loop run
-                            subExecutionIds = step.output.combined_results
-                                .map(r => r.executionId)
-                                .filter(Boolean);
-                        }
-                    }
+                    // Small inline badge showing loop iteration count next to the
+                    // header, so it's visible even while collapsed. While running,
+                    // this comes from the interim _loopProgress marker; once
+                    // finished, that marker is gone (replaced by the real
+                    // combined_results), so fall back to combined_results.length -
+                    // only for genuine loops (combined_results present), not a
+                    // single Workflow run (which has step.output.executionId
+                    // directly instead, and shouldn't show a "1/1" badge).
+                    const finishedLoopCount = (!loopProgress && step.output && Array.isArray(step.output.combined_results))
+                        ? step.output.combined_results.length
+                        : null;
+                    const loopProgressBadge = loopProgress
+                        ? '<span style="color: var(--text-muted); font-size: 11px;">' +
+                          escapeHtml(String(loopProgress.completed)) + ' / ' + escapeHtml(String(loopProgress.total)) + ' iterations</span>'
+                        : (finishedLoopCount !== null
+                            ? '<span style="color: var(--text-muted); font-size: 11px;">' +
+                              escapeHtml(String(finishedLoopCount)) + ' / ' + escapeHtml(String(finishedLoopCount)) + ' iterations</span>'
+                            : '');
 
                     // Only rebuild innerHTML if not yet rendered final, or if it's a Workflow step (children may update)
                     const alreadyFinal = stepsRenderedFinal[stepId] && !isWorkflowStep;
@@ -995,23 +1319,34 @@ async function renderExecutionDetail(execution, container, backButton = false) {
                         const editorId = `${stepId}-editor`;
                         const contentInner = isWorkflowStep
                             ? '<div id="' + stepId + '-subexec" style="padding: 4px 0;"></div>'
-                            : '<div id="' + editorId + '" style="height: 300px; background: var(--bg-primary); border-radius: 6px; overflow: hidden;"></div>';
+                            : isPluginLoopResult
+                                ? '<div id="' + stepId + '-plugin-loop" style="padding: 4px 0;"></div>'
+                                : '<div id="' + editorId + '" style="height: 300px; background: var(--bg-primary); border-radius: 6px; overflow: hidden;"></div>';
 
                         stepEl.innerHTML =
                             '<div data-section-id="step-' + stepId + '" style="display: flex; align-items: center; gap: 10px; cursor: pointer; user-select: none; font-size: 13px;">' +
-                            (effectiveStatus === 'running' ? spinnerHtml : '<span style="font-weight: bold;">▶</span>') +
-                            '<strong>' + escapeHtml(stepName) + '</strong> ' + seqLabel +
+                            (effectiveStatus === 'running' ? spinnerHtml : '') +
+                            '<span data-chevron style="font-weight: bold;">▶</span>' +
+                            displayNameHtml + ' ' + seqLabel +
                             '<span style="color: var(--text-muted); font-size: 12px;" id="duration-' + stepId + '">' + durationDisplay + '</span>' +
+                            loopProgressBadge +
                             statusBadge +
                             '</div>' +
                             '<div id="' + contentId + '" style="display: none; margin-top: 6px;">' +
                             contentInner +
                             '</div>';
 
+                        // Plugin-loop iterations are already fully local - render them
+                        // immediately rather than lazily on expand (no fetch to defer)
+                        if (isPluginLoopResult) {
+                            const pluginLoopContainer = stepEl.querySelector('#' + stepId + '-plugin-loop');
+                            renderPluginLoopIterations(step.output.combined_results, pluginLoopContainer, stepId);
+                        }
+
                         // Attach onclick — Workflow steps get a custom handler that also fetches children
                         const headerEl = stepEl.querySelector('[data-section-id="step-' + stepId + '"]');
                         if (headerEl) {
-                            if (isWorkflowStep && subExecutionIds.length > 0) {
+                            if (showExpandable) {
                                 headerEl.onclick = (e) => {
                                     toggleSection(contentId, 'step-' + stepId, e);
                                     // If now expanded, fetch sub-executions
@@ -1030,7 +1365,7 @@ async function renderExecutionDetail(execution, container, backButton = false) {
 
                     if (effectiveStatus === 'running') {
                         if (!stepsWithTimersStarted[stepId]) {
-                            startStepDurationTimer(stepId);
+                            startStepDurationTimer(stepId, step.startedAt);
                             stepsWithTimersStarted[stepId] = true;
                         }
                     } else {
@@ -1046,12 +1381,12 @@ async function renderExecutionDetail(execution, container, backButton = false) {
                     if (contentDiv) {
                         if (isExpanded) {
                             contentDiv.style.display = 'block';
-                            const chevron = stepEl.querySelector('[data-section-id="step-' + stepId + '"] span');
+                            const chevron = stepEl.querySelector('[data-section-id="step-' + stepId + '"] [data-chevron]');
                             if (chevron) chevron.textContent = '▼';
                         }
 
                         // For Workflow steps: register sub-executions for poll cycle refresh
-                        if (isWorkflowStep && subExecutionIds.length > 0) {
+                        if (showExpandable) {
                             expandedSubExecutions[stepId] = subExecutionIds;
                             // If already expanded (e.g. after poll re-render), refresh children
                             if (isExpanded) {
@@ -1063,22 +1398,27 @@ async function renderExecutionDetail(execution, container, backButton = false) {
                         }
                     }
 
-                    if (!isWorkflowStep) {
+                    if (hasResult && !isWorkflowStep && !isPluginLoopResult) {
                         editorsToRender.push({ containerId: `${stepId}-editor`, data: resultData.result });
                     }
 
                 } else {
+                    const loopProgressHtml = loopProgress
+                        ? '<div style="margin-left: 24px; margin-top: 2px; font-size: 12px; color: var(--text-muted);">Loop Iterations Finished: ' +
+                          escapeHtml(String(loopProgress.completed)) + ' / ' + escapeHtml(String(loopProgress.total)) + '</div>'
+                        : '';
                     stepEl.innerHTML =
                         '<div style="display: flex; align-items: center; gap: 10px; font-size: 13px;">' +
                         (effectiveStatus === 'running' ? spinnerHtml : '') +
-                        '<strong>' + escapeHtml(stepName) + '</strong> ' + seqLabel +
+                        displayNameHtml + ' ' + seqLabel +
                         '<span style="color: var(--text-muted); font-size: 12px;" id="duration-' + stepId + '">' + durationDisplay + '</span>' +
                         statusBadge +
-                        '</div>';
+                        '</div>' +
+                        loopProgressHtml;
 
                     if (effectiveStatus === 'running') {
                         if (!stepsWithTimersStarted[stepId]) {
-                            startStepDurationTimer(stepId);
+                            startStepDurationTimer(stepId, step.startedAt);
                             stepsWithTimersStarted[stepId] = true;
                         }
                     } else {
@@ -1152,6 +1492,13 @@ function renderSubExecStepList(subExecution, stepsContainer) {
         const contentId = subStepId + '-content';
         const editorId = subStepId + '-editor';
 
+        // Same "Show Case Name" handling as the top-level step renderer above
+        const showCaseNameSetting = step.output && step.output.stepSettings && step.output.stepSettings.showCaseName;
+        const matchedCaseNames = (step.matchedCases || []).filter(c => c && String(c).trim().length > 0);
+        const displayNameHtml = (showCaseNameSetting && matchedCaseNames.length > 0)
+            ? '<strong>' + escapeHtml(matchedCaseNames.join(', ')) + '</strong> <span style="color: var(--text-muted); font-weight: normal;">(Step: ' + escapeHtml(stepName) + ')</span>'
+            : '<strong>' + escapeHtml(stepName) + '</strong>';
+
         let stepEl = stepsContainer.querySelector('[data-sub-step-id="' + subStepId + '"]');
         if (!stepEl) {
             stepEl = document.createElement('div');
@@ -1166,7 +1513,7 @@ function renderSubExecStepList(subExecution, stepsContainer) {
             '<div data-sub-step-header style="display: flex; align-items: center; gap: 8px; font-size: 12px;' +
             (isExpandable ? ' cursor: pointer; user-select: none;' : '') + '">' +
             (effectiveStatus === 'running' ? spinnerHtml : (isExpandable ? '<span style="font-weight: bold;">▶</span>' : '')) +
-            '<strong>' + escapeHtml(stepName) + '</strong>' +
+            displayNameHtml +
             '<span style="color: var(--text-muted); font-size: 11px;">#' + seq + '</span>' +
             '<span style="color: var(--text-muted); font-size: 11px;">' + durationDisplay + '</span>' +
             '<span class="status-badge ' + effectiveClass + '" style="margin-left: auto; font-size: 11px;">' + effectiveStatus + '</span>' +
@@ -1202,6 +1549,81 @@ function renderSubExecStepList(subExecution, stepsContainer) {
                             const jsonString = typeof step.output === 'string'
                                 ? JSON.stringify(JSON.parse(step.output), null, 2)
                                 : JSON.stringify(step.output, null, 2);
+                            createOutputEditor(editorId, jsonString);
+                        }
+                    }
+                };
+            }
+        }
+    });
+}
+
+/**
+ * Render the individual iteration results of a finished Plugin-loop step.
+ * Unlike Workflow-loop iterations (which are separate trackable executions,
+ * fetched on demand via renderSubExecutionSteps), Plugin-loop iterations have
+ * no executionId of their own - their full result already lives in
+ * step.output.combined_results, so this renders directly from that local data,
+ * synchronously, with no fetch involved.
+ * @param {Array} combinedResults - Array of {index, status, duration, outputs, error?}
+ * @param {HTMLElement} container - Where to render the iteration list
+ * @param {string} stepId - Parent step's element key, used to namespace child element ids
+ */
+function renderPluginLoopIterations(combinedResults, container, stepId) {
+    if (!container) return;
+    const sorted = [...combinedResults].sort((a, b) => (a.index ?? Infinity) - (b.index ?? Infinity));
+
+    sorted.forEach(item => {
+        const iterId = stepId + '-iter-' + item.index;
+        const statusClass = getStatusClass(item.status);
+        const durationDisplay = formatDuration(item.duration || 0);
+        const hasOutput = item.outputs && Object.keys(item.outputs).length > 0;
+        const hasError = !!item.error;
+        const isExpandable = hasOutput || hasError;
+        const contentId = iterId + '-content';
+        const editorId = iterId + '-editor';
+
+        const iterEl = document.createElement('div');
+        iterEl.setAttribute('data-plugin-iter-id', iterId);
+        iterEl.className = 'panel-level-4';
+        iterEl.style.cssText = 'padding: 3px 0 3px 6px; margin-bottom: 2px;';
+
+        const headerHtml =
+            '<div data-plugin-iter-header style="display: flex; align-items: center; gap: 8px; font-size: 12px;' +
+            (isExpandable ? ' cursor: pointer; user-select: none;' : '') + '">' +
+            (isExpandable ? '<span data-chevron style="font-weight: bold;">▶</span>' : '') +
+            '<strong>Iteration ' + item.index + '</strong>' +
+            '<span style="color: var(--text-muted); font-size: 11px;">' + durationDisplay + '</span>' +
+            '<span class="status-badge ' + statusClass + '" style="margin-left: auto; font-size: 11px;">' + item.status + '</span>' +
+            '</div>';
+
+        const contentHtml = isExpandable
+            ? '<div id="' + contentId + '" style="display: none; margin-top: 6px;">' +
+              (hasError
+                  ? '<pre style="background: var(--bg-primary); border-radius: 4px; padding: 8px; color: #ff6b6b; font-size: 11px; margin: 0; white-space: pre-wrap;">' + escapeHtml(item.error) + '</pre>'
+                  : '<div id="' + editorId + '" style="height: 200px; background: var(--bg-primary); border-radius: 6px; overflow: hidden;"></div>') +
+              '</div>'
+            : '';
+
+        iterEl.innerHTML = headerHtml + contentHtml;
+        container.appendChild(iterEl);
+
+        if (isExpandable) {
+            const headerEl = iterEl.querySelector('[data-plugin-iter-header]');
+            if (headerEl) {
+                headerEl.onclick = (e) => {
+                    e.stopPropagation();
+                    const contentDiv = iterEl.querySelector('#' + contentId);
+                    if (!contentDiv) return;
+                    const isHidden = contentDiv.style.display === 'none';
+                    contentDiv.style.display = isHidden ? 'block' : 'none';
+                    const chevron = headerEl.querySelector('[data-chevron]');
+                    if (chevron) chevron.textContent = isHidden ? '▼' : '▶';
+                    if (isHidden && hasOutput && !hasError) {
+                        // Lazy-render CodeMirror editor on first expand
+                        const editorEl = document.getElementById(editorId);
+                        if (editorEl && !editorEl.querySelector('.cm-editor')) {
+                            const jsonString = JSON.stringify(item.outputs, null, 2);
                             createOutputEditor(editorId, jsonString);
                         }
                     }
@@ -1338,6 +1760,7 @@ async function cancelExecution(executionId) {
 window.cancelExecution = cancelExecution;
 window.renderExecutionDetail = renderExecutionDetail;
 window.showExecutionResults = showExecutionResults;
+window.showOutputHtmlModal = showOutputHtmlModal;
 window.showPersistentExecutionBanner = showPersistentExecutionBanner;
 window.startPollingExecution = startPollingExecution;
 window.stopPollingExecution = stopPollingExecution;

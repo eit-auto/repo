@@ -1,0 +1,493 @@
+2026-04-30 14:56:30 - Starting C:\Program Files\nodejs\node.exe  --max-old-space-size=512 D:\kore\node_modules\node-windows\lib\wrapper.js --file D:\kore\kore.js --scriptoptions= --log "Kore wrapper" --grow 0.25 --wait 1 --maxrestarts 3 --abortonerror n --stopparentfirst undefined
+2026-04-30 14:56:30 - Started 7328
+2026-04-30 14:56:44 - Stopping kore.exe
+2026-04-30 14:56:44 - ProcessKill 7328
+2026-04-30 14:56:44 - Found child process: 6728 Name: conhost.exe
+2026-04-30 14:56:44 - Found child process: 9280 Name: node.exe
+2026-04-30 14:56:44 - Stopping process 6728
+2026-04-30 14:56:44 - Send SIGINT 6728
+2026-04-30 14:56:44 - SIGINT to 6728 failed - Killing as fallback
+2026-04-30 14:56:44 - Stopping process 9280
+2026-04-30 14:56:44 - Send SIGINT 9280
+2026-04-30 14:56:44 - SIGINT to 9280 failed - Killing as fallback
+2026-04-30 14:56:44 - Stopping process 7328
+2026-04-30 14:56:44 - Send SIGINT 7328
+2026-04-30 14:56:44 - SIGINT to 7328 failed - Killing as fallback
+2026-04-30 14:56:44 - Finished kore.exe
+2026-04-30 14:56:45 - Starting C:\Program Files\nodejs\node.exe  --max-old-space-size=512 D:\kore\node_modules\node-windows\lib\wrapper.js --file D:\kore\kore.js --scriptoptions= --log "Kore wrapper" --grow 0.25 --wait 1 --maxrestarts 3 --abortonerror n --stopparentfirst undefined
+2026-04-30 14:56:45 - Started 5840
+2026-04-30 14:57:17 - Stopping kore.exe
+2026-04-30 14:57:17 - ProcessKill 5840
+2026-04-30 14:57:17 - Found child process: 9972 Name: conhost.exe
+2026-04-30 14:57:17 - Found child process: 7904 Name: node.exe
+2026-04-30 14:57:17 - Stopping process 9972
+2026-04-30 14:57:17 - Send SIGINT 9972
+2026-04-30 14:57:17 - SIGINT to 9972 failed - Killing as fallback
+2026-04-30 14:57:17 - Stopping process 7904
+2026-04-30 14:57:17 - Send SIGINT 7904
+2026-04-30 14:57:17 - SIGINT to 7904 failed - Killing as fallback
+2026-04-30 14:57:17 - Stopping process 5840
+2026-04-30 14:57:17 - Send SIGINT 5840
+2026-04-30 14:57:17 - SIGINT to 5840 failed - Killing as fallback
+2026-04-30 14:57:17 - Finished kore.exe
+2026-05-04 03:43:38 - Starting C:\Program Files\nodejs\node.exe  --max-old-space-size=512 D:\kore\node_modules\node-windows\lib\wrapper.js --file D:\kore\kore.js --scriptoptions= --log "Kore wrapper" --grow 0.25 --wait 1 --maxrestarts 3 --abortonerror n --stopparentfirst undefined
+2026-05-04 03:43:40 - Started 5116
+2026-05-04 11:53:17 - Stopping kore.exe
+2026-05-04 11:53:17 - ProcessKill 5116
+2026-05-04 11:53:18 - Found child process: 4728 Name: conhost.exe
+2026-05-04 11:53:18 - Found child process: 5616 Name: node.exe
+2026-05-04 11:53:18 - Stopping process 4728
+2026-05-04 11:53:18 - Send SIGINT 4728
+2026-05-04 11:53:18 - SIGINT to 4728 failed - Killing as fallback
+2026-05-04 11:53:18 - Stopping process 5616
+2026-05-04 11:53:18 - Send SIGINT 5616
+2026-05-04 11:53:18 - SIGINT to 5616 failed - Killing as fallback
+2026-05-04 11:53:18 - Stopping process 5116
+2026-05-04 11:53:18 - Send SIGINT 5116
+2026-05-04 11:53:18 - SIGINT to 5116 failed - Killing as fallback
+2026-05-04 11:53:18 - Finished kore.exe
+2026-05-04 11:53:19 - Starting C:\Program Files\nodejs\node.exe  --max-old-space-size=512 D:\kore\node_modules\node-windows\lib\wrapper.js --file D:\kore\kore.js --scriptoptions= --log "Kore wrapper" --grow 0.25 --wait 1 --maxrestarts 3 --abortonerror n --stopparentfirst undefined
+2026-05-04 11:53:19 - Started 6368
+2026-05-04 12:07:53 - Starting C:\Program Files\nodejs\node.exe  --max-old-space-size=512 D:\kore\node_modules\node-windows\lib\wrapper.js --file D:\kore\kore.js --scriptoptions= --log "Kore wrapper" --grow 0.25 --wait 1 --maxrestarts 3 --abortonerror n --stopparentfirst undefined
+2026-05-04 12:07:53 - Started 9180
+2026-05-11 03:43:19 - Starting C:\Program Files\nodejs\node.exe  --max-old-space-size=512 D:\kore\node_modules\node-windows\lib\wrapper.js --file D:\kore\kore.js --scriptoptions= --log "Kore wrapper" --grow 0.25 --wait 1 --maxrestarts 3 --abortonerror n --stopparentfirst undefined
+2026-05-11 03:43:20 - Started 4560
+2026-05-11 10:47:19 - Stopping kore.exe
+2026-05-11 10:47:19 - ProcessKill 4560
+2026-05-11 10:47:19 - Found child process: 4600 Name: conhost.exe
+2026-05-11 10:47:19 - Found child process: 6788 Name: node.exe
+2026-05-11 10:47:19 - Stopping process 4600
+2026-05-11 10:47:19 - Send SIGINT 4600
+2026-05-11 10:47:19 - SIGINT to 4600 failed - Killing as fallback
+2026-05-11 10:47:19 - Stopping process 6788
+2026-05-11 10:47:19 - Send SIGINT 6788
+2026-05-11 10:47:19 - SIGINT to 6788 failed - Killing as fallback
+2026-05-11 10:47:19 - Stopping process 4560
+2026-05-11 10:47:19 - Send SIGINT 4560
+2026-05-11 10:47:19 - SIGINT to 4560 failed - Killing as fallback
+2026-05-11 10:47:19 - Finished kore.exe
+2026-05-11 10:47:21 - Starting C:\Program Files\nodejs\node.exe  --max-old-space-size=512 D:\kore\node_modules\node-windows\lib\wrapper.js --file D:\kore\kore.js --scriptoptions= --log "Kore wrapper" --grow 0.25 --wait 1 --maxrestarts 3 --abortonerror n --stopparentfirst undefined
+2026-05-11 10:47:21 - Started 7252
+2026-05-11 10:54:40 - Stopping kore.exe
+2026-05-11 10:54:40 - ProcessKill 7252
+2026-05-11 10:54:40 - Found child process: 7808 Name: conhost.exe
+2026-05-11 10:54:40 - Found child process: 1320 Name: node.exe
+2026-05-11 10:54:40 - Stopping process 7808
+2026-05-11 10:54:40 - Send SIGINT 7808
+2026-05-11 10:54:40 - SIGINT to 7808 failed - Killing as fallback
+2026-05-11 10:54:40 - Stopping process 1320
+2026-05-11 10:54:40 - Send SIGINT 1320
+2026-05-11 10:54:40 - SIGINT to 1320 failed - Killing as fallback
+2026-05-11 10:54:40 - Stopping process 7252
+2026-05-11 10:54:40 - Send SIGINT 7252
+2026-05-11 10:54:40 - SIGINT to 7252 failed - Killing as fallback
+2026-05-11 10:54:40 - Finished kore.exe
+2026-05-11 12:07:04 - Starting C:\Program Files\nodejs\node.exe  --max-old-space-size=512 D:\kore\node_modules\node-windows\lib\wrapper.js --file D:\kore\kore.js --scriptoptions= --log "Kore wrapper" --grow 0.25 --wait 1 --maxrestarts 3 --abortonerror n --stopparentfirst undefined
+2026-05-11 12:07:04 - Started 8480
+2026-05-15 16:32:20 - Starting C:\Program Files\nodejs\node.exe  --max-old-space-size=512 D:\kore\node_modules\node-windows\lib\wrapper.js --file D:\kore\kore.js --scriptoptions= --log "Kore wrapper" --grow 0.25 --wait 1 --maxrestarts 3 --abortonerror n --stopparentfirst undefined
+2026-05-15 16:32:20 - Started 2212
+2026-05-15 16:35:31 - Stopping kore.exe
+2026-05-15 16:35:31 - ProcessKill 2212
+2026-05-15 16:35:31 - Found child process: 4244 Name: conhost.exe
+2026-05-15 16:35:31 - Found child process: 9668 Name: node.exe
+2026-05-15 16:35:31 - Stopping process 4244
+2026-05-15 16:35:31 - Send SIGINT 4244
+2026-05-15 16:35:31 - SIGINT to 4244 failed - Killing as fallback
+2026-05-15 16:35:31 - Stopping process 9668
+2026-05-15 16:35:31 - Send SIGINT 9668
+2026-05-15 16:35:31 - SIGINT to 9668 failed - Killing as fallback
+2026-05-15 16:35:31 - Stopping process 2212
+2026-05-15 16:35:31 - Send SIGINT 2212
+2026-05-15 16:35:31 - SIGINT to 2212 failed - Killing as fallback
+2026-05-15 16:35:31 - Finished kore.exe
+2026-05-15 23:18:12 - Starting C:\Program Files\nodejs\node.exe  --max-old-space-size=512 D:\kore\node_modules\node-windows\lib\wrapper.js --file D:\kore\kore.js --scriptoptions= --log "Kore wrapper" --grow 0.25 --wait 1 --maxrestarts 3 --abortonerror n --stopparentfirst undefined
+2026-05-15 23:18:12 - Started 6128
+2026-05-18 03:42:04 - Stopping kore.exe
+2026-05-18 03:42:04 - ProcessKill 6128
+2026-05-18 03:42:04 - Shutdown exception
+Message:A system shutdown is in progress. (Exception from HRESULT: 0x8007045B)
+Stacktrace:   at System.Runtime.InteropServices.Marshal.ThrowExceptionForHRInternal(Int32 errorCode, IntPtr errorInfo)
+   at System.Management.ManagementScope.InitializeGuts(Object o)
+   at System.Management.ManagementScope.Initialize()
+   at System.Management.ManagementObjectSearcher.Initialize()
+   at System.Management.ManagementObjectSearcher.Get()
+   at winsw.WrapperService.GetChildPids(Int32 pid)
+   at winsw.WrapperService.StopProcessAndChildren(Int32 pid)
+   at winsw.WrapperService.StopIt()
+   at winsw.WrapperService.OnShutdown()
+2026-05-18 03:43:22 - Starting C:\Program Files\nodejs\node.exe  --max-old-space-size=512 D:\kore\node_modules\node-windows\lib\wrapper.js --file D:\kore\kore.js --scriptoptions= --log "Kore wrapper" --grow 0.25 --wait 1 --maxrestarts 3 --abortonerror n --stopparentfirst undefined
+2026-05-18 03:43:23 - Started 4552
+2026-05-18 09:52:31 - Stopping kore.exe
+2026-05-18 09:52:31 - ProcessKill 4552
+2026-05-18 09:52:31 - Found child process: 4592 Name: conhost.exe
+2026-05-18 09:52:31 - Found child process: 6524 Name: node.exe
+2026-05-18 09:52:31 - Stopping process 4592
+2026-05-18 09:52:31 - Send SIGINT 4592
+2026-05-18 09:52:31 - SIGINT to 4592 failed - Killing as fallback
+2026-05-18 09:52:31 - Stopping process 6524
+2026-05-18 09:52:31 - Send SIGINT 6524
+2026-05-18 09:52:31 - SIGINT to 6524 failed - Killing as fallback
+2026-05-18 09:52:31 - Stopping process 4552
+2026-05-18 09:52:31 - Send SIGINT 4552
+2026-05-18 09:52:31 - SIGINT to 4552 failed - Killing as fallback
+2026-05-18 09:52:31 - Finished kore.exe
+2026-05-25 03:43:16 - Starting C:\Program Files\nodejs\node.exe  --max-old-space-size=512 D:\kore\node_modules\node-windows\lib\wrapper.js --file D:\kore\kore.js --scriptoptions= --log "Kore wrapper" --grow 0.25 --wait 1 --maxrestarts 3 --abortonerror n --stopparentfirst undefined
+2026-05-25 03:43:17 - Started 4468
+2026-05-26 16:15:45 - Stopping kore.exe
+2026-05-26 16:15:45 - ProcessKill 4468
+2026-05-26 16:15:45 - Found child process: 4532 Name: conhost.exe
+2026-05-26 16:15:45 - Found child process: 5796 Name: node.exe
+2026-05-26 16:15:45 - Stopping process 4532
+2026-05-26 16:15:45 - Send SIGINT 4532
+2026-05-26 16:15:45 - SIGINT to 4532 failed - Killing as fallback
+2026-05-26 16:15:45 - Stopping process 5796
+2026-05-26 16:15:45 - Send SIGINT 5796
+2026-05-26 16:15:45 - SIGINT to 5796 failed - Killing as fallback
+2026-05-26 16:15:45 - Stopping process 4468
+2026-05-26 16:15:45 - Send SIGINT 4468
+2026-05-26 16:15:45 - SIGINT to 4468 failed - Killing as fallback
+2026-05-26 16:15:45 - Finished kore.exe
+2026-05-26 18:08:13 - Starting C:\Program Files\nodejs\node.exe  --max-old-space-size=512 D:\kore\node_modules\node-windows\lib\wrapper.js --file D:\kore\kore.js --scriptoptions= --log "Kore wrapper" --grow 0.25 --wait 1 --maxrestarts 3 --abortonerror n --stopparentfirst undefined
+2026-05-26 18:08:13 - Started 8352
+2026-06-01 03:43:57 - Starting C:\Program Files\nodejs\node.exe  --max-old-space-size=512 D:\kore\node_modules\node-windows\lib\wrapper.js --file D:\kore\kore.js --scriptoptions= --log "Kore wrapper" --grow 0.25 --wait 1 --maxrestarts 3 --abortonerror n --stopparentfirst undefined
+2026-06-01 03:43:58 - Started 4996
+2026-06-01 10:38:54 - Stopping kore.exe
+2026-06-01 10:38:54 - ProcessKill 4996
+2026-06-01 10:38:54 - Found child process: 4956 Name: conhost.exe
+2026-06-01 10:38:54 - Found child process: 4308 Name: node.exe
+2026-06-01 10:38:54 - Stopping process 4956
+2026-06-01 10:38:54 - Send SIGINT 4956
+2026-06-01 10:38:54 - SIGINT to 4956 failed - Killing as fallback
+2026-06-01 10:38:54 - Stopping process 4308
+2026-06-01 10:38:54 - Send SIGINT 4308
+2026-06-01 10:38:54 - SIGINT to 4308 failed - Killing as fallback
+2026-06-01 10:38:54 - Stopping process 4996
+2026-06-01 10:38:54 - Send SIGINT 4996
+2026-06-01 10:38:54 - SIGINT to 4996 failed - Killing as fallback
+2026-06-01 10:38:54 - Finished kore.exe
+2026-06-01 12:07:11 - Starting C:\Program Files\nodejs\node.exe  --max-old-space-size=512 D:\kore\node_modules\node-windows\lib\wrapper.js --file D:\kore\kore.js --scriptoptions= --log "Kore wrapper" --grow 0.25 --wait 1 --maxrestarts 3 --abortonerror n --stopparentfirst undefined
+2026-06-01 12:07:11 - Started 4736
+2026-06-08 03:43:12 - Starting C:\Program Files\nodejs\node.exe  --max-old-space-size=512 D:\kore\node_modules\node-windows\lib\wrapper.js --file D:\kore\kore.js --scriptoptions= --log "Kore wrapper" --grow 0.25 --wait 1 --maxrestarts 3 --abortonerror n --stopparentfirst undefined
+2026-06-08 03:43:12 - Started 4652
+2026-06-08 07:40:41 - Stopping kore.exe
+2026-06-08 07:40:41 - ProcessKill 4652
+2026-06-08 07:40:41 - Found child process: 4712 Name: conhost.exe
+2026-06-08 07:40:41 - Found child process: 6996 Name: node.exe
+2026-06-08 07:40:41 - Stopping process 4712
+2026-06-08 07:40:41 - Send SIGINT 4712
+2026-06-08 07:40:41 - SIGINT to 4712 failed - Killing as fallback
+2026-06-08 07:40:41 - Stopping process 6996
+2026-06-08 07:40:41 - Send SIGINT 6996
+2026-06-08 07:40:41 - SIGINT to 6996 failed - Killing as fallback
+2026-06-08 07:40:41 - Stopping process 4652
+2026-06-08 07:40:41 - Send SIGINT 4652
+2026-06-08 07:40:41 - SIGINT to 4652 failed - Killing as fallback
+2026-06-08 07:40:41 - Finished kore.exe
+2026-06-08 10:07:19 - Starting C:\Program Files\nodejs\node.exe  --max-old-space-size=512 D:\kore\node_modules\node-windows\lib\wrapper.js --file D:\kore\kore.js --scriptoptions= --log "Kore wrapper" --grow 0.25 --wait 1 --maxrestarts 3 --abortonerror n --stopparentfirst undefined
+2026-06-08 10:07:19 - Started 5436
+2026-06-11 19:39:37 - Starting C:\Program Files\nodejs\node.exe  --max-old-space-size=512 D:\kore\node_modules\node-windows\lib\wrapper.js --file D:\kore\kore.js --scriptoptions= --log "Kore wrapper" --grow 0.25 --wait 1 --maxrestarts 3 --abortonerror n --stopparentfirst undefined
+2026-06-11 19:39:38 - Started 5368
+2026-06-12 10:07:08 - Stopping kore.exe
+2026-06-12 10:07:08 - ProcessKill 5368
+2026-06-12 10:07:08 - Found child process: 5472 Name: conhost.exe
+2026-06-12 10:07:08 - Found child process: 5280 Name: node.exe
+2026-06-12 10:07:08 - Stopping process 5472
+2026-06-12 10:07:08 - Send SIGINT 5472
+2026-06-12 10:07:08 - SIGINT to 5472 failed - Killing as fallback
+2026-06-12 10:07:08 - Stopping process 5280
+2026-06-12 10:07:08 - Send SIGINT 5280
+2026-06-12 10:07:08 - SIGINT to 5280 failed - Killing as fallback
+2026-06-12 10:07:08 - Stopping process 5368
+2026-06-12 10:07:08 - Send SIGINT 5368
+2026-06-12 10:07:08 - SIGINT to 5368 failed - Killing as fallback
+2026-06-12 10:07:08 - Finished kore.exe
+2026-06-12 11:07:15 - Starting C:\Program Files\nodejs\node.exe  --max-old-space-size=512 D:\kore\node_modules\node-windows\lib\wrapper.js --file D:\kore\kore.js --scriptoptions= --log "Kore wrapper" --grow 0.25 --wait 1 --maxrestarts 3 --abortonerror n --stopparentfirst undefined
+2026-06-12 11:07:15 - Started 840
+2026-06-15 03:43:09 - Starting C:\Program Files\nodejs\node.exe  --max-old-space-size=512 D:\kore\node_modules\node-windows\lib\wrapper.js --file D:\kore\kore.js --scriptoptions= --log "Kore wrapper" --grow 0.25 --wait 1 --maxrestarts 3 --abortonerror n --stopparentfirst undefined
+2026-06-15 03:43:10 - Started 5544
+2026-06-15 10:07:06 - Stopping kore.exe
+2026-06-15 10:07:06 - ProcessKill 5544
+2026-06-15 10:07:07 - Found child process: 5608 Name: conhost.exe
+2026-06-15 10:07:07 - Found child process: 5408 Name: node.exe
+2026-06-15 10:07:07 - Stopping process 5608
+2026-06-15 10:07:07 - Send SIGINT 5608
+2026-06-15 10:07:07 - SIGINT to 5608 failed - Killing as fallback
+2026-06-15 10:07:07 - Stopping process 5408
+2026-06-15 10:07:07 - Send SIGINT 5408
+2026-06-15 10:07:07 - SIGINT to 5408 failed - Killing as fallback
+2026-06-15 10:07:07 - Stopping process 5544
+2026-06-15 10:07:07 - Send SIGINT 5544
+2026-06-15 10:07:07 - SIGINT to 5544 failed - Killing as fallback
+2026-06-15 10:07:07 - Finished kore.exe
+2026-06-15 11:08:02 - Starting C:\Program Files\nodejs\node.exe  --max-old-space-size=512 D:\kore\node_modules\node-windows\lib\wrapper.js --file D:\kore\kore.js --scriptoptions= --log "Kore wrapper" --grow 0.25 --wait 1 --maxrestarts 3 --abortonerror n --stopparentfirst undefined
+2026-06-15 11:08:02 - Started 3808
+2026-06-22 03:43:13 - Starting C:\Program Files\nodejs\node.exe  --max-old-space-size=512 D:\kore\node_modules\node-windows\lib\wrapper.js --file D:\kore\kore.js --scriptoptions= --log "Kore wrapper" --grow 0.25 --wait 1 --maxrestarts 3 --abortonerror n --stopparentfirst undefined
+2026-06-22 03:43:14 - Started 5484
+2026-06-29 03:42:17 - Stopping kore.exe
+2026-06-29 03:42:17 - ProcessKill 5484
+2026-06-29 03:42:17 - Shutdown exception
+Message:A system shutdown is in progress. (Exception from HRESULT: 0x8007045B)
+Stacktrace:   at System.Runtime.InteropServices.Marshal.ThrowExceptionForHRInternal(Int32 errorCode, IntPtr errorInfo)
+   at System.Management.ManagementScope.InitializeGuts(Object o)
+   at System.Management.ManagementScope.Initialize()
+   at System.Management.ManagementObjectSearcher.Initialize()
+   at System.Management.ManagementObjectSearcher.Get()
+   at winsw.WrapperService.GetChildPids(Int32 pid)
+   at winsw.WrapperService.StopProcessAndChildren(Int32 pid)
+   at winsw.WrapperService.StopIt()
+   at winsw.WrapperService.OnShutdown()
+2026-06-29 03:43:39 - Starting C:\Program Files\nodejs\node.exe  --max-old-space-size=512 D:\kore\node_modules\node-windows\lib\wrapper.js --file D:\kore\kore.js --scriptoptions= --log "Kore wrapper" --grow 0.25 --wait 1 --maxrestarts 3 --abortonerror n --stopparentfirst undefined
+2026-06-29 03:43:39 - Started 4404
+2026-06-29 03:43:48 - Stopping kore.exe
+2026-06-29 03:43:48 - ProcessKill 4404
+2026-06-29 03:43:48 - Shutdown exception
+Message:A system shutdown is in progress. (Exception from HRESULT: 0x8007045B)
+Stacktrace:   at System.Runtime.InteropServices.Marshal.ThrowExceptionForHRInternal(Int32 errorCode, IntPtr errorInfo)
+   at System.Management.ManagementScope.InitializeGuts(Object o)
+   at System.Management.ManagementScope.Initialize()
+   at System.Management.ManagementObjectSearcher.Initialize()
+   at System.Management.ManagementObjectSearcher.Get()
+   at winsw.WrapperService.GetChildPids(Int32 pid)
+   at winsw.WrapperService.StopProcessAndChildren(Int32 pid)
+   at winsw.WrapperService.StopIt()
+   at winsw.WrapperService.OnShutdown()
+2026-06-29 03:43:58 - Starting C:\Program Files\nodejs\node.exe  --max-old-space-size=512 D:\kore\node_modules\node-windows\lib\wrapper.js --file D:\kore\kore.js --scriptoptions= --log "Kore wrapper" --grow 0.25 --wait 1 --maxrestarts 3 --abortonerror n --stopparentfirst undefined
+2026-06-29 03:43:58 - Started 5808
+2026-06-29 13:37:20 - Stopping kore.exe
+2026-06-29 13:37:20 - ProcessKill 5808
+2026-06-29 13:37:20 - Found child process: 5868 Name: conhost.exe
+2026-06-29 13:37:20 - Found child process: 3304 Name: node.exe
+2026-06-29 13:37:20 - Stopping process 5868
+2026-06-29 13:37:20 - Send SIGINT 5868
+2026-06-29 13:37:20 - SIGINT to 5868 failed - Killing as fallback
+2026-06-29 13:37:20 - Stopping process 3304
+2026-06-29 13:37:20 - Send SIGINT 3304
+2026-06-29 13:37:20 - SIGINT to 3304 failed - Killing as fallback
+2026-06-29 13:37:20 - Stopping process 5808
+2026-06-29 13:37:20 - Send SIGINT 5808
+2026-06-29 13:37:20 - SIGINT to 5808 failed - Killing as fallback
+2026-06-29 13:37:20 - Finished kore.exe
+2026-06-30 21:10:10 - Starting C:\Program Files\nodejs\node.exe  --max-old-space-size=512 D:\kore\node_modules\node-windows\lib\wrapper.js --file D:\kore\kore.js --scriptoptions= --log "Kore wrapper" --grow 0.25 --wait 1 --maxrestarts 3 --abortonerror n --stopparentfirst undefined
+2026-06-30 21:10:10 - Started 4828
+2026-06-30 21:12:29 - Stopping kore.exe
+2026-06-30 21:12:29 - ProcessKill 4828
+2026-06-30 21:12:30 - Found child process: 3304 Name: conhost.exe
+2026-06-30 21:12:30 - Found child process: 9408 Name: node.exe
+2026-06-30 21:12:30 - Stopping process 3304
+2026-06-30 21:12:30 - Send SIGINT 3304
+2026-06-30 21:12:30 - SIGINT to 3304 failed - Killing as fallback
+2026-06-30 21:12:30 - Stopping process 9408
+2026-06-30 21:12:30 - Send SIGINT 9408
+2026-06-30 21:12:30 - SIGINT to 9408 failed - Killing as fallback
+2026-06-30 21:12:30 - Stopping process 4828
+2026-06-30 21:12:30 - Send SIGINT 4828
+2026-06-30 21:12:30 - SIGINT to 4828 failed - Killing as fallback
+2026-06-30 21:12:30 - Finished kore.exe
+2026-07-06 03:43:12 - Starting C:\Program Files\nodejs\node.exe  --max-old-space-size=512 D:\kore\node_modules\node-windows\lib\wrapper.js --file D:\kore\kore.js --scriptoptions= --log "Kore wrapper" --grow 0.25 --wait 1 --maxrestarts 3 --abortonerror n --stopparentfirst undefined
+2026-07-06 03:43:13 - Started 6092
+2026-07-08 11:56:56 - Stopping kore.exe
+2026-07-08 11:56:56 - ProcessKill 6092
+2026-07-08 11:56:56 - Found child process: 5128 Name: conhost.exe
+2026-07-08 11:56:56 - Found child process: 7028 Name: node.exe
+2026-07-08 11:56:56 - Stopping process 5128
+2026-07-08 11:56:56 - Send SIGINT 5128
+2026-07-08 11:56:56 - SIGINT to 5128 failed - Killing as fallback
+2026-07-08 11:56:56 - Stopping process 7028
+2026-07-08 11:56:56 - Send SIGINT 7028
+2026-07-08 11:56:56 - SIGINT to 7028 failed - Killing as fallback
+2026-07-08 11:56:56 - Stopping process 6092
+2026-07-08 11:56:56 - Send SIGINT 6092
+2026-07-08 11:56:56 - SIGINT to 6092 failed - Killing as fallback
+2026-07-08 11:56:56 - Finished kore.exe
+2026-07-13 03:43:21 - Starting C:\Program Files\nodejs\node.exe  --max-old-space-size=512 D:\kore\node_modules\node-windows\lib\wrapper.js --file D:\kore\kore.js --scriptoptions= --log "Kore wrapper" --grow 0.25 --wait 1 --maxrestarts 3 --abortonerror n --stopparentfirst undefined
+2026-07-13 03:43:21 - Started 5584
+2026-07-20 03:41:49 - Stopping kore.exe
+2026-07-20 03:41:49 - ProcessKill 5584
+2026-07-20 03:41:49 - Shutdown exception
+Message:A system shutdown is in progress. (Exception from HRESULT: 0x8007045B)
+Stacktrace:   at System.Runtime.InteropServices.Marshal.ThrowExceptionForHRInternal(Int32 errorCode, IntPtr errorInfo)
+   at System.Management.ManagementScope.InitializeGuts(Object o)
+   at System.Management.ManagementScope.Initialize()
+   at System.Management.ManagementObjectSearcher.Initialize()
+   at System.Management.ManagementObjectSearcher.Get()
+   at winsw.WrapperService.GetChildPids(Int32 pid)
+   at winsw.WrapperService.StopProcessAndChildren(Int32 pid)
+   at winsw.WrapperService.StopIt()
+   at winsw.WrapperService.OnShutdown()
+2026-07-20 03:43:15 - Starting C:\Program Files\nodejs\node.exe  --max-old-space-size=512 D:\kore\node_modules\node-windows\lib\wrapper.js --file D:\kore\kore.js --scriptoptions= --log "Kore wrapper" --grow 0.25 --wait 1 --maxrestarts 3 --abortonerror n --stopparentfirst undefined
+2026-07-20 03:43:16 - Started 4308
+2026-07-20 13:36:42 - Stopping kore.exe
+2026-07-20 13:36:42 - ProcessKill 4308
+2026-07-20 13:36:42 - Found child process: 5140 Name: conhost.exe
+2026-07-20 13:36:42 - Found child process: 6116 Name: node.exe
+2026-07-20 13:36:42 - Stopping process 5140
+2026-07-20 13:36:42 - Send SIGINT 5140
+2026-07-20 13:36:42 - SIGINT to 5140 failed - Killing as fallback
+2026-07-20 13:36:42 - Stopping process 6116
+2026-07-20 13:36:42 - Send SIGINT 6116
+2026-07-20 13:36:42 - SIGINT to 6116 failed - Killing as fallback
+2026-07-20 13:36:42 - Stopping process 4308
+2026-07-20 13:36:42 - Send SIGINT 4308
+2026-07-20 13:36:42 - SIGINT to 4308 failed - Killing as fallback
+2026-07-20 13:36:42 - Finished kore.exe
+2026-07-27 03:43:23 - Starting C:\Program Files\nodejs\node.exe  --max-old-space-size=512 D:\kore\node_modules\node-windows\lib\wrapper.js --file D:\kore\kore.js --scriptoptions= --log "Kore wrapper" --grow 0.25 --wait 1 --maxrestarts 3 --abortonerror n --stopparentfirst undefined
+2026-07-27 03:43:24 - Started 5756
+2026-07-27 09:44:18 - Stopping kore.exe
+2026-07-27 09:44:18 - ProcessKill 5756
+2026-07-27 09:44:18 - Found child process: 5828 Name: conhost.exe
+2026-07-27 09:44:18 - Found child process: 7088 Name: node.exe
+2026-07-27 09:44:18 - Stopping process 5828
+2026-07-27 09:44:18 - Send SIGINT 5828
+2026-07-27 09:44:18 - SIGINT to 5828 failed - Killing as fallback
+2026-07-27 09:44:18 - Stopping process 7088
+2026-07-27 09:44:18 - Send SIGINT 7088
+2026-07-27 09:44:18 - SIGINT to 7088 failed - Killing as fallback
+2026-07-27 09:44:18 - Stopping process 5756
+2026-07-27 09:44:18 - Send SIGINT 5756
+2026-07-27 09:44:18 - SIGINT to 5756 failed - Killing as fallback
+2026-07-27 09:44:18 - Finished kore.exe
+2026-08-03 03:44:05 - Starting C:\Program Files\nodejs\node.exe  --max-old-space-size=512 D:\kore\node_modules\node-windows\lib\wrapper.js --file D:\kore\kore.js --scriptoptions= --log "Kore wrapper" --grow 0.25 --wait 1 --maxrestarts 3 --abortonerror n --stopparentfirst undefined
+2026-08-03 03:44:05 - Started 5136
+2026-08-03 03:44:14 - Stopping kore.exe
+2026-08-03 03:44:14 - ProcessKill 5136
+2026-08-03 03:44:15 - Shutdown exception
+Message:A system shutdown is in progress. (Exception from HRESULT: 0x8007045B)
+Stacktrace:   at System.Runtime.InteropServices.Marshal.ThrowExceptionForHRInternal(Int32 errorCode, IntPtr errorInfo)
+   at System.Management.ManagementScope.InitializeGuts(Object o)
+   at System.Management.ManagementScope.Initialize()
+   at System.Management.ManagementObjectSearcher.Initialize()
+   at System.Management.ManagementObjectSearcher.Get()
+   at winsw.WrapperService.GetChildPids(Int32 pid)
+   at winsw.WrapperService.StopProcessAndChildren(Int32 pid)
+   at winsw.WrapperService.StopIt()
+   at winsw.WrapperService.OnShutdown()
+2026-08-03 03:44:25 - Starting C:\Program Files\nodejs\node.exe  --max-old-space-size=512 D:\kore\node_modules\node-windows\lib\wrapper.js --file D:\kore\kore.js --scriptoptions= --log "Kore wrapper" --grow 0.25 --wait 1 --maxrestarts 3 --abortonerror n --stopparentfirst undefined
+2026-08-03 03:44:25 - Started 5656
+2026-08-03 10:00:56 - Stopping kore.exe
+2026-08-03 10:00:56 - ProcessKill 5656
+2026-08-03 10:00:56 - Found child process: 5808 Name: conhost.exe
+2026-08-03 10:00:56 - Found child process: 2888 Name: node.exe
+2026-08-03 10:00:56 - Stopping process 5808
+2026-08-03 10:00:56 - Send SIGINT 5808
+2026-08-03 10:00:56 - SIGINT to 5808 failed - Killing as fallback
+2026-08-03 10:00:56 - Stopping process 2888
+2026-08-03 10:00:56 - Send SIGINT 2888
+2026-08-03 10:00:56 - SIGINT to 2888 failed - Killing as fallback
+2026-08-03 10:00:56 - Stopping process 5656
+2026-08-03 10:00:56 - Send SIGINT 5656
+2026-08-03 10:00:56 - SIGINT to 5656 failed - Killing as fallback
+2026-08-03 10:00:56 - Finished kore.exe
+2026-08-10 03:43:41 - Starting C:\Program Files\nodejs\node.exe  --max-old-space-size=512 D:\kore\node_modules\node-windows\lib\wrapper.js --file D:\kore\kore.js --scriptoptions= --log "Kore wrapper" --grow 0.25 --wait 1 --maxrestarts 3 --abortonerror n --stopparentfirst undefined
+2026-08-10 03:43:42 - Started 5428
+2026-08-12 12:55:31 - Stopping kore.exe
+2026-08-12 12:55:31 - ProcessKill 5428
+2026-08-12 12:55:31 - Found child process: 5448 Name: conhost.exe
+2026-08-12 12:55:31 - Found child process: 6048 Name: node.exe
+2026-08-12 12:55:31 - Stopping process 5448
+2026-08-12 12:55:31 - Send SIGINT 5448
+2026-08-12 12:55:31 - SIGINT to 5448 failed - Killing as fallback
+2026-08-12 12:55:31 - Stopping process 6048
+2026-08-12 12:55:31 - Send SIGINT 6048
+2026-08-12 12:55:31 - SIGINT to 6048 failed - Killing as fallback
+2026-08-12 12:55:31 - Stopping process 5428
+2026-08-12 12:55:31 - Send SIGINT 5428
+2026-08-12 12:55:31 - SIGINT to 5428 failed - Killing as fallback
+2026-08-12 12:55:31 - Finished kore.exe
+2026-08-12 12:55:32 - Starting C:\Program Files\nodejs\node.exe  --max-old-space-size=512 D:\kore\node_modules\node-windows\lib\wrapper.js --file D:\kore\kore.js --scriptoptions= --log "Kore wrapper" --grow 0.25 --wait 1 --maxrestarts 3 --abortonerror n --stopparentfirst undefined
+2026-08-12 12:55:32 - Started 3592
+2026-08-13 12:16:53 - Stopping kore.exe
+2026-08-13 12:16:53 - ProcessKill 3592
+2026-08-13 12:16:53 - Found child process: 8528 Name: conhost.exe
+2026-08-13 12:16:53 - Found child process: 848 Name: node.exe
+2026-08-13 12:16:53 - Stopping process 8528
+2026-08-13 12:16:53 - Send SIGINT 8528
+2026-08-13 12:16:53 - SIGINT to 8528 failed - Killing as fallback
+2026-08-13 12:16:53 - Stopping process 848
+2026-08-13 12:16:53 - Send SIGINT 848
+2026-08-13 12:16:53 - SIGINT to 848 failed - Killing as fallback
+2026-08-13 12:16:53 - Stopping process 3592
+2026-08-13 12:16:53 - Send SIGINT 3592
+2026-08-13 12:16:53 - SIGINT to 3592 failed - Killing as fallback
+2026-08-13 12:16:53 - Finished kore.exe
+2026-08-17 03:43:43 - Starting C:\Program Files\nodejs\node.exe  --max-old-space-size=512 D:\kore\node_modules\node-windows\lib\wrapper.js --file D:\kore\kore.js --scriptoptions= --log "Kore wrapper" --grow 0.25 --wait 1 --maxrestarts 3 --abortonerror n --stopparentfirst undefined
+2026-08-17 03:43:43 - Started 5564
+2026-08-18 18:07:27 - Stopping kore.exe
+2026-08-18 18:07:27 - ProcessKill 5564
+2026-08-18 18:07:27 - Shutdown exception
+Message:A system shutdown is in progress. (Exception from HRESULT: 0x8007045B)
+Stacktrace:   at System.Runtime.InteropServices.Marshal.ThrowExceptionForHRInternal(Int32 errorCode, IntPtr errorInfo)
+   at System.Management.ManagementScope.InitializeGuts(Object o)
+   at System.Management.ManagementScope.Initialize()
+   at System.Management.ManagementObjectSearcher.Initialize()
+   at System.Management.ManagementObjectSearcher.Get()
+   at winsw.WrapperService.GetChildPids(Int32 pid)
+   at winsw.WrapperService.StopProcessAndChildren(Int32 pid)
+   at winsw.WrapperService.StopIt()
+   at winsw.WrapperService.OnShutdown()
+2026-08-18 18:07:36 - Starting C:\Program Files\nodejs\node.exe  --max-old-space-size=512 D:\kore\node_modules\node-windows\lib\wrapper.js --file D:\kore\kore.js --scriptoptions= --log "Kore wrapper" --grow 0.25 --wait 1 --maxrestarts 3 --abortonerror n --stopparentfirst undefined
+2026-08-18 18:07:37 - Started 3856
+2026-08-18 18:07:44 - Stopping kore.exe
+2026-08-18 18:07:44 - ProcessKill 3856
+2026-08-18 18:07:44 - Shutdown exception
+Message:A system shutdown is in progress. (Exception from HRESULT: 0x8007045B)
+Stacktrace:   at System.Runtime.InteropServices.Marshal.ThrowExceptionForHRInternal(Int32 errorCode, IntPtr errorInfo)
+   at System.Management.ManagementScope.InitializeGuts(Object o)
+   at System.Management.ManagementScope.Initialize()
+   at System.Management.ManagementObjectSearcher.Initialize()
+   at System.Management.ManagementObjectSearcher.Get()
+   at winsw.WrapperService.GetChildPids(Int32 pid)
+   at winsw.WrapperService.StopProcessAndChildren(Int32 pid)
+   at winsw.WrapperService.StopIt()
+   at winsw.WrapperService.OnShutdown()
+2026-08-18 18:07:54 - Starting C:\Program Files\nodejs\node.exe  --max-old-space-size=512 D:\kore\node_modules\node-windows\lib\wrapper.js --file D:\kore\kore.js --scriptoptions= --log "Kore wrapper" --grow 0.25 --wait 1 --maxrestarts 3 --abortonerror n --stopparentfirst undefined
+2026-08-18 18:07:54 - Started 5884
+2026-08-20 13:00:31 - Stopping kore.exe
+2026-08-20 13:00:31 - ProcessKill 5884
+2026-08-20 13:00:31 - Found child process: 5916 Name: conhost.exe
+2026-08-20 13:00:31 - Found child process: 5780 Name: node.exe
+2026-08-20 13:00:31 - Stopping process 5916
+2026-08-20 13:00:31 - Send SIGINT 5916
+2026-08-20 13:00:31 - SIGINT to 5916 failed - Killing as fallback
+2026-08-20 13:00:31 - Stopping process 5780
+2026-08-20 13:00:31 - Send SIGINT 5780
+2026-08-20 13:00:31 - SIGINT to 5780 failed - Killing as fallback
+2026-08-20 13:00:31 - Stopping process 5884
+2026-08-20 13:00:31 - Send SIGINT 5884
+2026-08-20 13:00:31 - SIGINT to 5884 failed - Killing as fallback
+2026-08-20 13:00:31 - Finished kore.exe
+2026-08-20 13:00:33 - Starting C:\Program Files\nodejs\node.exe  --max-old-space-size=512 D:\kore\node_modules\node-windows\lib\wrapper.js --file D:\kore\kore.js --scriptoptions= --log "Kore wrapper" --grow 0.25 --wait 1 --maxrestarts 3 --abortonerror n --stopparentfirst undefined
+2026-08-20 13:00:33 - Started 7432
+2026-08-24 03:43:49 - Starting C:\Program Files\nodejs\node.exe  --max-old-space-size=512 D:\kore\node_modules\node-windows\lib\wrapper.js --file D:\kore\kore.js --scriptoptions= --log "Kore wrapper" --grow 0.25 --wait 1 --maxrestarts 3 --abortonerror n --stopparentfirst undefined
+2026-08-24 03:43:49 - Started 5644
+2026-08-27 08:54:32 - Stopping kore.exe
+2026-08-27 08:54:32 - ProcessKill 5644
+2026-08-27 08:54:32 - Found child process: 5672 Name: conhost.exe
+2026-08-27 08:54:32 - Found child process: 6832 Name: node.exe
+2026-08-27 08:54:32 - Stopping process 5672
+2026-08-27 08:54:32 - Send SIGINT 5672
+2026-08-27 08:54:32 - SIGINT to 5672 failed - Killing as fallback
+2026-08-27 08:54:32 - Stopping process 6832
+2026-08-27 08:54:32 - Send SIGINT 6832
+2026-08-27 08:54:32 - SIGINT to 6832 failed - Killing as fallback
+2026-08-27 08:54:32 - Stopping process 5644
+2026-08-27 08:54:32 - Send SIGINT 5644
+2026-08-27 08:54:32 - SIGINT to 5644 failed - Killing as fallback
+2026-08-27 08:54:32 - Finished kore.exe
+2026-08-27 08:54:33 - Starting C:\Program Files\nodejs\node.exe  --max-old-space-size=512 D:\kore\node_modules\node-windows\lib\wrapper.js --file D:\kore\kore.js --scriptoptions= --log "Kore wrapper" --grow 0.25 --wait 1 --maxrestarts 3 --abortonerror n --stopparentfirst undefined
+2026-08-27 08:54:33 - Started 6100
+2026-08-27 10:15:05 - Stopping kore.exe
+2026-08-27 10:15:05 - ProcessKill 6100
+2026-08-27 10:15:05 - Found child process: 8328 Name: conhost.exe
+2026-08-27 10:15:05 - Found child process: 7244 Name: node.exe
+2026-08-27 10:15:06 - Stopping process 8328
+2026-08-27 10:15:06 - Send SIGINT 8328
+2026-08-27 10:15:06 - SIGINT to 8328 failed - Killing as fallback
+2026-08-27 10:15:06 - Stopping process 7244
+2026-08-27 10:15:06 - Send SIGINT 7244
+2026-08-27 10:15:06 - SIGINT to 7244 failed - Killing as fallback
+2026-08-27 10:15:06 - Stopping process 6100
+2026-08-27 10:15:06 - Send SIGINT 6100
+2026-08-27 10:15:06 - SIGINT to 6100 failed - Killing as fallback
+2026-08-27 10:15:06 - Finished kore.exe
+2026-08-27 10:15:07 - Starting C:\Program Files\nodejs\node.exe  --max-old-space-size=512 D:\kore\node_modules\node-windows\lib\wrapper.js --file D:\kore\kore.js --scriptoptions= --log "Kore wrapper" --grow 0.25 --wait 1 --maxrestarts 3 --abortonerror n --stopparentfirst undefined
+2026-08-27 10:15:07 - Started 4348

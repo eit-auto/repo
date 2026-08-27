@@ -10,6 +10,40 @@ const speakeasy = require('speakeasy');
 const QRCode = require('qrcode');
 const crypto = require('crypto');
 
+/**
+ * Same 6-char lowercase-alphanumeric convention as resources.js's
+ * generateId() (docs/workflows) - kept as a local copy rather than a
+ * shared import since auth.js and resources.js don't currently share a
+ * utils module for this. Used by createEntity() for new user/group ids,
+ * replacing crypto.randomUUID(). NOTE: several route-matching regexes in
+ * this file ([a-zA-Z0-9-]+) were widened specifically to keep matching
+ * both this format and pre-existing UUID-format ids already in the DB -
+ * see the /users/:id, /groups/:id, and related admin routes below. If a
+ * narrower character set is ever used here, those regexes don't need to
+ * shrink back (they're already permissive enough), but a WIDER one would
+ * need those regexes revisited again.
+ */
+function generateId(prefix = '') {
+    const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+    let id = prefix ? prefix + '-' : '';
+    for (let i = 0; i < 6; i++) id += chars[Math.floor(Math.random() * chars.length)];
+    return id;
+}
+
+/**
+ * Maps a resource type to the "admin" action that counts as being allowed
+ * to manage that resource's own permissions (see Auth.canManagePermissionsFor
+ * below), without needing the blanket 'permissions'/'view'/'all' grant.
+ *
+ * 'menu' -> 'admin' mirrors the resources.js User Menus admin editor, whose
+ * own content-editing gate is hasPermission(userId, 'menu', 'admin', null).
+ * Add one entry here for each future resource-scoped admin editor (e.g.
+ * workflows, forms) - no endpoint changes needed elsewhere.
+ */
+const RESOURCE_PERMISSION_ADMIN_ACTIONS = {
+  menu: 'admin'
+};
+
 class Auth {
   /**
    * Authentication system constructor
@@ -188,7 +222,7 @@ class Auth {
       const schema = schemas[entityType];
       if (!schema) throw new Error(`Unknown entity type: ${entityType}`);
 
-      const id = crypto.randomUUID();
+      const id = generateId();
       let fields = { ...schema.defaults, ...data };
       
       // Map field names if needed
@@ -237,6 +271,10 @@ class Auth {
 
       await this.logAudit(`${entityType}_created`, entityType, id, fields[schema.requiredFields[0]], createdBy, fields, null);
       global.consoleLog('Auth', `${entityType.charAt(0).toUpperCase() + entityType.slice(1)} created: ${id}`, 3);
+
+      if (entityType === 'group') {
+        this.invalidateGroupsCache();
+      }
       
       // Prepare response: include inviteToken if present, exclude internal fields starting with _
       const responseSpecialData = {};
@@ -291,7 +329,7 @@ class Auth {
       }
 
       // Handle special serialization
-      if (entityType === 'user' && fields.groupIds) {
+      if ((entityType === 'user' || entityType === 'group') && fields.groupIds) {
         fields.groupIds = Array.isArray(fields.groupIds) ? JSON.stringify(fields.groupIds) : '[]';
       }
 
@@ -308,6 +346,15 @@ class Auth {
       await this.korePool.execute(query, values);
       await this.logAudit(`${entityType}_updated`, entityType, id, null, null, data, null);
       global.consoleLog('Auth', `${entityType.charAt(0).toUpperCase() + entityType.slice(1)} updated: ${id}`, 3);
+
+      // A group's own groupIds (its parents, for nested-group support - see
+      // hasPermission()) just changed, or the group's active state did -
+      // either way, the cached parent-graph hasPermission() relies on is
+      // now stale. Gated to entityType === 'group' since a user update has
+      // nothing to do with this cache.
+      if (entityType === 'group') {
+        this.invalidateGroupsCache();
+      }
       
       return { success: true };
     } catch (err) {
@@ -340,8 +387,8 @@ class Auth {
   /**
    * Update group (backward compatibility wrapper)
    */
-  async updateGroup(groupId, groupName, description, active, updatedBy) {
-    return this.updateEntity('group', groupId, { groupName, description, active }, updatedBy);
+  async updateGroup(groupId, groupName, description, active, groupIds, updatedBy) {
+    return this.updateEntity('group', groupId, { groupName, description, active, groupIds }, updatedBy);
   }
 
   /**
@@ -622,7 +669,7 @@ class Auth {
   /**
    * Login with email, password, and MFA code
    */
-  async login(email, password, mfaCode, userAgent = null, ipAddress = null) {
+  async login(email, password, mfaCode, userAgent = null, ipAddress = null, existingRefreshToken = null) {
     try {
       // Find user by email
       const [userRows] = await this.korePool.execute(
@@ -711,31 +758,67 @@ class Auth {
 
       // Generate tokens
       const sessionToken = this.generateSessionToken(user.userId);
-      const { token: refreshToken, hash: refreshTokenHash } = this.generateRefreshToken(user.userId);
-
-      // Check session limit and manage concurrent sessions
       const maxSessions = this.config.session?.maxConcurrentSessions || 2;
-      
-      const [sessionRows] = await this.korePool.execute(
-        'SELECT refreshTokenHash, lastUsedAt FROM refresh_tokens WHERE userId = ? ORDER BY lastUsedAt ASC',
-        [user.userId]
-      );
 
-      let activeSessions = sessionRows.length;
-      let willExceedLimit = activeSessions >= maxSessions;
+      let refreshToken;
+      let activeSessions = 0;
+      let willExceedLimit = false;
       let oldestSessionHash = null;
-      
-      // Note which session would be deleted, but don't delete yet
-      if (willExceedLimit && sessionRows.length > 0) {
-        oldestSessionHash = sessionRows[0].refreshTokenHash;
+      let matchedExistingSession = false;
+
+      // If the browser already presents a valid, unexpired refresh token for this
+      // user, treat this as the same browser reconnecting: rotate that existing
+      // row in place instead of inserting a new one. This keeps repeat logins
+      // from the same device from ever counting against the concurrent-session
+      // limit or piling up stale rows.
+      if (existingRefreshToken) {
+        const existingHash = crypto.createHash('sha256').update(existingRefreshToken).digest('hex');
+        const [existingRows] = await this.korePool.execute(
+          'SELECT refreshTokenId FROM refresh_tokens WHERE userId = ? AND refreshTokenHash = ? AND expiresAt > NOW()',
+          [user.userId, existingHash]
+        );
+
+        if (existingRows[0]) {
+          matchedExistingSession = true;
+          const generated = this.generateRefreshToken(user.userId);
+          refreshToken = generated.token;
+
+          await this.korePool.execute(
+            'UPDATE refresh_tokens SET refreshTokenHash = ?, userAgent = ?, ipAddress = ?, lastUsedAt = NOW(), expiresAt = DATE_ADD(NOW(), INTERVAL ? DAY) WHERE refreshTokenId = ?',
+            [generated.hash, userAgent || null, ipAddress || null, this.config.session.reloginTokenExpiryDays, existingRows[0].refreshTokenId]
+          );
+
+          global.consoleLog('Auth', `Recognized existing session for user, refreshed in place: ${email}`, 3);
+        }
       }
 
-      // Only insert new refresh token (don't delete yet - wait for client confirmation)
-      const refreshTokenId = crypto.randomUUID();
-      await this.korePool.execute(
-        'INSERT INTO refresh_tokens (refreshTokenId, userId, refreshTokenHash, userAgent, ipAddress, createdAt, lastUsedAt, expiresAt) VALUES (?, ?, ?, ?, ?, NOW(), NOW(), DATE_ADD(NOW(), INTERVAL ? DAY))',
-        [refreshTokenId, user.userId, refreshTokenHash, userAgent || null, ipAddress || null, this.config.session.reloginTokenExpiryDays]
-      );
+      if (!matchedExistingSession) {
+        const generated = this.generateRefreshToken(user.userId);
+        refreshToken = generated.token;
+
+        // Check session limit and manage concurrent sessions.
+        // Only count sessions that haven't expired - an expired row should
+        // never count against the limit even if it hasn't been cleaned up yet.
+        const [sessionRows] = await this.korePool.execute(
+          'SELECT refreshTokenHash, lastUsedAt FROM refresh_tokens WHERE userId = ? AND expiresAt > NOW() ORDER BY lastUsedAt ASC',
+          [user.userId]
+        );
+
+        activeSessions = sessionRows.length;
+        willExceedLimit = activeSessions >= maxSessions;
+
+        // Note which session would be deleted, but don't delete yet
+        if (willExceedLimit && sessionRows.length > 0) {
+          oldestSessionHash = sessionRows[0].refreshTokenHash;
+        }
+
+        // Only insert new refresh token (don't delete yet - wait for client confirmation)
+        const refreshTokenId = crypto.randomUUID();
+        await this.korePool.execute(
+          'INSERT INTO refresh_tokens (refreshTokenId, userId, refreshTokenHash, userAgent, ipAddress, createdAt, lastUsedAt, expiresAt) VALUES (?, ?, ?, ?, ?, NOW(), NOW(), DATE_ADD(NOW(), INTERVAL ? DAY))',
+          [refreshTokenId, user.userId, generated.hash, userAgent || null, ipAddress || null, this.config.session.reloginTokenExpiryDays]
+        );
+      }
 
       await this.logAudit('login', 'user', user.userId, null, user.userId, { action: 'User logged in', ipAddress, userAgent }, null);
 
@@ -1129,7 +1212,16 @@ class Auth {
       if (!rows[0]) return [];
       
       const groupIds = rows[0].groupIds;
-      return groupIds ? JSON.parse(groupIds) : [];
+      if (!groupIds) return [];
+      // mysql2 can return a native JSON column already parsed into a real
+      // array/object, not a string - unconditionally calling JSON.parse()
+      // on that coerces it to a string first (String(['a']) -> "a") and
+      // then fails to parse that as JSON. Handle both shapes.
+      if (Array.isArray(groupIds)) return groupIds;
+      if (typeof groupIds === 'string') {
+        try { return JSON.parse(groupIds); } catch { return []; }
+      }
+      return [];
     } catch (err) {
       global.consoleLog('Auth', `ERROR getting user groups:: ${err.message}`, 1);
       return [];
@@ -1137,14 +1229,118 @@ class Auth {
   }
 
   /**
+   * Nested group support for hasPermission(). kore_sys.user_groups.groupIds
+   * (same shape/name as users.groupIds - an array of parent group ids
+   * this group inherits from, e.g. ["pht0hl","1ertj5"]) makes the groups
+   * table itself a graph, not a flat list - a group's own membership
+   * grants come from whatever it's nested under, same as a user's do from
+   * their direct groups.
+   *
+   * Cached: this table is small and changes rarely, and hasPermission()
+   * is on the hot path for nearly every request, so re-fetching every
+   * group's parent list on every permission check would be wasteful.
+   * TTL below is a safety-net fallback only - the real invalidation path
+   * is invalidateGroupsCache(), which the single group-management surface
+   * this app has must call after any create/update/delete on
+   * kore_sys.user_groups. Until that call is wired in on that end, edits to a
+   * group's own nesting take up to GROUPS_CACHE_TTL_MS to be reflected
+   * here rather than being immediate.
+   */
+  static GROUPS_CACHE_TTL_MS = 5 * 60 * 1000;
+
+  async _loadGroupsParentMap() {
+    const now = Date.now();
+    if (this._groupsCache && now < this._groupsCacheExpiry) {
+      return this._groupsCache;
+    }
+
+    const [rows] = await this.korePool.execute(
+      `SELECT groupId, groupIds FROM kore_sys.user_groups WHERE active = 1`
+    );
+
+    const map = new Map(); // groupId -> [parentGroupId, ...]
+    for (const row of rows) {
+      let parents = [];
+      // Same already-parsed-array issue as getUserGroups() above - mysql2
+      // can hand back a native JSON column already deserialized, not a
+      // string. This was previously swallowing to [] on every row via the
+      // catch below rather than crashing (no logging here to say so),
+      // meaning nested-group resolution was likely always silently
+      // returning empty parent lists for every group, not actually
+      // working, until this got fixed alongside getUserGroups().
+      if (Array.isArray(row.groupIds)) {
+        parents = row.groupIds;
+      } else if (typeof row.groupIds === 'string' && row.groupIds) {
+        try {
+          parents = JSON.parse(row.groupIds);
+          if (!Array.isArray(parents)) parents = [];
+        } catch {
+          parents = [];
+        }
+      }
+      map.set(row.groupId, parents);
+    }
+
+    this._groupsCache = map;
+    this._groupsCacheExpiry = now + Auth.GROUPS_CACHE_TTL_MS;
+    return map;
+  }
+
+  /**
+   * Call after any create/update/delete affecting kore_sys.user_groups (in
+   * particular, a group's own groupIds/nesting) so the next permission
+   * check picks up the change immediately rather than waiting out
+   * GROUPS_CACHE_TTL_MS. Cheap and safe to call more often than strictly
+   * necessary - it just clears the cache, the next _loadGroupsParentMap()
+   * call repopulates it.
+   */
+  invalidateGroupsCache() {
+    this._groupsCache = null;
+    this._groupsCacheExpiry = 0;
+  }
+
+  /**
+   * BFS out from a user's direct groups through the (cached) parent
+   * graph, returning every reachable group id mapped to its SHORTEST
+   * distance from the user (direct groups = distance 0). Cycle-safe: a
+   * group reached again at an equal-or-greater distance than already
+   * recorded is skipped rather than re-queued, so a cycle in the group
+   * graph (accidental or otherwise) can't loop forever - it just stops
+   * contributing once every reachable node has its shortest distance.
+   *
+   * Distance is what nearest-group-wins precedence in hasPermission()
+   * keys off - see the precedence comment there for why a flat "any
+   * group deny/allow" rule stopped being safe once groups can nest.
+   */
+  async _getEffectiveGroupDistances(userId) {
+    const directGroupIds = await this.getUserGroups(userId);
+    const parentMap = await this._loadGroupsParentMap();
+
+    const distances = new Map(); // groupId -> shortest distance found
+    const queue = directGroupIds.map(id => ({ id, distance: 0 }));
+
+    while (queue.length > 0) {
+      const { id, distance } = queue.shift();
+      if (distances.has(id) && distances.get(id) <= distance) continue;
+      distances.set(id, distance);
+
+      const parents = parentMap.get(id) || [];
+      for (const parentId of parents) {
+        queue.push({ id: parentId, distance: distance + 1 });
+      }
+    }
+
+    return distances;
+  }
+
+  /**
    * Get user's permissions (direct + via groups)
    * @param {string} userId
-   * @param {boolean} includeRevoked - If true, includes revoked permissions (default: false)
    */
-  async getUserPermissions(userId, includeRevoked = false) {
+  async getUserPermissions(userId) {
     try {
       const query = `
-        SELECT resource, action, scope, effect, revokedAt, targetType, targetId
+        SELECT resource, action, scope, effect, targetType, targetId
         FROM permissions 
         WHERE (targetType = 'user' AND targetId = ?) 
            OR (targetType = 'group' AND targetId IN (
@@ -1154,7 +1350,6 @@ class Auth {
              WHERE users.userId = ?
              AND JSON_EXTRACT(groupIds, CONCAT('$[', idx, ']')) IS NOT NULL
            ))
-        ${includeRevoked ? '' : 'AND revokedAt IS NULL'}
       `;
       
       const [rows] = await this.korePool.execute(query, [userId, userId]);
@@ -1226,8 +1421,7 @@ class Auth {
           scope: row.scope,
           scope_name: scopeName,
           effect: row.effect,
-          source,
-          ...(includeRevoked && { revokedAt: row.revokedAt })
+          source
         };
       });
 
@@ -1259,7 +1453,7 @@ class Auth {
    * Example:
    *   getPermissions({ resource: 'workflow', scope: workflowId, effect: 'deny' })
    *   getPermissions({ targetType: 'group', actionIn: ['view', 'create'] })
-   *   getPermissions({ permissionId: 'xxx', revokedAtNot: null })
+   *   getPermissions({ permissionId: 'xxx' })
    */
   async getPermissions(filters = {}) {
     try {
@@ -1267,7 +1461,7 @@ class Auth {
       const params = [];
       
       // Valid base field names
-      const validFields = ['permissionId', 'targetType', 'targetId', 'resource', 'scope', 'action', 'effect', 'grantedAt', 'grantedBy', 'revokedAt', 'revokedBy'];
+      const validFields = ['permissionId', 'targetType', 'targetId', 'resource', 'scope', 'action', 'effect', 'grantedAt', 'grantedBy'];
 
       // Build WHERE conditions from filters
       for (const [key, value] of Object.entries(filters)) {
@@ -1301,11 +1495,19 @@ class Auth {
 
         // Build condition based on operator
         if (operator === '=') {
-          conditions.push(`p.${field} = ?`);
-          params.push(value);
+          if (value === null) {
+            conditions.push(`p.${field} IS NULL`);
+          } else {
+            conditions.push(`p.${field} = ?`);
+            params.push(value);
+          }
         } else if (operator === '!=') {
-          conditions.push(`p.${field} != ?`);
-          params.push(value);
+          if (value === null) {
+            conditions.push(`p.${field} IS NOT NULL`);
+          } else {
+            conditions.push(`p.${field} != ?`);
+            params.push(value);
+          }
         } else if (operator === 'IN') {
           if (!Array.isArray(value) || value.length === 0) {
             throw new Error(`${key} must be a non-empty array`);
@@ -1329,7 +1531,7 @@ class Auth {
       const query = `
         SELECT 
           p.permissionId, p.targetType, p.targetId, p.resource, p.scope, p.action, p.effect, 
-          p.grantedAt, p.grantedBy, p.revokedAt, p.revokedBy,
+          p.grantedAt, p.grantedBy,
           CASE 
             WHEN p.targetType = 'group' THEN ug.name
             WHEN p.targetType = 'user' THEN u.fullName
@@ -1555,158 +1757,117 @@ class Auth {
     });
   }
 
+  /**
+   * Resolves a permission decision from already-fetched target rows (user-
+   * and group-targeted permission rows applicable to ONE scope), using the
+   * same precedence hasPermission() always has: user-deny > user-allow >
+   * nearest-group-wins > no-applicable-rule. Returns true/false when a rule
+   * applies, or undefined when neither the user nor any of their (nested)
+   * groups have one - in which case the caller must fall back to the
+   * default-allow-unless-any-allow-exists-elsewhere check itself, since that
+   * check is a separate query the caller may or may not need to run.
+   *
+   * Pulled out of hasPermission() so hasPermissions() (the batch path) can
+   * reuse the exact same precedence logic against rows it fetched in bulk,
+   * rather than re-deriving it and risking the two drifting apart.
+   */
+  _resolveFromTargetRows(targetRows, groupDistances) {
+    if (targetRows.some(r => r.targetType === 'user' && r.effect === 'deny')) {
+      return false; // User deny always blocks
+    }
+    if (targetRows.some(r => r.targetType === 'user' && r.effect === 'allow')) {
+      return true; // User allow always permits
+    }
+
+    const groupRows = targetRows.filter(r => r.targetType === 'group');
+    if (groupRows.length > 0) {
+      const nearestDistance = Math.min(...groupRows.map(r => groupDistances.get(r.targetId)));
+      const nearestRows = groupRows.filter(r => groupDistances.get(r.targetId) === nearestDistance);
+      if (nearestRows.some(r => r.effect === 'deny')) return false; // Nearest group deny blocks
+      if (nearestRows.some(r => r.effect === 'allow')) return true; // Nearest group allow permits
+    }
+
+    return undefined; // No applicable user or group rule - caller decides the default
+  }
+
   async hasPermission(userId, resource, action, scope = null) {
     try {
       // Build action condition: match specific action OR wildcard if checking specific action
       const actionCondition = action === '*' 
         ? `action = ?`
         : `(action = ? OR action = '*')`;
-      
-      // Precedence: User permissions > Group permissions > Default allow
-      
-      // 1. Check for USER DENY (highest priority)
-      const userDenyQuery = `
-        SELECT COUNT(*) as count 
-        FROM kore_sys.permissions 
-        WHERE targetType = 'user' AND targetId = ?
-        AND resource = ? 
+
+      // Effective groups: the user's direct groups plus every group
+      // they're nested under transitively (see _getEffectiveGroupDistances),
+      // each mapped to its shortest distance from the user. Computed before
+      // the main query, since group matching can no longer be a single
+      // inline JSON_CONTAINS against the user's own raw groupIds now that a
+      // user can match a group they're not directly in - see
+      // kore_sys.user_groups.groupIds (added for nested-group support).
+      const groupDistances = await this._getEffectiveGroupDistances(userId);
+      const effectiveGroupIds = [...groupDistances.keys()];
+
+      // Precedence: user-deny > user-allow > nearest-group-wins (below) >
+      // default-allow-unless-any-allow-exists-elsewhere.
+      //
+      // Nearest-group-wins: once a user can match a group through more than
+      // one path (nested groups, not just direct membership), a flat "any
+      // group deny anywhere blocks, else any group allow anywhere permits"
+      // rule stops being safe - a distant ancestor group's deny could
+      // silently override a closer, more specific group's allow that was
+      // clearly meant to take precedence. So instead: among every matching
+      // group row (deny or allow, at any distance), find the SMALLEST
+      // distance present. Only rows at that nearest distance get a say - a
+      // deny among them blocks, otherwise an allow among them permits. A
+      // row at a greater distance never overrides one at a lesser distance,
+      // regardless of deny/allow - "deny beats allow" only applies among
+      // rows tied at the same (nearest) distance.
+      //
+      // OPTIMIZED (still the case despite the above): this remains a single
+      // combined query for every user-targeted AND group-targeted row, not
+      // one query per candidate group - effectiveGroupIds is passed as one
+      // IN (...) list.
+      // (The actual deny/allow/nearest-group precedence resolution itself
+      // now lives in _resolveFromTargetRows(), shared with hasPermissions().)
+
+      let targetRowsQuery = `
+        SELECT targetType, targetId, effect
+        FROM kore_sys.permissions
+        WHERE resource = ?
         AND ${actionCondition}
-        AND effect = 'deny'
-        AND (scope IS NULL ${scope ? `OR scope = ?` : ''})
-        AND revokedAt IS NULL
+        AND (scope = '*' OR scope IS NULL ${scope ? `OR scope = ?` : ''})
+        AND (
+          (targetType = 'user' AND targetId = ?)
       `;
-      
-      const userDenyParams = [userId, resource, action];
-      if (scope) userDenyParams.push(scope);
-      
-      const [userDenyRows] = await this.korePool.execute(userDenyQuery, userDenyParams);
-      if (userDenyRows[0].count > 0) {
-        return false; // User deny always blocks
+
+      const targetRowsParams = [resource, action];
+      if (scope) targetRowsParams.push(scope);
+      targetRowsParams.push(userId);
+
+      if (effectiveGroupIds.length > 0) {
+        const placeholders = effectiveGroupIds.map(() => '?').join(',');
+        targetRowsQuery += ` OR (targetType = 'group' AND targetId IN (${placeholders}))`;
+        targetRowsParams.push(...effectiveGroupIds);
       }
-      
-      // 2. Check for USER ALLOW
-      const userAllowQuery = `
-        SELECT COUNT(*) as count 
-        FROM kore_sys.permissions 
-        WHERE targetType = 'user' AND targetId = ?
-        AND resource = ? 
-        AND ${actionCondition}
-        AND effect = 'allow'
-        AND (scope IS NULL ${scope ? `OR scope = ?` : ''})
-        AND revokedAt IS NULL
-      `;
-      
-      const userAllowParams = [userId, resource, action];
-      if (scope) userAllowParams.push(scope);
-      
-      const [userAllowRows] = await this.korePool.execute(userAllowQuery, userAllowParams);
-      if (userAllowRows[0].count > 0) {
-        return true; // User allow always permits
-      }
-      
-      // 3. Get user's groups
-      const userQuery = `SELECT groupIds FROM kore_sys.users WHERE userId = ?`;
-      const [userRows] = await this.korePool.execute(userQuery, [userId]);
-      
-      if (userRows.length === 0) {
-        // User not found, use default logic
-        const anyAllowQuery = `
-          SELECT COUNT(*) as count 
-          FROM kore_sys.permissions 
-          WHERE resource = ? 
-          AND ${actionCondition}
-          AND effect = 'allow'
-          AND (scope IS NULL ${scope ? `OR scope = ?` : ''})
-          AND revokedAt IS NULL
-        `;
-        
-        const anyAllowParams = [resource, action];
-        if (scope) anyAllowParams.push(scope);
-        
-        const [anyAllowRows] = await this.korePool.execute(anyAllowQuery, anyAllowParams);
-        return anyAllowRows[0].count === 0; // Default allow if no rules exist
-      }
-      
-      let groupIds = [];
-      if (userRows[0].groupIds) {
-        try {
-          groupIds = typeof userRows[0].groupIds === 'string' 
-            ? JSON.parse(userRows[0].groupIds) 
-            : userRows[0].groupIds;
-        } catch (parseErr) {
-          global.consoleLog('Auth', `Failed to parse groupIds for user ${userId}: ${parseErr.message}`, 2);
-          groupIds = [];
-        }
-      }
-      
-      if (groupIds.length === 0) {
-        // No groups, check default logic
-        const anyAllowQuery = `
-          SELECT COUNT(*) as count 
-          FROM kore_sys.permissions 
-          WHERE resource = ? 
-          AND ${actionCondition}
-          AND effect = 'allow'
-          AND (scope IS NULL ${scope ? `OR scope = ?` : ''})
-          AND revokedAt IS NULL
-        `;
-        
-        const anyAllowParams = [resource, action];
-        if (scope) anyAllowParams.push(scope);
-        
-        const [anyAllowRows] = await this.korePool.execute(anyAllowQuery, anyAllowParams);
-        return anyAllowRows[0].count === 0; // Default allow if no rules exist
-      }
-      
-      // 4. Check for GROUP DENY
-      const groupDenyQuery = `
-        SELECT COUNT(*) as count 
-        FROM kore_sys.permissions 
-        WHERE targetType = 'group' AND targetId IN (${groupIds.map(() => '?').join(',')})
-        AND resource = ? 
-        AND ${actionCondition}
-        AND effect = 'deny'
-        AND (scope IS NULL ${scope ? `OR scope = ?` : ''})
-        AND revokedAt IS NULL
-      `;
-      
-      const groupDenyParams = [...groupIds, resource, action];
-      if (scope) groupDenyParams.push(scope);
-      
-      const [groupDenyRows] = await this.korePool.execute(groupDenyQuery, groupDenyParams);
-      if (groupDenyRows[0].count > 0) {
-        return false; // Group deny blocks
-      }
-      
-      // 5. Check for GROUP ALLOW
-      const groupAllowQuery = `
-        SELECT COUNT(*) as count 
-        FROM kore_sys.permissions 
-        WHERE targetType = 'group' AND targetId IN (${groupIds.map(() => '?').join(',')})
-        AND resource = ? 
-        AND ${actionCondition}
-        AND effect = 'allow'
-        AND (scope IS NULL ${scope ? `OR scope = ?` : ''})
-        AND revokedAt IS NULL
-      `;
-      
-      const groupAllowParams = [...groupIds, resource, action];
-      if (scope) groupAllowParams.push(scope);
-      
-      const [groupAllowRows] = await this.korePool.execute(groupAllowQuery, groupAllowParams);
-      if (groupAllowRows[0].count > 0) {
-        return true; // Group allow permits
-      }
-      
-      // 6. Check default logic: if ANY allow rules exist, default is deny; otherwise allow
+      targetRowsQuery += `)`;
+
+      const [targetRows] = await this.korePool.execute(targetRowsQuery, targetRowsParams);
+
+      const resolved = this._resolveFromTargetRows(targetRows, groupDistances);
+      if (resolved !== undefined) return resolved;
+
+      // Neither the user nor any of their (nested) groups have an
+      // applicable rule. Default logic, unchanged and hierarchy-agnostic:
+      // if ANY allow rule exists anywhere for this resource+action+scope
+      // (targeting someone else entirely), default is deny; otherwise,
+      // default is allow.
       const anyAllowQuery = `
         SELECT COUNT(*) as count 
         FROM kore_sys.permissions 
         WHERE resource = ? 
         AND ${actionCondition}
         AND effect = 'allow'
-        AND (scope IS NULL ${scope ? `OR scope = ?` : ''})
-        AND revokedAt IS NULL
+        AND (scope = '*' OR scope IS NULL ${scope ? `OR scope = ?` : ''})
       `;
       
       const anyAllowParams = [resource, action];
@@ -1719,6 +1880,148 @@ class Auth {
       global.consoleLog('Auth', `ERROR checking permission:: ${err.message}`, 1);
       return false;
     }
+  }
+
+  /**
+   * Batched version of hasPermission() - evaluates many (resource, action,
+   * scope) checks for the SAME user in one pass, instead of one
+   * hasPermission() call per check. Exists because hasPermission() re-fetches
+   * this user's direct groups (via _getEffectiveGroupDistances) on every
+   * single call, and issues up to two more queries on top of that - none of
+   * which needs to be repeated when checking, say, 9 scopes of the same
+   * resource+action for the same request (e.g. gating every tab on the
+   * Settings page).
+   *
+   * @param {string} userId
+   * @param {Array<{resource: string, action: string, scope: (string|null)}>} checks
+   * @returns {Promise<Array<{resource: string, action: string, scope: (string|null), hasPermission: boolean}>>}
+   *          Results are returned in the same order as `checks`.
+   */
+  async hasPermissions(userId, checks) {
+    if (!Array.isArray(checks) || checks.length === 0) return [];
+
+    try {
+      // Computed once for the whole batch, not once per check - this is
+      // the main saving, since it's the part hasPermission() can't cache
+      // across calls (only the group parent-map is cached; a user's own
+      // direct group membership is re-queried every call).
+      const groupDistances = await this._getEffectiveGroupDistances(userId);
+      const effectiveGroupIds = [...groupDistances.keys()];
+
+      // Normalize scope once, keeping each check's original index so
+      // results can be reassembled in the caller's input order below -
+      // grouping by (resource, action) next necessarily loses that order,
+      // and checks aren't guaranteed unique (the same resource/action/scope
+      // could legitimately appear twice), so index is the only reliable key.
+      const normalized = checks.map((check, index) => ({
+        index,
+        resource: check.resource,
+        action: check.action,
+        scope: (check.scope === '*' || check.scope === undefined) ? null : (check.scope || null)
+      }));
+
+      // Group by (resource, action) - that pair is what the two queries
+      // below filter on, so checks sharing a pair (the common case: gating
+      // N scopes of the same resource+action) are answered from ONE query
+      // each, covering every scope in the group at once, instead of one
+      // query per scope.
+      const groups = new Map();
+      for (const item of normalized) {
+        const key = `${item.resource}\u0000${item.action}`;
+        if (!groups.has(key)) {
+          groups.set(key, { resource: item.resource, action: item.action, items: [] });
+        }
+        groups.get(key).items.push(item);
+      }
+
+      const results = new Array(checks.length);
+
+      for (const { resource, action, items } of groups.values()) {
+        const actionCondition = action === '*' ? `action = ?` : `(action = ? OR action = '*')`;
+
+        // Every target row for this resource+action, across every scope in
+        // this group (including scope = '*' and scope IS NULL rows, both
+        // of which apply to every scope - see the per-item filter below) -
+        // one query instead of one per scope.
+        let targetRowsQuery = `
+          SELECT scope, targetType, targetId, effect
+          FROM kore_sys.permissions
+          WHERE resource = ?
+          AND ${actionCondition}
+          AND (
+            (targetType = 'user' AND targetId = ?)
+        `;
+        const targetRowsParams = [resource, action, userId];
+        if (effectiveGroupIds.length > 0) {
+          const placeholders = effectiveGroupIds.map(() => '?').join(',');
+          targetRowsQuery += ` OR (targetType = 'group' AND targetId IN (${placeholders}))`;
+          targetRowsParams.push(...effectiveGroupIds);
+        }
+        targetRowsQuery += `)`;
+
+        const [allTargetRows] = await this.korePool.execute(targetRowsQuery, targetRowsParams);
+
+        // Same consolidation for the default-allow-unless-any-allow-exists
+        // fallback - one query per (resource, action) pair, covering every
+        // scope in this group, instead of one per scope.
+        const [anyAllowRows] = await this.korePool.execute(
+          `SELECT scope FROM kore_sys.permissions
+           WHERE resource = ? AND ${actionCondition} AND effect = 'allow'`,
+          [resource, action]
+        );
+        const anyAllowScopes = new Set(anyAllowRows.map(r => r.scope));
+
+        for (const item of items) {
+          const targetRows = allTargetRows.filter(r => r.scope === '*' || r.scope === null || r.scope === item.scope);
+          const resolved = this._resolveFromTargetRows(targetRows, groupDistances);
+          const hasPermission = resolved !== undefined
+            ? resolved
+            : !(anyAllowScopes.has('*') || anyAllowScopes.has(null) || anyAllowScopes.has(item.scope));
+          results[item.index] = { resource: item.resource, action: item.action, scope: item.scope, hasPermission };
+        }
+      }
+
+      return results;
+    } catch (err) {
+      global.consoleLog('Auth', `ERROR checking batch permissions:: ${err.message}`, 1);
+      return checks.map(check => ({
+        resource: check.resource,
+        action: check.action,
+        scope: (check.scope === '*' || check.scope === undefined) ? null : (check.scope || null),
+        hasPermission: false
+      }));
+    }
+  }
+
+  /**
+   * Whether userId is allowed to manage permissions (view/insert/update/
+   * revoke rows in kore_sys.permissions) for a given resource type.
+   *
+   * Two-tier check:
+   *   1. 'permissions'/'view'/'all' - the blanket grant. Always sufficient,
+   *      for any resource. This is the superuser override.
+   *   2. Otherwise, fall back to whatever narrower "admin" permission is
+   *      registered for that specific resource type in
+   *      RESOURCE_PERMISSION_ADMIN_ACTIONS below - e.g. a user with
+   *      'menu'/'admin' (the same grant that already lets them edit menu
+   *      content) can also manage menu-scoped permissions, without needing
+   *      the broader "manage every resource's permissions" grant.
+   *
+   * To extend this to a future resource-scoped admin editor (e.g.
+   * workflows), add one entry to RESOURCE_PERMISSION_ADMIN_ACTIONS below -
+   * no endpoint changes needed.
+   *
+   * @param {string} userId
+   * @param {string} resource - the resource type being requested (e.g. 'menu', 'page')
+   * @returns {Promise<boolean>}
+   */
+  async canManagePermissionsFor(userId, resource) {
+    if (await this.hasPermission(userId, 'permissions', 'view', 'all')) return true;
+
+    const narrowAction = RESOURCE_PERMISSION_ADMIN_ACTIONS[resource];
+    if (!narrowAction) return false;
+
+    return this.hasPermission(userId, resource, narrowAction, null);
   }
 
   // ========== SERVICE ACCOUNTS ==========
@@ -1857,6 +2160,7 @@ class Auth {
             passwordSetAt = NOW(),
             passwordHistory = ?,
             passwordFailedAttempts = 0,
+            mustChangePassword = 0,
             updatedAt = NOW()
         WHERE userId = ?
       `;
@@ -1876,6 +2180,176 @@ class Auth {
       return { success: true };
     } catch (err) {
       global.consoleLog('Auth', `ERROR changing password:: ${err.message}`, 1);
+      throw err;
+    }
+  }
+
+  /**
+   * Admin sets a password directly for another user.
+   *
+   * Deliberately NOT a variant of changePassword(): there is no old password to
+   * verify, because the whole point is that the user can't produce one. Format
+   * rules and the no-reuse history check still apply, so an admin can't set a
+   * password the user would be blocked from setting themselves.
+   *
+   * Side effects beyond the credential itself, all intentional:
+   *  - Unlocks the account (clears lockedUntil / failed attempts, restores
+   *    'active' from 'locked'). An admin resetting a locked user's password
+   *    means they want that account usable again; making them click Unlock
+   *    separately is a step that gets forgotten.
+   *  - Revokes every refresh token for the user. An admin-initiated reset
+   *    implies the old credential is lost or suspect, and a live refresh token
+   *    outlives a password change entirely - the token survives, the session
+   *    keeps working, and the reset accomplishes nothing. (Note changePassword()
+   *    does NOT do this; whether it should is a separate question.)
+   *  - Optionally sets mustChangePassword, forcing a change at next login.
+   *
+   * Status is only restored to 'active' from 'locked' - an 'inactive' or
+   * 'invited' account is left in that state, since resetting a password
+   * shouldn't silently reactivate a disabled user or bypass invite setup.
+   *
+   * @param {string} userId - user whose password is being set
+   * @param {string} newPassword
+   * @param {string} setBy - acting admin's userId, from the validated session
+   * @param {boolean} forceChange - require a change at next login
+   */
+  async adminSetPassword(userId, newPassword, setBy, forceChange = false) {
+    try {
+      if (!userId || !setBy) {
+        throw new Error('userId and setBy required');
+      }
+      if (!newPassword) {
+        throw new Error('New password is required');
+      }
+
+      const [userRows] = await this.korePool.execute(
+        'SELECT userId, email, status, passwordHash, passwordSalt, passwordSetAt, passwordHistory FROM users WHERE userId = ?',
+        [userId]
+      );
+
+      if (!userRows[0]) {
+        throw new Error('User not found');
+      }
+
+      const user = userRows[0];
+
+      // Format rules
+      const passwordValidation = this.validatePassword(newPassword);
+      if (!passwordValidation.valid) {
+        throw new Error(`Password invalid: ${passwordValidation.errors.join(', ')}`);
+      }
+
+      // Parse existing history (driver may hand back a string or a parsed object)
+      let passwordHistory = [];
+      if (user.passwordHistory) {
+        try {
+          passwordHistory = typeof user.passwordHistory === 'string'
+            ? JSON.parse(user.passwordHistory)
+            : user.passwordHistory;
+        } catch (e) {
+          global.consoleLog('Auth', `ERROR parsing passwordHistory: ${e.message}`, 1);
+          passwordHistory = [];
+        }
+      }
+      if (!Array.isArray(passwordHistory)) passwordHistory = [];
+
+      // No-reuse check, same rule the user would face
+      const historyCheck = this.validatePasswordHistory(newPassword, passwordHistory);
+      if (!historyCheck.valid) {
+        throw new Error(historyCheck.reason);
+      }
+
+      const { hash: newHash, salt: newSalt } = this.hashPassword(newPassword);
+
+      // Push the outgoing credential onto history, matching changePassword's
+      // date formatting so entries stay comparable across both paths
+      const tz = global.timezone || 'UTC';
+      let setAtValue;
+      if (user.passwordSetAt) {
+        setAtValue = new Date(user.passwordSetAt).toLocaleString('en-US', { timeZone: tz });
+      } else {
+        setAtValue = new Date().toLocaleString('en-US', { timeZone: tz });
+      }
+
+      if (user.passwordHash && user.passwordSalt) {
+        passwordHistory.unshift({
+          hash: user.passwordHash,
+          salt: user.passwordSalt,
+          setAt: setAtValue
+        });
+      }
+
+      const historyCount = this.config.password?.historyCount || 10;
+      const oldPwdAge = this.config.password?.oldPwdAge || 90;
+
+      passwordHistory = passwordHistory.filter((entry, index) => {
+        if (index < historyCount) return true;
+        try {
+          const ageDays = (Date.now() - new Date(entry.setAt).getTime()) / (1000 * 60 * 60 * 24);
+          if (ageDays < oldPwdAge) return true;
+        } catch (e) {
+          return true;
+        }
+        return false;
+      });
+
+      const conn = await this.korePool.getConnection();
+      try {
+        await conn.beginTransaction();
+
+        await conn.execute(
+          `UPDATE users
+             SET passwordHash = ?,
+                 passwordSalt = ?,
+                 passwordSetAt = NOW(),
+                 passwordHistory = ?,
+                 mustChangePassword = ?,
+                 passwordFailedAttempts = 0,
+                 passwordFailedLastAt = NULL,
+                 lockedUntil = NULL,
+                 status = CASE WHEN status = 'locked' THEN 'active' ELSE status END,
+                 updatedAt = NOW(),
+                 updatedBy = ?
+           WHERE userId = ?`,
+          [newHash, newSalt, JSON.stringify(passwordHistory), forceChange ? 1 : 0, setBy, userId]
+        );
+
+        const [revoked] = await conn.execute(
+          'DELETE FROM refresh_tokens WHERE userId = ?',
+          [userId]
+        );
+
+        await conn.commit();
+
+        await this.logAudit('password_reset_by_admin', 'user', userId, user.email, setBy, {
+          action: 'Admin set a new password',
+          forceChange: !!forceChange,
+          sessionsRevoked: revoked.affectedRows,
+          wasLocked: user.status === 'locked'
+        }, null);
+
+        global.consoleLog('Auth', `Password set for ${user.email} by ${setBy} (forceChange=${!!forceChange}, ${revoked.affectedRows} session(s) revoked)`, 3);
+
+        return {
+          success: true,
+          userId,
+          email: user.email,
+          forceChange: !!forceChange,
+          sessionsRevoked: revoked.affectedRows,
+          unlocked: user.status === 'locked'
+        };
+      } catch (error) {
+        try {
+          await conn.rollback();
+        } catch (rollbackError) {
+          global.consoleLog('Auth', `Rollback failed during adminSetPassword for ${userId}: ${rollbackError.message}`, 1);
+        }
+        throw error;
+      } finally {
+        conn.release();
+      }
+    } catch (err) {
+      global.consoleLog('Auth', `ERROR setting password:: ${err.message}`, 1);
       throw err;
     }
   }
@@ -2195,37 +2669,9 @@ function handleLoginForm(req, res) {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Kore Login</title>
     <link rel="icon" type="image/png" href="/img/favicon.png">
+    <script type="module" src="/lib/base_css.js"></script>
     <script type="module" src="/lib/base.js"></script>
     <style>
-        :root {
-            --brand-dark: #002b59;
-            --brand-light: #0070b9;
-            --brand-lighter: #4cb5ff;
-            --bg-primary: #191A24;
-            --bg-input: #152030;
-            --bg-panel1: #1d3250;
-            --bg-panel2: #192740;
-            --bg-panel3: #172035;
-            --text-primary: #ffffff;
-            --text-muted: #82acd7;
-            --text-header: #c6def3;
-            --border-primary: #314a59;
-            --border-bright: rgba(0, 112, 185, 0.9);
-        }
-    </style>
-    <style>
-        :root {
-            --brand-dark: #002b59;
-            --brand-light: #0070b9;
-            --brand-lighter: #4cb5ff;
-            --bg-primary: #191A24;
-            --bg-input: #152030;
-            --bg-panel1: #1d3250;
-            --text-primary: #ffffff;
-            --text-muted: #82acd7;
-            --border-primary: #314a59;
-        }
-        
         body {
             display: flex;
             align-items: center;
@@ -2233,7 +2679,7 @@ function handleLoginForm(req, res) {
             min-height: 100vh;
             margin: 0;
             padding: 20px !important;
-            background-color: var(--bg-primary) !important;
+            background-color: var(--bg-secondary) !important;
         }
         
         .login-container {
@@ -2244,7 +2690,7 @@ function handleLoginForm(req, res) {
         .logo-header {
             background-color: white;
             border-radius: 100px;
-            border: 2px solid #0070b9;
+            border: 2px solid var(--brand-light);
             padding: 15px 0;
             display: flex;
             justify-content: center;
@@ -2262,17 +2708,10 @@ function handleLoginForm(req, res) {
         }
         
         .login-panel {
-            padding: 50px 30px 30px 30px;
-            border: 2px solid #0070b9 !important;
+            padding: 75px 30px 30px 30px !important;
+            border: 2px solid var(--brand-light) !important;
             border-top-left-radius: 0;
             border-top-right-radius: 0;
-        }
-        
-        .login-panel h1 {
-            margin: 30px 0 15px 0;
-            font-size: 24px;
-            color: var(--text-primary);
-            text-align: center;
         }
         
         .form-group {
@@ -2321,7 +2760,7 @@ function handleLoginForm(req, res) {
             margin-top: 20px;
         }
         
-        .btn {
+        .login-panel .btn {
             flex: 1;
             padding: 8px 12px;
             border: none;
@@ -2333,27 +2772,27 @@ function handleLoginForm(req, res) {
             transition: opacity 0.2s ease;
         }
         
-        .btn:hover {
+        .login-panel .btn:hover {
             opacity: 0.9;
         }
         
-        .btn:disabled {
+        .login-panel .btn:disabled {
             opacity: 0.5;
             cursor: not-allowed;
         }
         
-        .btn-secondary {
+        .login-panel .btn-secondary {
             background-color: var(--border-primary);
         }
         
         .error {
-            color: #dc3545;
+            color: var(--status-red-input);
             font-size: 12px;
             margin-top: 5px;
         }
         
         .success {
-            color: #4caf50;
+            color: var(--status-green);
             font-size: 12px;
             margin-top: 5px;
         }
@@ -2373,6 +2812,29 @@ function handleLoginForm(req, res) {
         .result-section.active {
             display: block;
         }
+        
+        .password-expired-notice {
+            margin-bottom: 15px;
+            color: var(--status-red-input);
+            font-size: 12px;
+        }
+        
+        .result-row {
+            margin-bottom: 10px;
+        }
+        
+        .result-row:last-child {
+            margin-bottom: 0;
+        }
+        
+        .result-success {
+            margin-bottom: 10px;
+            color: var(--status-green);
+        }
+        
+        .button-group.spaced {
+            margin-top: 15px;
+        }
     </style>
 </head>
 <body>
@@ -2382,8 +2844,6 @@ function handleLoginForm(req, res) {
         </div>
         
         <div class="panel-level-1 login-panel">
-            <h1>Login</h1>
-            
             <div id="loginStep">
                 <div class="form-group">
                     <label>Email</label>
@@ -2408,7 +2868,7 @@ function handleLoginForm(req, res) {
             </div>
             
             <div id="passwordChangeStep" class="mfa-section">
-                <div style="margin-bottom: 15px; color: #dc3545; font-size: 12px;">
+                <div class="password-expired-notice">
                     ⚠ Your password has expired. Please set a new password to continue.
                 </div>
                 
@@ -2436,20 +2896,20 @@ function handleLoginForm(req, res) {
             </div>
             
             <div id="resultStep" class="result-section">
-                <div style="margin-bottom: 10px; color: #4caf50;">? Login successful!</div>
-                <div style="margin-bottom: 10px;">
+                <div class="result-success">? Login successful!</div>
+                <div class="result-row">
                     <strong>User ID:</strong><br>
                     <span id="resultUserId"></span>
                 </div>
-                <div style="margin-bottom: 10px;">
+                <div class="result-row">
                     <strong>Session Token:</strong><br>
                     <span id="resultSessionToken"></span>
                 </div>
-                <div>
+                <div class="result-row">
                     <strong>Relogin Token:</strong><br>
                     <span id="resultReloginToken"></span>
                 </div>
-                <div class="button-group" style="margin-top: 15px;">
+                <div class="button-group spaced">
                     <button class="btn btn-secondary" onclick="resetLogin()">New Login</button>
                 </div>
             </div>
@@ -2536,10 +2996,9 @@ function handleLoginForm(req, res) {
                 currentEmail = email;
                 currentPassword = password;
                 
-                // No MFA required, login is complete
-                if (data.userId) {
-                    localStorage.setItem('kore_userId', data.userId);
-                }
+                // PHASE 2: no localStorage identity write. The session cookie is
+                // the only thing that identifies the user; the client no longer
+                // holds a copy that could drift from it.
                     
                     // Check if we're about to exceed session limit - prompt BEFORE it happens
                     if (data.willExceedLimit && data.oldestSessionHash) {
@@ -2627,10 +3086,8 @@ function handleLoginForm(req, res) {
                     return;
                 }
                 
-                // Store userId in localStorage
-                if (data.userId) {
-                    localStorage.setItem('kore_userId', data.userId);
-                }
+                // PHASE 2: no localStorage identity write - the session cookie
+                // is the only thing that identifies the user.
                 
                 // Check if we're about to exceed session limit - prompt BEFORE redirecting
                 if (data.willExceedLimit && data.oldestSessionHash) {
@@ -2734,10 +3191,13 @@ function handleLoginForm(req, res) {
                     return;
                 }
                 
-                // Password changed successfully, complete login
-                if (currentEmail && currentPassword) {
-                    localStorage.setItem('kore_userId', currentEmail);
-                }
+                // Password changed successfully, complete login.
+                // PHASE 2: no localStorage identity write. This line previously
+                // stored currentEmail under the kore_userId key - an email
+                // where every consumer expected a UUID - which is what broke
+                // the dashboard and portal header after any forced password
+                // change. The key no longer exists; identity comes from the
+                // session cookie.
                 
                 const urlParams = new URLSearchParams(window.location.search);
                 const redirectUrl = urlParams.get('redirect');
@@ -2828,6 +3288,32 @@ async function handleValidateSessionToken(req, res) {
 }
 
 /**
+ * Authorize an already-authenticated request against a permission.
+ * Sends 403 and returns false when denied; callers should return immediately.
+ *
+ * Mirrors resources.js's authorizeMenuAdmin() pattern rather than repeating
+ * the same four lines in every handler. Note this is authorization ONLY -
+ * the caller must have already validated the session and be passing a userId
+ * that came from validateUserSessionToken(), never from the request body.
+ *
+ * @param {object} res
+ * @param {string} userId - from the validated session
+ * @param {string} resource
+ * @param {string} action
+ * @param {string|null} scope
+ * @returns {Promise<boolean>}
+ */
+async function authorizeRequest(res, userId, resource, action, scope = null) {
+    const allowed = await global.auth.hasPermission(userId, resource, action, scope);
+    if (!allowed) {
+        res.writeHead(403, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Forbidden' }));
+        return false;
+    }
+    return true;
+}
+
+/**
  * POST /admin/users/:userId/reset-mfa
  * Admin resets user's MFA
  */
@@ -2836,19 +3322,27 @@ async function handleAdminResetMFA(req, res, userId) {
     res.setHeader('Content-Type', 'application/json');
     
     try {
+        const sessionToken = getSessionTokenFromCookies(req.headers.cookie);
+        const validation = validateUserSessionToken(sessionToken);
+
+        if (!validation.valid) {
+            res.writeHead(401);
+            res.end(JSON.stringify({ error: 'Unauthorized' }));
+            return;
+        }
+
         let body = '';
         req.on('data', chunk => body += chunk);
         req.on('end', async () => {
             try {
-                const { resetBy } = JSON.parse(body || '{}');
-                
-                if (!resetBy) {
-                    res.writeHead(400);
-                    res.end(JSON.stringify({ error: 'resetBy (admin userId) required' }));
-                    return;
-                }
-                
-                const result = await global.auth.resetMFA(userId, resetBy);
+                if (!(await authorizeRequest(res, validation.userId, 'settings', 'edit', 'users'))) return;
+
+                // resetBy comes from the validated session, NOT the request body.
+                // It was previously read from the posted JSON, which meant the
+                // audit trail recorded whatever string the caller supplied - and
+                // combined with the missing session check above, an anonymous
+                // caller could reset any user's MFA and attribute it to anyone.
+                const result = await global.auth.resetMFA(userId, validation.userId);
                 
                 res.writeHead(200);
                 res.end(JSON.stringify(result));
@@ -2874,19 +3368,24 @@ async function handleAdminUnlockUser(req, res, userId) {
     res.setHeader('Content-Type', 'application/json');
     
     try {
+        const sessionToken = getSessionTokenFromCookies(req.headers.cookie);
+        const validation = validateUserSessionToken(sessionToken);
+
+        if (!validation.valid) {
+            res.writeHead(401);
+            res.end(JSON.stringify({ error: 'Unauthorized' }));
+            return;
+        }
+
         let body = '';
         req.on('data', chunk => body += chunk);
         req.on('end', async () => {
             try {
-                const { unlockedBy } = JSON.parse(body || '{}');
-                
-                if (!unlockedBy) {
-                    res.writeHead(400);
-                    res.end(JSON.stringify({ error: 'unlockedBy (admin userId) required' }));
-                    return;
-                }
-                
-                const result = await global.auth.unlockUser(userId, unlockedBy);
+                if (!(await authorizeRequest(res, validation.userId, 'settings', 'edit', 'users'))) return;
+
+                // unlockedBy from the validated session, not the body - see
+                // handleAdminResetMFA above for why.
+                const result = await global.auth.unlockUser(userId, validation.userId);
                 
                 res.writeHead(200);
                 res.end(JSON.stringify(result));
@@ -2898,6 +3397,67 @@ async function handleAdminUnlockUser(req, res, userId) {
         });
     } catch (err) {
         global.consoleLog('Auth', `ERROR in handleAdminUnlockUser:: ${err.message}`, 1);
+        res.writeHead(500);
+        res.end(JSON.stringify({ error: err.message }));
+    }
+}
+
+/**
+ * POST /admin/users/:userId/set-password
+ * Admin sets a new password directly for a user.
+ * Body: { newPassword, forceChange }
+ *
+ * The acting admin comes from the validated session, never the body - the
+ * password itself is the only thing this endpoint takes on trust.
+ */
+async function handleAdminSetPassword(req, res, userId) {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Content-Type', 'application/json');
+
+    try {
+        const sessionToken = getSessionTokenFromCookies(req.headers.cookie);
+        const validation = validateUserSessionToken(sessionToken);
+
+        if (!validation.valid) {
+            res.writeHead(401);
+            res.end(JSON.stringify({ error: 'Unauthorized' }));
+            return;
+        }
+
+        let body = '';
+        req.on('data', chunk => body += chunk);
+        req.on('end', async () => {
+            try {
+                if (!(await authorizeRequest(res, validation.userId, 'settings', 'edit', 'users'))) return;
+
+                const { newPassword, forceChange } = JSON.parse(body || '{}');
+
+                if (!newPassword) {
+                    res.writeHead(400);
+                    res.end(JSON.stringify({ error: 'newPassword is required' }));
+                    return;
+                }
+
+                const result = await global.auth.adminSetPassword(
+                    userId,
+                    newPassword,
+                    validation.userId,
+                    forceChange === true || forceChange === 'true'
+                );
+
+                res.writeHead(200);
+                res.end(JSON.stringify(result));
+            } catch (err) {
+                // Validation failures (format rules, password reuse) are the
+                // expected error here and belong in the response so the admin
+                // can correct them; 400 rather than 500 for that reason.
+                global.consoleLog('Auth', `ERROR in adminSetPassword:: ${err.message}`, 1);
+                res.writeHead(400);
+                res.end(JSON.stringify({ error: err.message }));
+            }
+        });
+    } catch (err) {
+        global.consoleLog('Auth', `ERROR in handleAdminSetPassword:: ${err.message}`, 1);
         res.writeHead(500);
         res.end(JSON.stringify({ error: err.message }));
     }
@@ -2931,25 +3491,38 @@ async function handleLogin(req, res) {
                     return;
                 }
                 
-                const result = await global.auth.login(email, password, mfaCode, userAgent, ipAddress);
+                const existingRefreshToken = getRefreshTokenFromCookies(req.headers.cookie);
+                const result = await global.auth.login(email, password, mfaCode, userAgent, ipAddress, existingRefreshToken);
                 
-                // Check if password has expired
+                // Check whether a password change is required before proceeding.
+                // Two independent triggers, both landing in the same branch:
+                //   - mustChangePassword: set by an admin via adminSetPassword()
+                //   - password age beyond config.password.passwordExpiration
                 const [userRows] = await global.auth.korePool.execute(
-                  'SELECT passwordSetAt FROM users WHERE userId = ?',
+                  'SELECT passwordSetAt, mustChangePassword FROM users WHERE userId = ?',
                   [result.userId]
                 );
                 
                 if (userRows[0]) {
                   const passwordExpiration = global.auth.config.password?.passwordExpiration || 0;
+                  const adminForced = userRows[0].mustChangePassword === 1;
+
+                  let expired = false;
                   if (passwordExpiration > 0) {
                     const passwordSetAt = new Date(userRows[0].passwordSetAt);
                     const now = new Date();
                     const ageMs = now - passwordSetAt;
                     const ageDays = ageMs / (1000 * 60 * 60 * 24);
-                    
-                    if (ageDays > passwordExpiration) {
-                      // Password expired - require password change
+                    expired = ageDays > passwordExpiration;
+                    if (expired) {
                       global.consoleLog('Auth', `Password expired for user: ${email} (age: ${Math.floor(ageDays)} days, limit: ${passwordExpiration} days)`, 3);
+                    }
+                  }
+
+                  if (adminForced || expired) {
+                      if (adminForced) {
+                        global.consoleLog('Auth', `Password change required for user: ${email} (set by admin)`, 3);
+                      }
                       
                       // Set sessionToken and refreshToken cookies but indicate password change required
                       const sessionCookieOptions = [
@@ -2985,10 +3558,11 @@ async function handleLogin(req, res) {
                           maxSessions: result.maxSessions,
                           willExceedLimit: result.willExceedLimit,
                           oldestSessionHash: result.oldestSessionHash,
-                          message: 'Password has expired and must be changed'
+                          message: adminForced
+                            ? 'An administrator requires you to change your password'
+                            : 'Password has expired and must be changed'
                       }));
                       return;
-                    }
                   }
                 }
                 
@@ -3077,6 +3651,8 @@ async function handleCreateUser(req, res) {
         req.on('data', chunk => body += chunk);
         req.on('end', async () => {
             try {
+                if (!(await authorizeRequest(res, validation.userId, 'settings', 'edit', 'users'))) return;
+
                 const { email, fullName } = JSON.parse(body);
                 
                 if (!email || !fullName) {
@@ -3127,9 +3703,20 @@ async function handleSendInvite(req, res) {
     res.setHeader('Content-Type', 'application/json');
     
     try {
+        const sessionToken = getSessionTokenFromCookies(req.headers.cookie);
+        const validation = validateUserSessionToken(sessionToken);
+
+        if (!validation.valid) {
+            res.writeHead(401);
+            res.end(JSON.stringify({ error: 'Unauthorized' }));
+            return;
+        }
+
         const urlParts = req.url.split('/');
         const userId = urlParts[2];
         
+        if (!(await authorizeRequest(res, validation.userId, 'settings', 'edit', 'users'))) return;
+
         const result = await global.auth.resendInvite(userId);
         
         res.writeHead(200);
@@ -3154,6 +3741,15 @@ async function handleUpdateUser(req, res, userId) {
     res.setHeader('Content-Type', 'application/json');
     
     try {
+        const sessionToken = getSessionTokenFromCookies(req.headers.cookie);
+        const validation = validateUserSessionToken(sessionToken);
+
+        if (!validation.valid) {
+            res.writeHead(401);
+            res.end(JSON.stringify({ error: 'Unauthorized' }));
+            return;
+        }
+
         let body = '';
         req.on('data', chunk => {
             body += chunk.toString();
@@ -3161,6 +3757,8 @@ async function handleUpdateUser(req, res, userId) {
         
         req.on('end', async () => {
             try {
+                if (!(await authorizeRequest(res, validation.userId, 'settings', 'edit', 'users'))) return;
+
                 const data = JSON.parse(body);
                 const { email, fullName, active, groupIds } = data;
                 
@@ -3170,7 +3768,11 @@ async function handleUpdateUser(req, res, userId) {
                     return;
                 }
                 
-                const result = await global.auth.updateUser(userId, email, fullName, active, groupIds, null);
+                // NOTE: this accepts groupIds, so it is a direct write into the
+                // authorization model - adding a userId to the Admins group is a
+                // full privilege escalation. It previously had NO session check at
+                // all, making that reachable anonymously.
+                const result = await global.auth.updateUser(userId, email, fullName, active, groupIds, validation.userId);
                 
                 res.writeHead(200);
                 res.end(JSON.stringify({
@@ -3212,6 +3814,8 @@ async function handleCreateGroup(req, res) {
         req.on('data', chunk => body += chunk);
         req.on('end', async () => {
             try {
+                if (!(await authorizeRequest(res, validation.userId, 'settings', 'edit', 'groups'))) return;
+
                 const { groupName, description } = JSON.parse(body);
                 
                 if (!groupName) {
@@ -3244,13 +3848,22 @@ async function handleCreateGroup(req, res) {
 
 /**
  * PUT /groups/:id
- * Update group details (groupName, description, active)
+ * Update group details (groupName, description, active, groupIds)
  */
 async function handleUpdateGroup(req, res, groupId) {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Content-Type', 'application/json');
     
     try {
+        const sessionToken = getSessionTokenFromCookies(req.headers.cookie);
+        const validation = validateUserSessionToken(sessionToken);
+
+        if (!validation.valid) {
+            res.writeHead(401);
+            res.end(JSON.stringify({ error: 'Unauthorized' }));
+            return;
+        }
+
         let body = '';
         req.on('data', chunk => {
             body += chunk.toString();
@@ -3258,8 +3871,10 @@ async function handleUpdateGroup(req, res, groupId) {
         
         req.on('end', async () => {
             try {
+                if (!(await authorizeRequest(res, validation.userId, 'settings', 'edit', 'groups'))) return;
+
                 const data = JSON.parse(body);
-                const { groupName, description, active } = data;
+                const { groupName, description, active, groupIds } = data;
                 
                 if (!groupName) {
                     res.writeHead(400);
@@ -3267,7 +3882,10 @@ async function handleUpdateGroup(req, res, groupId) {
                     return;
                 }
                 
-                const result = await global.auth.updateGroup(groupId, groupName, description, active, null);
+                // groupIds here is the group NESTING graph - editing it changes
+                // what every member of this group inherits. Same escalation shape
+                // as handleUpdateUser; previously reachable with no session at all.
+                const result = await global.auth.updateGroup(groupId, groupName, description, active, groupIds, validation.userId);
                 
                 res.writeHead(200);
                 res.end(JSON.stringify({
@@ -3318,19 +3936,9 @@ async function handleUserSetupForm(req, res) {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Kore Setup</title>
     <link rel="icon" type="image/png" href="/img/favicon.png">
+    <script type="module" src="/lib/base_css.js"></script>
+    <script type="module" src="/lib/base.js"></script>
     <style>
-        :root {
-            --brand-dark: #002b59;
-            --brand-light: #0070b9;
-            --brand-lighter: #4cb5ff;
-            --bg-primary: #191A24;
-            --bg-input: #152030;
-            --bg-panel1: #1d3250;
-            --text-primary: #ffffff;
-            --text-muted: #82acd7;
-            --border-primary: #314a59;
-        }
-        
         body {
             display: flex;
             align-items: center;
@@ -3338,6 +3946,7 @@ async function handleUserSetupForm(req, res) {
             min-height: 100vh;
             margin: 0;
             padding: 20px;
+            background-color: var(--bg-secondary) !important;
         }
         
         .setup-container {
@@ -3348,7 +3957,7 @@ async function handleUserSetupForm(req, res) {
         .logo-header {
             background-color: white;
             border-radius: 100px;
-            border: 2px solid #0070b9;
+            border: 2px solid var(--brand-light);
             padding: 15px 0;
             display: flex;
             justify-content: center;
@@ -3366,8 +3975,8 @@ async function handleUserSetupForm(req, res) {
         }
         
         .setup-panel {
-            padding: 50px 30px 30px 30px;
-            border: 2px solid #0070b9 !important;
+            padding: 50px 30px 30px 30px !important;
+            border: 2px solid var(--brand-light) !important;
             border-top-left-radius: 0;
             border-top-right-radius: 0;
         }
@@ -3423,7 +4032,7 @@ async function handleUserSetupForm(req, res) {
         }
         
         .error {
-            color: #dc3545;
+            color: var(--status-red-input);
             font-size: 12px;
             margin-top: 5px;
         }
@@ -3434,7 +4043,7 @@ async function handleUserSetupForm(req, res) {
             margin-top: 20px;
         }
         
-        .btn {
+        .setup-panel .btn {
             flex: 1;
             padding: 8px 12px;
             border: none;
@@ -3446,27 +4055,26 @@ async function handleUserSetupForm(req, res) {
             transition: opacity 0.2s ease;
         }
         
-        .btn:hover {
+        .setup-panel .btn:hover {
             opacity: 0.9;
         }
         
-        .btn-secondary {
+        .setup-panel .btn-secondary {
             background-color: var(--border-primary);
         }
         
         .error-heading {
             text-align: center;
-            color: #dc3545;
+            color: var(--status-red-input);
+        }
+        
+        .setup-notice {
+            color: var(--text-muted);
+            font-size: 12px;
+            line-height: 1.5;
+            margin: 15px 0;
         }
     </style>
-    <script>
-        // Inject base_css.js component styles
-        if (typeof componentStyles !== 'undefined') {
-            const styleEl = document.createElement('style');
-            styleEl.textContent = componentStyles;
-            document.head.appendChild(styleEl);
-        }
-    </script>
 </head>
 <body>
     <div class="setup-container">
@@ -3480,7 +4088,7 @@ async function handleUserSetupForm(req, res) {
             <div class="step active">
                 <h2 class="error-heading">Invite Expired</h2>
                 <div class="form-group">
-                    <p style="color: var(--text-muted); font-size: 12px; line-height: 1.5; margin: 15px 0;">
+                    <p class="setup-notice">
                         Invite token has expired. Please contact your administrator for a new invitation.
                     </p>
                 </div>
@@ -3633,19 +4241,9 @@ function getSetupFormHTML(token, email = '') {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Kore Setup</title>
     <link rel="icon" type="image/png" href="/img/favicon.png">
+    <script type="module" src="/lib/base_css.js"></script>
+    <script type="module" src="/lib/base.js"></script>
     <style>
-        :root {
-            --brand-dark: #002b59;
-            --brand-light: #0070b9;
-            --brand-lighter: #4cb5ff;
-            --bg-primary: #191A24;
-            --bg-input: #152030;
-            --bg-panel1: #1d3250;
-            --text-primary: #ffffff;
-            --text-muted: #82acd7;
-            --border-primary: #314a59;
-        }
-        
         body {
             display: flex;
             align-items: center;
@@ -3653,6 +4251,7 @@ function getSetupFormHTML(token, email = '') {
             min-height: 100vh;
             margin: 0;
             padding: 20px;
+            background-color: var(--bg-secondary) !important;
         }
         
         .setup-container {
@@ -3663,7 +4262,7 @@ function getSetupFormHTML(token, email = '') {
         .logo-header {
             background-color: white;
             border-radius: 100px;
-            border: 2px solid #0070b9;
+            border: 2px solid var(--brand-light);
             padding: 15px 0;
             display: flex;
             justify-content: center;
@@ -3681,8 +4280,8 @@ function getSetupFormHTML(token, email = '') {
         }
         
         .setup-panel {
-            padding: 50px 30px 30px 30px;
-            border: 2px solid #0070b9 !important;
+            padding: 50px 30px 30px 30px !important;
+            border: 2px solid var(--brand-light) !important;
             border-top-left-radius: 0;
             border-top-right-radius: 0;
         }
@@ -3738,7 +4337,7 @@ function getSetupFormHTML(token, email = '') {
         }
         
         .error {
-            color: #dc3545;
+            color: var(--status-red-input);
             font-size: 12px;
             margin-top: 5px;
         }
@@ -3749,7 +4348,7 @@ function getSetupFormHTML(token, email = '') {
             margin-top: 20px;
         }
         
-        .btn {
+        .setup-panel .btn {
             flex: 1;
             padding: 8px 12px;
             border: none;
@@ -3761,22 +4360,80 @@ function getSetupFormHTML(token, email = '') {
             transition: opacity 0.2s ease;
         }
         
-        .btn:hover {
+        .setup-panel .btn:hover {
             opacity: 0.9;
         }
         
-        .btn-secondary {
+        .setup-panel .btn-secondary {
             background-color: var(--border-primary);
         }
-    </style>
-    <script>
-        // Inject base_css.js component styles
-        if (typeof componentStyles !== 'undefined') {
-            const styleEl = document.createElement('style');
-            styleEl.textContent = componentStyles;
-            document.head.appendChild(styleEl);
+        
+        .field-label {
+            display: block;
+            margin-bottom: 10px;
+            font-size: 12px;
+            color: var(--text-muted);
+            font-weight: 500;
         }
-    </script>
+        
+        .qr-code-container {
+            display: flex;
+            justify-content: center;
+            margin-bottom: 15px;
+        }
+        
+        .qr-code-image {
+            width: 200px;
+            height: 200px;
+            border: 1px solid var(--border-primary);
+            border-radius: 6px;
+            background-color: var(--bg-panel3);
+        }
+        
+        .secret-code-box {
+            word-break: break-all;
+            padding: 12px;
+            font-family: monospace;
+            font-size: 12px;
+            background-color: var(--bg-panel3);
+            border: 1px solid var(--border-primary);
+            border-radius: 6px;
+            margin-bottom: 15px;
+        }
+        
+        .backup-codes-box {
+            padding: 12px;
+            font-family: monospace;
+            font-size: 11px;
+            background-color: var(--bg-panel3);
+            border: 1px solid var(--border-primary);
+            border-radius: 6px;
+            white-space: pre-wrap;
+        }
+        
+        .proceed-row {
+            display: flex;
+            justify-content: center;
+            margin-top: 25px;
+        }
+        
+        .proceed-pill {
+            background-color: white;
+            border-radius: 100px;
+            border: 2px solid var(--brand-light);
+            padding: 10px 25px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        
+        .proceed-link {
+            color: var(--brand-light);
+            text-decoration: none;
+            font-size: 13px;
+            font-weight: 900;
+        }
+    </style>
 </head>
 <body>
     <div class="setup-container">
@@ -3805,12 +4462,12 @@ function getSetupFormHTML(token, email = '') {
             
             <div id="step2" class="step">
                 <h2>Step 2: Setup MFA</h2>
-                <label style="display: block; margin-bottom: 10px; font-size: 12px; color: var(--text-muted); font-weight: 500;">Scan QR Code</label>
-                <div id="qrCodeContainer" style="display: flex; justify-content: center; margin-bottom: 15px;">
-                    <img id="qrCode" src="" alt="QR Code" style="width: 200px; height: 200px; border: 1px solid #314a59; border-radius: 6px; background-color: #172035;">
+                <label class="field-label">Scan QR Code</label>
+                <div id="qrCodeContainer" class="qr-code-container">
+                    <img id="qrCode" src="" alt="QR Code" class="qr-code-image">
                 </div>
-                <label style="display: block; margin-bottom: 10px; font-size: 12px; color: var(--text-muted); font-weight: 500;">Or enter Secret Key manually</label>
-                <div class="panel-level-3" id="secretCode" style="word-break: break-all; padding: 12px; font-family: monospace; font-size: 12px; background-color: #172035; border: 1px solid #314a59; border-radius: 6px; margin-bottom: 15px;"></div>
+                <label class="field-label">Or enter Secret Key manually</label>
+                <div class="panel-level-3 secret-code-box" id="secretCode"></div>
                 <div class="form-group">
                     <label>6-digit code from authenticator</label>
                     <input type="text" id="mfaCode" maxlength="6" pattern="[0-9]{6}" onkeypress="if(event.key==='Enter') completeSetup()">
@@ -3825,10 +4482,10 @@ function getSetupFormHTML(token, email = '') {
             <div id="step3" class="step">
                 <h2>Setup Complete!</h2>
                 <p><strong>Save these backup codes:</strong></p>
-                <div class="panel-level-3" id="backupCodes" style="padding: 12px; font-family: monospace; font-size: 11px; background-color: #172035; border: 1px solid #314a59; border-radius: 6px; white-space: pre-wrap;"></div>
-                <div style="display: flex; justify-content: center; margin-top: 25px;">
-                    <div style="background-color: white; border-radius: 100px; border: 2px solid var(--brand-light); padding: 10px 25px; display: flex; justify-content: center; align-items: center;">
-                        <a href="#" onclick="showBackupCodesConfirmation(); return false;" style="color: var(--brand-light); text-decoration: none; font-size: 13px; font-weight: 900;">Proceed to Kore</a>
+                <div class="panel-level-3 backup-codes-box" id="backupCodes"></div>
+                <div class="proceed-row">
+                    <div class="proceed-pill">
+                        <a href="#" onclick="showBackupCodesConfirmation(); return false;" class="proceed-link">Proceed to Kore</a>
                     </div>
                 </div>
             </div>
@@ -4062,6 +4719,65 @@ async function handleGetPagePermissions(req, res) {
 }
 
 /**
+ * Handle GET /kore/permission-resources - the permission_resources catalog
+ * (Stage A of the Settings Permissions tab plan - see Permissions System
+ * Guide.md §9). Flat list, no per-item nesting needed unlike page
+ * permissions above. Gated the same as page-permissions viewing
+ * ('permissions'/'view'/'all') since this catalog exists specifically to
+ * drive the permissions-management UI - not meaningfully sensitive data on
+ * its own (resource names/labels/scoping conventions, not actual grants),
+ * but there's no reason for it to be reachable by someone who can't
+ * otherwise view permissions at all.
+ */
+async function handleGetPermissionResources(req, res) {
+  try {
+    const sessionToken = getSessionTokenFromCookies(req.headers.cookie);
+    const validation = validateUserSessionToken(sessionToken);
+
+    if (!validation.valid) {
+      res.writeHead(401, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Unauthorized' }));
+      return;
+    }
+
+    const hasPermission = await global.auth.hasPermission(validation.userId, 'permissions', 'view', 'all');
+    if (!hasPermission) {
+      res.writeHead(403, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Forbidden' }));
+      return;
+    }
+
+    const [rows] = await global.auth.korePool.execute(
+      `SELECT resource, label, description, scopeType, scopeLabel,
+              scopeSourceEndpoint, scopeSourceValueField, scopeSourceLabelField,
+              validActions
+       FROM kore_sys.permission_resources
+       WHERE active = TRUE
+       ORDER BY label ASC`
+    );
+
+    // validActions is a native JSON column - already a real array via
+    // mysql2, not a string. Do NOT unconditionally JSON.parse() this - see
+    // Permissions System Guide.md §2's "gotcha worth remembering, hard".
+    // Defensive branch here anyway in case a future write path (or a
+    // differently-configured connection) ever hands back a string instead.
+    const resources = rows.map(row => ({
+      ...row,
+      validActions: Array.isArray(row.validActions)
+        ? row.validActions
+        : (typeof row.validActions === 'string' ? (() => { try { return JSON.parse(row.validActions); } catch { return []; } })() : [])
+    }));
+
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(resources));
+  } catch (error) {
+    global.consoleLog('Auth', `Error getting permission resources: ${error.message}`, 1);
+    res.writeHead(500, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Internal server error' }));
+  }
+}
+
+/**
  * Handle PUT /kore/permissions - batch update permissions (generic for any resource)
  */
 async function handleUpdatePermissions(req, res) {
@@ -4076,16 +4792,6 @@ async function handleUpdatePermissions(req, res) {
     if (!validation.valid) {
       res.writeHead(401, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: 'Unauthorized' }));
-      return;
-    }
-
-    // Check permission
-    const hasPermission = await global.auth.hasPermission(validation.userId, 'permissions', 'view', 'all');
-    global.consoleLog('Auth', `Permission check: ${hasPermission}`, 4);
-    
-    if (!hasPermission) {
-      res.writeHead(403, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'Forbidden' }));
       return;
     }
 
@@ -4107,19 +4813,66 @@ async function handleUpdatePermissions(req, res) {
           return;
         }
 
+        // Permission check happens here (not before body parsing) because
+        // it's keyed on the specific resource type being written - see
+        // Auth.canManagePermissionsFor for the two-tier logic (blanket
+        // 'permissions'/'view'/'all' grant, or a narrower per-resource
+        // 'admin' grant such as 'menu'/'admin').
+        const canManage = await global.auth.canManagePermissionsFor(validation.userId, resource);
+        global.consoleLog('Auth', `Permission check for resource '${resource}': ${canManage}`, 4);
+
+        if (!canManage) {
+          res.writeHead(403, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Forbidden' }));
+          return;
+        }
+
         const connection = await global.auth.korePool.getConnection();
         try {
           await connection.beginTransaction();
 
-          // Process deletes/revokes
+          const ipAddress = req.headers['x-forwarded-for']?.split(',')[0].trim() ||
+                             req.socket?.remoteAddress ||
+                             req.connection?.remoteAddress ||
+                             null;
+
+          // Process deletes - hard delete, not soft-revoke. The full row
+          // is fetched and logged to audit_log BEFORE deleting, since
+          // once the row is gone this is the only place that content
+          // still exists. See the "hard delete vs active flag" decision
+          // this replaced - deliberate, not an oversight: this app is in
+          // beta with a single person managing permissions currently, so
+          // the tradeoff (settings.js's "Revoked" permissions-viewer
+          // section - see viewUserPermissions/viewGroupPermissions - will
+          // now always render empty, since there's no revoked row left
+          // to show) was accepted rather than kept working via a
+          // parallel active flag.
           if (deletes && deletes.length > 0) {
             global.consoleLog('Auth', `Processing ${deletes.length} deletes`, 4);
-            for (const permissionId of deletes) {
-              await connection.execute(
-                'UPDATE kore_sys.permissions SET revokedAt = NOW(), revokedBy = ? WHERE permissionId = ?',
-                [validation.userId, permissionId]
+            const placeholders = deletes.map(() => '?').join(',');
+            const [rowsToDelete] = await connection.execute(
+              `SELECT permissionId, targetType, targetId, resource, scope, action, effect, grantedAt, grantedBy
+               FROM kore_sys.permissions WHERE permissionId IN (${placeholders})`,
+              deletes
+            );
+            for (const row of rowsToDelete) {
+              await global.auth.logAudit(
+                'permission_revoked', 'permission', row.permissionId,
+                `${row.resource} (${row.action}, ${row.effect})`,
+                validation.userId,
+                {
+                  targetType: row.targetType, targetId: row.targetId,
+                  resource: row.resource, scope: row.scope,
+                  action: row.action, effect: row.effect,
+                  grantedAt: row.grantedAt, grantedBy: row.grantedBy
+                },
+                ipAddress
               );
             }
+            await connection.execute(
+              `DELETE FROM kore_sys.permissions WHERE permissionId IN (${placeholders})`,
+              deletes
+            );
           }
 
           // Process inserts and updates
@@ -4136,6 +4889,39 @@ async function handleUpdatePermissions(req, res) {
           if (updates && updates.length > 0) {
             global.consoleLog('Auth', `Processing ${updates.length} updates`, 4);
             for (const perm of updates) {
+              // A "revoke via update" (perm.revokedBy set) is now the same
+              // hard-delete path as the deletes array above, not a field
+              // update - the revokedAt/revokedBy columns are no longer
+              // written anywhere. Fetch, audit-log, delete, then skip the
+              // normal field-by-field UPDATE below entirely for this item.
+              if (perm.revokedBy) {
+                const [rowsToDelete] = await connection.execute(
+                  `SELECT permissionId, targetType, targetId, resource, scope, action, effect, grantedAt, grantedBy
+                   FROM kore_sys.permissions WHERE permissionId = ? AND resource = ?`,
+                  [perm.permissionId, resource]
+                );
+                if (rowsToDelete.length > 0) {
+                  const row = rowsToDelete[0];
+                  await global.auth.logAudit(
+                    'permission_revoked', 'permission', row.permissionId,
+                    `${row.resource} (${row.action}, ${row.effect})`,
+                    validation.userId,
+                    {
+                      targetType: row.targetType, targetId: row.targetId,
+                      resource: row.resource, scope: row.scope,
+                      action: row.action, effect: row.effect,
+                      grantedAt: row.grantedAt, grantedBy: row.grantedBy
+                    },
+                    ipAddress
+                  );
+                  await connection.execute(
+                    'DELETE FROM kore_sys.permissions WHERE permissionId = ? AND resource = ?',
+                    [perm.permissionId, resource]
+                  );
+                }
+                continue;
+              }
+
               // Build dynamic UPDATE query based on what fields are being changed
               const updateFields = [];
               const updateParams = [];
@@ -4164,14 +4950,6 @@ async function handleUpdatePermissions(req, res) {
               if (perm.effect !== undefined) {
                 updateFields.push('effect = ?');
                 updateParams.push(perm.effect);
-              }
-              if (perm.revokedBy !== undefined) {
-                updateFields.push('revokedBy = ?');
-                updateParams.push(perm.revokedBy);
-                // If revoking, also set revokedAt
-                if (perm.revokedBy && !perm.revokedAt) {
-                  updateFields.push('revokedAt = NOW()');
-                }
               }
               
               if (updateFields.length === 0) {
@@ -4221,6 +4999,217 @@ async function handleUpdatePermissions(req, res) {
 /**
  * Handle GET /kore/users/:userId/permissions - get all permissions for a user (direct + group)
  */
+/**
+ * GET /auth/me
+ * Return the currently logged-in user, resolved from the session cookie.
+ *
+ * REVIEW PHASE 2. This replaces base.js's getCurrentUserData(), which took a
+ * sessionToken argument but did NOT use it for identity - it read
+ * localStorage.kore_userId and interpolated that straight into
+ * `SELECT ... FROM users WHERE userId = '${userId}'`, sent to /sqlquery. That
+ * made the client the authority on who it was, which is wrong twice over: the
+ * value can be edited from the browser console (so it was also an injection
+ * point), and it can silently drift from the actual session - which is exactly
+ * what happened after a forced password change, when the login page stored an
+ * email in that key and every identity-dependent call started failing.
+ *
+ * No permission check: a user reading their own record needs no grant, and
+ * this endpoint cannot be pointed at anyone else - the id comes from the
+ * validated token, never from the request. Deliberately returns only what the
+ * UI needs for display and self-identification; anything sensitive stays out
+ * regardless of the caller's privileges.
+ */
+async function handleGetMe(req, res) {
+  try {
+    const sessionToken = getSessionTokenFromCookies(req.headers.cookie);
+    const validation = validateUserSessionToken(sessionToken);
+
+    if (!validation.valid) {
+      res.writeHead(401, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Unauthorized' }));
+      return;
+    }
+
+    const [rows] = await global.auth.korePool.execute(
+      `SELECT userId, email, fullName, status, active, groupIds, preferences, stack,
+              mfaEnabled, lastLoginAt
+         FROM users
+        WHERE userId = ?`,
+      [validation.userId]
+    );
+
+    if (!rows[0]) {
+      // Valid signed token for a user that no longer exists - deleted or
+      // recreated since the token was issued. Treat as unauthenticated rather
+      // than 404: the session is the thing that's invalid.
+      global.consoleLog('Auth', `/auth/me: no user row for session userId ${validation.userId}`, 2);
+      res.writeHead(401, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Unauthorized' }));
+      return;
+    }
+
+    const user = rows[0];
+
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({
+      userId: user.userId,
+      email: user.email,
+      fullName: user.fullName,
+      status: user.status,
+      active: user.active === 1,
+      groupIds: user.groupIds || [],
+      preferences: user.preferences || {},
+      stack: user.stack || {},
+      mfaEnabled: user.mfaEnabled === 1,
+      lastLoginAt: user.lastLoginAt,
+      // Legacy aliases: getCurrentUserData() returned snake_case keys and
+      // several callers destructure them. Kept so this endpoint can be dropped
+      // in as a replacement without touching every consumer at once.
+      user_id: user.userId,
+      full_name: user.fullName
+    }));
+
+  } catch (error) {
+    global.consoleLog('Auth', `Error handling /auth/me: ${error.message}`, 1);
+    res.writeHead(500, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Internal server error' }));
+  }
+}
+
+/**
+ * PUT /auth/me/profile
+ * Update the current user's own display name and email.
+ * Body: { fullName, email }
+ *
+ * PHASE 2. Replaces base.js's updateUserProfile(), which built
+ * `UPDATE users SET fullName = ..., email = ... WHERE userId = '<localStorage>'`
+ * in the browser. The target row was chosen by the client, so a user could
+ * rewrite another user's record - including their email, which is the login
+ * identifier. Here the id comes from the session and cannot be supplied.
+ *
+ * Note this deliberately preserves the existing capability for a user to change
+ * their own email. That is what the previous code allowed; whether self-service
+ * email change SHOULD be permitted without re-verification is a separate policy
+ * question, flagged in the review TODO rather than changed silently here.
+ */
+async function handleUpdateMyProfile(req, res) {
+  try {
+    const sessionToken = getSessionTokenFromCookies(req.headers.cookie);
+    const validation = validateUserSessionToken(sessionToken);
+
+    if (!validation.valid) {
+      res.writeHead(401, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Unauthorized' }));
+      return;
+    }
+
+    let body = '';
+    req.on('data', chunk => body += chunk.toString());
+    req.on('end', async () => {
+      try {
+        const data = JSON.parse(body || '{}');
+        const fullName = data.fullName || data.full_name;
+        const email = data.email;
+
+        if (!fullName || !email) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'fullName and email are required' }));
+          return;
+        }
+
+        await global.auth.korePool.execute(
+          'UPDATE users SET fullName = ?, email = ?, updatedAt = NOW(), updatedBy = ? WHERE userId = ?',
+          [fullName, email, validation.userId, validation.userId]
+        );
+
+        await global.auth.logAudit('profile_updated', 'user', validation.userId, email,
+          validation.userId, { action: 'User updated their own profile' }, null);
+
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: true }));
+      } catch (error) {
+        // Duplicate email hits the UNIQUE index on users.email - report it as a
+        // 400 the user can act on rather than a generic 500.
+        const isDuplicate = error.code === 'ER_DUP_ENTRY';
+        global.consoleLog('Auth', `Error updating own profile: ${error.message}`, 1);
+        res.writeHead(isDuplicate ? 400 : 500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+          error: isDuplicate ? 'That email address is already in use' : 'Internal server error'
+        }));
+      }
+    });
+  } catch (error) {
+    global.consoleLog('Auth', `Error handling profile update: ${error.message}`, 1);
+    res.writeHead(500, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Internal server error' }));
+  }
+}
+
+/**
+ * PUT /auth/me/preferences
+ * Merge a partial preferences object into the current user's preferences.
+ * Body: the keys to set, e.g. { notifications: {...} } or { dashboard_layout: [...] }
+ *
+ * PHASE 2. Replaces two separate browser-composed paths - base.js's
+ * updateUserNotificationPreferences() and user_dash.js's JSON_SET layout write -
+ * both of which targeted `WHERE userId = '<localStorage>'`.
+ *
+ * Merge happens in SQL via JSON_MERGE_PATCH rather than read-modify-write in
+ * the client, so two tabs updating different preference keys can't clobber each
+ * other. MERGE_PATCH (not MERGE_PRESERVE) so that setting a key REPLACES it -
+ * an array like dashboard_layout must be overwritten wholesale, not appended to.
+ */
+async function handleUpdateMyPreferences(req, res) {
+  try {
+    const sessionToken = getSessionTokenFromCookies(req.headers.cookie);
+    const validation = validateUserSessionToken(sessionToken);
+
+    if (!validation.valid) {
+      res.writeHead(401, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Unauthorized' }));
+      return;
+    }
+
+    let body = '';
+    req.on('data', chunk => body += chunk.toString());
+    req.on('end', async () => {
+      try {
+        const patch = JSON.parse(body || '{}');
+
+        if (typeof patch !== 'object' || patch === null || Array.isArray(patch)) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Body must be an object of preference keys' }));
+          return;
+        }
+
+        await global.auth.korePool.execute(
+          `UPDATE users
+              SET preferences = JSON_MERGE_PATCH(COALESCE(preferences, '{}'), CAST(? AS JSON)),
+                  updatedAt = NOW()
+            WHERE userId = ?`,
+          [JSON.stringify(patch), validation.userId]
+        );
+
+        const [rows] = await global.auth.korePool.execute(
+          'SELECT preferences FROM users WHERE userId = ?',
+          [validation.userId]
+        );
+
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: true, preferences: rows[0] ? rows[0].preferences : {} }));
+      } catch (error) {
+        global.consoleLog('Auth', `Error updating own preferences: ${error.message}`, 1);
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Internal server error' }));
+      }
+    });
+  } catch (error) {
+    global.consoleLog('Auth', `Error handling preferences update: ${error.message}`, 1);
+    res.writeHead(500, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Internal server error' }));
+  }
+}
+
 async function handleGetUserPermissions(req, res) {
   try {
     const sessionToken = getSessionTokenFromCookies(req.headers.cookie);
@@ -4240,10 +5229,7 @@ async function handleGetUserPermissions(req, res) {
     }
 
     const userId = req.url.split('/')[3];
-    const urlObj = new URL(req.url, 'http://localhost');
-    const includeRevoked = urlObj.searchParams.get('includeRevoked') === 'true';
-
-    const permissions = await global.auth.getUserPermissions(userId, includeRevoked);
+    const permissions = await global.auth.getUserPermissions(userId);
 
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(permissions));
@@ -4270,15 +5256,6 @@ async function handleGetPermissionsQuery(req, res) {
       return;
     }
 
-    // Check permission to view permissions
-    const hasPermission = await global.auth.hasPermission(validation.userId, 'permissions', 'view', 'all');
-    
-    if (!hasPermission) {
-      res.writeHead(403, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'Forbidden' }));
-      return;
-    }
-
     // Parse request body
     let payload = '';
     req.on('data', chunk => {
@@ -4288,6 +5265,25 @@ async function handleGetPermissionsQuery(req, res) {
     req.on('end', async () => {
       try {
         const filters = JSON.parse(payload || '{}');
+
+        // Permission check happens here (not before body parsing) because
+        // the narrow per-resource bypass in canManagePermissionsFor only
+        // applies when the query is scoped to one unambiguous resource
+        // type (filters.resource as a plain string). Anything broader -
+        // no resource filter, a resourceIn array, etc. - falls back to
+        // requiring the blanket 'permissions'/'view'/'all' grant, so a
+        // narrow 'menu'/'admin' grant can't be used to read permissions
+        // for other resource types it wasn't meant to cover.
+        const singleResource = typeof filters.resource === 'string' ? filters.resource : null;
+        const canManage = singleResource
+          ? await global.auth.canManagePermissionsFor(validation.userId, singleResource)
+          : await global.auth.hasPermission(validation.userId, 'permissions', 'view', 'all');
+
+        if (!canManage) {
+          res.writeHead(403, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Forbidden' }));
+          return;
+        }
 
         // Query permissions with the provided filters
         const permissions = await global.auth.getPermissions(filters);
@@ -4314,6 +5310,17 @@ async function handleGetPermissionsQuery(req, res) {
  */
 async function handleGetWhitelists(req, res) {
   try {
+    const sessionToken = getSessionTokenFromCookies(req.headers.cookie);
+    const validation = validateUserSessionToken(sessionToken);
+
+    if (!validation.valid) {
+      res.writeHead(401, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Unauthorized' }));
+      return;
+    }
+
+    if (!(await authorizeRequest(res, validation.userId, 'settings', 'edit', 'security'))) return;
+
     const query = `SELECT whitelists FROM kore_sys.system_config LIMIT 1`;
     const [rows] = await global.auth.korePool.execute(query);
 
@@ -4350,6 +5357,17 @@ async function handleGetWhitelists(req, res) {
  */
 async function handleGetAllowedIPs(req, res) {
   try {
+    const sessionToken = getSessionTokenFromCookies(req.headers.cookie);
+    const validation = validateUserSessionToken(sessionToken);
+
+    if (!validation.valid) {
+      res.writeHead(401, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Unauthorized' }));
+      return;
+    }
+
+    if (!(await authorizeRequest(res, validation.userId, 'settings', 'edit', 'security'))) return;
+
     const url = new URL(req.url, `http://${req.headers.host}`);
     const table = url.searchParams.get('table');
     const idColumn = url.searchParams.get('idColumn');
@@ -4419,6 +5437,21 @@ async function handleGetAllowedIPs(req, res) {
  */
 async function handleSaveAllowedIPs(req, res) {
   try {
+    // This endpoint writes a SECURITY CONTROL - allowedIPs is what keeps
+    // internal-only pages internal on an externally-reachable service. It
+    // previously had no authentication whatsoever, so an anonymous caller
+    // could null out the IP gating on any page, workflow, or form, or lock
+    // everyone out by setting a bogus value. A permission check (who may
+    // change IP gating) is still outstanding - see the review TODO.
+    const sessionToken = getSessionTokenFromCookies(req.headers.cookie);
+    const validation = validateUserSessionToken(sessionToken);
+
+    if (!validation.valid) {
+      res.writeHead(401, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Unauthorized' }));
+      return;
+    }
+
     let payload = '';
     req.on('data', chunk => {
       payload += chunk.toString();
@@ -4455,6 +5488,8 @@ async function handleSaveAllowedIPs(req, res) {
           return;
         }
 
+        if (!(await authorizeRequest(res, validation.userId, 'settings', 'edit', 'security'))) return;
+
         // Serialize allowedIPs if it's an array
         const serializedIPs = Array.isArray(allowedIPs) ? JSON.stringify(allowedIPs) : allowedIPs;
 
@@ -4488,11 +5523,49 @@ async function handleSaveAllowedIPs(req, res) {
 }
 
 /**
+ * Page resource's IP-whitelist hard gate, factored out of
+ * handleHasPermission()'s single-check path so the batch path below can
+ * apply the same per-item gate without duplicating it. Returns true when
+ * access is allowed (including when the page has no whitelist configured -
+ * not a gate at all in that case), false when it's denied.
+ */
+async function isPageIPAllowed(req, checkScope) {
+  try {
+    const clientIP = req.headers['x-forwarded-for']?.split(',')[0].trim() ||
+                     req.socket?.remoteAddress ||
+                     req.connection?.remoteAddress ||
+                     'unknown';
+
+    global.consoleLog('Auth', `Page resource detected, checking IP whitelist for: ${clientIP} on page: ${checkScope}`, 4);
+
+    const pageQuery = `SELECT allowedIPs FROM kore_sys.web_pages WHERE path = ? AND active = TRUE`;
+    const [pageRows] = await global.auth.korePool.execute(pageQuery, [checkScope]);
+
+    if (pageRows.length > 0 && pageRows[0].allowedIPs) {
+      const ipAllowed = await global.auth.isIPAllowed(clientIP, pageRows[0].allowedIPs);
+      global.consoleLog('Auth', `IP check result for ${clientIP}: ${ipAllowed}`, 4);
+      return ipAllowed;
+    }
+
+    return true; // No whitelist configured for this page - not a gate
+  } catch (ipCheckError) {
+    global.consoleLog('Auth', `Error during IP check for page: ${ipCheckError.message}`, 1);
+    return false; // Fail closed, matching the original single-check behavior
+  }
+}
+
+/**
  * Handle POST /kore/has-permission - check if user has permission
  * Required: userId
- * One-of required: permissionId OR resource
+ * One-of required: permissionId OR resource OR checks
  * If resource: action is required, scope is optional
  * If permissionId: all other inputs are ignored
+ * If checks: an array of {resource, action, scope} - batched equivalent of
+ *   the resource/action/scope form, evaluated together in one pass against
+ *   global.auth.hasPermissions() rather than one hasPermission() call per
+ *   item. Returns { results: [{resource, action, scope, hasPermission}, ...] }
+ *   in the same order as `checks`. permissionId/resource are ignored if
+ *   checks is provided.
  */
 async function handleHasPermission(req, res) {
   try {
@@ -4503,12 +5576,90 @@ async function handleHasPermission(req, res) {
 
     req.on('end', async () => {
       try {
-        const { userId, permissionId, resource, action, scope } = JSON.parse(payload);
+        const { userId: requestedUserId, permissionId, resource, action, scope, checks } = JSON.parse(payload);
 
-        // Validate required userId
-        if (!userId) {
-          res.writeHead(400, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: 'userId is required' }));
+        const sessionToken = getSessionTokenFromCookies(req.headers.cookie);
+        const validation = validateUserSessionToken(sessionToken);
+
+        if (!validation.valid) {
+          res.writeHead(401, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Unauthorized' }));
+          return;
+        }
+
+        // PHASE 2: the subject is ALWAYS the session user. This endpoint
+        // previously took userId from the request body, which made it an oracle
+        // over the whole permission model - anyone could enumerate exactly what
+        // any user is allowed to do, which is a map of where to attack.
+        //
+        // A body userId is now ignored rather than rejected, so callers that
+        // still send one keep working while they are migrated; a mismatch is
+        // logged at level 2 so those call sites can be found.
+        //
+        // This endpoint answers "what may I do", which every page needs in order
+        // to decide which controls to render, so it stays open to all
+        // authenticated users. Inspecting ANOTHER user's permissions is a
+        // separate concern served by GET /users/:id/permissions, which is gated
+        // on permissions/view/all.
+        if (requestedUserId && requestedUserId !== validation.userId) {
+          global.consoleLog('Auth',
+            `has-permission: ignoring body userId ${requestedUserId}, answering for session user ${validation.userId}`, 2);
+        }
+
+        const userId = validation.userId;
+
+        // Batched form - checked first since it's a distinct response shape
+        // ({ results: [...] } rather than { hasPermission }).
+        if (Array.isArray(checks)) {
+          if (checks.length === 0) {
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ results: [] }));
+            return;
+          }
+
+          for (const c of checks) {
+            if (!c || !c.resource || !c.action) {
+              res.writeHead(400, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ error: 'each entry in checks requires resource and action' }));
+              return;
+            }
+          }
+
+          const normalizedChecks = checks.map(c => ({
+            resource: c.resource,
+            action: c.action,
+            scope: (c.scope === '*') ? null : (c.scope || null)
+          }));
+
+          // Page resource's IP whitelist is a per-item hard gate (same as
+          // the single-check path below) - resolved up front per item, so
+          // items that fail it never reach global.auth.hasPermissions() at
+          // all, and items that pass (or aren't 'page' checks) are batched
+          // together into one call.
+          const ipGateDenied = new Array(normalizedChecks.length).fill(false);
+          for (let i = 0; i < normalizedChecks.length; i++) {
+            const c = normalizedChecks[i];
+            if (c.resource === 'page' && c.scope) {
+              const allowed = await isPageIPAllowed(req, c.scope);
+              if (!allowed) ipGateDenied[i] = true;
+            }
+          }
+
+          const toLookup = normalizedChecks.filter((c, i) => !ipGateDenied[i]);
+          const lookupResults = toLookup.length > 0
+            ? await global.auth.hasPermissions(userId, toLookup)
+            : [];
+
+          let lookupIdx = 0;
+          const results = normalizedChecks.map((c, i) => {
+            if (ipGateDenied[i]) {
+              return { resource: c.resource, action: c.action, scope: c.scope, hasPermission: false };
+            }
+            return lookupResults[lookupIdx++];
+          });
+
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ results }));
           return;
         }
 
@@ -4549,37 +5700,11 @@ async function handleHasPermission(req, res) {
           
           // For page resources, check IP whitelist first (hard gate)
           if (resource === 'page' && checkScope) {
-            try {
-              const clientIP = req.headers['x-forwarded-for']?.split(',')[0].trim() || 
-                               req.socket?.remoteAddress || 
-                               req.connection?.remoteAddress || 
-                               'unknown';
-              
-              global.consoleLog('Auth', `Page resource detected, checking IP whitelist for: ${clientIP} on page: ${checkScope}`, 4);
-              
-              // Query the web_pages table for allowedIPs
-              const pageQuery = `SELECT allowedIPs FROM kore_sys.web_pages WHERE path = ? AND active = TRUE`;
-              const [pageRows] = await global.auth.korePool.execute(pageQuery, [checkScope]);
-              
-              if (pageRows.length > 0 && pageRows[0].allowedIPs) {
-                const ipAllowed = await global.auth.isIPAllowed(clientIP, pageRows[0].allowedIPs);
-                global.consoleLog('Auth', `IP check result for ${clientIP}: ${ipAllowed}`, 4);
-                
-                if (!ipAllowed) {
-                  global.consoleLog('Auth', `IP check failed for ${clientIP} on page: ${checkScope}`, 4);
-                  hasPermission = false;
-                  // Return early since IP check is a hard gate
-                  res.writeHead(200, { 'Content-Type': 'application/json' });
-                  res.end(JSON.stringify({ hasPermission }));
-                  return;
-                }
-              }
-            } catch (ipCheckError) {
-              global.consoleLog('Auth', `Error during IP check for page: ${ipCheckError.message}`, 1);
-              // If IP check fails unexpectedly, deny access
-              hasPermission = false;
+            const ipAllowed = await isPageIPAllowed(req, checkScope);
+            if (!ipAllowed) {
+              // Return early since IP check is a hard gate
               res.writeHead(200, { 'Content-Type': 'application/json' });
-              res.end(JSON.stringify({ hasPermission }));
+              res.end(JSON.stringify({ hasPermission: false }));
               return;
             }
           }
@@ -4587,10 +5712,10 @@ async function handleHasPermission(req, res) {
           // IP check passed (or not applicable), proceed with user/group permission check
           hasPermission = await global.auth.hasPermission(userId, resource, checkAction, checkScope);
         }
-        // Missing both permissionId and resource
+        // Missing permissionId, resource, and checks
         else {
           res.writeHead(400, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: 'Either permissionId or resource is required' }));
+          res.end(JSON.stringify({ error: 'One of permissionId, resource, or checks is required' }));
           return;
         }
 
@@ -4630,31 +5755,44 @@ function routeAuthRequest(req, res) {
     } else if (req.method === 'POST' && req.url === '/auth/change-password') {
         handleChangePassword(req, res);
         return true;
+    } else if (req.method === 'GET' && req.url === '/auth/me') {
+        handleGetMe(req, res);
+        return true;
+    } else if (req.method === 'PUT' && req.url === '/auth/me/profile') {
+        handleUpdateMyProfile(req, res);
+        return true;
+    } else if (req.method === 'PUT' && req.url === '/auth/me/preferences') {
+        handleUpdateMyPreferences(req, res);
+        return true;
     } else if (req.method === 'POST' && req.url === '/auth/validate-token') {
         handleValidateSessionToken(req, res);
         return true;
-    } else if (req.method === 'POST' && req.url.match(/^\/admin\/users\/[a-fA-F0-9-]+\/reset-mfa$/)) {
+    } else if (req.method === 'POST' && req.url.match(/^\/admin\/users\/[a-zA-Z0-9-]+\/reset-mfa$/)) {
         const userId = req.url.split('/')[3];
         handleAdminResetMFA(req, res, userId);
         return true;
-    } else if (req.method === 'POST' && req.url.match(/^\/admin\/users\/[a-fA-F0-9-]+\/unlock$/)) {
+    } else if (req.method === 'POST' && req.url.match(/^\/admin\/users\/[a-zA-Z0-9-]+\/unlock$/)) {
         const userId = req.url.split('/')[3];
         handleAdminUnlockUser(req, res, userId);
+        return true;
+    } else if (req.method === 'POST' && req.url.match(/^\/admin\/users\/[a-zA-Z0-9-]+\/set-password$/)) {
+        const userId = req.url.split('/')[3];
+        handleAdminSetPassword(req, res, userId);
         return true;
     } else if (req.method === 'POST' && req.url === '/users') {
         handleCreateUser(req, res);
         return true;
-    } else if (req.method === 'POST' && req.url.match(/^\/users\/[a-fA-F0-9-]+\/send-invite$/)) {
+    } else if (req.method === 'POST' && req.url.match(/^\/users\/[a-zA-Z0-9-]+\/send-invite$/)) {
         handleSendInvite(req, res);
         return true;
-    } else if (req.method === 'PUT' && req.url.match(/^\/users\/[a-fA-F0-9-]+$/)) {
+    } else if (req.method === 'PUT' && req.url.match(/^\/users\/[a-zA-Z0-9-]+$/)) {
         const userId = req.url.split('/')[2];
         handleUpdateUser(req, res, userId);
         return true;
     } else if (req.method === 'POST' && req.url === '/groups') {
         handleCreateGroup(req, res);
         return true;
-    } else if (req.method === 'PUT' && req.url.match(/^\/groups\/[a-fA-F0-9-]+$/)) {
+    } else if (req.method === 'PUT' && req.url.match(/^\/groups\/[a-zA-Z0-9-]+$/)) {
         const groupId = req.url.split('/')[2];
         handleUpdateGroup(req, res, groupId);
         return true;
@@ -4673,10 +5811,13 @@ function routeAuthRequest(req, res) {
     } else if (req.method === 'GET' && req.url === '/kore/page-permissions') {
         handleGetPagePermissions(req, res);
         return true;
+    } else if (req.method === 'GET' && req.url === '/kore/permission-resources') {
+        handleGetPermissionResources(req, res);
+        return true;
     } else if (req.method === 'PUT' && req.url === '/kore/permissions') {
         handleUpdatePermissions(req, res);
         return true;
-    } else if (req.method === 'GET' && req.url.match(/^\/kore\/users\/[a-fA-F0-9-]+\/permissions(\?.*)?$/)) {
+    } else if (req.method === 'GET' && req.url.match(/^\/kore\/users\/[a-zA-Z0-9-]+\/permissions(\?.*)?$/)) {
         handleGetUserPermissions(req, res);
         return true;
     } else if (req.method === 'POST' && req.url === '/kore/permissions') {
@@ -4702,21 +5843,62 @@ function routeAuthRequest(req, res) {
 /**
  * Validate user session token from JWT (for middleware use)
  * Returns { valid: boolean, userId?: string }
+ *
+ * Verifies the HMAC signature before trusting anything in the payload. This
+ * previously decoded parts[1] and returned payload.userId without checking
+ * parts[2] at all - which meant ANY caller could mint a token by base64ing
+ * `{"userId":"<any id>","exp":<future>}` into `a.<payload>.b` and be
+ * authenticated as that user. Every consumer of this function was affected:
+ * resources.js's authenticate() (all form/workflow/datatable/doc/menu/
+ * workflow_util handlers), web.js page serving, and auth.js's own users/
+ * groups/permissions handlers - and since permission checks run against the
+ * returned userId, claiming membership in an admin group was enough to
+ * bypass the entire authorization model.
+ *
+ * Same algorithm as the class method Auth.validateSessionToken() (see
+ * ~line 887) - kept in sync deliberately. The signing key is read from
+ * global.auth rather than a constructor arg because this is a standalone
+ * export used by middleware that has no Auth instance; process.env is the
+ * fallback for the same reason kore.js passes it in at construction.
+ *
+ * Fails CLOSED if no signing key is available (e.g. called before
+ * global.auth is constructed) - an unsigned-but-well-formed token must
+ * never be treated as valid just because the key was missing.
  */
 function validateUserSessionToken(token) {
     try {
         if (!token) return { valid: false };
-        
+
         const parts = token.split('.');
         if (parts.length !== 3) return { valid: false };
-        
-        const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString());
+
+        const signingKey = (global.auth && global.auth.jwtSigningKey) || process.env.JWT_SIGNING_KEY;
+        if (!signingKey) {
+            global.consoleLog('Auth', 'validateUserSessionToken: no signing key available - rejecting token', 1);
+            return { valid: false };
+        }
+
+        const [header, body, providedSignature] = parts;
+
+        const expectedSignature = crypto
+            .createHmac('sha256', signingKey)
+            .update(`${header}.${body}`)
+            .digest('base64')
+            .replace(/\+/g, '-')
+            .replace(/\//g, '_')
+            .replace(/=/g, '');
+
+        if (providedSignature !== expectedSignature) {
+            return { valid: false };
+        }
+
+        const payload = JSON.parse(Buffer.from(body, 'base64').toString());
         const now = Math.floor(Date.now() / 1000);
-        
+
         if (!payload.userId || payload.exp < now) {
             return { valid: false };
         }
-        
+
         return { valid: true, userId: payload.userId };
     } catch (err) {
         return { valid: false };

@@ -3,7 +3,6 @@ import '/lib/wf-exec.js';
 import '/lib/wf-render.js';
 import '/lib/wf-canvas.js';
 import '/lib/wf-variables.js';
-import '/lib/wf-utilsteps.js';
 import '/lib/jinja-json.js';
 
 
@@ -47,12 +46,22 @@ let currentTransitions = [];
 let currentTransitionFrames = [];
 let currentInputVariables = [];
 let currentOutputVariables = [];
+let currentTriggers = [];
 
 let currentNodes = [];
 let currentStepBeingEdited = null;  // Track step for variable editing
 let currentTransitionBeingEdited = null;  // Track transition for case variable editing
 let transitionCounter = 0;
 let transitionFrameCounter = 0;
+
+// Dedicated field for the HTML that auto-pops as a modal in Execution
+// Details when the workflow finishes. Deliberately NOT part of
+// currentOutputVariables - it's not a data contract for callers/parent
+// workflows the way a regular Output Variable is, just a presentation
+// artifact for a human watching the run, so it's stored/edited separately
+// and (on the backend) never exposed to a parent workflow when this one
+// runs as a sub-workflow.
+let currentOutputHtml = '';
 let toolsPanelCollapsed = true;
 
 // ============================================================================
@@ -467,28 +476,36 @@ function cancelNodePlacement() {
  * Open Jinja Editor with Reference Panel for workflow context
  * Wrapper around openJinjaEditorModal that adds CTX reference
  */
-function openWorkflowJinjaEditorModal(title, initialValue, onSaveCallback, stepId) {
+function openWorkflowJinjaEditorModal(title, initialValue, onSaveCallback, stepId, varIndex, varType, caseId) {
   // Call the generic modal
   openJinjaEditorModal(title, initialValue, onSaveCallback);
   
   // Wait for modal to render, then inject reference panel and set width
   setTimeout(() => {
-    const modal = document.querySelector('.modal-container');
+    // Use the LAST match, not the first — this modal may be opened from inside
+    // an already-open modal (e.g. editing an Output Variable from within the
+    // Workflow Settings modal), in which case querySelector's first match would
+    // grab the older, outer modal instead of this freshly-opened one.
+    const allModals = document.querySelectorAll('.modal-container');
+    const modal = allModals[allModals.length - 1];
     if (modal) {
       // Set width while maintaining centering (uses transform: translate(-50%, -50%))
       modal.style.width = '800px';
       modal.style.maxWidth = '90vw';
     }
-    injectReferencePanel(stepId);
+    injectReferencePanel(stepId, varIndex, varType, caseId);
   }, 100);
 }
 
 /**
  * Inject the Reference Panel into the Jinja Editor modal
  */
-function injectReferencePanel(stepId) {
-  // Find the modal - try multiple selectors
-  let modal = document.querySelector('.modal-container');
+function injectReferencePanel(stepId, varIndex, varType, caseId) {
+  // Find the modal - use the LAST match (topmost/most-recently-opened), since
+  // this may be opened from inside another already-open modal (e.g. editing an
+  // Output Variable from within the Workflow Settings modal)
+  const allModals = document.querySelectorAll('.modal-container');
+  let modal = allModals[allModals.length - 1];
   if (!modal) {
     modal = document.querySelector('[role="dialog"]');
   }
@@ -502,37 +519,46 @@ function injectReferencePanel(stepId) {
 
   // Get available variables
   let variables = [];
-  
-  
+
+
   if (currentDefinition) {
-    
-    // Always show input variables
-    if (currentDefinition.inputVariables && Array.isArray(currentDefinition.inputVariables)) {
-      currentDefinition.inputVariables.forEach(v => {
-        if (v.name) {
-          variables.push({
-            name: v.name,
-            source: 'Input Variable',
-            type: detectVariableType(v.type)
-          });
-        }
-      });
-    }
-    
-    // If not BEGIN step, get context variables
-    if (stepId) {
-      const contextVars = getVariableContextForStep(stepId, currentDefinition, currentTransitions);
-      Object.entries(contextVars).forEach(([name, data]) => {
-        if (!variables.find(v => v.name === name)) {
-          variables.push({
-            name,
-            ...data
-          });
-        }
-      });
+
+    if (varType === 'output' && typeof getAllDeclaredVariables === 'function') {
+      // Output variables are evaluated against the final CTX after the whole
+      // workflow completes, so they can see every variable declared anywhere
+      // in the workflow — Input, Trigger, every Step's own variables, and
+      // every Step Case's variables — not just ones reachable from one node.
+      variables = getAllDeclaredVariables(currentDefinition);
+    } else {
+
+      // Always show input variables
+      if (currentDefinition.inputVariables && Array.isArray(currentDefinition.inputVariables)) {
+        currentDefinition.inputVariables.forEach(v => {
+          if (v.name) {
+            variables.push({
+              name: v.name,
+              source: 'Source: Input Variables',
+              type: detectVariableType(v.type)
+            });
+          }
+        });
+      }
+
+      // If not BEGIN step, get context variables
+      if (stepId) {
+        const contextVars = getVariableContextForStep(stepId, currentDefinition, currentTransitions, { varIndex, varType, caseId });
+        Object.entries(contextVars).forEach(([name, data]) => {
+          if (!variables.find(v => v.name === name)) {
+            variables.push({
+              name,
+              ...data
+            });
+          }
+        });
+      }
     }
   }
-  
+
   variables.sort((a, b) => a.name.localeCompare(b.name));
 
   // Create reference panel container
@@ -598,9 +624,11 @@ function injectReferencePanel(stepId) {
         user-select: none;
       `;
       item.innerHTML = `
-        <div style="color: var(--text-primary); font-weight: 500; font-size: 0.85rem;">${v.name}</div>
-        <div style="color: var(--text-muted); font-size: 0.75rem; margin-top: 2px;">${v.source}</div>
-        <div style="color: var(--brand-light); font-size: 0.7rem; font-weight: 500;">${v.type}</div>
+        <div style="display: flex; justify-content: space-between; align-items: baseline; gap: 6px;">
+          <span style="color: var(--text-primary); font-weight: 500; font-size: 0.85rem;">${v.name}</span>
+          <span style="color: var(--brand-light); font-size: 0.7rem; font-weight: 500; white-space: nowrap;">${v.type}</span>
+        </div>
+        <div style="color: var(--text-muted); font-size: 0.75rem; margin-top: 1px;">${v.source}</div>
       `;
 
       // Double-click to insert
@@ -734,6 +762,8 @@ function showJSONModal() {
         description: currentDefinition.description || '',
         inputVariables: currentInputVariables,
         outputVariables: currentOutputVariables,
+        outputHtml: currentOutputHtml || '',
+        triggers: currentTriggers,
         steps: stepsForExport,
         nodes: currentNodes
     };
@@ -741,6 +771,168 @@ function showJSONModal() {
     
     // Open read-only JSON editor modal
     openJsonEditorModal('Workflow Configuration', jsonContent, null, true);
+}
+
+/**
+ * Opens an editable JSON modal for pasting in a replacement workflow
+ * definition (e.g. one generated in a conversation with Claude), separate
+ * from the read-only "View JSON" above. Intended for developers/operators
+ * without direct DB access to apply definition updates without going through
+ * the workflows-list page's full "New Workflow" import flow.
+ */
+function showImportJSONModal() {
+    openJsonEditorModal('Import Workflow JSON', '', handleImportJSON, false);
+}
+
+/**
+ * Validates and applies a pasted workflow JSON definition, replacing the
+ * CURRENTLY OPEN workflow's contents (steps/triggers/variables/nodes) in
+ * place. Deliberately does NOT touch currentWorkflowId or currentVersion -
+ * this replaces the existing workflow's definition, it does not create a new
+ * workflow or change which one is being edited. Does not save to the
+ * database itself; the normal Save button/flow still applies afterward, so
+ * the imported result can be reviewed on the canvas first.
+ * @param {string} jsonText - Raw pasted JSON text
+ * @returns {boolean} true if applied, false if rejected (invalid JSON,
+ *   failed validation, or the user cancelled the replace confirmation)
+ */
+function handleImportJSON(jsonText) {
+    let parsed;
+    try {
+        parsed = JSON.parse(jsonText);
+    } catch (err) {
+        showStatusBanner(`Import failed: invalid JSON (${err.message})`, 'error');
+        return false;
+    }
+
+    // --- Structural validation - catch problems before touching any live state ---
+    const errors = [];
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        errors.push('Root must be a JSON object.');
+    } else {
+        const steps = Array.isArray(parsed.steps) ? parsed.steps : null;
+        if (!steps || steps.length === 0) {
+            errors.push('Missing or empty "steps" array.');
+        } else {
+            const beginSteps = steps.filter(s => s.type === 'Begin');
+            if (beginSteps.length === 0) {
+                errors.push('No "Begin" step found (exactly one is required).');
+            } else if (beginSteps.length > 1) {
+                errors.push(`Found ${beginSteps.length} "Begin" steps (exactly one is required).`);
+            }
+
+            const stepIds = steps.map(s => s.id);
+            const dupStepIds = [...new Set(stepIds.filter((id, i) => stepIds.indexOf(id) !== i))];
+            if (dupStepIds.length > 0) {
+                errors.push(`Duplicate step id(s): ${dupStepIds.join(', ')}`);
+            }
+
+            const nodes = Array.isArray(parsed.nodes) ? parsed.nodes : [];
+            const nodeIds = nodes.map(n => n.id);
+            const dupNodeIds = [...new Set(nodeIds.filter((id, i) => nodeIds.indexOf(id) !== i))];
+            if (dupNodeIds.length > 0) {
+                errors.push(`Duplicate node id(s): ${dupNodeIds.join(', ')}`);
+            }
+
+            // Dangling reference check - a case/node pointing at a step or node id
+            // that doesn't exist anywhere in this same pasted definition would
+            // otherwise fail to route silently once imported.
+            const allStepIds = new Set(stepIds);
+            const allNodeIds = new Set(nodeIds);
+            steps.forEach(step => {
+                const cases = (step.transition && step.transition.cases) || [];
+                cases.forEach(c => {
+                    (c.targetSteps || []).forEach(t => {
+                        if (!allStepIds.has(t)) errors.push(`Step "${step.name || step.id}" case "${c.name || c.type}" references unknown targetStep "${t}".`);
+                    });
+                    (c.targetNodes || []).forEach(t => {
+                        if (!allNodeIds.has(t)) errors.push(`Step "${step.name || step.id}" case "${c.name || c.type}" references unknown targetNode "${t}".`);
+                    });
+                });
+            });
+            nodes.forEach(node => {
+                (node.targetSteps || []).forEach(t => {
+                    if (!allStepIds.has(t)) errors.push(`Node "${node.name || node.id}" references unknown targetStep "${t}".`);
+                });
+                (node.targetNodes || []).forEach(t => {
+                    if (!allNodeIds.has(t)) errors.push(`Node "${node.name || node.id}" references unknown targetNode "${t}".`);
+                });
+            });
+        }
+
+        if (!Array.isArray(parsed.triggers) || parsed.triggers.length === 0) {
+            errors.push('Missing or empty "triggers" array (at least one trigger is required).');
+        }
+    }
+
+    if (errors.length > 0) {
+        const shown = errors.length > 3 ? errors.slice(0, 3).concat([`...and ${errors.length - 3} more (see console)`]) : errors;
+        showStatusBanner(`Import failed: ${shown.join(' | ')}`, 'error', 'statusMessage', 999999999);
+        if (errors.length > 3) console.error('[Import JSON] Full validation error list:', errors);
+        return false;
+    }
+
+    // --- Confirm before replacing (this is destructive to the in-memory canvas
+    // state, even though it doesn't save to the DB by itself). Uses the same
+    // stacking modal system as the rest of the app (showModal/modalStack) so
+    // this layers on top of the still-open Import JSON modal rather than
+    // using a native browser confirm() - built with showModal directly
+    // rather than the showConfirm() convenience wrapper, since Cancel and
+    // Confirm need to resolve this function's return value differently (see
+    // the base.js fix that makes an async onSave's return value actually
+    // control whether the Import modal itself stays open or closes).
+    const importedName = parsed.name || '(unnamed)';
+    const nameNote = importedName !== currentWorkflowName
+        ? ` Note: the pasted definition is named "${importedName}", which differs from the current workflow's name ("${currentWorkflowName}").`
+        : '';
+
+    return new Promise((resolve) => {
+        showModal({
+            title: 'Confirm Overwrite',
+            content: `<p style="color: var(--text-primary); margin: 0;">This replaces the current workflow's steps, triggers, variables, and nodes with the pasted JSON.${nameNote} Nothing is saved to the database yet — review the result on the canvas, then click Save (or discard by reloading the page).</p>`,
+            closeOnBackdrop: false,  // must resolve one way or the other, not silently dismiss
+            buttons: [
+                {
+                    label: 'Cancel',
+                    type: 'secondary',
+                    onClick: () => {
+                        // Import JSON modal stays open (per the false return) so
+                        // the pasted text isn't lost - user can edit and retry.
+                        resolve(false);
+                    }
+                },
+                {
+                    label: 'Replace',
+                    type: 'danger',
+                    onClick: () => {
+                        // --- Apply: same fields loadWorkflow() populates from a
+                        // fetched definition, but currentWorkflowId/currentVersion
+                        // are deliberately left untouched - this replaces the
+                        // CURRENT workflow's contents, not its identity.
+                        currentSteps = parsed.steps || [];
+                        currentInputVariables = parsed.inputVariables || [];
+                        currentOutputVariables = parsed.outputVariables || [];
+                        currentOutputHtml = parsed.outputHtml || '';
+                        currentNodes = parsed.nodes || [];
+                        currentTriggers = parsed.triggers || [];
+                        if (parsed.metadata) currentMetadata = parsed.metadata;
+                        if (currentDefinition) currentDefinition.description = parsed.description || '';
+
+                        // renderLoadedStepsOnCanvas() fully clears any previously-
+                        // rendered canvas elements and rebuilds currentTransitions
+                        // from currentSteps internally - same rendering path
+                        // loadWorkflow() uses after a normal fetch.
+                        renderLoadedStepsOnCanvas();
+                        updatePreview();
+                        updateSaveButtonState();
+
+                        showStatusBanner('Workflow JSON imported - review the canvas, then Save to persist.', 'success');
+                        resolve(true);
+                    }
+                }
+            ]
+        });
+    });
 }
 
 
@@ -762,7 +954,13 @@ function addCaseToStep(stepId) {
 
     transitionCounter = (transitionCounter || 0) + 1;
     const newConditionId = String(transitionCounter);
-    const order = step.transition.cases.length + 1;
+    // Use the actual max existing order + 1, not cases.length + 1 -- a
+    // deleted case leaves a gap in the order sequence (delete does not
+    // renumber the remaining cases), so basing the new case's order on the
+    // current count can collide with a case that already holds that value.
+    const order = step.transition.cases.length > 0
+        ? Math.max(...step.transition.cases.map(c => c.order || 0)) + 1
+        : 1;
 
     const newConditionData = {
         id: newConditionId,
@@ -772,7 +970,8 @@ function addCaseToStep(stepId) {
         targetSteps: [],
         targetNodes: [],
         order: order,
-        parentStepId: stepId
+        parentStepId: stepId,
+        variables: []
     };
 
     currentTransitions.push(newConditionData);
@@ -783,6 +982,7 @@ function addCaseToStep(stepId) {
         targetSteps: [],
         targetNodes: [],
         order: order,
+        variables: [],
         _conditionId: newConditionId
     });
 
@@ -1022,11 +1222,34 @@ function showTransitionFrameProperties(frameUUID) {
     );
 }
 
+/**
+ * Validate a name for a step or node.
+ * Returns null if valid, or an error message string if invalid.
+ * @param {string} name - The proposed name
+ * @param {string} excludeId - The ID of the element being renamed (to exclude from duplicate check)
+ */
+function validateElementName(name, excludeId) {
+    if (/\s/.test(name)) return 'Names cannot contain spaces.';
+    const allNames = [
+        ...currentSteps.map(s => ({ id: s.id, name: s.name })),
+        ...currentNodes.map(n => ({ id: n.id, name: n.name }))
+    ];
+    const duplicate = allNames.some(e => e.id !== excludeId && (e.name || '').toLowerCase() === name.toLowerCase());
+    if (duplicate) return `"${name}" is already used by another step or node.`;
+    return null;
+}
+
 function showTransitionProperties(transitionUUID) {
     const transition = (currentTransitions || []).find(t => t.id === transitionUUID);
     if (!transition) return;
+
+    // Ensure variables array exists (backward compat with cases created before this feature)
+    if (!transition.variables) transition.variables = [];
+
+    currentTransitionBeingEdited = transition;  // Track for variable editing
     
-    const contentHTML = `
+    const contentHTML = {
+        basic: `
         <div>
             <label style="display: block; font-size: 0.8rem; color: #b0b0b0; margin-bottom: 5px;">Name</label>
             <input type="text" id="transitionName" class="form-field-input" value="${transition.name || ''}" style="width: 100%; padding: 6px; box-sizing: border-box; font-size: 0.85rem;">
@@ -1042,22 +1265,33 @@ function showTransitionProperties(transitionUUID) {
             </select>
         </div>
         
-        <div id="conditionsDiv" style="display: ${transition.type === 'Logic' ? 'block' : 'none'}; margin-top: 10px;">
+        <div id="conditionsDiv" style="display: ${transition.type === 'Logic' ? 'block' : 'none'};">
             <label style="display: block; font-size: 0.8rem; color: #b0b0b0; margin-bottom: 5px;">Conditions</label>
             <div style="display: flex; gap: 8px;">
-                <input type="text" id="transitionConditions" class="form-field-input" value="${transition.conditions || ''}" style="flex: 1; padding: 6px; box-sizing: border-box; font-size: 0.85rem;" onchange="transition.conditions = this.value; updatePreview();">
+                <input type="text" id="transitionConditions" class="form-field-input" value="${transition.conditions || ''}" style="flex: 1; padding: 6px; box-sizing: border-box; font-size: 0.85rem;">
                 <button class="btn transition-conditions-edit-btn" data-transition-uuid="${transitionUUID}" data-color="blue" style="padding: 0; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; font-size: 16px;" title="Edit Conditions">&#9998;</button>
             </div>
         </div>
-        
-        <div style="border-top: 1px solid #3a7a99; padding-top: 10px; margin-top: 10px;">
-            <div style="font-size: 0.75rem; color: #707070; word-break: break-all;">ID: ${transition.id}</div>
+
+        <div style="border-top: 1px solid #3a7a99; padding-top: 10px;">
+            <label style="display: block; font-size: 0.8rem; color: #b0b0b0;">Output Variables</label>
+            <button id="addCaseVariableBtn" class="btn btn-blue" data-size="sm" style="width: 100%; padding: 6px; margin-bottom: 8px;">Add Variable</button>
+            <div id="caseVariablesContainer"></div>
         </div>
-    `;
+        `,
+        advanced: `
+        <div style="font-size: 0.75rem; color: #707070; word-break: break-all;">ID: ${transition.id}</div>
+        `
+    };
     
     const onListenersAttach = (container) => {
         container.querySelector('#transitionName')?.addEventListener('change', (e) => {
             transition.name = e.target.value;
+            updatePreview();
+        });
+
+        container.querySelector('#transitionConditions')?.addEventListener('change', (e) => {
+            transition.conditions = e.target.value;
             updatePreview();
         });
         
@@ -1087,6 +1321,22 @@ function showTransitionProperties(transitionUUID) {
             updateTransitionLineColors(transitionUUID, transition.type);
             updatePreview();
         });
+
+        // Render case variables
+        const caseVariablesContainer = container.querySelector('#caseVariablesContainer');
+        if (caseVariablesContainer) {
+            renderTransitionCaseVariables(caseVariablesContainer, transition.variables, () => updatePreview());
+        }
+
+        // Add variable button
+        const addCaseVariableBtn = container.querySelector('#addCaseVariableBtn');
+        if (addCaseVariableBtn) {
+            addCaseVariableBtn.addEventListener('click', () => {
+                transition.variables.push({ name: '', value: '', order: transition.variables.length });
+                showTransitionProperties(transitionUUID);  // Refresh panel
+                updatePreview();
+            });
+        }
     };
     
     renderPropertiesPanel(
@@ -1174,6 +1424,10 @@ function showStepProperties(stepUUID) {
     const isWorkflowType = step.type === 'Workflow';
     const isPluginType = step.type === 'Plugin';
     const isEndType = step.type === 'End';
+
+    // Only show the Case Variables section at all if at least one case actually has variables.
+    const stepCasesWithVars = ((step.transition && step.transition.cases) || []).filter(c => c.variables && c.variables.length > 0);
+    const hasCaseVariables = stepCasesWithVars.length > 0;
     
     // Variables rendered via renderStepOutputVariables in onListenersAttach
     
@@ -1195,10 +1449,9 @@ function showStepProperties(stepUUID) {
                 <label style="display: block; font-size: 0.8rem; color: #b0b0b0;">Action Inputs</label>
                 <div id="koreActionInputsContent"></div>
             </div>
-            <div style="border-top: 1px solid #3a7a99;"></div>
         `;
     } else if (isWorkflowType) {
-        // Dropdown for Workflow + input mapping + loop config
+        // Dropdown for Workflow + input mapping (Basic); loop config goes to Advanced
         actionFieldHTML = `
             <div>
                 <label style="display: block; font-size: 0.8rem; color: #b0b0b0;">Workflow</label>
@@ -1206,42 +1459,18 @@ function showStepProperties(stepUUID) {
                     <option value="">-- Select Workflow --</option>
                 </select>
             </div>
+            <div id="stepTriggerContainer" style="display: none;">
+                <label style="display: block; font-size: 0.8rem; color: #b0b0b0;">Trigger</label>
+                <div style="display: flex; gap: 8px; align-items: center;">
+                    <select id="stepTrigger" class="form-field-input" style="flex: 1; padding: 6px; box-sizing: border-box; font-size: 0.85rem;">
+                        <option value="">-- Default --</option>
+                    </select>
+                    <button id="stepTriggerEditBtn" class="btn" data-size="sm" data-color="blue" title="Edit as Jinja" style="padding: 0; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: bold;">{ }</button>
+                </div>
+            </div>
             <div id="workflowInputsContainer" style="padding-top: 10px; border-top: 1px solid #3a7a99; display: none;">
                 <label style="display: block; font-size: 0.8rem; color: #b0b0b0;">Input Mapping</label>
                 <div id="workflowInputsContent"></div>
-            </div>
-            <div style="padding-top: 10px; border-top: 1px solid #3a7a99;">
-                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
-                    <input type="checkbox" id="loopModeCheckbox" ${step.loopMode ? 'checked' : ''} style="cursor: pointer;">
-                    <span style="font-size: 0.85rem; color: #b0b0b0;">Loop Mode</span>
-                </label>
-            </div>
-            <div id="loopConfigContainer" class="panel-level-3" style="display: ${step.loopMode ? 'flex' : 'none'}; flex-direction: column; gap: 10px; padding-top: 10px; border-top: 1px solid #3a7a99;">
-                <div>
-                    <label style="display: block; font-size: 0.8rem; color: #b0b0b0;">Source Array</label>
-                    <div style="display: flex; gap: 8px; align-items: center;">
-                        <input type="text" id="loopSourceArray" class="form-field-input" value="${step.loopConfig?.sourceArray || ''}" placeholder="e.g. CTX.time_entries_sep" style="flex: 1; padding: 6px; box-sizing: border-box; font-size: 0.85rem;">
-                        <button id="loopSourceArrayEditBtn" class="btn" data-size="sm" data-color="blue" style="padding: 0; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: bold;">{ }</button>
-                    </div>
-                </div>
-                <div>
-                    <label style="display: block; font-size: 0.8rem; color: #b0b0b0;">Execution Mode</label>
-                    <select id="loopExecutionMode" class="form-field-input" style="width: 100%; padding: 6px; box-sizing: border-box; font-size: 0.85rem;">
-                        <option value="concurrent" ${(step.loopConfig?.executionMode || 'concurrent') === 'concurrent' ? 'selected' : ''}>Concurrent</option>
-                        <option value="sequential" ${step.loopConfig?.executionMode === 'sequential' ? 'selected' : ''}>Sequential</option>
-                    </select>
-                </div>
-                <div id="maxConcurrentContainer" style="display: ${step.loopConfig?.executionMode === 'sequential' ? 'none' : 'block'};">
-                    <label style="display: block; font-size: 0.8rem; color: #b0b0b0;">Max Concurrent</label>
-                    <input type="number" id="loopMaxConcurrent" class="form-field-input" value="${step.loopConfig?.maxConcurrent ?? 1}" min="1" style="width: 100%; padding: 6px; box-sizing: border-box; font-size: 0.85rem;">
-                </div>
-                <div>
-                    <label style="display: block; font-size: 0.8rem; color: #b0b0b0;">On Item Failure</label>
-                    <select id="loopOnItemFailure" class="form-field-input" style="width: 100%; padding: 6px; box-sizing: border-box; font-size: 0.85rem;">
-                        <option value="continue" ${(step.loopConfig?.onItemFailure || 'continue') === 'continue' ? 'selected' : ''}>Continue Remaining</option>
-                        <option value="stop" ${step.loopConfig?.onItemFailure === 'stop' ? 'selected' : ''}>Stop Immediately</option>
-                    </select>
-                </div>
             </div>
         `;
     } else if (isPluginType) {
@@ -1263,7 +1492,6 @@ function showStepProperties(stepUUID) {
                 <label style="display: block; font-size: 0.8rem; color: #b0b0b0;">Task Inputs</label>
                 <div id="taskInputsContent"></div>
             </div>
-            <div style="border-top: 1px solid #3a7a99;"></div>
         `;
     } else {
         // Text input for other standard steps (Test, etc)
@@ -1275,46 +1503,103 @@ function showStepProperties(stepUUID) {
         `;
     }
     
-    // Build content HTML (without header or delete button - renderPropertiesPanel handles those)
-    const contentHTML = `
+    // Build content HTML split into Basic and Advanced tabs
+    const basicHTML = `
         ${!isBeginStep ? `
         <div>
             <label style="display: block; font-size: 0.8rem; color: #b0b0b0;">Name</label>
             <input type="text" id="stepName" class="form-field-input" value="${step.name || ''}" style="width: 100%; padding: 6px; box-sizing: border-box; font-size: 0.85rem;">
+            <div id="stepNameError" style="display: none; margin-top: 4px; padding: 4px 8px; background: rgba(184, 36, 47, 0.15); border-left: 3px solid var(--status-red, #b8242f); border-radius: 2px; font-size: 0.75rem; color: #ff6b6b;"></div>
         </div>
         ` : ''}
         
         ${actionFieldHTML}
         
-        ${!isBeginStep ? `
-        <div style="padding-top: 10px;">
-            <label style="display: block; font-size: 0.8rem; color: #b0b0b0;">Min Inbound Connections</label>
-            <input type="number" id="stepMinConnections" class="form-field-input" value="${step.min_connections ?? 0}" min="0" style="width: 100%; padding: 6px; box-sizing: border-box; font-size: 0.85rem;">
-            <div style="font-size: 0.75rem; color: #707070; margin-top: 4px;">0 = all inbound connections must fire</div>
-        </div>
-        ` : ''}
-        
-        <div style="border-top: 1px solid #3a7a99; padding-top: 10px;">
+        <div style="${!isBeginStep ? 'border-top: 1px solid #3a7a99; padding-top: 10px;' : ''}">
             <label style="display: block; font-size: 0.8rem; color: #b0b0b0;">Output Variables</label>
             <button id="addVariableBtn" class="btn btn-blue" data-size="sm" style="width: 100%; padding: 6px; margin-bottom: 8px;">Add Variable</button>
             <div id="variablesContainer"></div>
         </div>
-        
+
+        ${hasCaseVariables ? `
         <div style="border-top: 1px solid #3a7a99; padding-top: 10px;">
+            <label style="display: block; font-size: 0.8rem; color: #b0b0b0;">Case Variables <span style="color: #707070; font-weight: normal;">(read-only — edit on the case itself)</span></label>
+            <div id="caseVariablesSummaryContainer"></div>
+        </div>
+        ` : ''}
+    `;
+
+    const advancedHTML = `
+        ${(isWorkflowType || isPluginType) ? `
+        <div>
+            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                <input type="checkbox" id="loopModeCheckbox" ${step.loopMode ? 'checked' : ''} style="cursor: pointer;">
+                <span style="font-size: 0.85rem; color: #b0b0b0;">Loop Mode</span>
+            </label>
+        </div>
+        <div id="loopConfigContainer" class="panel-level-3" style="display: ${step.loopMode ? 'flex' : 'none'}; flex-direction: column; gap: 10px;">
+            <div>
+                <label style="display: block; font-size: 0.8rem; color: #b0b0b0;">Source Array</label>
+                <div style="display: flex; gap: 8px; align-items: center;">
+                    <input type="text" id="loopSourceArray" class="form-field-input" value="${step.loopConfig?.sourceArray || ''}" placeholder="e.g. CTX.time_entries_sep" style="flex: 1; padding: 6px; box-sizing: border-box; font-size: 0.85rem;">
+                    <button id="loopSourceArrayEditBtn" class="btn" data-size="sm" data-color="blue" style="padding: 0; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: bold;">{ }</button>
+                </div>
+            </div>
+            <div>
+                <label style="display: block; font-size: 0.8rem; color: #b0b0b0;">Execution Mode</label>
+                <select id="loopExecutionMode" class="form-field-input" style="width: 100%; padding: 6px; box-sizing: border-box; font-size: 0.85rem;">
+                    <option value="concurrent" ${(step.loopConfig?.executionMode || 'concurrent') === 'concurrent' ? 'selected' : ''}>Concurrent</option>
+                    <option value="sequential" ${step.loopConfig?.executionMode === 'sequential' ? 'selected' : ''}>Sequential</option>
+                </select>
+            </div>
+            <div id="maxConcurrentContainer" style="display: ${step.loopConfig?.executionMode === 'sequential' ? 'none' : 'block'};">
+                <label style="display: block; font-size: 0.8rem; color: #b0b0b0;">Max Concurrent</label>
+                <input type="number" id="loopMaxConcurrent" class="form-field-input" value="${step.loopConfig?.maxConcurrent ?? 1}" min="1" style="width: 100%; padding: 6px; box-sizing: border-box; font-size: 0.85rem;">
+            </div>
+            <div>
+                <label style="display: block; font-size: 0.8rem; color: #b0b0b0;">On Item Failure</label>
+                <select id="loopOnItemFailure" class="form-field-input" style="width: 100%; padding: 6px; box-sizing: border-box; font-size: 0.85rem;">
+                    <option value="continue" ${(step.loopConfig?.onItemFailure || 'continue') === 'continue' ? 'selected' : ''}>Continue Remaining</option>
+                    <option value="stop" ${step.loopConfig?.onItemFailure === 'stop' ? 'selected' : ''}>Stop Immediately</option>
+                </select>
+            </div>
+        </div>
+        <div style="border-top: 1px solid #3a7a99;"></div>
+        ` : ''}
+
+        ${!isBeginStep ? `
+        <div>
+            <label style="display: block; font-size: 0.8rem; color: #b0b0b0;">Min Inbound Connections</label>
+            <div style="display: flex; gap: 8px; align-items: center;">
+                <input type="${(typeof step.min_connections === 'string' && (step.min_connections.includes('{{') || step.min_connections.includes('{%'))) ? 'text' : 'number'}" id="stepMinConnections" class="form-field-input" value="${step.min_connections ?? 0}" min="0" style="flex: 1; padding: 6px; box-sizing: border-box; font-size: 0.85rem;">
+                <button id="stepMinConnectionsEditBtn" class="btn" data-size="sm" data-color="blue" style="padding: 0; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: bold;">{ }</button>
+            </div>
+            <div style="font-size: 0.75rem; color: #707070; margin-top: 4px;">0 = all inbound connections must fire. Use { } for a dynamic Jinja expression (e.g. computed from how many of several optional branches are actually active this run) instead of a fixed number.</div>
+        </div>
+        ` : ''}
+
+        <div>
             <label style="display: block; font-size: 0.8rem; color: #b0b0b0; margin-bottom: 5px;">Transition Mode</label>
             <select id="transitionModeSelect" class="form-field-input" style="width: 100%; padding: 6px; box-sizing: border-box; font-size: 0.85rem;">
-                <option value="First" ${(step.transitionMode || 'First') === 'First' ? 'selected' : ''}>First</option>
-                <option value="All" ${step.transitionMode === 'All' ? 'selected' : ''}>All</option>
+                <option value="First" ${(step.transition && step.transition.mode || 'First') === 'First' ? 'selected' : ''}>First</option>
+                <option value="All" ${step.transition && step.transition.mode === 'All' ? 'selected' : ''}>All</option>
             </select>
         </div>
-        
-        <div style="border-top: 1px solid #3a7a99; padding-top: 10px;">
+
+        <div>
+            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                <input type="checkbox" id="showCaseNameCheckbox" ${step.showCaseName ? 'checked' : ''} style="cursor: pointer;">
+                <span style="font-size: 0.85rem; color: #b0b0b0;">Show Case Name in Execution Details</span>
+            </label>
+            <div style="font-size: 0.75rem; color: #707070; margin-top: 4px;">ex: "CaseName (Step: StepName)" instead of "StepName". Only shown when exactly one case matched and it has a name</div>
+        </div>
+
+        <div>
             <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
                 <input type="checkbox" id="overrideSizeCheckbox" ${step.overrideSize ? 'checked' : ''} style="cursor: pointer;">
                 <span style="font-size: 0.85rem; color: #b0b0b0;">Override Size</span>
             </label>
-            
-            <div id="sizeOverrideInputs" style="display: ${step.overrideSize ? 'flex' : 'none'}; flex-direction: column; gap: 10px;">
+            <div id="sizeOverrideInputs" style="display: ${step.overrideSize ? 'flex' : 'none'}; flex-direction: column; gap: 10px; margin-top: 8px;">
                 <div>
                     <label style="display: block; font-size: 0.8rem; color: #b0b0b0;">Width (grid units)</label>
                     <input type="number" id="overrideWidth" class="form-field-input" value="${step.width || 4}" min="2" style="width: 100%; padding: 6px; box-sizing: border-box; font-size: 0.85rem;">
@@ -1325,23 +1610,42 @@ function showStepProperties(stepUUID) {
                 </div>
             </div>
         </div>
-        
-        <div style="border-top: 1px solid #3a7a99; padding-top: 10px;">
-            <div style="font-size: 0.75rem; color: #707070; word-break: break-all;">ID: ${step.id}</div>
-        </div>
+
+        <div style="font-size: 0.75rem; color: #707070; word-break: break-all;">ID: ${step.id}</div>
     `;
+
+    const contentHTML = { basic: basicHTML, advanced: advancedHTML };
     
     // Build event listeners attachment function
     const onListenersAttach = (container) => {
         // Step name handler
         const stepNameInput = container.querySelector('#stepName');
+        const stepNameError = container.querySelector('#stepNameError');
         if (stepNameInput && !isBeginStep) {
+            const showStepNameError = (msg) => {
+                stepNameInput.style.borderColor = 'var(--status-red, #b8242f)';
+                if (stepNameError) { stepNameError.textContent = msg; stepNameError.style.display = 'block'; }
+            };
+            const clearStepNameError = () => {
+                stepNameInput.style.borderColor = '';
+                if (stepNameError) { stepNameError.textContent = ''; stepNameError.style.display = 'none'; }
+            };
+
             stepNameInput.addEventListener('change', (e) => {
-                step.name = e.target.value;
+                const raw = e.target.value;
+                const error = validateElementName(raw, stepUUID);
+                if (error) {
+                    e.target.value = step.name;
+                    showStepNameError(error);
+                    return;
+                }
+
+                clearStepNameError();
+                step.name = raw;
+
                 // Update display text on canvas
                 const stepElement = document.querySelector(`[data-step-uuid="${stepUUID}"]`);
                 if (stepElement) {
-                    // Update only the label div, not the whole content area
                     const contentArea = stepElement.querySelector('[data-content-area]');
                     const label = contentArea ? contentArea.firstElementChild : null;
                     if (label) label.textContent = step.name;
@@ -1404,77 +1708,7 @@ function showStepProperties(stepUUID) {
                 // If an action was already selected, load its inputs
                 if (step.action && step.action !== 'None') {
                     setTimeout(async () => {
-                        const actionConfig = await getUtilStep(step.action);
-                        if (actionConfig && actionConfig.action_config.inputs && actionConfig.action_config.inputs.length > 0) {
-                            const inputsContainer = container.querySelector('#koreActionInputsContainer');
-                            const inputsContent = container.querySelector('#koreActionInputsContent');
-                            
-                            // Render input fields
-                            inputsContent.innerHTML = actionConfig.action_config.inputs.map((input, idx) => {
-                                const currentValue = step.actionInputs?.[input.name] || '';
-                                const requiredMark = input.required ? '<span style="color: #ff6666;">*</span>' : '';
-                                
-                                let inputFieldHTML = '';
-                                
-                                if (input.type === 'number') {
-                                    inputFieldHTML = `
-                                        <input 
-                                            type="number" 
-                                            data-input-name="${input.name}"
-                                            placeholder="${input.label || input.name}"
-                                            value="${currentValue}"
-                                            style="width: 100%; padding: 6px; box-sizing: border-box; font-size: 0.85rem; margin-bottom: 8px;"
-                                        >
-                                    `;
-                                } else if (input.type === 'boolean') {
-                                    inputFieldHTML = `
-                                        <label style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px; cursor: pointer;">
-                                            <input 
-                                                type="checkbox"
-                                                data-input-name="${input.name}"
-                                                ${currentValue ? 'checked' : ''}
-                                                style="cursor: pointer;"
-                                            >
-                                            <span style="font-size: 0.85rem; color: #b0b0b0;">${input.label || input.name}</span>
-                                        </label>
-                                    `;
-                                } else {
-                                    // Default to text
-                                    inputFieldHTML = `
-                                        <input 
-                                            type="text"
-                                            data-input-name="${input.name}"
-                                            placeholder="${input.label || input.name}"
-                                            value="${currentValue}"
-                                            style="width: 100%; padding: 6px; box-sizing: border-box; font-size: 0.85rem; margin-bottom: 8px;"
-                                        >
-                                    `;
-                                }
-                                
-                                return `
-                                    <div style="margin-bottom: 12px;">
-                                        <label style="display: block; font-size: 0.8rem; color: #b0b0b0; margin-bottom: 4px;">
-                                            ${input.label || input.name} ${requiredMark}
-                                        </label>
-                                        ${inputFieldHTML}
-                                    </div>
-                                `;
-                            }).join('');
-                            
-                            inputsContainer.style.display = 'block';
-                            
-                            // Attach change listeners
-                            inputsContent.querySelectorAll('[data-input-name]').forEach(inputEl => {
-                                inputEl.addEventListener('change', (e) => {
-                                    if (!step.actionInputs) {
-                                        step.actionInputs = {};
-                                    }
-                                    const inputName = e.target.getAttribute('data-input-name');
-                                    step.actionInputs[inputName] = e.target.type === 'checkbox' ? e.target.checked : e.target.value;
-                                    updatePreview();
-                                });
-                            });
-                        }
+                        await loadKoreActionInputs(step.action, container);
                     }, 100);
                 }
             })();
@@ -1482,93 +1716,8 @@ function showStepProperties(stepUUID) {
             // Save action selection when changed
             stepActionInput.addEventListener('change', async (e) => {
                 step.action = e.target.value === 'None' ? null : e.target.value;
-                
-                const inputsContainer = container.querySelector('#koreActionInputsContainer');
-                const inputsContent = container.querySelector('#koreActionInputsContent');
-                
-                if (step.action && step.action !== 'None') {
-                    // Load the action config
-                    const actionConfig = await getUtilStep(step.action);
-                    
-                    if (actionConfig && actionConfig.action_config.inputs && actionConfig.action_config.inputs.length > 0) {
-                        // Show the inputs container
-                        inputsContainer.style.display = 'block';
-                        
-                        // Render input fields
-                        inputsContent.innerHTML = actionConfig.action_config.inputs.map((input, idx) => {
-                            const currentValue = step.actionInputs?.[input.name] || '';
-                            const requiredMark = input.required ? '<span style="color: #ff6666;">*</span>' : '';
-                            
-                            let inputFieldHTML = '';
-                            
-                            if (input.type === 'number') {
-                                inputFieldHTML = `
-                                    <input 
-                                        type="number" 
-                                        data-input-name="${input.name}"
-                                        placeholder="${input.label || input.name}"
-                                        value="${currentValue}"
-                                        style="width: 100%; padding: 6px; box-sizing: border-box; font-size: 0.85rem; margin-bottom: 8px;"
-                                    >
-                                `;
-                            } else if (input.type === 'boolean') {
-                                inputFieldHTML = `
-                                    <label style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px; cursor: pointer;">
-                                        <input 
-                                            type="checkbox"
-                                            data-input-name="${input.name}"
-                                            ${currentValue ? 'checked' : ''}
-                                            style="cursor: pointer;"
-                                        >
-                                        <span style="font-size: 0.85rem; color: #b0b0b0;">${input.label || input.name}</span>
-                                    </label>
-                                `;
-                            } else {
-                                // Default to text
-                                inputFieldHTML = `
-                                    <input 
-                                        type="text"
-                                        data-input-name="${input.name}"
-                                        placeholder="${input.label || input.name}"
-                                        value="${currentValue}"
-                                        style="width: 100%; padding: 6px; box-sizing: border-box; font-size: 0.85rem; margin-bottom: 8px;"
-                                    >
-                                `;
-                            }
-                            
-                            return `
-                                <div style="margin-bottom: 12px;">
-                                    <label style="display: block; font-size: 0.8rem; color: #b0b0b0; margin-bottom: 4px;">
-                                        ${input.label || input.name} ${requiredMark}
-                                    </label>
-                                    ${inputFieldHTML}
-                                </div>
-                            `;
-                        }).join('');
-                        
-                        // Attach change listeners to input fields
-                        inputsContent.querySelectorAll('[data-input-name]').forEach(inputEl => {
-                            inputEl.addEventListener('change', (e) => {
-                                if (!step.actionInputs) {
-                                    step.actionInputs = {};
-                                }
-                                const inputName = e.target.getAttribute('data-input-name');
-                                step.actionInputs[inputName] = e.target.type === 'checkbox' ? e.target.checked : e.target.value;
-                                updatePreview();
-                            });
-                        });
-                    } else {
-                        // No inputs for this action
-                        inputsContainer.style.display = 'none';
-                        inputsContent.innerHTML = '';
-                    }
-                } else {
-                    // No action selected, hide inputs
-                    inputsContainer.style.display = 'none';
-                    inputsContent.innerHTML = '';
-                    step.actionInputs = {};
-                }
-                
+                step.actionInputs = [];
+                await loadKoreActionInputs(step.action, container);
                 updatePreview();
             });
         }
@@ -1720,6 +1869,89 @@ function showStepProperties(stepUUID) {
         /**
          * Render input mapping fields from a workflow's inputVariables array
          */
+        /**
+         * Render Kore action input fields HTML — mirrors renderWorkflowInputsHtml
+         */
+        function renderKoreInputsHtml(inputs) {
+            if (!inputs || inputs.length === 0) return '';
+            let html = '<div id="koreInputs" class="panel-level-3">';
+            inputs.forEach(input => {
+                const name = input.name;
+                const required = input.required ? ' <span style="color:#ff6666;">*</span>' : '';
+                if (input.type === 'boolean') {
+                    html += `<div class="form-group--inline"><input type="checkbox" id="${name}"><label for="${name}">${escapeHtml(input.label || name)}${required}</label></div>`;
+                } else if (input.type === 'number') {
+                    html += `<div class="form-group"><label for="${name}">${escapeHtml(input.label || name)}${required}</label><input type="number" id="${name}" placeholder="${escapeHtml(input.label || name)}"></div>`;
+                } else {
+                    html += `<div class="form-group"><label for="${name}">${escapeHtml(input.label || name)}${required}</label><input type="text" id="${name}" placeholder="${escapeHtml(input.label || name)}"></div>`;
+                }
+            });
+            html += '</div>';
+            return html;
+        }
+
+        /**
+         * Load Kore action input fields — mirrors loadWorkflowInputs pattern
+         */
+        async function loadKoreActionInputs(actionName, container) {
+            const inputsContainer = container.querySelector('#koreActionInputsContainer');
+            const inputsContent = container.querySelector('#koreActionInputsContent');
+            if (!inputsContainer || !inputsContent) return;
+
+            if (!actionName || actionName === 'None') {
+                inputsContainer.style.display = 'none';
+                inputsContent.innerHTML = '';
+                return;
+            }
+
+            const actionConfig = await getUtilStep(actionName);
+            const inputs = actionConfig?.action_config?.inputs || [];
+
+            if (inputs.length === 0) {
+                inputsContainer.style.display = 'none';
+                inputsContent.innerHTML = '';
+                return;
+            }
+
+            // Normalize actionInputs to array (backward compat with old object format)
+            if (!step.actionInputs || !Array.isArray(step.actionInputs)) {
+                const oldObj = step.actionInputs || {};
+                step.actionInputs = inputs.map(i => ({ name: i.name, value: oldObj[i.name] || '' }));
+            }
+            // Ensure all inputs have an entry
+            inputs.forEach(i => {
+                if (!step.actionInputs.find(e => e.name === i.name)) {
+                    step.actionInputs.push({ name: i.name, value: '' });
+                }
+            });
+
+            // Render using form-group pattern
+            inputsContent.innerHTML = renderKoreInputsHtml(inputs);
+
+            // Restore saved values and attach change listeners BEFORE injecting buttons
+            // (injectStepInputEditButtons needs values in fields to detect jinja logic)
+            inputs.forEach(i => {
+                const field = inputsContent.querySelector('#' + i.name);
+                if (!field) return;
+                const entry = step.actionInputs.find(e => e.name === i.name);
+                if (entry && entry.value !== undefined) {
+                    if (i.type === 'boolean') field.checked = !!entry.value;
+                    else field.value = entry.value;
+                }
+                field.addEventListener('change', (e) => {
+                    const ent = step.actionInputs.find(en => en.name === i.name);
+                    if (ent) ent.value = e.target.type === 'checkbox' ? e.target.checked : e.target.value;
+                    updatePreview();
+                });
+            });
+
+            const inputDefs = inputs.map(i => ({ name: i.name, label: i.label || i.name, type: i.type || 'text' }));
+            injectStepInputEditButtons(inputsContent, inputDefs, step.id, 'actionInputs');
+            attachStepInputEditButtonListeners(inputsContent, inputDefs, step.id, 'actionInputs');
+
+            inputsContainer.style.display = 'block';
+        }
+
         function renderWorkflowInputsHtml(inputVariables) {
             if (!inputVariables || inputVariables.length === 0) {
                 return '<div class="panel-level-3" style="font-size: 0.8rem; color: #707070; padding: 4px 0;">No input variables defined on this workflow.</div>';
@@ -1798,6 +2030,52 @@ function showStepProperties(stepUUID) {
             }
         }
 
+        // Trigger selection for Workflow-type steps. Persephone's execution API
+        // (/engine/execute) already accepts a flat `triggerId` — this stores the
+        // same shape directly on the step (step.triggerId, a plain string), NOT
+        // wrapped in an array-of-{name,value} the way taskInputs/workflowInputs
+        // are, since it's a single value rather than multiple named fields.
+        // Supports both a dropdown pick (a real trigger id) and a Jinja template
+        // (e.g. deciding the trigger dynamically based on CTX), matching the same
+        // dropdown-or-{ }-button pattern used for taskInputs/workflowInputs.
+        function loadWorkflowTriggers(workflowId, container) {
+            const triggerContainer = container.querySelector('#stepTriggerContainer');
+            const triggerSelect = container.querySelector('#stepTrigger');
+            if (!triggerContainer || !triggerSelect) return;
+
+            const select = document.querySelector('#stepAction');
+            const selectedOption = select ? select.querySelector('option[value="' + workflowId + '"]') : null;
+            const triggers = (selectedOption && selectedOption._definition && selectedOption._definition.triggers) || [];
+
+            const currentValue = step.triggerId || '';
+            const isJinja = currentValue && (currentValue.includes('{{') || currentValue.includes('{%'));
+            const matchesRealTrigger = !isJinja && triggers.some(t => t.id === currentValue);
+
+            triggerSelect.innerHTML = '<option value="">-- Default --</option>';
+            triggers.forEach(t => {
+                const option = document.createElement('option');
+                option.value = t.id;
+                option.textContent = t.name || t.id;
+                triggerSelect.appendChild(option);
+            });
+
+            if (isJinja) {
+                // Jinja-templated trigger selection: show the raw value as a single
+                // fixed option, same convention injectStepInputEditButtons uses for
+                // select-type task/workflow inputs carrying a Jinja value.
+                triggerSelect.innerHTML = '';
+                const jinjaOption = document.createElement('option');
+                jinjaOption.value = currentValue;
+                jinjaOption.textContent = currentValue;
+                triggerSelect.appendChild(jinjaOption);
+                triggerSelect.value = currentValue;
+            } else if (matchesRealTrigger) {
+                triggerSelect.value = currentValue;
+            }
+
+            triggerContainer.style.display = triggers.length > 0 ? 'block' : 'none';
+        }
+
         // Workflow step: populate workflow dropdown and wire all controls
         if (isWorkflowType && stepActionInput) {
             (async () => {
@@ -1826,6 +2104,7 @@ function showStepProperties(stepUUID) {
                         if (workflowInputsContainer) {
                             await loadWorkflowInputs(step.action, workflowInputsContainer);
                         }
+                        loadWorkflowTriggers(step.action, container);
                     }
                 } catch (error) {
                     console.error('[Workflow step] Error loading workflows:', error);
@@ -1837,6 +2116,7 @@ function showStepProperties(stepUUID) {
             stepActionInput.addEventListener('change', async (e) => {
                 step.action = e.target.value;
                 step.workflowInputs = [];
+                step.triggerId = '';
                 const workflowInputsContainer = container.querySelector('#workflowInputsContainer');
                 if (step.action && workflowInputsContainer) {
                     await loadWorkflowInputs(step.action, workflowInputsContainer);
@@ -1845,9 +2125,42 @@ function showStepProperties(stepUUID) {
                     const contentDiv = workflowInputsContainer.querySelector('#workflowInputsContent');
                     if (contentDiv) contentDiv.innerHTML = '';
                 }
+                if (step.action) {
+                    loadWorkflowTriggers(step.action, container);
+                } else {
+                    const triggerContainer = container.querySelector('#stepTriggerContainer');
+                    if (triggerContainer) triggerContainer.style.display = 'none';
+                }
                 updatePreview();
             });
 
+            // Trigger selection change
+            const stepTriggerSelect = container.querySelector('#stepTrigger');
+            if (stepTriggerSelect) {
+                stepTriggerSelect.addEventListener('change', (e) => {
+                    step.triggerId = e.target.value;
+                    updatePreview();
+                });
+            }
+
+            // Trigger { } edit button — switch to a Jinja-templated trigger selection
+            const stepTriggerEditBtn = container.querySelector('#stepTriggerEditBtn');
+            if (stepTriggerEditBtn) {
+                stepTriggerEditBtn.addEventListener('click', () => {
+                    const currentValue = step.triggerId || '';
+                    openWorkflowJinjaEditorModal('Edit Trigger', currentValue, (value) => {
+                        step.triggerId = value;
+                        if (step.action) {
+                            loadWorkflowTriggers(step.action, container);
+                        }
+                        updatePreview();
+                    }, step.id, undefined, 'input');
+                });
+            }
+        }
+
+        // Loop Mode listeners — shared by Workflow and Plugin steps
+        if (isWorkflowType || isPluginType) {
             // Loop Mode checkbox
             const loopModeCheckbox = container.querySelector('#loopModeCheckbox');
             const loopConfigContainer = container.querySelector('#loopConfigContainer');
@@ -1886,8 +2199,7 @@ function showStepProperties(stepUUID) {
                         if (!step.loopConfig) step.loopConfig = {};
                         step.loopConfig.sourceArray = value;
                         if (loopSourceArray) {
-                            loopSourceArray.value = value ? 'Logic → { }' : '';
-                            loopSourceArray.disabled = !!value;
+                            loopSourceArray.value = value || '';
                         }
                         updatePreview();
                     }, step.id);
@@ -2048,6 +2360,32 @@ function showStepProperties(stepUUID) {
                     if (inlineGroup) {
                         inlineGroup.appendChild(editBtn);
                     }
+                    // A checkbox's native checked/unchecked state has no way to represent
+                    // an arbitrary Jinja template string -- unlike the select/text branches
+                    // below, this previously had no hasJinjaLogic handling at all, so a
+                    // templated value (e.g. "{{ CTX.show_inactive | d(false) }}") just
+                    // silently rendered as an ordinary checked/unchecked toggle with zero
+                    // indication anything was templated. Toggling it in that state
+                    // overwrites the template with a plain boolean, with no visible warning.
+                    // Disable the checkbox and show the raw template text instead, same
+                    // spirit as the select branch replacing its dropdown with a single
+                    // option showing the raw value.
+                    if (hasJinjaLogic) {
+                        const entry = step[storageKey].find(t => t.name === inputId);
+                        const displayVal = entry?.value || '';
+                        if (controlElement) {
+                            controlElement.disabled = true;
+                            controlElement.checked = false;
+                        }
+                        if (inlineGroup && !inlineGroup.querySelector('.jinja-value-label')) {
+                            const jinjaLabel = document.createElement('span');
+                            jinjaLabel.className = 'jinja-value-label';
+                            jinjaLabel.textContent = displayVal;
+                            jinjaLabel.style.cssText = 'font-family: monospace; font-size: 0.75rem; color: #b0b0b0; margin-left: 8px;';
+                            jinjaLabel.title = 'This value is a Jinja template, not a plain checkbox -- use the { } button to edit it.';
+                            inlineGroup.insertBefore(jinjaLabel, editBtn);
+                        }
+                    }
                 } else if (input.type === 'radio') {
                     // For radio: find the fieldset and add button after it
                     const fieldset = container.querySelector(`input[name="${inputId}"]`).closest('fieldset');
@@ -2066,13 +2404,14 @@ function showStepProperties(stepUUID) {
                             // For select: replace options if jinja logic exists
                             const select = controlElement;
                             if (hasJinjaLogic) {
+                                const entry = step[storageKey].find(t => t.name === inputId);
+                                const displayVal = entry?.value || '';
                                 select.innerHTML = '';
                                 const selectOption = document.createElement('option');
-                                selectOption.value = '';
-                                selectOption.textContent = 'Logic → { }';
+                                selectOption.value = displayVal;
+                                selectOption.textContent = displayVal;
                                 select.appendChild(selectOption);
-                                select.value = '';
-                                select.disabled = true;
+                                select.value = displayVal;
                             }
                             
                             // Wrap select with button in flex container
@@ -2096,11 +2435,11 @@ function showStepProperties(stepUUID) {
                             wrapper.appendChild(editBtn);
                             controlElement.style.flex = '1';
                             
-                            // If jinja logic exists, disable and show indicator
+                            // If jinja logic exists, switch number fields to text and show value
                             if (hasJinjaLogic) {
-                                controlElement.disabled = true;
-                                controlElement.value = 'Logic → { }';
-                                controlElement.placeholder = 'Logic → { }';
+                                if (controlElement.type === 'number') controlElement.type = 'text';
+                                const entry = step[storageKey].find(t => t.name === inputId);
+                                controlElement.value = entry?.value || '';
                             }
                         }
                     }
@@ -2169,26 +2508,26 @@ function showStepProperties(stepUUID) {
                                     if (value) {
                                         inputField.innerHTML = '';
                                         const selectOption = document.createElement('option');
-                                        selectOption.value = '';
-                                        selectOption.textContent = 'Logic → { }';
+                                        selectOption.value = value;
+                                        selectOption.textContent = value;
                                         inputField.appendChild(selectOption);
-                                        inputField.value = '';
-                                        inputField.disabled = true;
+                                        inputField.value = value;
                                     }
                                 } else {
-                                    inputField.disabled = !!value;
-                                    if (value) {
-                                        if (inputDef.type !== 'checkbox' && inputDef.type !== 'boolean') {
-                                            inputField.value = 'Logic → { }';
-                                            inputField.placeholder = 'Logic → { }';
+                                    if (inputDef.type !== 'checkbox' && inputDef.type !== 'boolean') {
+                                        if (inputField.type === 'number' && value && (value.includes('{{') || value.includes('{%'))) {
+                                            inputField.type = 'text';
                                         }
+                                        inputField.value = value || '';
                                     }
                                 }
                             }
                             
                             updatePreview();
                         },
-                        stepId
+                        stepId,
+                        undefined,
+                        'input'
                     );
                 });
             });
@@ -2238,6 +2577,36 @@ function showStepProperties(stepUUID) {
             renderStepOutputVariables(variablesContainer, step.variables || [], () => updatePreview());
         }
 
+        // Render read-only summary of this step's own transition cases' variables.
+        // The whole section is omitted from the HTML entirely when there are none
+        // (see hasCaseVariables above), so this container only exists when there's
+        // something to show.
+        const caseVariablesSummaryContainer = container.querySelector('#caseVariablesSummaryContainer');
+        if (caseVariablesSummaryContainer) {
+            caseVariablesSummaryContainer.innerHTML = stepCasesWithVars.map(c => {
+                const label = c.name || c.type || 'Case';
+                const rows = c.variables.map(v => `
+                    <div style="display: flex; justify-content: space-between; gap: 8px; padding: 2px 0; font-size: 0.75rem; color: #b0b0b0;">
+                        <span style="color: #8fbfdd; white-space: nowrap;">${escapeHtml(v.name || '')}</span>
+                        <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left;">${escapeHtml(v.value || '')}</span>
+                    </div>
+                `).join('');
+                return `
+                    <div class="panel-level-3" style="margin-bottom: 8px; padding: 6px 8px; cursor: ${c._conditionId ? 'pointer' : 'default'};" ${c._conditionId ? `data-jump-case-id="${c._conditionId}"` : ''}>
+                        <div style="font-size: 0.75rem; font-weight: 600; color: #d0d0d0;">${escapeHtml(label)} <span style="font-weight: normal; color: #707070;">(${c.type})</span></div>
+                        ${rows}
+                    </div>
+                `;
+            }).join('');
+
+            // Clicking a case jumps to that case's own properties panel for editing.
+            caseVariablesSummaryContainer.querySelectorAll('[data-jump-case-id]').forEach(el => {
+                el.addEventListener('click', () => {
+                    showTransitionProperties(el.getAttribute('data-jump-case-id'));
+                });
+            });
+        }
+
         // Add variable button
         const addVariableBtn = container.querySelector('#addVariableBtn');
         if (addVariableBtn) {
@@ -2252,17 +2621,60 @@ function showStepProperties(stepUUID) {
         const minConnectionsInput = container.querySelector('#stepMinConnections');
         if (minConnectionsInput) {
             minConnectionsInput.addEventListener('change', (e) => {
-                const val = parseInt(e.target.value);
-                step.min_connections = isNaN(val) || val < 0 ? 0 : val;
-                e.target.value = step.min_connections;
+                const rawValue = e.target.value;
+                // A Jinja value typed/pasted directly into this field (now
+                // type="text" once the { } editor set one) must be stored as-is,
+                // not force-coerced through parseInt -- parseInt("{{ ... }}") is
+                // NaN, which previously silently reset min_connections to 0,
+                // destroying the dynamic expression.
+                if (typeof rawValue === 'string' && (rawValue.includes('{{') || rawValue.includes('{%'))) {
+                    step.min_connections = rawValue;
+                } else {
+                    const val = parseInt(rawValue);
+                    step.min_connections = isNaN(val) || val < 0 ? 0 : val;
+                    e.target.value = step.min_connections;
+                }
                 updatePreview();
+            });
+        }
+        
+        const stepMinConnectionsEditBtn = container.querySelector('#stepMinConnectionsEditBtn');
+        if (stepMinConnectionsEditBtn) {
+            stepMinConnectionsEditBtn.addEventListener('click', () => {
+                const currentValue = (step.min_connections !== undefined && step.min_connections !== null) ? String(step.min_connections) : '';
+                openWorkflowJinjaEditorModal('Edit Min Inbound Connections', currentValue, (value) => {
+                    // Store as a plain number when the saved value is purely
+                    // numeric (matching how this field is stored everywhere
+                    // else when static), otherwise keep it as the Jinja string.
+                    const trimmed = (value || '').trim();
+                    const isJinja = trimmed.includes('{{') || trimmed.includes('{%');
+                    if (!isJinja && trimmed !== '' && !isNaN(Number(trimmed))) {
+                        step.min_connections = Math.max(0, parseInt(trimmed, 10));
+                    } else {
+                        step.min_connections = trimmed;
+                    }
+                    if (minConnectionsInput) {
+                        minConnectionsInput.type = isJinja ? 'text' : 'number';
+                        minConnectionsInput.value = step.min_connections ?? 0;
+                    }
+                    updatePreview();
+                }, step.id);
             });
         }
         
         const transitionModeSelect = container.querySelector('#transitionModeSelect');
         if (transitionModeSelect) {
             transitionModeSelect.addEventListener('change', (e) => {
-                step.transitionMode = e.target.value;
+                if (!step.transition) step.transition = { mode: 'First', cases: [] };
+                step.transition.mode = e.target.value;
+                updatePreview();
+            });
+        }
+
+        const showCaseNameCheckbox = container.querySelector('#showCaseNameCheckbox');
+        if (showCaseNameCheckbox) {
+            showCaseNameCheckbox.addEventListener('change', (e) => {
+                step.showCaseName = e.target.checked;
                 updatePreview();
             });
         }
@@ -2308,33 +2720,68 @@ function showStepProperties(stepUUID) {
         '#3a7a99',
         isBeginStep ? null : { id: stepUUID, type: 'step' },
         contentHTML,
-        onListenersAttach,
-        isBeginStep ? 'border-bottom: none; margin-bottom: 0; padding-bottom: 0;' : ''
+        onListenersAttach
     );
 }
 
 function showNodeProperties(nodeId) {
     const node = currentNodes.find(n => n.id === nodeId);
     if (!node) return;
-    
-    const contentHTML = `
+
+    const contentHTML = {
+        basic: `
+        <div>
+            <label style="display: block; font-size: 0.8rem; color: #b0b0b0;">Name</label>
+            <input type="text" id="nodeName" class="form-field-input" value="${node.name || ''}" style="width: 100%; padding: 6px; box-sizing: border-box; font-size: 0.85rem;">
+            <div id="nodeNameError" style="display: none; margin-top: 4px; padding: 4px 8px; background: rgba(184, 36, 47, 0.15); border-left: 3px solid var(--status-red, #b8242f); border-radius: 2px; font-size: 0.75rem; color: #ff6b6b;"></div>
+        </div>
+        `,
+        advanced: `
         <div>
             <label style="display: block; font-size: 0.8rem; color: #b0b0b0;">Min Inbound Connections</label>
             <input type="number" id="nodeMinConnections" class="form-field-input" value="${node.min_connections ?? 0}" min="0" style="width: 100%; padding: 6px; box-sizing: border-box; font-size: 0.85rem;">
             <div style="font-size: 0.75rem; color: #707070; margin-top: 4px;">0 = all inbound connections must fire</div>
         </div>
-        
-        <div style="border-top: 1px solid #3a7a99; padding-top: 10px; margin-top: 10px;">
-            <div style="font-size: 0.75rem; color: #707070; word-break: break-all;">ID: ${nodeId}</div>
-        </div>
-    `;
-    
+        <div style="font-size: 0.75rem; color: #707070; word-break: break-all;">ID: ${nodeId}</div>
+        `
+    };
+
     renderPropertiesPanel(
         'Node Properties',
         '#3a7a99',
         { id: nodeId, type: 'node' },
         contentHTML,
         (container) => {
+            const nameInput = container.querySelector('#nodeName');
+            const nameError = container.querySelector('#nodeNameError');
+            if (nameInput) {
+                const showError = (msg) => {
+                    nameInput.style.borderColor = 'var(--status-red, #b8242f)';
+                    if (nameError) { nameError.textContent = msg; nameError.style.display = 'block'; }
+                };
+                const clearError = () => {
+                    nameInput.style.borderColor = '';
+                    if (nameError) { nameError.textContent = ''; nameError.style.display = 'none'; }
+                };
+
+                nameInput.addEventListener('change', (e) => {
+                    const raw = e.target.value;
+                    const error = validateElementName(raw, nodeId);
+                    if (error) {
+                        e.target.value = node.name;
+                        showError(error);
+                        return;
+                    }
+
+                    clearError();
+                    node.name = raw;
+                    const canvas = document.getElementById('workflowCanvas');
+                    const label = canvas?.querySelector(`[data-node-label="${nodeId}"]`);
+                    if (label) label.textContent = node.name;
+                    updatePreview();
+                });
+            }
+
             const minConnectionsInput = container.querySelector('#nodeMinConnections');
             if (minConnectionsInput) {
                 minConnectionsInput.addEventListener('change', (e) => {
@@ -2378,6 +2825,7 @@ function syncTransitionCasesToStep() {
             caseData.targetSteps = tr.targetSteps ? [...tr.targetSteps] : [];
             caseData.targetNodes = tr.targetNodes ? [...tr.targetNodes] : [];
             caseData.order = tr.order;
+            caseData.variables = tr.variables ? [...tr.variables] : [];
         });
     });
 }
@@ -2387,6 +2835,15 @@ function syncTransitionCasesToStep() {
  * type-irrelevant fields. Used by both updatePreview and loadWorkflow so that
  * the baseline and the current state are always structurally identical.
  * Also strips the runtime _conditionId field before comparison/save.
+ *
+ * Reassigns a clean, sequential order (1, 2, 3, ...) based on the sorted
+ * position, rather than just passing the existing order values straight
+ * through. Various in-editor operations (adding/deleting/reordering cases)
+ * have produced duplicate, negative, or gapped order values in the past --
+ * doing the renumbering here, at the one choke point both save and preview
+ * both go through, means every export is guaranteed clean regardless of
+ * what state the live in-memory cases happen to be in, and self-heals
+ * already-corrupted data the next time it's loaded and saved.
  */
 function normalizeStepsForComparison(steps) {
     return steps.map(step => {
@@ -2394,18 +2851,22 @@ function normalizeStepsForComparison(steps) {
             ...step,
             transition: step.transition ? {
                 ...step.transition,
-                cases: [...(step.transition.cases || [])].sort((a, b) => (a.order || 1) - (b.order || 1)).map(c => {
-                    const { _conditionId, ...rest } = c;
-                    return rest;
-                })
+                cases: [...(step.transition.cases || [])]
+                    .sort((a, b) => (a.order || 1) - (b.order || 1))
+                    .map((c, idx) => {
+                        const { _conditionId, ...rest } = c;
+                        return { ...rest, order: idx + 1 };
+                    })
             } : undefined
         };
         if (exported.type !== 'Plugin') delete exported.taskInputs;
-        if (exported.type !== 'Workflow') {
+        if (exported.type !== 'Workflow') delete exported.triggerId;
+        if (exported.type !== 'Workflow' && exported.type !== 'Plugin') {
             delete exported.workflowInputs;
             delete exported.loopMode;
             delete exported.loopConfig;
         }
+        if (exported.type === 'Plugin') delete exported.workflowInputs;
         return exported;
     });
 }
@@ -2436,6 +2897,8 @@ function updatePreview() {
             description: document.getElementById('workflowDescription')?.value || currentDefinition?.description || '',
             inputVariables: currentInputVariables,
             outputVariables: currentOutputVariables,
+            outputHtml: currentOutputHtml || '',
+            triggers: currentTriggers,
             steps: stepsForExport,
             nodes: currentNodes
         };
@@ -2487,6 +2950,16 @@ function cleanupStaleReferences() {
             });
         }
     });
+
+    // Clean up nodes' own outbound targets (a node can point at other nodes/steps directly)
+    currentNodes.forEach(node => {
+        if (node.targetNodes) {
+            node.targetNodes = node.targetNodes.filter(id => nodeIds.has(id));
+        }
+        if (node.targetSteps) {
+            node.targetSteps = node.targetSteps.filter(id => stepIds.has(id));
+        }
+    });
 }
 
 /**
@@ -2532,6 +3005,11 @@ function deleteElement(elementId, elementType, options = {}) {
                 currentTransitions.forEach(t => {
                     if (t.targetSteps) t.targetSteps = t.targetSteps.filter(id => id !== elementId);
                 });
+
+                // Remove this step as a target from all nodes' own targetSteps
+                currentNodes.forEach(n => {
+                    if (n.targetSteps) n.targetSteps = n.targetSteps.filter(id => id !== elementId);
+                });
                 
                 // Remove step DOM element (case strip is inside it, removed automatically)
                 const stepElement = canvas.querySelector(`[data-step-uuid="${elementId}"]`);
@@ -2558,6 +3036,19 @@ function deleteElement(elementId, elementType, options = {}) {
                 // Remove from step's cases
                 if (ownerStep) {
                     ownerStep.transition.cases = ownerStep.transition.cases.filter(c => c._conditionId !== elementId);
+
+                    // Renumber remaining cases to a contiguous sequence (1, 2, 3, ...),
+                    // preserving their relative order, so a later addCaseToStep call
+                    // can't collide with a gap left by this deletion. Keep
+                    // currentTransitions in sync too, since syncTransitionCasesToStep
+                    // copies order FROM there back onto the case objects.
+                    const sortedRemaining = [...ownerStep.transition.cases].sort((a, b) => (a.order || 1) - (b.order || 1));
+                    sortedRemaining.forEach((caseData, idx) => {
+                        const newOrder = idx + 1;
+                        caseData.order = newOrder;
+                        const tr = currentTransitions.find(t => t.id === caseData._conditionId);
+                        if (tr) tr.order = newOrder;
+                    });
                 }
 
                 // Remove from currentTransitions
@@ -2566,11 +3057,34 @@ function deleteElement(elementId, elementType, options = {}) {
                 // Remove connection lines from this transition
                 document.querySelectorAll(`[data-from-transition="${elementId}"]`).forEach(el => el.remove());
 
-                // Re-render the case strip for the owning step
+                // Re-render the case strip for the owning step, shrinking width if needed
                 if (ownerStep) {
                     const canvas = document.getElementById('workflowCanvas');
                     const stepElement = canvas ? canvas.querySelector(`[data-step-uuid="${ownerStep.id}"]`) : null;
-                    if (stepElement) renderCaseStrip(stepElement, ownerStep, canvas);
+                    if (stepElement) {
+                        // Recalculate minimum required width: text-based vs case-based
+                        const caseCount = ownerStep.transition.cases.length;
+                        const caseRequiredWidth = (caseCount + 2) * GU;  // cases + add-btn + icon column
+                        // Text-based minimum (replicate renderStep logic)
+                        const tempDiv = document.createElement('div');
+                        tempDiv.style.cssText = `position:absolute;visibility:hidden;font-size:${Math.round(GU/3)}px;white-space:nowrap;`;
+                        tempDiv.textContent = ownerStep.name || `${ownerStep.type} Step`;
+                        document.body.appendChild(tempDiv);
+                        const textWidth = tempDiv.offsetWidth;
+                        document.body.removeChild(tempDiv);
+                        let textRequiredWidth = STEP_MIN_W;
+                        if (textWidth > 84) {
+                            const gridSpaces = Math.ceil((textWidth - (STEP_MIN_W - GU - BORDER * 2)) / GU);
+                            textRequiredWidth = STEP_MIN_W + gridSpaces * GU;
+                        }
+                        const minWidth = Math.max(caseRequiredWidth, textRequiredWidth);
+                        const currentWidth = parseInt(stepElement.style.width) || STEP_MIN_W;
+                        if (currentWidth > minWidth) {
+                            stepElement.style.width = minWidth + 'px';
+                            ownerStep.width = minWidth / GU;
+                        }
+                        renderCaseStrip(stepElement, ownerStep, canvas);
+                    }
                 }
             }
             
@@ -2583,6 +3097,13 @@ function deleteElement(elementId, elementType, options = {}) {
                 currentTransitions.forEach(t => {
                     if (t.targetNodes) {
                         t.targetNodes = t.targetNodes.filter(id => id !== elementId);
+                    }
+                });
+
+                // Remove references from other nodes' own targetNodes
+                currentNodes.forEach(n => {
+                    if (n.targetNodes) {
+                        n.targetNodes = n.targetNodes.filter(id => id !== elementId);
                     }
                 });
                 
@@ -2654,9 +3175,10 @@ async function handleTestWorkflow() {
             pan: `${(panX / GU).toFixed(2)},${(panY / GU).toFixed(2)}`
         },
         metadata: currentMetadata,
-        description: document.getElementById('workflowDescription')?.value || '',
+        description: document.getElementById('workflowDescription')?.value || currentDefinition?.description || '',
         inputVariables: currentInputVariables,
         outputVariables: currentOutputVariables,
+        triggers: currentTriggers,
         steps: normalizeStepsForComparison(currentSteps),
         nodes: currentNodes
     };
@@ -2698,9 +3220,10 @@ async function saveWorkflow() {
             pan: `${(panX / GU).toFixed(2)},${(panY / GU).toFixed(2)}`
         },
         metadata: currentMetadata,
-        description: document.getElementById('workflowDescription')?.value || '',
+        description: document.getElementById('workflowDescription')?.value || currentDefinition?.description || '',
         inputVariables: currentInputVariables,
         outputVariables: currentOutputVariables,
+        triggers: currentTriggers,
         steps: normalizeStepsForComparison(currentSteps),
         nodes: currentNodes
     };
@@ -2728,34 +3251,36 @@ async function saveWorkflow() {
 }
 
 function showSaveConfirmationModal(changedFields, newVersion) {
-    // Create modal
-    const modalId = 'saveConfirmationModal_' + Date.now();
+    showUnsavedChangesModal(changedFields, newVersion, 'save');
+}
+
+function showTestWorkflowModal(changedFields, newVersion) {
+    showUnsavedChangesModal(changedFields, newVersion, 'test');
+}
+
+function showUnsavedChangesModal(changedFields, newVersion, mode) {
+    const modalId = (mode === 'test' ? 'testWorkflowModal_' : 'saveConfirmationModal_') + Date.now();
     const modal = document.createElement('div');
     modal.id = modalId;
     modal.style.cssText = 'display: flex; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.7); z-index: 1000; align-items: center; justify-content: center;';
-    
+
     // Build expandable changed fields with visual diff highlighting
     let changesDetailsHTML = '';
     if (changedFields && changedFields.length > 0) {
         const changeDetails = changedFields.map((field) => {
             const oldValue = originalData?.[field];
             const newValue = currentDefinition?.[field];
-            
-            // For arrays, find specific items that changed
+
             if (Array.isArray(oldValue) && Array.isArray(newValue)) {
                 const arrayChanges = [];
-                
-                // Compare arrays item by item
                 const oldMap = new Map((oldValue || []).map((item, i) => [item.id || item.name || i, item]));
                 const newMap = new Map((newValue || []).map((item, i) => [item.id || item.name || i, item]));
-                
-                // Find added, removed, or modified items
+
                 for (const [key, newItem] of newMap) {
                     const oldItem = oldMap.get(key);
                     const itemLabel = newItem.name || newItem.id || key;
-                    
+
                     if (!oldItem) {
-                        // New item - show full object
                         arrayChanges.push({
                             label: `${field.slice(0, -1)} "${itemLabel}" (NEW)`,
                             oldDisplay: '(none)',
@@ -2763,7 +3288,6 @@ function showSaveConfirmationModal(changedFields, newVersion) {
                             isNew: true
                         });
                     } else if (!deepEqual(oldItem, newItem)) {
-                        // Modified item - show full objects with highlighting
                         arrayChanges.push({
                             label: `${field.slice(0, -1)} "${itemLabel}"`,
                             oldDisplay: JSON.stringify(oldItem, null, 2),
@@ -2774,53 +3298,45 @@ function showSaveConfirmationModal(changedFields, newVersion) {
                         });
                     }
                 }
-                
                 return arrayChanges;
             } else {
-                // Non-array fields
                 const oldDisplay = typeof oldValue === 'object' ? JSON.stringify(oldValue, null, 2) : String(oldValue || '(empty)');
                 const newDisplay = typeof newValue === 'object' ? JSON.stringify(newValue, null, 2) : String(newValue || '(empty)');
-                
-                return [{
-                    label: field,
-                    oldDisplay: oldDisplay,
-                    newDisplay: newDisplay
-                }];
+                return [{ label: field, oldDisplay, newDisplay }];
             }
         }).flat();
-        
+
         changesDetailsHTML = `
             <div style="margin-bottom: 16px;">
                 <div style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 12px; font-weight: 600;">Changed Fields:</div>
                 <div style="display: flex; flex-direction: column; gap: 8px;">
                     ${changeDetails.map((detail, idx) => {
                         const toggleId = modalId + '_toggle_detail_' + idx;
-                        
-                        // Build highlighted JSON for modified objects
+
                         let oldDisplayHTML = `<pre style="margin: 0;">${escapeHtml(detail.oldDisplay)}</pre>`;
                         let newDisplayHTML = `<pre style="margin: 0;">${escapeHtml(detail.newDisplay)}</pre>`;
-                        
+
                         if (detail.isModified && detail.oldObj && detail.newObj) {
                             oldDisplayHTML = buildHighlightedJSON(detail.oldObj, detail.newObj, false);
                             newDisplayHTML = buildHighlightedJSON(detail.newObj, detail.oldObj, true);
                         } else if (detail.isNew) {
                             newDisplayHTML = buildHighlightedJSON(detail.newObj || {}, {}, true);
                         }
-                        
+
                         return `
                             <div style="border: 1px solid var(--border-primary); border-radius: 4px; overflow: hidden;">
-                                <div onclick="document.getElementById('${toggleId}').style.display = document.getElementById('${toggleId}').style.display === 'none' ? 'block' : 'none';" style="padding: 10px; background: var(--bg-input); cursor: pointer; display: flex; justify-content: space-between; align-items: center;">
+                                <div onclick="document.getElementById('${toggleId}').style.display = document.getElementById('${toggleId}').style.display === 'none' ? 'block' : 'none';" style="padding: 10px; background: var(--bg-panel3); cursor: pointer; display: flex; justify-content: space-between; align-items: center;">
                                     <span style="color: var(--text-primary); font-size: 0.9rem; font-weight: 500;">${detail.label}</span>
                                     <span style="color: var(--text-muted); font-size: 0.8rem;">▼</span>
                                 </div>
                                 <div id="${toggleId}" style="display: none; padding: 12px; background: var(--bg-panel3); border-top: 1px solid var(--border-primary);">
                                     <div style="margin-bottom: 8px;">
                                         <div style="color: var(--text-muted); font-size: 0.8rem; margin-bottom: 4px;">Old Value:</div>
-                                        <div style="padding: 6px 8px; background: var(--bg-input); border-radius: 3px; color: #ffffff; font-size: 0.75rem; font-family: monospace; max-height: 200px; overflow-y: auto; word-break: break-all; white-space: pre-wrap;">${oldDisplayHTML}</div>
+                                        <div class="custom-scrollbar" style="padding: 6px 8px; background: var(--bg-canvas); border-radius: 3px; color: #ffffff; font-size: 0.75rem; font-family: monospace; max-height: 200px; overflow-y: auto; word-break: break-all; white-space: pre-wrap;">${oldDisplayHTML}</div>
                                     </div>
                                     <div>
                                         <div style="color: var(--text-muted); font-size: 0.8rem; margin-bottom: 4px;">New Value:</div>
-                                        <div style="padding: 6px 8px; background: var(--bg-input); border-radius: 3px; color: #ffffff; font-size: 0.75rem; font-family: monospace; max-height: 200px; overflow-y: auto; word-break: break-all; white-space: pre-wrap;">${newDisplayHTML}</div>
+                                        <div class="custom-scrollbar" style="padding: 6px 8px; background: var(--bg-canvas); border-radius: 3px; color: #ffffff; font-size: 0.75rem; font-family: monospace; max-height: 200px; overflow-y: auto; word-break: break-all; white-space: pre-wrap;">${newDisplayHTML}</div>
                                     </div>
                                 </div>
                             </div>
@@ -2830,16 +3346,16 @@ function showSaveConfirmationModal(changedFields, newVersion) {
             </div>
         `;
     }
-    
+
     // Helper function to build highlighted JSON with line-level diff
     function buildHighlightedJSON(current, other, isNewValue) {
         const lines = [];
-        
+
         function buildObjectLines(obj, otherObj, indent = '') {
             const keys = new Set([...Object.keys(obj), ...Object.keys(otherObj)]);
             const sortedKeys = Array.from(keys).sort();
             const result = [];
-            
+
             sortedKeys.forEach((key, idx) => {
                 if (key in obj) {
                     const currentVal = obj[key];
@@ -2847,19 +3363,18 @@ function showSaveConfirmationModal(changedFields, newVersion) {
                     const keyExistsInOther = key in otherObj;
                     const isAdded = !keyExistsInOther;
                     const isChanged = keyExistsInOther && JSON.stringify(currentVal) !== JSON.stringify(otherVal);
-                    
+
                     let lineColor = 'inherit';
                     if (isNewValue) {
-                        if (isAdded) lineColor = '#51cf66'; // green
-                        else if (isChanged) lineColor = '#ffd43b'; // gold
+                        if (isAdded) lineColor = '#51cf66';
+                        else if (isChanged) lineColor = '#ffd43b';
                     } else {
-                        if (isAdded) lineColor = '#ff6b6b'; // red
-                        else if (isChanged) lineColor = '#ffd43b'; // gold
+                        if (isAdded) lineColor = '#ff6b6b';
+                        else if (isChanged) lineColor = '#ffd43b';
                     }
-                    
+
                     const comma = idx < sortedKeys.length - 1 ? ',' : '';
-                    
-                    // If value is object and changed, recursively show nested diff
+
                     if (typeof currentVal === 'object' && currentVal !== null && isChanged) {
                         result.push(`${indent}  "${key}": {`);
                         const nestedLines = buildObjectLines(
@@ -2870,10 +3385,8 @@ function showSaveConfirmationModal(changedFields, newVersion) {
                         result.push(...nestedLines);
                         result.push(`${indent}  }${comma}`);
                     } else {
-                        // Primitive value
                         const valStr = JSON.stringify(currentVal);
                         const line = `${indent}  "${key}": ${valStr}${comma}`;
-                        
                         if (lineColor !== 'inherit') {
                             result.push(`<span style="color: ${lineColor};">${escapeHtml(line)}</span>`);
                         } else {
@@ -2882,149 +3395,38 @@ function showSaveConfirmationModal(changedFields, newVersion) {
                     }
                 }
             });
-            
+
             return result;
         }
-        
+
         lines.push('{');
         lines.push(...buildObjectLines(current, other));
         lines.push('}');
         return lines.join('\n');
     }
-    
-    modal.innerHTML = `
-        <div style="background: var(--bg-panel2); border: 1px solid var(--border-primary); border-radius: 6px; padding: 24px; max-width: 750px; width: 90%; max-height: 80vh; overflow-y: auto;">
-            <h2 style="font-size: 1.2rem; font-weight: 600; margin-bottom: 16px; margin-top: 0; color: var(--text-primary);">Save Workflow</h2>
-            
-            ${changesDetailsHTML}
-            
-            <div style="margin-bottom: 16px; padding: 10px; background: var(--bg-input); border-radius: 4px; color: var(--text-primary); font-size: 0.9rem;">
-                New Version: <strong>${newVersion}</strong>
-            </div>
-            
-            <div style="display: flex; gap: 12px; justify-content: flex-end;">
-                <button class="btn" data-color="grey" onclick="document.getElementById('${modalId}').remove()">Cancel</button>
-                <button class="btn" data-color="green" onclick="document.getElementById('${modalId}').remove(); performSave('${newVersion}')">Save</button>
-            </div>
-        </div>
-    `;
-    
-    document.body.appendChild(modal);
-}
 
-function showTestWorkflowModal(changedFields, newVersion) {
-    // Create modal
-    const modalId = 'testWorkflowModal_' + Date.now();
-    const modal = document.createElement('div');
-    modal.id = modalId;
-    modal.style.cssText = 'display: flex; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.7); z-index: 1000; align-items: center; justify-content: center;';
-    
-    // Build expandable changed fields with visual diff highlighting
-    let changesDetailsHTML = '';
-    if (changedFields && changedFields.length > 0) {
-        const changeDetails = changedFields.map((field) => {
-            const oldValue = originalData?.[field];
-            const newValue = currentDefinition?.[field];
-            
-            // For arrays, find specific items that changed
-            if (Array.isArray(oldValue) && Array.isArray(newValue)) {
-                const arrayChanges = [];
-                
-                // Compare arrays item by item
-                const oldMap = new Map((oldValue || []).map((item, i) => [item.id || item.name || i, item]));
-                const newMap = new Map((newValue || []).map((item, i) => [item.id || item.name || i, item]));
-                
-                // Find added, removed, or modified items
-                for (const [key, newItem] of newMap) {
-                    const oldItem = oldMap.get(key);
-                    const itemLabel = newItem.name || newItem.id || key;
-                    
-                    if (!oldItem) {
-                        // New item - show full object
-                        arrayChanges.push({
-                            label: `${field.slice(0, -1)} "${itemLabel}" (NEW)`,
-                            oldDisplay: '(none)',
-                            newDisplay: JSON.stringify(newItem, null, 2),
-                            isNew: true
-                        });
-                    } else if (!deepEqual(oldItem, newItem)) {
-                        // Modified item - show full objects with highlighting
-                        arrayChanges.push({
-                            label: `${field.slice(0, -1)} "${itemLabel}"`,
-                            oldDisplay: JSON.stringify(oldItem, null, 2),
-                            newDisplay: JSON.stringify(newItem, null, 2),
-                            oldObj: oldItem,
-                            newObj: newItem,
-                            isModified: true
-                        });
-                    }
-                }
-                
-                return arrayChanges;
-            } else {
-                // Non-array fields
-                const oldDisplay = typeof oldValue === 'object' ? JSON.stringify(oldValue, null, 2) : String(oldValue || '(empty)');
-                const newDisplay = typeof newValue === 'object' ? JSON.stringify(newValue, null, 2) : String(newValue || '(empty)');
-                
-                return [{
-                    label: field,
-                    oldDisplay: oldDisplay,
-                    newDisplay: newDisplay
-                }];
-            }
-        }).flat();
-        
-        changesDetailsHTML = `
-            <div style="margin-bottom: 16px;">
-                <div style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 12px; font-weight: 600;">Changed Fields:</div>
-                <div style="display: flex; flex-direction: column; gap: 8px;">
-                    ${changeDetails.map((detail, idx) => {
-                        const toggleId = modalId + '_toggle_detail_' + idx;
-                        return `
-                            <div style="background: var(--bg-input); border-radius: 4px; overflow: hidden;">
-                                <div style="padding: 8px 12px; cursor: pointer; font-weight: 500; user-select: none;" onclick="document.getElementById('${toggleId}').style.display = document.getElementById('${toggleId}').style.display === 'none' ? 'block' : 'none'">
-                                    ${escapeHtml(detail.label)}
-                                </div>
-                                <div id="${toggleId}" style="display: none; padding: 8px 12px; background: var(--bg-secondary); border-top: 1px solid var(--border-color); font-size: 0.85rem;">
-                                    <div style="margin-bottom: 8px;">
-                                        <span style="color: var(--text-muted);">Before:</span>
-                                        <pre style="margin: 4px 0; padding: 4px; background: var(--bg-input); border-left: 3px solid var(--text-muted);">${escapeHtml(detail.oldDisplay)}</pre>
-                                    </div>
-                                    <div>
-                                        <span style="color: var(--text-muted);">After:</span>
-                                        <pre style="margin: 4px 0; padding: 4px; background: var(--bg-input); border-left: 3px solid var(--accent-color);">${escapeHtml(detail.newDisplay)}</pre>
-                                    </div>
-                                </div>
-                            </div>
-                        `;
-                    }).join('')}
-                </div>
-            </div>
-        `;
-    }
-    
-    
+    const title = mode === 'test' ? 'Test Workflow' : 'Save Workflow';
+    const confirmBtn = mode === 'test'
+        ? `<button class="btn" data-color="blue" onclick="(async () => { document.getElementById('${modalId}').remove(); await performSave('${newVersion}'); await new Promise(resolve => setTimeout(resolve, 500)); testWorkflow(); })()">Save & Test</button>`
+        : `<button class="btn" data-color="green" onclick="document.getElementById('${modalId}').remove(); performSave('${newVersion}')">Save</button>`;
+
     modal.innerHTML = `
-        <div style="background: var(--bg-primary); border-radius: 8px; padding: 24px; max-width: 600px; max-height: 80vh; overflow-y: auto; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.3);">
-            <div style="font-size: 1.3rem; font-weight: 600; margin-bottom: 16px; color: var(--text-primary);">Test Workflow</div>
-            
-            <div style="color: var(--text-secondary); margin-bottom: 20px; font-size: 0.95rem;">
-                Review the changes below and click "Save & Test" to save and execute the workflow test.
-            </div>
-            
+        <div class="custom-scrollbar" style="background: var(--bg-panel2); border: 1px solid var(--border-primary); border-radius: 6px; padding: 24px; max-width: 750px; width: 90%; max-height: 80vh; overflow-y: auto;">
+            <h2 style="font-size: 1.2rem; font-weight: 600; margin-bottom: 16px; margin-top: 0; color: var(--text-primary);">${title}</h2>
+
             ${changesDetailsHTML}
-            
-            <div style="margin-bottom: 16px; padding: 10px; background: var(--bg-input); border-radius: 4px; color: var(--text-primary); font-size: 0.9rem;">
+
+            <div style="margin-bottom: 16px; padding: 10px; background: var(--bg-panel3); border-radius: 4px; color: var(--text-primary); font-size: 0.9rem;">
                 New Version: <strong>${newVersion}</strong>
             </div>
-            
+
             <div style="display: flex; gap: 12px; justify-content: flex-end;">
                 <button class="btn" data-color="grey" onclick="document.getElementById('${modalId}').remove()">Cancel</button>
-                <button class="btn" data-color="blue" onclick="(async () => { document.getElementById('${modalId}').remove(); await performSave('${newVersion}'); await new Promise(resolve => setTimeout(resolve, 500)); testWorkflow(); })()">Save & Test</button>
+                ${confirmBtn}
             </div>
         </div>
     `;
-    
+
     document.body.appendChild(modal);
 }
 
@@ -3044,6 +3446,9 @@ function incrementVersion(version) {
 async function performSave(newVersion) {
     const workflowName = document.getElementById('workflowName').value.trim();
     
+    // Sync transition case data (including variables) into step.transition.cases before saving
+    syncTransitionCasesToStep();
+
     // Rebuild input and output variables from form before saving
     rebuildInputVariablesFromForm();
     rebuildOutputVariablesFromForm();
@@ -3059,9 +3464,11 @@ async function performSave(newVersion) {
                 pan: `${(panX / GU).toFixed(2)},${(panY / GU).toFixed(2)}`
             },
             metadata: currentMetadata,
-            description: document.getElementById('workflowDescription')?.value || '',
+            description: document.getElementById('workflowDescription')?.value || currentDefinition?.description || '',
             inputVariables: currentInputVariables,
             outputVariables: currentOutputVariables,
+            outputHtml: currentOutputHtml || '',
+            triggers: currentTriggers,
             steps: normalizeStepsForComparison(currentSteps)
         };
         
@@ -3078,9 +3485,11 @@ async function performSave(newVersion) {
                     pan: `${(panX / GU).toFixed(2)},${(panY / GU).toFixed(2)}`
                 },
                 metadata: currentMetadata,
-                description: document.getElementById('workflowDescription')?.value || '',
+                description: document.getElementById('workflowDescription')?.value || currentDefinition?.description || '',
                 inputVariables: currentInputVariables,
                 outputVariables: currentOutputVariables,
+                outputHtml: currentOutputHtml || '',
+                triggers: currentTriggers,
                 steps: normalizeStepsForComparison(currentSteps),
                 nodes: currentNodes
             }
@@ -3122,8 +3531,11 @@ async function performSave(newVersion) {
                     pan: `${(panX / GU).toFixed(2)},${(panY / GU).toFixed(2)}`
                 },
                 metadata: currentMetadata,
+                description: currentDefinition?.description || '',
                 inputVariables: currentInputVariables,
                 outputVariables: currentOutputVariables,
+                outputHtml: currentOutputHtml || '',
+                triggers: currentTriggers,
                 steps: currentSteps,
                 nodes: currentNodes
             }, null, 2);
@@ -3138,8 +3550,11 @@ async function performSave(newVersion) {
                     pan: `${(panX / GU).toFixed(2)},${(panY / GU).toFixed(2)}`
                 },
                 metadata: currentMetadata,
+                description: currentDefinition?.description || '',
                 inputVariables: currentInputVariables,
                 outputVariables: currentOutputVariables,
+                outputHtml: currentOutputHtml || '',
+                triggers: currentTriggers,
                 steps: normalizeStepsForComparison(currentSteps),
                 nodes: currentNodes
             };
@@ -3277,7 +3692,12 @@ async function loadWorkflow() {
         currentTransitionFrames = definition.transitionFrames || [];
         currentInputVariables = definition.inputVariables || [];
         currentOutputVariables = definition.outputVariables || [];
+        currentOutputHtml = definition.outputHtml || '';
         currentNodes = definition.nodes || [];
+        currentTriggers = definition.triggers || [];
+        if (currentTriggers.length === 0) {
+            currentTriggers.push({ id: generateId('trigger'), name: 'Default', enabled: true, type: 'Always', variables: [] });
+        }
         
         // Debug: log what was loaded
         console.log('Loaded workflow:', {
@@ -3304,6 +3724,8 @@ async function loadWorkflow() {
             description: definition.description || '',
             inputVariables: currentInputVariables,
             outputVariables: currentOutputVariables,
+            outputHtml: currentOutputHtml,
+            triggers: currentTriggers,
             steps: normalizeStepsForComparison(currentSteps),
             nodes: currentNodes
         };
@@ -3320,8 +3742,6 @@ async function loadWorkflow() {
         
         // Update UI
         document.getElementById('workflowName').value = currentWorkflowName;
-        document.getElementById('versionDisplay').textContent = `v${currentVersion}`;
-        document.getElementById('uuidDisplay').textContent = currentWorkflowId;
         
         // Render on canvas
         renderLoadedStepsOnCanvas();
@@ -3377,6 +3797,7 @@ function initWorkflowEditor() {
     window.showWorkflowSettingsModal = showWorkflowSettingsModal;
     window.closeWorkflowSettingsModal = closeWorkflowSettingsModal;
     window.showJSONModal = showJSONModal;
+    window.showImportJSONModal = showImportJSONModal;
     window.saveWorkflow = saveWorkflow;
     window.loadWorkflow = loadWorkflow;
     window.testWorkflow = testWorkflow;
@@ -3402,26 +3823,42 @@ async function testWorkflow() {
         currentDefinition: currentDefinition
     });
 
-    // Collect input variable values from form if available
-    const parameters = {};
-    if (currentInputVariables && currentInputVariables.length > 0) {
-        const fields = currentInputVariables.map(v => {
-            const varType = v.type || 'string';
-            const baseField = { name: v.name, label: v.name };
-            if (varType === 'boolean') {
-                const val = v.value === 'true' ? 'true' : 'false';
-                return { ...baseField, type: 'select', options: ['false', 'true'], value: val };
-            } else if (varType === 'multi-line' || varType === 'array' || varType === 'object') {
-                return { ...baseField, type: 'textarea', value: v.value || '', placeholder: `Enter value for ${v.name}` };
-            } else if (varType === 'integer' || varType === 'float') {
-                return { ...baseField, type: 'number', value: v.value || '', placeholder: `Enter value for ${v.name}` };
-            } else {
-                // string, jinja, default
-                return { ...baseField, type: 'text', value: v.value || '', placeholder: `Enter value for ${v.name}` };
-            }
-        });
+    // Build trigger select field — options are trigger names, we map back to ID on submit
+    const triggers = currentTriggers || [];
 
-        // Show form to collect parameters
+    const triggerField = triggers.length > 0 ? {
+        name: '_triggerName',
+        label: 'Trigger',
+        type: 'select',
+        options: triggers.map(t => t.name || t.id),
+        value: triggers.length > 0 ? (triggers[0].name || triggers[0].id) : ''
+    } : null;
+
+    // Collect input variable fields
+    const parameters = {};
+    const inputFields = (currentInputVariables || []).map(v => {
+        const varType = v.type || 'string';
+        const baseField = { name: v.name, label: v.name };
+        if (varType === 'boolean') {
+            const val = v.value === 'true' ? 'true' : 'false';
+            return { ...baseField, type: 'select', options: ['false', 'true'], value: val };
+        } else if (varType === 'multi-line' || varType === 'array' || varType === 'object') {
+            return { ...baseField, type: 'textarea', value: v.value || '', placeholder: `Enter value for ${v.name}` };
+        } else if (varType === 'integer' || varType === 'float') {
+            return { ...baseField, type: 'number', value: v.value || '', placeholder: `Enter value for ${v.name}` };
+        } else {
+            return { ...baseField, type: 'text', value: v.value || '', placeholder: `Enter value for ${v.name}` };
+        }
+    });
+
+    // Always show modal if we have triggers or input variables
+    const fields = [
+        ...(triggerField ? [triggerField] : []),
+        ...(inputFields.length > 0 && triggerField ? [{ type: 'section', label: 'Input Variables' }] : []),
+        ...inputFields
+    ];
+
+    if (fields.length > 0) {
         return new Promise((resolve) => {
             showFormModal(
                 'Test Workflow Execution',
@@ -3430,8 +3867,15 @@ async function testWorkflow() {
                     // Clean up previous execution state
                     if (window.cleanupPreviousExecution) window.cleanupPreviousExecution();
 
+                    // Extract triggerId by matching selected trigger name
+                    const selectedTriggerName = formData['_triggerName'] || null;
+                    const selectedTrigger = selectedTriggerName
+                        ? triggers.find(t => (t.name || t.id) === selectedTriggerName)
+                        : null;
+                    const selectedTriggerId = selectedTrigger ? selectedTrigger.id : null;
+
                     // Coerce form string values to proper JS types based on variable type
-                    currentInputVariables.forEach(v => {
+                    (currentInputVariables || []).forEach(v => {
                         const varType = v.type || 'string';
                         const raw = formData[v.name];
                         if (varType === 'boolean') {
@@ -3453,11 +3897,8 @@ async function testWorkflow() {
                         }
                     });
 
-                    await executeWorkflow(parameters);
-                    // Auto-open execution details after a brief delay
-                    setTimeout(() => {
-                        showExecutionResults();
-                    }, 100);
+                    await executeWorkflow(parameters, selectedTriggerId);
+                    setTimeout(() => { showExecutionResults(); }, 100);
                     resolve();
                 },
                 false,  // readOnly
@@ -3467,15 +3908,10 @@ async function testWorkflow() {
             );
         });
     } else {
-        // No input variables, execute directly
-        // Clean up previous execution state
+        // No triggers or input variables — execute directly
         if (window.cleanupPreviousExecution) window.cleanupPreviousExecution();
-        
-        await executeWorkflow(parameters);
-        // Auto-open execution details after a brief delay
-        setTimeout(() => {
-            showExecutionResults();
-        }, 100);
+        await executeWorkflow(parameters, null);
+        setTimeout(() => { showExecutionResults(); }, 100);
     }
 }
 
@@ -3486,6 +3922,7 @@ function showWorkflowSettingsModal() {
     // Working copies — only committed on Save
     const modalInputVariables  = JSON.parse(JSON.stringify(currentInputVariables));
     const modalOutputVariables = JSON.parse(JSON.stringify(currentOutputVariables));
+    let modalOutputHtml = currentOutputHtml || '';
 
     // Set working variable references so addVariable / renderVariablesInContainer use these copies
     setWorkingVariables(modalInputVariables, modalOutputVariables);
@@ -3622,12 +4059,510 @@ function showWorkflowSettingsModal() {
         renderVariablesInContainer(outputListContainer, modalOutputVariables, 'output', updatePreview);
     });
 
-    // ── TRIGGERS TAB ─────────────────────────────────────────────────────────
-    panelEls['Triggers'].innerHTML = `
-        <div style="color: var(--text-muted); font-size: 0.85rem; padding: 16px 0;">
-            Triggers coming soon.
+    // Output HTML - deliberately separate from the Output Variables list above
+    // (not deletable, not part of that array at all) - see currentOutputHtml's
+    // declaration for why.
+    const outputHtmlSection = document.createElement('div');
+    outputHtmlSection.style.cssText = 'margin-top: 24px; padding-top: 12px; border-top: 1px solid var(--border-primary);';
+    outputHtmlSection.innerHTML = `
+        <label style="display: block; font-size: 0.85rem; font-weight: 600; color: var(--text-primary); margin-bottom: 4px;">Output HTML</label>
+        <div style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 8px;">Optional. If set, its rendered HTML automatically pops up as a modal in Execution Details when the workflow finishes (any outcome - success, warning, or failure). Never sent to a parent workflow if this one runs as a sub-workflow.</div>
+        <div style="display: flex; gap: 8px;">
+            <input type="text" id="outputHtmlPreview" readonly style="flex: 1; padding: 6px; box-sizing: border-box; font-size: 0.85rem; background: var(--bg-input); border: 1px solid var(--border-primary); border-radius: 4px; color: var(--text-muted); cursor: default;">
+            <button type="button" class="btn" data-color="blue" id="editOutputHtmlBtn" style="padding: 0; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; font-size: 16px;" title="Edit Output HTML">&#9998;</button>
         </div>
     `;
+    outputsPanel.appendChild(outputHtmlSection);
+
+    function refreshOutputHtmlPreview() {
+        const previewEl = outputHtmlSection.querySelector('#outputHtmlPreview');
+        if (!previewEl) return;
+        const trimmed = (modalOutputHtml || '').trim();
+        previewEl.value = trimmed ? (trimmed.length > 60 ? trimmed.slice(0, 60) + '…' : trimmed) : '';
+        previewEl.placeholder = '(not set)';
+    }
+    refreshOutputHtmlPreview();
+
+    const editOutputHtmlBtn = outputHtmlSection.querySelector('#editOutputHtmlBtn');
+    if (editOutputHtmlBtn) {
+        editOutputHtmlBtn.addEventListener('click', () => {
+            openWorkflowJinjaEditorModal('Edit Output HTML', modalOutputHtml, (value) => {
+                modalOutputHtml = value;
+                refreshOutputHtmlPreview();
+            }, null, undefined, 'output');
+        });
+    }
+
+    // ── TRIGGERS TAB ─────────────────────────────────────────────────────────
+    const triggersPanel = panelEls['Triggers'];
+    const modalTriggers = JSON.parse(JSON.stringify(currentTriggers));
+
+    const triggerHeader = document.createElement('div');
+    triggerHeader.style.cssText = 'display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;';
+    triggerHeader.innerHTML = `<label style="color: var(--text-muted); font-size: 0.85rem; font-weight: 600; margin: 0;">Triggers</label>`;
+    const addTriggerBtn = document.createElement('button');
+    addTriggerBtn.type = 'button';
+    addTriggerBtn.className = 'btn';
+    addTriggerBtn.setAttribute('data-color', 'green');
+    addTriggerBtn.setAttribute('data-size', 'sm');
+    addTriggerBtn.textContent = '+ Add Trigger';
+    triggerHeader.appendChild(addTriggerBtn);
+
+    const triggerListContainer = document.createElement('div');
+    triggerListContainer.id = 'triggersList';
+    triggerListContainer.style.cssText = 'display: flex; flex-direction: column; gap: 4px;';
+
+    triggersPanel.appendChild(triggerHeader);
+    triggersPanel.appendChild(triggerListContainer);
+
+    function renderTriggerRow(trigger, index) {
+        const row = document.createElement('div');
+        row.setAttribute('data-trigger-row', trigger.id);
+        row.style.cssText = `
+            border: 1px solid var(--border-primary);
+            border-radius: 4px;
+            overflow: hidden;
+            background: var(--bg-panel3, var(--bg-panel2));
+        `;
+
+        // ── Collapsed header ──────────────────────────────────────────────────
+        const header = document.createElement('div');
+        header.style.cssText = `
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 10px;
+            cursor: pointer;
+            user-select: none;
+        `;
+
+        const arrow = document.createElement('span');
+        arrow.style.cssText = 'font-size: 0.65rem; color: var(--text-muted); transition: transform 0.15s; flex-shrink: 0;';
+        arrow.textContent = '▶';
+
+        const nameDisplay = document.createElement('span');
+        nameDisplay.style.cssText = 'flex: 1; font-size: 0.85rem; color: var(--text-primary); font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;';
+        nameDisplay.textContent = trigger.name || '(Unnamed Trigger)';
+
+        const typeBadge = document.createElement('span');
+        typeBadge.style.cssText = 'font-size: 0.7rem; color: var(--text-muted); flex-shrink: 0;';
+        typeBadge.textContent = trigger.type || 'Always';
+
+        const enabledToggle = document.createElement('label');
+        enabledToggle.style.cssText = 'display: flex; align-items: center; gap: 4px; font-size: 0.75rem; color: var(--text-muted); cursor: pointer; flex-shrink: 0;';
+        enabledToggle.innerHTML = `<input type="checkbox" ${trigger.enabled ? 'checked' : ''} style="cursor:pointer;"> Enabled`;
+        enabledToggle.querySelector('input').addEventListener('change', (e) => {
+            e.stopPropagation();
+            trigger.enabled = e.target.checked;
+        });
+        enabledToggle.addEventListener('click', e => e.stopPropagation());
+
+        const deleteBtn = document.createElement('button');
+        deleteBtn.type = 'button';
+        deleteBtn.style.cssText = 'background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 0.8rem; padding: 0 2px; flex-shrink: 0; line-height: 1;';
+        deleteBtn.textContent = '✕';
+        deleteBtn.title = 'Delete trigger';
+        deleteBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (modalTriggers.length <= 1) {
+                showAlert('Cannot Delete', 'A workflow must have at least one trigger.');
+                return;
+            }
+            const idx = modalTriggers.indexOf(trigger);
+            if (idx > -1) modalTriggers.splice(idx, 1);
+            row.remove();
+        });
+
+        header.appendChild(arrow);
+        header.appendChild(nameDisplay);
+        header.appendChild(typeBadge);
+        header.appendChild(enabledToggle);
+        header.appendChild(deleteBtn);
+
+        // ── Expanded body ─────────────────────────────────────────────────────
+        const body = document.createElement('div');
+        body.style.cssText = `
+            display: none;
+            padding: 10px 12px 12px;
+            border-top: 1px solid var(--border-primary);
+            display: none;
+            flex-direction: column;
+            gap: 10px;
+        `;
+
+        // Name field
+        const nameRow = document.createElement('div');
+        nameRow.innerHTML = `<label style="display:block; font-size:0.78rem; color:var(--text-muted); font-weight:600; margin-bottom:4px;">Trigger Name</label>`;
+        const nameInput = document.createElement('input');
+        nameInput.type = 'text';
+        nameInput.className = 'form-field-input';
+        nameInput.value = trigger.name || '';
+        nameInput.placeholder = 'Enter trigger name';
+        nameInput.style.cssText = 'width:100%; padding:5px; font-size:0.85rem; box-sizing:border-box;';
+        nameInput.addEventListener('input', () => {
+            trigger.name = nameInput.value;
+            nameDisplay.textContent = nameInput.value || '(Unnamed Trigger)';
+        });
+        nameRow.appendChild(nameInput);
+
+        // Type field
+        const typeRow = document.createElement('div');
+        typeRow.innerHTML = `<label style="display:block; font-size:0.78rem; color:var(--text-muted); font-weight:600; margin-bottom:4px;">Trigger Type</label>`;
+        const typeSelect = document.createElement('select');
+        typeSelect.className = 'form-field-input';
+        typeSelect.style.cssText = 'width:100%; padding:5px; font-size:0.85rem; box-sizing:border-box;';
+        [['Always', 'Always (Generic)'], ['Schedule', 'Schedule']].forEach(([val, label]) => {
+            const opt = document.createElement('option');
+            opt.value = val;
+            opt.textContent = label;
+            if (trigger.type === val) opt.selected = true;
+            typeSelect.appendChild(opt);
+        });
+        typeSelect.addEventListener('change', () => {
+            trigger.type = typeSelect.value;
+            typeBadge.textContent = typeSelect.value;
+            renderTypeSettings();
+        });
+        typeRow.appendChild(typeSelect);
+
+        // Type-specific settings
+        const typeSettings = document.createElement('div');
+        typeSettings.setAttribute('data-trigger-type-settings', trigger.id);
+
+        function buildCronFromSchedule(s) {
+            switch (s.scheduleType) {
+                case 'everyNMinutes':
+                    return `*/${s.interval || 15} * * * *`;
+                case 'hourly':
+                    return `${s.minute || 0} * * * *`;
+                case 'daily': {
+                    const [h, m] = to24Hour(s.hour || 12, s.minute || 0, s.ampm || 'AM');
+                    return `${m} ${h} * * *`;
+                }
+                case 'weekly': {
+                    const [h, m] = to24Hour(s.hour || 12, s.minute || 0, s.ampm || 'AM');
+                    return `${m} ${h} * * ${s.dayOfWeek ?? 1}`;
+                }
+                case 'monthly': {
+                    const [h, m] = to24Hour(s.hour || 12, s.minute || 0, s.ampm || 'AM');
+                    return `${m} ${h} ${s.dayOfMonth || 1} * *`;
+                }
+                default: return '0 9 * * *';
+            }
+        }
+
+        function to24Hour(hour, minute, ampm) {
+            let h = parseInt(hour, 10);
+            if (ampm === 'AM' && h === 12) h = 0;
+            if (ampm === 'PM' && h !== 12) h += 12;
+            return [h, parseInt(minute, 10)];
+        }
+
+        function from24Hour(h, m) {
+            h = parseInt(h, 10); m = parseInt(m, 10);
+            const ampm = h < 12 ? 'AM' : 'PM';
+            let hour = h % 12;
+            if (hour === 0) hour = 12;
+            return { hour, minute: m, ampm };
+        }
+
+        function describeCron(s) {
+            switch (s.scheduleType) {
+                case 'everyNMinutes': return `Every ${s.interval || 15} minutes`;
+                case 'hourly': return `Every hour at :${String(s.minute || 0).padStart(2, '0')}`;
+                case 'daily': return `Daily at ${s.hour || 12}:${String(s.minute || 0).padStart(2, '0')} ${s.ampm || 'AM'}`;
+                case 'weekly': {
+                    const days = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+                    return `Every ${days[s.dayOfWeek ?? 1]} at ${s.hour || 12}:${String(s.minute || 0).padStart(2, '0')} ${s.ampm || 'AM'}`;
+                }
+                case 'monthly': return `Monthly on day ${s.dayOfMonth || 1} at ${s.hour || 12}:${String(s.minute || 0).padStart(2, '0')} ${s.ampm || 'AM'}`;
+                default: return '';
+            }
+        }
+
+        function renderTypeSettings() {
+            typeSettings.innerHTML = '';
+            if (trigger.type !== 'Schedule') return;
+
+            // Initialize schedule object from existing cron or defaults
+            if (!trigger.schedule) trigger.schedule = { scheduleType: 'daily', hour: 9, minute: 0, ampm: 'AM' };
+            const s = trigger.schedule;
+
+            const wrap = document.createElement('div');
+            wrap.style.cssText = 'display:flex; flex-direction:column; gap:8px; padding:10px; background:var(--bg-input); border:1px solid var(--border-primary); border-radius:4px;';
+
+            // Schedule type selector
+            const typeLabel = document.createElement('label');
+            typeLabel.style.cssText = 'font-size:0.78rem; color:var(--text-muted); font-weight:600;';
+            typeLabel.textContent = 'Schedule Type';
+            const typeSelectEl = document.createElement('select');
+            typeSelectEl.className = 'form-field-input';
+            typeSelectEl.style.cssText = 'width:100%; padding:5px; font-size:0.85rem; box-sizing:border-box;';
+            [
+                ['everyNMinutes', 'Every N Minutes'],
+                ['hourly',        'Hourly'],
+                ['daily',         'Daily'],
+                ['weekly',        'Weekly'],
+                ['monthly',       'Monthly']
+            ].forEach(([val, label]) => {
+                const opt = document.createElement('option');
+                opt.value = val; opt.textContent = label;
+                if (s.scheduleType === val) opt.selected = true;
+                typeSelectEl.appendChild(opt);
+            });
+
+            // Options container — re-rendered when schedule type changes
+            const optionsWrap = document.createElement('div');
+            optionsWrap.style.cssText = 'display:flex; flex-direction:column; gap:8px;';
+
+            // Description line
+            const descLine = document.createElement('div');
+            descLine.style.cssText = 'font-size:0.78rem; color:var(--text-accent); font-style:italic; min-height:1.2em;';
+
+            function labelEl(text) {
+                const l = document.createElement('label');
+                l.style.cssText = 'font-size:0.78rem; color:var(--text-muted); font-weight:600; margin-bottom:2px; display:block;';
+                l.textContent = text;
+                return l;
+            }
+
+            function inputGroup(labelText, inputEl) {
+                const g = document.createElement('div');
+                g.appendChild(labelEl(labelText));
+                g.appendChild(inputEl);
+                return g;
+            }
+
+            function minuteSelect(currentVal) {
+                const sel = document.createElement('select');
+                sel.className = 'form-field-input';
+                sel.style.cssText = 'width:100%; padding:5px; font-size:0.85rem; box-sizing:border-box;';
+                for (let m = 0; m < 60; m++) {
+                    const opt = document.createElement('option');
+                    opt.value = m; opt.textContent = String(m).padStart(2, '0');
+                    if (m === (currentVal ?? 0)) opt.selected = true;
+                    sel.appendChild(opt);
+                }
+                return sel;
+            }
+
+            function hourSelect(currentVal) {
+                const sel = document.createElement('select');
+                sel.className = 'form-field-input';
+                sel.style.cssText = 'width:100%; padding:5px; font-size:0.85rem; box-sizing:border-box;';
+                for (let h = 1; h <= 12; h++) {
+                    const opt = document.createElement('option');
+                    opt.value = h; opt.textContent = h;
+                    if (h === (currentVal ?? 12)) opt.selected = true;
+                    sel.appendChild(opt);
+                }
+                return sel;
+            }
+
+            function ampmSelect(currentVal) {
+                const sel = document.createElement('select');
+                sel.className = 'form-field-input';
+                sel.style.cssText = 'width:100%; padding:5px; font-size:0.85rem; box-sizing:border-box;';
+                ['AM','PM'].forEach(v => {
+                    const opt = document.createElement('option');
+                    opt.value = v; opt.textContent = v;
+                    if (v === (currentVal || 'AM')) opt.selected = true;
+                    sel.appendChild(opt);
+                });
+                return sel;
+            }
+
+            function timeRow(s, onChange) {
+                const row = document.createElement('div');
+                row.style.cssText = 'display:grid; grid-template-columns:1fr 1fr 80px; gap:6px;';
+                const hSel = hourSelect(s.hour);
+                const mSel = minuteSelect(s.minute);
+                const aSel = ampmSelect(s.ampm);
+                [hSel, mSel, aSel].forEach(el => el.addEventListener('change', () => {
+                    s.hour   = parseInt(hSel.value, 10);
+                    s.minute = parseInt(mSel.value, 10);
+                    s.ampm   = aSel.value;
+                    onChange();
+                }));
+                const hGroup = document.createElement('div');
+                hGroup.appendChild(labelEl('Hour')); hGroup.appendChild(hSel);
+                const mGroup = document.createElement('div');
+                mGroup.appendChild(labelEl('Minute')); mGroup.appendChild(mSel);
+                const aGroup = document.createElement('div');
+                aGroup.appendChild(labelEl('AM/PM')); aGroup.appendChild(aSel);
+                row.appendChild(hGroup); row.appendChild(mGroup); row.appendChild(aGroup);
+                return row;
+            }
+
+            function updateCronAndDesc() {
+                trigger.schedule.cron = buildCronFromSchedule(s);
+                descLine.textContent = describeCron(s);
+            }
+
+            function renderOptions() {
+                optionsWrap.innerHTML = '';
+                const type = s.scheduleType;
+
+                if (type === 'everyNMinutes') {
+                    const sel = document.createElement('select');
+                    sel.className = 'form-field-input';
+                    sel.style.cssText = 'width:100%; padding:5px; font-size:0.85rem; box-sizing:border-box;';
+                    [5,10,15,20,30].forEach(n => {
+                        const opt = document.createElement('option');
+                        opt.value = n; opt.textContent = `Every ${n} minutes`;
+                        if (n === (s.interval || 15)) opt.selected = true;
+                        sel.appendChild(opt);
+                    });
+                    sel.addEventListener('change', () => { s.interval = parseInt(sel.value, 10); updateCronAndDesc(); });
+                    optionsWrap.appendChild(inputGroup('Interval', sel));
+
+                } else if (type === 'hourly') {
+                    const mSel = minuteSelect(s.minute);
+                    mSel.addEventListener('change', () => { s.minute = parseInt(mSel.value, 10); updateCronAndDesc(); });
+                    optionsWrap.appendChild(inputGroup('At Minute', mSel));
+
+                } else if (type === 'daily') {
+                    optionsWrap.appendChild(timeRow(s, updateCronAndDesc));
+
+                } else if (type === 'weekly') {
+                    const days = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+                    const dSel = document.createElement('select');
+                    dSel.className = 'form-field-input';
+                    dSel.style.cssText = 'width:100%; padding:5px; font-size:0.85rem; box-sizing:border-box;';
+                    days.forEach((day, i) => {
+                        const opt = document.createElement('option');
+                        opt.value = i; opt.textContent = day;
+                        if (i === (s.dayOfWeek ?? 1)) opt.selected = true;
+                        dSel.appendChild(opt);
+                    });
+                    dSel.addEventListener('change', () => { s.dayOfWeek = parseInt(dSel.value, 10); updateCronAndDesc(); });
+                    optionsWrap.appendChild(inputGroup('Day of Week', dSel));
+                    optionsWrap.appendChild(timeRow(s, updateCronAndDesc));
+
+                } else if (type === 'monthly') {
+                    const dSel = document.createElement('select');
+                    dSel.className = 'form-field-input';
+                    dSel.style.cssText = 'width:100%; padding:5px; font-size:0.85rem; box-sizing:border-box;';
+                    for (let d = 1; d <= 28; d++) {
+                        const opt = document.createElement('option');
+                        opt.value = d; opt.textContent = d;
+                        if (d === (s.dayOfMonth || 1)) opt.selected = true;
+                        dSel.appendChild(opt);
+                    }
+                    dSel.addEventListener('change', () => { s.dayOfMonth = parseInt(dSel.value, 10); updateCronAndDesc(); });
+                    optionsWrap.appendChild(inputGroup('Day of Month', dSel));
+                    optionsWrap.appendChild(timeRow(s, updateCronAndDesc));
+                }
+
+                updateCronAndDesc();
+            }
+
+            typeSelectEl.addEventListener('change', () => {
+                s.scheduleType = typeSelectEl.value;
+                renderOptions();
+            });
+
+            // Cron string display (read-only)
+            const cronDisplay = document.createElement('div');
+            cronDisplay.style.cssText = 'font-size:0.75rem; color:var(--text-muted); font-family:monospace; margin-top:2px;';
+
+            const origUpdateCronAndDesc = updateCronAndDesc;
+            // Override to also update cronDisplay
+            function updateCronAndDesc() {
+                trigger.schedule.cron = buildCronFromSchedule(s);
+                descLine.textContent = describeCron(s);
+                cronDisplay.textContent = `cron: ${trigger.schedule.cron}`;
+            }
+
+            wrap.appendChild(typeLabel);
+            wrap.appendChild(typeSelectEl);
+            wrap.appendChild(optionsWrap);
+            wrap.appendChild(descLine);
+            wrap.appendChild(cronDisplay);
+            typeSettings.appendChild(wrap);
+
+            renderOptions();
+        }
+        renderTypeSettings();
+
+        body.appendChild(nameRow);
+        body.appendChild(typeRow);
+        body.appendChild(typeSettings);
+
+        // ── Trigger Variables ─────────────────────────────────────────────────
+        const varSeparator = document.createElement('div');
+        varSeparator.style.cssText = 'border-top: 1px solid var(--border-primary); margin: 4px 0;';
+
+        const varHeader = document.createElement('div');
+        varHeader.style.cssText = 'display: flex; justify-content: space-between; align-items: center;';
+        varHeader.innerHTML = `<label style="font-size:0.78rem; color:var(--text-muted); font-weight:600; margin:0;">Trigger Variables</label>`;
+
+        const addVarBtn = document.createElement('button');
+        addVarBtn.type = 'button';
+        addVarBtn.className = 'btn';
+        addVarBtn.setAttribute('data-color', 'green');
+        addVarBtn.setAttribute('data-size', 'sm');
+        addVarBtn.textContent = '+ Add Variable';
+        varHeader.appendChild(addVarBtn);
+
+        const varContainerId = `triggerVars_${trigger.id}`;
+        const varContainer = document.createElement('div');
+        varContainer.id = varContainerId;
+        varContainer.setAttribute('data-trigger-vars', trigger.id);
+        varContainer.style.cssText = 'display: flex; flex-direction: column; gap: 0; margin-top: 6px;';
+
+        if (!trigger.variables) trigger.variables = [];
+
+        addVarBtn.addEventListener('click', () => {
+            setWorkingTriggerVariables(trigger.variables);
+            addVariable('trigger', varContainerId);
+        });
+
+        body.appendChild(varSeparator);
+        body.appendChild(varHeader);
+        body.appendChild(varContainer);
+
+        // ── Toggle expand/collapse ────────────────────────────────────────────
+        let expanded = false;
+        header.addEventListener('click', () => {
+            expanded = !expanded;
+            body.style.display = expanded ? 'flex' : 'none';
+            arrow.style.transform = expanded ? 'rotate(90deg)' : 'rotate(0deg)';
+            if (expanded) {
+                setWorkingTriggerVariables(trigger.variables);
+                renderVariablesInContainer(varContainer, trigger.variables, 'trigger', updatePreview);
+            } else {
+                setWorkingTriggerVariables(null);
+            }
+        });
+
+        row.appendChild(header);
+        row.appendChild(body);
+        return row;
+    }
+
+    function renderAllTriggers() {
+        triggerListContainer.innerHTML = '';
+        modalTriggers.forEach((trigger, i) => {
+            triggerListContainer.appendChild(renderTriggerRow(trigger, i));
+        });
+    }
+
+    addTriggerBtn.addEventListener('click', () => {
+        const newTrigger = {
+            id: generateId('trigger'),
+            name: '',
+            enabled: true,
+            type: 'Always'
+        };
+        modalTriggers.push(newTrigger);
+        const row = renderTriggerRow(newTrigger, modalTriggers.length - 1);
+        triggerListContainer.appendChild(row);
+        // Auto-expand new trigger (click fires expand logic including var render)
+        row.querySelector('div').click();
+    });
+
+    renderAllTriggers();
 
     // ── INFO TAB ─────────────────────────────────────────────────────────────
     const meta = currentMetadata || {};
@@ -3693,11 +4628,16 @@ function showWorkflowSettingsModal() {
 
                     currentInputVariables  = modalInputVariables;
                     currentOutputVariables = modalOutputVariables;
+                    currentOutputHtml = modalOutputHtml;
+                    currentTriggers = modalTriggers;
 
                     currentWorkflowName = newName;
                     currentDefinition.name = newName;
                     document.getElementById('workflowNameDisplay').textContent = newName;
+                    const legacyNameInput = document.getElementById('workflowName');
+                    if (legacyNameInput) legacyNameInput.value = newName;
                     currentDefinition.description = descInput?.value || '';
+                    currentDefinition.triggers = currentTriggers;
 
                     showStatusBanner('Workflow settings saved', 'success');
                     updatePreview();
@@ -3749,6 +4689,8 @@ window.rebuildTransitionsFromUI = rebuildTransitionsFromUI;
 window.recheckFlaggedSteps = recheckFlaggedSteps;
 window.saveWorkflow = saveWorkflow;
 window.showJSONModal = showJSONModal;
+window.showImportJSONModal = showImportJSONModal;
+window.handleImportJSON = handleImportJSON;
 window.showNodeProperties = showNodeProperties;
 window.showSaveConfirmationModal = showSaveConfirmationModal;
 window.showStepProperties = showStepProperties;
@@ -3822,6 +4764,10 @@ Object.defineProperties(window, {
     currentOutputVariables: { 
         get: () => currentOutputVariables,
         set: (val) => { currentOutputVariables = val; }
+    },
+    currentTriggers: { 
+        get: () => currentTriggers,
+        set: (val) => { currentTriggers = val; }
     },
     currentNodes: { 
         get: () => currentNodes,

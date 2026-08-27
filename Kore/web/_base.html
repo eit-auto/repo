@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{TITLE}}</title>
+    <link rel="icon" href="/img/favicon.png" type="image/png">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        /* componentStyles' shared `body` rule (base_css.js) assumes the
+           admin layout: padding-top for a FIXED header (ours is in-flow,
+           so that just adds an unwanted gap), overflow:hidden + a locked
+           100dvh height paired with .main-container's own scroll region
+           (we use .user-portal-content's overflow:auto instead), and a
+           background of --bg-primary rather than the canvas color we
+           actually want here. Overriding all of that explicitly rather
+           than re-declaring it via unexplained inline styles.
+           font-family/margin/color are fine as inherited from body {} —
+           not overridden here.
+           NOTE: uses `html body` (not plain `body`) deliberately.
+           injectComponentStyles() in base.js unconditionally appends its
+           <style> tag to <head> at module-load time — which happens AFTER
+           this page's own static <style> block has already been parsed.
+           Two equal-specificity `body {}` selectors would mean whichever
+           lands later in <head> wins, silently undoing this override. The
+           extra `html` bumps specificity so this wins regardless of
+           injection order, without needing !important.
+           overflow-x:hidden (not a blanket overflow:hidden, which would
+           also block vertical scrolling) is set on both html and body —
+           whichever one ends up being the actual root scrolling box gets
+           it either way. Likely need: a dropdown with width:max-content
+           (see user-portal.js) can genuinely push past the right edge of
+           the viewport if a leaf label is long enough, which otherwise
+           adds horizontal scroll to the whole page just to reveal it. */
+        html, html body {
+            overflow-x: hidden;
+        }
+        html body {
+            padding-top: 0;
+            overflow-y: visible;
+            height: auto;
+            background-color: var(--bg-canvas);
+        }
+        .user-portal-shell {
+            width: 100%;
+            /* Bounded height, not a floor: min-height lets the shell grow
+               past one viewport to fit tall content, which means
+               .user-portal-content's overflow:auto below never actually
+               has a height to overflow against — the overflow spills out
+               to html/body instead and the whole page scrolls, dragging
+               the header off-screen with it. A fixed height keeps the
+               shell (and therefore the header inside it) pinned to the
+               viewport, so .user-portal-content is what scrolls. 100dvh
+               is the real target — it accounts for mobile browser chrome
+               resizing the viewport — with 100vh first as a fallback for
+               browsers that don't support dvh. */
+            height: 100vh;
+            height: 100dvh;
+            display: flex;
+            flex-direction: column;
+            background: var(--bg-canvas);
+        }
+        .user-portal-content {
+            flex: 1;
+            overflow: auto;
+            background: var(--bg-canvas);
+            padding: 18px 14px;
+            display: flex;
+            flex-direction: column;
+            gap: 24px;
+        }
+        /* Same 899px breakpoint docs.html/doc.html already use for their
+           own panel-stacking. 28px/32px reads fine on desktop but eats a
+           disproportionate share of a narrow viewport - every panel
+           inside .user-portal-content loses that much width on both
+           sides before any real content even starts. */
+        @media (max-width: 899px) {
+            .user-portal-content {
+                padding-left: 6px;
+                padding-right: 6px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="user-portal-shell">
+        <div id="userHeader"></div>
+        <div class="user-portal-content">
+            {{CONTENT}}
+        </div>
+    </div>
+    <div id="modalBackdrop" class="modal-backdrop"></div>
+<script type="module">
+    await import('/lib/user-portal.js');
+    buildUserHeader('{{TITLE}}', 'userHeader');
+</script>
+</body>
+</html>

@@ -23,8 +23,11 @@ const { validateUserSessionToken, getSessionTokenFromCookies, getRefreshTokenFro
 class KoreWeb {
     constructor() {
         this.pool = null;
-        this.libPath = 'D:\\Kore\\web\\lib';
-        this.libCache = {}; // Cache file contents in memory
+        // libPath/libCache removed with serveLibraryFile(). /lib files are
+        // served by serveStaticFile() from the shared web root, and nothing is
+        // cached in memory - each request reads from disk and revalidates via
+        // ETag, so a deployed file takes effect on the next request with no
+        // restart or cache clear.
     }
 
     /**
@@ -33,12 +36,6 @@ class KoreWeb {
      * On re-initialization: Clears cache, then resets dependencies
      */
     async initialize(korePool) {
-        // If reinitializing (pool already set), clear cache for fresh loads
-        if (this.pool) {
-            global.consoleLog('Web', 'Reinitializing - clearing library cache', 3);
-            this.libCache = {}; // Clear cache for fresh loads on next requests
-        }
-        
         this.pool = korePool;
         global.consoleLog('Web', 'Initialized', 4);
     }
@@ -50,22 +47,37 @@ class KoreWeb {
     async handleRoute(req, res) {
         const urlPath = req.url.split('?')[0];
 
+        // This module only serves pages/static files/lib assets - never the
+        // /kore/*, /auth/*, /api/* endpoints (those are routed in kore.js's
+        // requestHandler before this module is reached, and stay reachable
+        // over 443 for Rewst). Web page serving is only intended for 1139,
+        // so force anything landing here on 443 over to 1139 instead. No
+        // proxy/load balancer sits in front of this server (both ports are
+        // passed directly by the firewall), so req.socket.localPort
+        // reliably reflects which port the client actually connected to.
+        if (req.socket.localPort === 443) {
+            const host = (req.headers.host || '').split(':')[0];
+            res.writeHead(301, { Location: `https://${host}:1139${req.url}` });
+            res.end();
+            return true;
+        }
+
         // Admin endpoints
         if (urlPath === '/kore/page-permissions') {
             await this.getPagePermissions(req, res);
             return true;
         }
 
-        // Library files (no auth required)
-        if (urlPath === '/lib/base.css') {
-            await this.serveLibraryFile(req, res, 'base.css', 'text/css');
-            return true;
-        }
-
-        if (urlPath === '/lib/base.js') {
-            await this.serveLibraryFile(req, res, 'base.js', 'application/javascript');
-            return true;
-        }
+        // NOTE: /lib/base.css and /lib/base.js used to be special-cased here,
+        // routed to a dedicated serveLibraryFile(). That handler resolved the
+        // exact same files the generic static branch below already reaches
+        // (basePath D:\Kore\web + /lib/... = D:\Kore\web\lib\...), with .js and
+        // .css already among its allowed extensions - so the only thing the
+        // special case contributed was Cache-Control: max-age=31536000, telling
+        // browsers to hold base.js for a YEAR without revalidating. Deploys
+        // silently failed to reach anyone holding a cached copy, which looked
+        // like "the fix didn't work" rather than a caching problem. Removed;
+        // these now take the same path as every other /lib module.
 
         // Node modules - CHECK BEFORE static files since modules have extensions
         if (urlPath.startsWith('/node_modules/')) {
@@ -185,7 +197,7 @@ class KoreWeb {
                     LEFT JOIN kore_sys.permissions p ON p.resource = 'page' AND p.scope = wp.path
                     LEFT JOIN kore_sys.user_groups ug ON p.targetType = 'group' AND ug.groupId = p.targetId
                     LEFT JOIN kore_sys.users u ON p.targetType = 'user' AND u.userId = p.targetId
-                    WHERE wp.path NOT IN ('BASE', '/notfound', '/forbidden')
+                    WHERE wp.path NOT IN ('BASE', 'ADMIN_BASE', '/notfound', '/forbidden')
                       AND wp.active = TRUE
                     ORDER BY wp.path, p.grantedAt DESC
                 `;
@@ -239,38 +251,49 @@ class KoreWeb {
 
     async loadPageFromDatabase(req, res, requestPath) {
         try {
-            // Define public pages that don't require authentication
-            const publicPages = ['/login', '/usersetup', '/notfound'];
-            const isPublicPage = publicPages.includes(requestPath);
-
-            // Validate token for protected pages
-            if (!isPublicPage) {
-                const tokenValidation = await this.validateAndRefreshToken(req, res);
-                if (!tokenValidation.valid) {
-                    // Token invalid and couldn't be refreshed, redirect to login
-                    res.writeHead(302, { 'Location': '/login' });
-                    res.end();
-                    return;
-                }
-            }
-
             const connection = await this.pool.getConnection();
             try {
-                // Try to find the requested page
-                const pageQuery = `SELECT id, path, title, code, allowedIPs FROM kore_sys.web_pages WHERE path = ? AND active = TRUE`;
+                // Try to find the requested page - this now has to happen
+                // BEFORE the auth decision below, not after, since a
+                // type = 'public' page needs its own row's `type` read
+                // before we know whether auth can be skipped. Previously
+                // this query ran only after the auth check passed,
+                // specifically to avoid a DB hit for the hardcoded
+                // publicPages paths - that's no longer possible once
+                // "public" can also be a per-row, data-driven property
+                // rather than only a fixed list of paths.
+                const pageQuery = `SELECT id, path, title, code, type, allowedIPs FROM kore_sys.web_pages WHERE path = ? AND active = TRUE`;
                 global.consoleLog('Web', `Querying for page: ${requestPath}`, 4);
                 const [pageRows] = await connection.execute(pageQuery, [requestPath]);
                 global.consoleLog('Web', `Query returned ${pageRows.length} rows`, 4);
 
-                let pageData = null;
-                if (pageRows.length > 0) {
-                    pageData = pageRows[0];
+                let pageData = pageRows.length > 0 ? pageRows[0] : null;
+
+                // Public pages that don't require authentication - either
+                // hardcoded by path (login/usersetup/notfound have to be
+                // reachable even when the page row lookup above somehow
+                // fails, or before any row exists to carry a `type` at
+                // all) or, now, any page whose own row is type = 'public'.
+                const publicPages = ['/login', '/usersetup', '/notfound'];
+                const isPublicPage = publicPages.includes(requestPath) || (pageData && pageData.type === 'public');
+
+                // Validate token for protected pages
+                if (!isPublicPage) {
+                    const tokenValidation = await this.validateAndRefreshToken(req, res);
+                    if (!tokenValidation.valid) {
+                        // Token invalid and couldn't be refreshed, redirect to login
+                        connection.release();
+                        res.writeHead(302, { 'Location': '/login' });
+                        res.end();
+                        return;
+                    }
                 }
+
 
                 // If page not found, try to load /notfound
                 if (!pageData) {
                     global.consoleLog('Web', 'Page not found, loading /notfound', 3);
-                    const notFoundQuery = `SELECT id, path, title, code, allowedIPs FROM kore_sys.web_pages WHERE path = '/notfound' AND active = TRUE`;
+                    const notFoundQuery = `SELECT id, path, title, code, type, allowedIPs FROM kore_sys.web_pages WHERE path = '/notfound' AND active = TRUE`;
                     const [notFoundRows] = await connection.execute(notFoundQuery);
                     
                     if (notFoundRows.length > 0) {
@@ -305,7 +328,7 @@ class KoreWeb {
                     
                     if (!ipAllowed) {
                         global.consoleLog('Web', `IP denied (${clientIP}), serving /forbidden content`, 2);
-                        const forbiddenQuery = `SELECT id, path, title, code, allowedIPs FROM kore_sys.web_pages WHERE path = '/forbidden' AND active = TRUE`;
+                        const forbiddenQuery = `SELECT id, path, title, code, type, allowedIPs FROM kore_sys.web_pages WHERE path = '/forbidden' AND active = TRUE`;
                         const [forbiddenRows] = await connection.execute(forbiddenQuery);
                         
                         if (forbiddenRows.length > 0) {
@@ -329,7 +352,7 @@ class KoreWeb {
                     if (!hasPermission) {
                         // Permission denied, load /forbidden page content but keep original URL
                         global.consoleLog('Web', 'Permission denied, serving /forbidden content', 2);
-                        const forbiddenQuery = `SELECT id, path, title, code, allowedIPs FROM kore_sys.web_pages WHERE path = '/forbidden' AND active = TRUE`;
+                        const forbiddenQuery = `SELECT id, path, title, code, type, allowedIPs FROM kore_sys.web_pages WHERE path = '/forbidden' AND active = TRUE`;
                         const [forbiddenRows] = await connection.execute(forbiddenQuery);
                         
                         if (forbiddenRows.length > 0) {
@@ -339,15 +362,22 @@ class KoreWeb {
                     }
                 }
 
-                // Load BASE template
-                global.consoleLog('Web', 'Loading BASE template', 4);
-                const baseQuery = `SELECT code FROM kore_sys.web_pages WHERE path = 'BASE' AND active = TRUE`;
-                const [baseRows] = await connection.execute(baseQuery);
-                global.consoleLog('Web', `BASE template query returned ${baseRows.length} rows`, 4);
+                // Load the appropriate base template. Explicit allow-list: 'user'
+                // gets the user-facing BASE wrapper, 'public' gets the minimal
+                // PUBLIC_BASE wrapper (no admin nav/session-dependent chrome -
+                // these pages render for anonymous visitors). Anything else
+                // (including a missing/unexpected type) defaults to ADMIN_BASE
+                // as a guard rail, so a sensitive page never accidentally
+                // renders with less-privileged chrome.
+                const basePath = pageData.type === 'user' ? 'BASE' : (pageData.type === 'public' ? 'PUBLIC_BASE' : 'ADMIN_BASE');
+                global.consoleLog('Web', `Loading ${basePath} template`, 4);
+                const baseQuery = `SELECT code FROM kore_sys.web_pages WHERE path = ? AND active = TRUE`;
+                const [baseRows] = await connection.execute(baseQuery, [basePath]);
+                global.consoleLog('Web', `${basePath} template query returned ${baseRows.length} rows`, 4);
 
                 if (baseRows.length === 0) {
                     res.writeHead(500, { 'Content-Type': 'application/json' });
-                    res.end(JSON.stringify({ error: 'BASE template not found' }));
+                    res.end(JSON.stringify({ error: `${basePath} template not found` }));
                     return;
                 }
 
@@ -476,57 +506,51 @@ class KoreWeb {
                 res.end(JSON.stringify({ error: 'File not found' }));
                 return;
             }
-            
-            global.consoleLog('Web', `${logPrefix} Serving ${filePath} as ${contentType}`, 4);
-            res.writeHead(200, { 'Content-Type': contentType });
-            res.end(data);
-        });
-    }
 
-    /**
-     * Serve library files with caching headers
-     */
-    async serveLibraryFile(req, res, filename, contentType) {
-        try {
-            const filePath = path.join(this.libPath, filename);
+            // Caching. Split by what changes on a deploy:
+            //
+            //   code (.js/.css/.html/.json/.map/.txt) -> 'no-cache'
+            //   images (.png/.jpg/.gif/.svg/.ico/.webp) -> one week
+            //
+            // 'no-cache' does NOT mean "never cache" - it means "cache, but
+            // revalidate before every use". With the ETag below, the browser
+            // sends If-None-Match on each request and gets a 304 with no body
+            // when nothing changed, so repeat loads stay cheap while a deploy
+            // takes effect immediately.
+            //
+            // This matters because these URLs are stable (/lib/base.js, not
+            // /lib/base.a1b2c3.js). A long max-age is the immutable-asset
+            // pattern and is only safe when the filename changes every deploy;
+            // applied to a stable URL it tells browsers to hold a stale copy
+            // without ever asking. That is precisely what serveLibraryFile()
+            // used to do to base.js and base.css with max-age=31536000 - a
+            // deploy would not reach anyone still holding the old copy, and a
+            // hard refresh was not always enough to dislodge it.
+            //
+            // Images get a real max-age because they change rarely and are not
+            // part of a code deploy; a week is short enough that a swapped logo
+            // or favicon works itself out without intervention.
+            const eTag = `"${this.simpleHash(isBinary ? data.toString('base64') : data)}"`;
 
-            // Read file from disk
-            let content;
-            try {
-                content = fs.readFileSync(filePath, 'utf8');
-            } catch (err) {
-                global.consoleLog('Web', `Library file not found: ${filePath}`, 1);
-                res.writeHead(404, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ error: 'Library file not found' }));
-                return;
-            }
-
-            // Generate ETag from content (simple hash)
-            const eTag = `"${this.simpleHash(content)}"`;
-
-            // Check If-None-Match header (browser cache validation)
-            const ifNoneMatch = req.headers['if-none-match'];
-            if (ifNoneMatch === eTag) {
+            if (req.headers['if-none-match'] === eTag) {
                 res.writeHead(304, { 'ETag': eTag });
                 res.end();
                 return;
             }
 
-            // Set caching headers
+            const cacheControl = isBinary || filePath.endsWith('.svg')
+                ? 'public, max-age=604800'   // 1 week - images
+                : 'no-cache';                // revalidate every time - code
+
+            global.consoleLog('Web', `${logPrefix} Serving ${filePath} as ${contentType}`, 4);
             res.writeHead(200, {
                 'Content-Type': contentType,
-                'Cache-Control': 'public, max-age=31536000', // 1 year
+                'Cache-Control': cacheControl,
                 'ETag': eTag,
-                'Last-Modified': new Date().toUTCString()
+                'Content-Length': Buffer.byteLength(data)
             });
-
-            res.end(content);
-
-        } catch (error) {
-            global.consoleLog('Web', `Error serving library file: ${error.message}`, 1);
-            res.writeHead(500, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ error: 'Internal server error' }));
-        }
+            res.end(data);
+        });
     }
 
     /**

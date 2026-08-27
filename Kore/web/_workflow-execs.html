@@ -19,8 +19,8 @@
         <div id="execsContent"></div>
     </div>
 
-    <script src="/lib/wf-core.js"></script>
-    <script>
+    <script type="module">
+        await import('/lib/wf-core.js');
         let currentOffset = 0;
         const pageSize = 50;
         let totalExecutions = 0;

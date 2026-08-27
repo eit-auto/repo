@@ -37,6 +37,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const url = require('url');
+const vm = require('vm');
 const { spawn } = require('child_process');
 const WebSocket = require('ws');
 const mysql = require('mysql2/promise');
@@ -233,10 +234,301 @@ async function logAudit(action, targetType, targetId, targetName, performedBy, d
     }
 }
 
+// Export to global so subsystems (e.g. plugins.js's secure_config write path) can use it
+global.logAudit = logAudit;
+
 // Daily logging setup
 const LOGS_DIR = 'D:\\Kore\\logs';
 let logStream = null;
 let currentLogDate = null;
+
+/**
+ * ===== Nightly Maintenance Scheduler =====
+ *
+ * Runs modular, DB-defined maintenance tasks (stored in `maint_tasks`, same
+ * execution model as `plugins.code`) on a nightly/weekly/monthly cadence,
+ * per the schedule times configured in `system_config.maint_config`.
+ *
+ * Ticks once a minute. Re-queries system_config and maint_tasks fresh on
+ * every tick (rather than caching) so admin edits to schedule/task config
+ * take effect without requiring a server restart.
+ */
+
+let maintenanceSchedulerInterval = null;
+
+/**
+ * Get the current date/time broken into components, evaluated in the
+ * configured application timezone (global.timezone) - so schedule times
+ * like "02:00" are matched against the org's local time, not server/UTC time.
+ */
+function getMaintenanceTimeParts(timezone) {
+    const tz = timezone || 'UTC';
+    const now = new Date();
+
+    const formatter = new Intl.DateTimeFormat('en-US', {
+        timeZone: tz,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+        weekday: 'short'
+    });
+
+    const map = {};
+    for (const part of formatter.formatToParts(now)) {
+        map[part.type] = part.value;
+    }
+
+    const weekdayMap = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+
+    // Some ICU implementations render midnight as hour "24" with hour12:false
+    let hour = parseInt(map.hour, 10);
+    if (hour === 24) hour = 0;
+
+    return {
+        year: parseInt(map.year, 10),
+        month: parseInt(map.month, 10),
+        day: parseInt(map.day, 10),
+        hour,
+        minute: parseInt(map.minute, 10),
+        dayOfWeek: weekdayMap[map.weekday]
+    };
+}
+
+/**
+ * Determine which cadences (nightly/weekly/monthly) are due to run right now,
+ * per the configured schedule times in system_config.maint_config.
+ */
+function getDueCadences(maintConfig, timeParts) {
+    const due = [];
+
+    for (const cadence of ['nightly', 'weekly', 'monthly']) {
+        const schedule = maintConfig?.[cadence];
+        if (!schedule || !schedule.time) continue;
+
+        const [schedHourStr, schedMinuteStr] = schedule.time.split(':');
+        const schedHour = parseInt(schedHourStr, 10);
+        const schedMinute = parseInt(schedMinuteStr, 10);
+
+        if (timeParts.hour !== schedHour || timeParts.minute !== schedMinute) continue;
+
+        if (cadence === 'weekly' && schedule.dayOfWeek !== undefined && schedule.dayOfWeek !== null) {
+            if (parseInt(schedule.dayOfWeek, 10) !== timeParts.dayOfWeek) continue;
+        }
+
+        if (cadence === 'monthly' && schedule.dayOfMonth !== undefined && schedule.dayOfMonth !== null) {
+            if (parseInt(schedule.dayOfMonth, 10) !== timeParts.day) continue;
+        }
+
+        due.push(cadence);
+    }
+
+    return due;
+}
+
+/**
+ * Check whether a maintenance task has already completed successfully today.
+ * Uses the database's own notion of "today" (CURDATE()) rather than computing
+ * it in the app's configured timezone, since it's just comparing against
+ * performedAt values that were themselves written via the DB's NOW().
+ */
+async function maintenanceTaskAlreadySucceededToday(taskId) {
+    const [rows] = await korePool.query(
+        `SELECT details FROM audit_log
+         WHERE action = 'maintenance_task_run' AND targetId = ? AND performedAt >= CURDATE()
+         ORDER BY performedAt DESC LIMIT 1`,
+        [taskId]
+    );
+
+    if (rows.length === 0) return false;
+
+    let details = rows[0].details;
+    try {
+        details = typeof details === 'string' ? JSON.parse(details) : details;
+    } catch (e) {
+        return false;
+    }
+
+    return !!(details && details.status === 'success');
+}
+
+/**
+ * Default max time a maintenance task is allowed to run before the
+ * scheduler stops waiting on it and moves on. Overridable per-task via
+ * maint_tasks.config.timeoutMs.
+ */
+const DEFAULT_MAINTENANCE_TASK_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
+
+/**
+ * Load and execute a single maintenance task's DB-stored code, same
+ * execution model as plugins.js's _loadPluginObject(), but loaded via vm
+ * (rather than new Function) and guarded with a timeout.
+ *
+ * Important limitation: the vm timeout only bounds the *synchronous*
+ * define/require step below (script.runInContext) - vm timeouts do not
+ * bound async code, and a task's run() is expected to be async (it's doing
+ * DB I/O). The actual protection against a hung run() is the Promise.race
+ * timeout further down. That's a *soft* timeout: it stops the scheduler
+ * from waiting on the task indefinitely and logs it as failed, but it does
+ * NOT forcibly terminate whatever the task was doing - e.g. an in-flight DB
+ * query keeps running in the background until it resolves or errors on its
+ * own. True forced termination would require running the task in a
+ * worker_thread, which is a bigger change than this pass covers.
+ *
+ * @param {object} taskRow - row from maint_tasks
+ * @param {object} [options]
+ * @param {boolean} [options.force] - if true, skip the "already succeeded
+ *   today" check (used for manual "Run Now" triggers from the admin UI)
+ * @returns {Promise<{success: boolean, skipped?: boolean, message?: string,
+ *   durationMs?: number, itemsProcessed?: (number|null), error?: string}>}
+ */
+async function runMaintenanceTask(taskRow, options = {}) {
+    const taskId = taskRow.task_id;
+    const force = !!options.force;
+
+    if (!force) {
+        try {
+            const alreadyRan = await maintenanceTaskAlreadySucceededToday(taskId);
+            if (alreadyRan) {
+                global.consoleLog('Kore', `Maintenance task already completed today, skipping: ${taskId}`, 4);
+                return { success: true, skipped: true, message: 'Already completed today' };
+            }
+        } catch (err) {
+            // Fail safe: if we can't confirm whether it already ran, don't risk a duplicate run
+            global.consoleLog('Kore', `ERROR checking last run for maintenance task ${taskId}: ${err.message}`, 1);
+            return { success: false, error: err.message };
+        }
+    }
+
+    const startedAt = Date.now();
+
+    try {
+        let config = {};
+        if (taskRow.config) {
+            try {
+                config = typeof taskRow.config === 'string' ? JSON.parse(taskRow.config) : taskRow.config;
+            } catch (e) {
+                global.consoleLog('Kore', `WARNING: Could not parse config for maintenance task ${taskId}`, 2);
+            }
+        }
+
+        const timeoutMs = (config && Number.isFinite(config.timeoutMs) && config.timeoutMs > 0)
+            ? config.timeoutMs
+            : DEFAULT_MAINTENANCE_TASK_TIMEOUT_MS;
+
+        // Load the task's code in a vm context. Same capabilities as
+        // plugins.js today (module/exports/require/console/global all
+        // passed through) - this pass only adds the timeout/isolation
+        // wrapper, not capability narrowing.
+        const taskObj = { exports: {} };
+        const sandbox = { module: taskObj, exports: taskObj.exports, require, console, global };
+        vm.createContext(sandbox);
+        const script = new vm.Script(taskRow.code, { filename: `maint_task:${taskId}` });
+        script.runInContext(sandbox, { timeout: 2000 });
+
+        const taskExports = sandbox.module.exports;
+        if (typeof taskExports.run !== 'function') {
+            throw new Error('Task code did not export a run() function');
+        }
+
+        let timeoutHandle;
+        const timeoutPromise = new Promise((_, reject) => {
+            timeoutHandle = setTimeout(() => {
+                reject(new Error(`Task timed out after ${timeoutMs}ms`));
+            }, timeoutMs);
+        });
+
+        let result;
+        try {
+            result = await Promise.race([
+                taskExports.run(korePool, config),
+                timeoutPromise
+            ]);
+        } finally {
+            clearTimeout(timeoutHandle);
+        }
+
+        const durationMs = Date.now() - startedAt;
+        const itemsProcessed = (result && result.itemsProcessed !== undefined) ? result.itemsProcessed : null;
+
+        global.consoleLog('Kore', `Maintenance task completed: ${taskId} (${durationMs}ms)`, 3);
+
+        await logAudit('maintenance_task_run', 'maintenance', taskId, taskRow.display_name, 'system', {
+            status: 'success',
+            cadence: taskRow.cadence,
+            durationMs,
+            itemsProcessed
+        }, null);
+
+        return { success: true, durationMs, itemsProcessed };
+    } catch (err) {
+        const durationMs = Date.now() - startedAt;
+        global.consoleLog('Kore', `ERROR running maintenance task ${taskId}: ${err.message}`, 1);
+
+        await logAudit('maintenance_task_run', 'maintenance', taskId, taskRow.display_name, 'system', {
+            status: 'failure',
+            cadence: taskRow.cadence,
+            durationMs,
+            error: err.message
+        }, null);
+
+        return { success: false, durationMs, error: err.message };
+    }
+}
+
+/**
+ * One scheduler tick: check which cadences are due, and if any are, run
+ * every enabled task assigned to those cadences.
+ */
+async function runMaintenanceSchedulerTick() {
+    const [configRows] = await korePool.query('SELECT maint_config FROM system_config WHERE id = 1');
+    const rawMaintConfig = configRows[0]?.maint_config;
+    if (!rawMaintConfig) return;
+
+    let maintConfig;
+    try {
+        maintConfig = typeof rawMaintConfig === 'string' ? JSON.parse(rawMaintConfig) : rawMaintConfig;
+    } catch (e) {
+        global.consoleLog('Kore', `WARNING: Could not parse maint_config: ${e.message}`, 2);
+        return;
+    }
+
+    const timeParts = getMaintenanceTimeParts(global.timezone);
+    const dueCadences = getDueCadences(maintConfig, timeParts);
+    if (dueCadences.length === 0) return;
+
+    const [taskRows] = await korePool.query(
+        'SELECT * FROM maint_tasks WHERE enabled = TRUE AND cadence IN (?)',
+        [dueCadences]
+    );
+
+    if (taskRows.length === 0) return;
+
+    global.consoleLog('Kore', `Nightly Maintenance: ${dueCadences.join(', ')} due, running ${taskRows.length} task(s)`, 3);
+
+    for (const taskRow of taskRows) {
+        // Run tasks independently - one failing should never block the others
+        await runMaintenanceTask(taskRow);
+    }
+}
+
+/**
+ * Start the maintenance scheduler's once-a-minute tick. Safe to call more
+ * than once; only starts the interval if it isn't already running.
+ */
+function startMaintenanceScheduler() {
+    if (maintenanceSchedulerInterval) return;
+
+    global.consoleLog('Kore', 'Nightly Maintenance scheduler started (checking every 60s)', 3);
+
+    maintenanceSchedulerInterval = setInterval(() => {
+        runMaintenanceSchedulerTick().catch(err => {
+            global.consoleLog('Kore', `ERROR in maintenance scheduler tick: ${err.message}`, 1);
+        });
+    }, 60000);
+}
 
 function getLogFilePath() {
     const now = new Date();
@@ -1454,6 +1746,68 @@ function handleValidateSession(req, res) {
  * POST /kore/admin/reload-api-members
  */
 /**
+ * POST /kore/admin/run-maintenance-task?taskId=...
+ * Manually trigger a single maintenance task immediately. Bypasses the
+ * "already succeeded today" check, since this is an explicit forced run.
+ */
+async function handleRunMaintenanceTask(req, res) {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Content-Type', 'application/json');
+
+    if (req.method !== 'POST') {
+        res.writeHead(405);
+        res.end(JSON.stringify({ status: 'error', message: 'Method not allowed. Use POST.' }));
+        return;
+    }
+
+    try {
+        const parsedUrl = url.parse(req.url, true);
+        const taskId = parsedUrl.query.taskId;
+
+        if (!taskId) {
+            res.writeHead(400);
+            res.end(JSON.stringify({ status: 'error', message: 'Missing taskId query parameter' }));
+            return;
+        }
+
+        const [taskRows] = await korePool.query('SELECT * FROM maint_tasks WHERE task_id = ?', [taskId]);
+        if (taskRows.length === 0) {
+            res.writeHead(404);
+            res.end(JSON.stringify({ status: 'error', message: `No maintenance task found for taskId: ${taskId}` }));
+            return;
+        }
+
+        const taskRow = taskRows[0];
+        global.consoleLog('Kore', `Manually triggering maintenance task: ${taskId}`, 3);
+
+        const result = await runMaintenanceTask(taskRow, { force: true });
+
+        if (result.success) {
+            const itemsNote = (result.itemsProcessed !== undefined && result.itemsProcessed !== null)
+                ? ` (${result.itemsProcessed} item(s) processed)`
+                : '';
+            res.writeHead(200);
+            res.end(JSON.stringify({
+                status: 'success',
+                message: `Task "${taskRow.display_name}" completed successfully${itemsNote}`,
+                result
+            }));
+        } else {
+            res.writeHead(500);
+            res.end(JSON.stringify({
+                status: 'error',
+                message: `Task "${taskRow.display_name}" failed: ${result.error}`,
+                result
+            }));
+        }
+    } catch (error) {
+        global.consoleLog('Kore', `ERROR in handleRunMaintenanceTask: ${error.message}`, 1);
+        res.writeHead(500);
+        res.end(JSON.stringify({ status: 'error', message: error.message }));
+    }
+}
+
+/**
  * POST /kore/admin/reload-subsystem
  * Reload one or more subsystems (resources, auth, web, persephone, plugins, or all)
  * 
@@ -1872,526 +2226,8 @@ async function handleSystemHealth(req, res) {
     }
 }
 
-/**
- * HTTP endpoint to load/reload a specific plugin
- * POST /kore/plugins/load?name=pluginName
- */
-async function handleLoadPlugin(req, res) {
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Content-Type', 'application/json');
-    
-    try {
-        // Get plugin name from query params
-        const url = require('url');
-        const parsedUrl = url.parse(req.url, true);
-        const pluginName = parsedUrl.query.name;
-        
-        if (!pluginName) {
-            res.writeHead(400);
-            res.end(JSON.stringify({ 
-                status: 'error',
-                message: 'Missing plugin name parameter'
-            }));
-            return;
-        }
-        
-        global.consoleLog('Kore', `Loading plugin: ${pluginName}`, 3);
-        const result = await global.Plugins.loadPlugin(pluginName);
-        
-        res.writeHead(200);
-        res.end(JSON.stringify(result));
-    } catch (error) {
-        global.consoleLog('Kore', `ERROR loading plugin: ${error.message}`, 1);
-        res.writeHead(500);
-        res.end(JSON.stringify({ 
-            status: 'error',
-            message: error.message
-        }));
-    }
-}
+/* Plugin management/execution handlers moved to plugins.js (KorePlugins class) - see Plugins System Guide.md */
 
-/**
- * HTTP endpoint to reload all plugins
- * POST /kore/plugins/reload-all
- */
-async function handleReloadAllPlugins(req, res) {
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Content-Type', 'application/json');
-    
-    try {
-        global.consoleLog('Kore', 'Reloading all plugins...', 3);
-        const result = await global.Plugins.reloadAllPlugins();
-        
-        res.writeHead(200);
-        res.end(JSON.stringify(result));
-    } catch (error) {
-        global.consoleLog('Kore', `ERROR reloading all plugins: ${error.message}`, 1);
-        res.writeHead(500);
-        res.end(JSON.stringify({ 
-            status: 'error',
-            message: error.message
-        }));
-    }
-}
-
-/**
- * HTTP endpoint to get full details of a specific plugin
- * GET /kore/plugins/details?name=pluginName
- */
-async function handleGetPluginDetails(req, res, helpers) {
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Content-Type', 'application/json');
-
-    try {
-        const url = require('url');
-        const parsedUrl = url.parse(req.url, true);
-        const pluginName = parsedUrl.query.name;
-
-        if (!pluginName) {
-            res.writeHead(400);
-            res.end(JSON.stringify({
-                error: 'Missing plugin name parameter'
-            }));
-            return;
-        }
-
-        if (!korePool) {
-            res.writeHead(500);
-            res.end(JSON.stringify({
-                error: 'Database connection not available'
-            }));
-            return;
-        }
-
-        const connection = await korePool.getConnection();
-        try {
-            const [rows] = await connection.query(
-                'SELECT id, name, display_name, description, version, code, routes, rate_limit, config, enabled, created_at, updated_at, created_by, updated_by FROM plugins WHERE name = ?',
-                [pluginName]
-            );
-
-            if (rows.length === 0) {
-                res.writeHead(404);
-                res.end(JSON.stringify({
-                    error: 'Plugin not found'
-                }));
-                return;
-            }
-
-            const plugin = rows[0];
-            res.writeHead(200);
-            res.end(JSON.stringify({
-                success: true,
-                plugin: {
-                    id: plugin.id,
-                    name: plugin.name,
-                    display_name: plugin.display_name,
-                    description: plugin.description,
-                    version: plugin.version,
-                    code: plugin.code,
-                    routes: typeof plugin.routes === 'string' ? JSON.parse(plugin.routes) : plugin.routes,
-                    rateLimit: plugin.rate_limit,
-                    config: typeof plugin.config === 'string' ? JSON.parse(plugin.config) : plugin.config,
-                    enabled: plugin.enabled,
-                    created_at: plugin.created_at,
-                    updated_at: plugin.updated_at,
-                    created_by: plugin.created_by,
-                    updated_by: plugin.updated_by
-                }
-            }));
-        } finally {
-            connection.release();
-        }
-    } catch (error) {
-        global.consoleLog('Kore', `ERROR getting plugin details: ${error.message}`, 1);
-        res.writeHead(500);
-        res.end(JSON.stringify({
-            error: error.message
-        }));
-    }
-}
-
-/**
- * Convert ISO datetime string to MySQL format (YYYY-MM-DD HH:MM:SS)
- */
-function convertToMySQLDatetime(isoString) {
-    if (!isoString) return getTimestamp().replace('T', ' ').split('.')[0];
-    
-    // Handle both ISO format and already converted format
-    const converted = isoString.replace('T', ' ').split('.')[0].replace('Z', '');
-    return converted;
-}
-
-/**
- * HTTP endpoint to update plugin settings
- * POST /kore/plugins/update?name=pluginName
- */
-/**
- * POST /kore/plugins/add
- * Create a new plugin
- * Body: { name, display_name, description, enabled, version, code, config, username }
- */
-async function handleAddPlugin(req, res) {
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Content-Type', 'application/json');
-    res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-
-    if (req.method === 'OPTIONS') {
-        res.writeHead(200);
-        res.end();
-        return;
-    }
-
-    if (req.method !== 'POST') {
-        res.writeHead(405);
-        res.end(JSON.stringify({ error: 'Method not allowed. Use POST.' }));
-        return;
-    }
-
-    let body = '';
-    req.on('data', (chunk) => {
-        body += chunk.toString();
-        if (body.length > 1e6) {
-            req.connection.destroy();
-        }
-    });
-
-    req.on('end', async () => {
-        const connection = await korePool.getConnection();
-        try {
-            let pluginData;
-            try {
-                pluginData = JSON.parse(body);
-            } catch (e) {
-                res.writeHead(400);
-                res.end(JSON.stringify({ error: 'Invalid JSON in request body' }));
-                return;
-            }
-
-            const { name, display_name, description, enabled, version, code, config, username } = pluginData;
-
-            // Validate required fields
-            if (!name || !display_name || !username) {
-                res.writeHead(400);
-                res.end(JSON.stringify({ 
-                    error: 'Missing required fields: name, display_name, username' 
-                }));
-                return;
-            }
-
-            // Check if plugin already exists
-            const [existingPlugin] = await connection.query(
-                'SELECT id FROM plugins WHERE name = ?',
-                [name]
-            );
-
-            if (existingPlugin.length > 0) {
-                res.writeHead(409);
-                res.end(JSON.stringify({ error: 'Plugin with this name already exists' }));
-                return;
-            }
-
-            // Set timestamps
-            const createdAt = getTimestamp();
-            const updatedAt = createdAt;
-
-            // Convert enabled to boolean (handle string/number values from forms)
-            let enabledValue = 0;
-            if (enabled === true || enabled === 1 || enabled === '1' || enabled === 'true' || enabled === 'on') {
-                enabledValue = 1;
-            }
-
-            // Insert new plugin
-            const [insertResult] = await connection.query(
-                `INSERT INTO plugins 
-                (name, display_name, description, enabled, version, code, config, created_at, updated_at, created_by, updated_by) 
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                [
-                    name,
-                    display_name,
-                    description || null,
-                    enabledValue,
-                    version || '1.0',
-                    code || '',
-                    typeof config === 'string' ? config : JSON.stringify(config || {}),
-                    createdAt,
-                    updatedAt,
-                    username,
-                    username
-                ]
-            );
-
-            const pluginId = insertResult.insertId;
-
-            // Load the plugin into memory
-            try {
-                await global.Plugins.loadPlugin(name);
-                global.consoleLog('Kore', `New plugin created and loaded: ${name} (ID: ${pluginId})`, 3);
-            } catch (loadError) {
-                global.consoleLog('Kore', `Plugin created but failed to load: ${name} - ${loadError.message}`, 2);
-                // Plugin is created in DB even if it fails to load
-            }
-
-            // Fetch and return the created plugin
-            const [createdPluginRows] = await connection.query(
-                'SELECT id, name, display_name, description, version, code, config, enabled, created_at, updated_at, created_by, updated_by FROM plugins WHERE id = ?',
-                [pluginId]
-            );
-
-            const createdPlugin = createdPluginRows[0];
-            
-            // Parse config if it's a string
-            if (typeof createdPlugin.config === 'string') {
-                try {
-                    createdPlugin.config = JSON.parse(createdPlugin.config);
-                } catch (e) {
-                    createdPlugin.config = {};
-                }
-            }
-
-            res.writeHead(201);
-            res.end(JSON.stringify({
-                success: true,
-                message: 'Plugin created successfully',
-                plugin: createdPlugin
-            }));
-
-        } catch (error) {
-            global.consoleLog('Kore', `Error creating plugin: ${error.message}`, 1);
-            res.writeHead(500);
-            res.end(JSON.stringify({ error: error.message }));
-        } finally {
-            connection.release();
-        }
-    });
-}
-
-async function handleUpdatePlugin(req, res) {
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Content-Type', 'application/json');
-    res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Session-Token');
-
-    if (req.method === 'OPTIONS') {
-        res.writeHead(200);
-        res.end();
-        return;
-    }
-
-    if (req.method !== 'POST') {
-        res.writeHead(405);
-        res.end(JSON.stringify({ error: 'Method not allowed. Use POST.' }));
-        return;
-    }
-
-    // Parse query string
-    const urlParts = req.url.split('?');
-    const queryString = urlParts[1] || '';
-    const params = new URLSearchParams(queryString);
-    const pluginName = params.get('name');
-    
-    if (!pluginName) {
-        res.writeHead(400);
-        res.end(JSON.stringify({ error: 'Missing plugin name in query string' }));
-        return;
-    }
-
-    const sessionToken = req.headers['x-session-token'];
-    if (!sessionToken) {
-        res.writeHead(401);
-        res.end(JSON.stringify({ error: 'No session token' }));
-        return;
-    }
-
-    let body = '';
-    req.on('data', (chunk) => {
-        body += chunk.toString();
-        if (body.length > 1e6) {
-            req.connection.destroy();
-        }
-    });
-
-    req.on('end', async () => {
-        const connection = await korePool.getConnection();
-        try {
-            let updates;
-            try {
-                updates = JSON.parse(body);
-            } catch (e) {
-                res.writeHead(400);
-                res.end(JSON.stringify({ error: 'Invalid JSON in request body' }));
-                return;
-            }
-
-            // Prepare update fields
-            const updateFields = [];
-            const updateValues = [];
-
-            if (updates.hasOwnProperty('display_name')) {
-                updateFields.push('display_name = ?');
-                updateValues.push(updates.display_name);
-            }
-
-            if (updates.hasOwnProperty('version')) {
-                updateFields.push('version = ?');
-                updateValues.push(updates.version);
-            }
-
-            if (updates.hasOwnProperty('description')) {
-                updateFields.push('description = ?');
-                updateValues.push(updates.description);
-            }
-
-            if (updates.hasOwnProperty('enabled')) {
-                updateFields.push('enabled = ?');
-                updateValues.push(updates.enabled ? 1 : 0);
-            }
-
-            if (updates.hasOwnProperty('config')) {
-                updateFields.push('config = ?');
-                updateValues.push(JSON.stringify(updates.config));
-            }
-
-            if (updates.hasOwnProperty('code')) {
-                updateFields.push('code = ?');
-                updateValues.push(updates.code);
-            }
-
-            if (updates.hasOwnProperty('updated_at')) {
-                updateFields.push('updated_at = ?');
-                updateValues.push(updates.updated_at);
-            }
-
-            if (updates.hasOwnProperty('updated_by')) {
-                updateFields.push('updated_by = ?');
-                updateValues.push(updates.updated_by);
-            }
-
-            if (updateFields.length === 0) {
-                res.writeHead(400);
-                res.end(JSON.stringify({ error: 'No valid fields to update' }));
-                return;
-            }
-
-            // Add plugin name to query values
-            updateValues.push(pluginName);
-
-            // Execute update
-            const query = `UPDATE plugins SET ${updateFields.join(', ')} WHERE name = ?`;
-            global.consoleLog('Kore', `Updating plugin: ${pluginName}`, 3);
-            
-            const [result] = await connection.query(query, updateValues);
-
-            if (result.affectedRows === 0) {
-                res.writeHead(404);
-                res.end(JSON.stringify({ error: `Plugin ${pluginName} not found` }));
-                return;
-            }
-
-            // Get plugin_id for history record
-            const [pluginRows] = await connection.query(
-                'SELECT id FROM plugins WHERE name = ?',
-                [pluginName]
-            );
-
-            if (pluginRows.length > 0) {
-                const pluginId = pluginRows[0].id;
-                
-                // If originalConfig provided, save it directly to plugin_history
-                if (updates.originalConfig) {
-                    const origConfig = updates.originalConfig;
-                    
-                    // Insert into plugin_history with ON DUPLICATE KEY UPDATE
-                    const historyQuery = `
-                        INSERT INTO plugin_history (plugin_id, version, display_name, description, enabled, config, created_at, updated_at, created_by, updated_by)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                        ON DUPLICATE KEY UPDATE
-                            display_name = VALUES(display_name),
-                            description = VALUES(description),
-                            enabled = VALUES(enabled),
-                            config = VALUES(config),
-                            updated_at = VALUES(updated_at),
-                            updated_by = VALUES(updated_by)
-                    `;
-
-                    const historyValues = [
-                        pluginId,
-                        origConfig.version,
-                        origConfig.display_name,
-                        origConfig.description,
-                        origConfig.enabled,
-                        origConfig.config ? JSON.stringify(origConfig.config) : null,
-                        convertToMySQLDatetime(origConfig.created_at),
-                        convertToMySQLDatetime(origConfig.updated_at),
-                        origConfig.created_by,
-                        origConfig.updated_by
-                    ];
-
-                    global.consoleLog('Kore', `DEBUG: Saving plugin_history for ${pluginName} v${origConfig.version}`, 4);
-
-                    try {
-                        await connection.query(historyQuery, historyValues);
-                        global.consoleLog('Kore', `Plugin history saved for ${pluginName} v${origConfig.version}`, 3);
-                    } catch (historyError) {
-                        global.consoleLog('Kore', `Warning: Failed to save plugin history: ${historyError.message}`, 2);
-                        // Don't fail the entire request if history save fails, just log it
-                    }
-                }
-            }
-
-            res.writeHead(200);
-            res.end(JSON.stringify({
-                success: true,
-                message: `Plugin ${pluginName} updated successfully`,
-                timestamp: getTimestamp()
-            }));
-
-            global.consoleLog('Kore', `Plugin ${pluginName} updated by ${updates.updated_by}`, 3);
-        } catch (error) {
-            global.consoleLog('Kore', `ERROR updating plugin: ${error.message}`, 1);
-            res.writeHead(500);
-            res.end(JSON.stringify({
-                error: error.message,
-                timestamp: getTimestamp()
-            }));
-        } finally {
-            connection.release();
-        }
-    });
-}
-
-/**
- * HTTP endpoint to list all loaded plugins
- * GET /kore/plugins/list
- */
-function handleListPlugins(req, res) {
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Content-Type', 'application/json');
-    
-    try {
-        const plugins = global.Plugins.listPlugins();
-        
-        res.writeHead(200);
-        res.end(JSON.stringify({
-            status: 'success',
-            pluginsLoaded: plugins.length,
-            plugins: plugins
-        }));
-    } catch (error) {
-        global.consoleLog('Kore', `ERROR listing plugins: ${error.message}`, 1);
-        res.writeHead(500);
-        res.end(JSON.stringify({ 
-            status: 'error',
-            message: error.message
-        }));
-    }
-}
-
-/**
- * HTTP handler for plugin requests
- * Routes requests to loaded plugins based on URL
- */
 /**
  * POST /kore/email/smtp
  * Send email via configured SMTP profile
@@ -2676,90 +2512,7 @@ try {
     });
 }
 
-async function handlePluginRequest(req, res) {
-    const clientIP = req.socket.remoteAddress;
-    const route = req.url.split('?')[0]; // Remove query params
-    
-    global.consoleLog('Kore', '=== PLUGIN REQUEST ===', 4);
-    global.consoleLog('Kore', `Route: ${route}`, 4);
-    
-    // Get the plugin handler for this route
-    const pluginHandler = global.Plugins.getHandler(route);
-    
-    if (!pluginHandler) {
-        global.consoleLog('Kore', `No plugin handler found for ${route}`, 2);
-        res.writeHead(404, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'Plugin not found' }));
-        return;
-    }
-    
-    const { plugin, handler } = pluginHandler;
-    
-    // Check rate limit (plugin-specific or global)
-    if (!isIPWhitelisted(clientIP)) {
-        const rateLimitEndpoint = route;
-        const rateLimitCheck = checkRateLimit(clientIP, rateLimitEndpoint);
-        if (!rateLimitCheck.allowed) {
-            global.consoleLog('Kore', `Rate limit exceeded for IP ${clientIP} on ${route}`, 2);
-            res.writeHead(429, { 
-                'Content-Type': 'application/json',
-                'Retry-After': rateLimitCheck.resetIn
-            });
-            res.end(JSON.stringify({ 
-                error: 'Rate limit exceeded',
-                resetIn: rateLimitCheck.resetIn
-            }));
-            return;
-        }
-    }
-    
-    // Get operation manager for this plugin
-    const manager = global.Plugins.getOperationManager(plugin.name);
-    if (!manager) {
-        global.consoleLog('Kore', `No operation manager for plugin ${plugin.name}`, 1);
-        res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'Plugin manager not initialized' }));
-        return;
-    }
-
-    // If reload is queued or reloading, reject the operation
-    if (manager.reloadQueued || manager.isReloading) {
-        global.consoleLog('Kore', `Operation rejected for ${plugin.name} due to pending reload`, 2);
-        res.writeHead(503, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ 
-            error: 'Plugin is reloading',
-            reloadId: manager.reloadQueued?.id
-        }));
-        return;
-    }
-
-    // Create operation ID
-    const opId = `op-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-    manager.startOperation(opId);
-    
-    // Create helpers object for the plugin
-    const helpers = {
-        isIPWhitelisted,
-        checkRateLimit,
-        config: plugin.config
-    };
-    
-    try {
-        // Call the plugin handler
-        await handler(req, res, helpers);
-    } catch (error) {
-        global.consoleLog('Kore', `ERROR in plugin ${plugin.name}: ${error.message}`, 1);
-        if (!res.headersSent) {
-            res.writeHead(500, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({
-                error: `Module error: ${error.message}`
-            }));
-        }
-    } finally {
-        // End the operation and check if reload should start
-        await manager.endOperation(opId);
-    }
-}
+/* Plugin management/execution handlers moved to plugins.js (KorePlugins class) - see Plugins System Guide.md */
 
 /**
  * HTTP endpoint for server status
@@ -3716,6 +3469,8 @@ const requestHandler = async (req, res) => {
             res.writeHead(404, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ error: 'Endpoint not found' }));
         }
+    } else if (req.url.startsWith('/kore/admin/run-maintenance-task')) {
+        handleRunMaintenanceTask(req, res);
     } else if (req.url === '/kore/admin/reload-auth' || req.url.startsWith('/kore/admin/reload-subsystem')) {
         handleReloadSubsystem(req, res);
     } else if (req.url === '/kore/admin/reload-api-members') {
@@ -3727,34 +3482,38 @@ const requestHandler = async (req, res) => {
     } else if (req.url.startsWith('/kore/email/smtp')) {
         handleSendEmail(req, res);
     } else if (req.url === '/kore/plugins/list') {
-        handleListPlugins(req, res);
+        global.Plugins.handleListPlugins(req, res);
     } else if (req.url.startsWith('/kore/plugins/add')) {
-        handleAddPlugin(req, res);
+        global.Plugins.handleAddPlugin(req, res);
     } else if (req.url.startsWith('/kore/plugins/details')) {
-        handleGetPluginDetails(req, res);
+        global.Plugins.handleGetPluginDetails(req, res);
     } else if (req.url.startsWith('/kore/plugins/update')) {
-        handleUpdatePlugin(req, res);
+        global.Plugins.handleUpdatePlugin(req, res);
+    } else if (req.url.startsWith('/kore/plugins/secure-config/update')) {
+        global.Plugins.handleUpdatePluginSecureConfig(req, res);
+    } else if (req.url.startsWith('/kore/plugins/secure-config')) {
+        global.Plugins.handleGetPluginSecureConfig(req, res);
     } else if (req.url.startsWith('/kore/plugins/load')) {
-        handleLoadPlugin(req, res);
+        global.Plugins.handleLoadPlugin(req, res);
     } else if (req.url === '/kore/plugins/reload-all') {
-        handleReloadAllPlugins(req, res);
+        global.Plugins.handleReloadAllPlugins(req, res);
     } else if (req.url === '/favicon.ico') {
         res.writeHead(204);
         res.end();
     } else if (req.url.startsWith('/node_modules/')) {
         // Node modules handled by web.js
-        await Web.handleRoute(req, res);
+        await global.Web.handleRoute(req, res);
     } else if (await global.Plugins.handleRoute(req, res)) {
         // Route handled by Plugins module
     } else if (global.Plugins.getHandler(req.url.split('?')[0])) {
         // Route to loaded plugins (check before Persephone)
-        handlePluginRequest(req, res);
+        global.Plugins.handlePluginRequest(req, res);
     } else if (global.Resources.handleRoute(req, res)) {
         // Route handled by Resources module (workflows, forms, etc.)
     } else if (req.url.startsWith('/engine/')) {
         // Route to Persephone execution engine
         global.Persephone.handleRequest(req, res);
-    } else if (await Web.handleRoute(req, res)) {
+    } else if (await global.Web.handleRoute(req, res)) {
         // Route handled by web module (dynamic pages, static files, libraries)
     } else {
         // No route found
@@ -3934,6 +3693,8 @@ server.listen(PROXY_PORT, '0.0.0.0', async () => {
         global.consoleLog('Kore', `✓ ${succeeded.length} subsystems initialized: ${succeeded.join(', ')}`, 3);
         global.consoleLog('Kore', `✗ ${failed.length} subsystems failed: ${failed.join(', ')}`, 1);
     }
+
+    startMaintenanceScheduler();
 });
 
 server443.listen(443, '0.0.0.0', () => {

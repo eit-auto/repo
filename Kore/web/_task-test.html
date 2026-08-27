@@ -1,4 +1,4 @@
-<div class="panel-level-1" style="max-width: 100%; overflow: hidden;">
+<div class="panel-level-1" style="max-width: 100%; height: 100%; overflow: hidden;">
     <style>
         .description {
             font-size: 12px;
@@ -10,7 +10,7 @@
     <div id="statusMessage" class="status-message"></div>
 
     <!-- Plugin & Task Selection -->
-    <div class="panel-level-2" style="padding: 20px; margin-bottom: 15px;">
+    <div class="panel-level-2" style="padding: 20px; margin-bottom: 15px; flex-shrink: 0;">
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
                 <div>
                     <label style="display: block; font-size: 11px; margin-bottom: 8px; font-weight: 600;">SELECT PLUGIN</label>
@@ -28,16 +28,16 @@
             </div>
         </div>
     <!-- Task Details & Inputs -->
-    <div class="panel-level-2" style="padding: 20px; margin-bottom: 15px;">
+    <div class="panel-level-2" style="padding: 20px; margin-bottom: 15px; flex-shrink: 0;">
         <div id="taskDetails"></div>
         <div id="testButtonContainer" style="display: none; margin-top: 20px; padding-top: 20px; border-top: 1px solid #eee;">
             <button id="testTaskBtn" onclick="testTask()" style="padding: 10px 20px; background: #4CAF50; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 14px;">Test Task</button>
         </div>
     </div>
     
-    <div id="taskResults" class="panel-level-2" style="padding: 20px; display: none;">
-        <div style="font-weight: 600; margin-bottom: 15px;">Task Results</div>
-        <div id="resultsContent"></div>
+    <div id="taskResults" class="panel-level-2" style="padding: 20px; display: none; flex: 1 1 auto; min-height: 0; overflow: hidden; box-sizing: border-box;">
+        <div style="font-weight: 600; margin-bottom: 15px; flex-shrink: 0;">Task Results</div>
+        <div id="resultsContent" style="flex: 1 1 auto; min-height: 0; overflow: hidden; display: flex; flex-direction: column;"></div>
     </div>
     </div>
 
@@ -180,7 +180,7 @@
             // Show test button for testable plugin types
             const pluginType = currentPluginConfig?.config?.type;
             console.log('Plugin type:', pluginType);
-            const isTestable = pluginType && ['sql', 'api'].includes(pluginType);
+            const isTestable = pluginType && ['sql', 'api', 'service'].includes(pluginType);
             console.log('Is testable:', isTestable);
             document.getElementById('testButtonContainer').style.display = isTestable ? 'block' : 'none';
             document.getElementById('taskResults').style.display = 'none';
@@ -343,17 +343,28 @@
             
             if (!result.result) {
                 resultsContent.innerHTML = '<div class="description">No results returned</div>';
-                resultsPanel.style.display = 'block';
+                resultsPanel.style.display = 'flex';
                 return;
             }
             
             // Always display as formatted JSON
             const jsonStr = JSON.stringify(result.result, null, 2);
-            const html = `<pre class="panel-level-3" style="word-wrap: break-word; white-space: pre-wrap; max-width: 100%; max-height: 600px; overflow: auto;">${escapeHtml(jsonStr)}</pre>`;
+            const html = `<pre class="panel-level-3" style="word-wrap: break-word; white-space: pre-wrap; max-width: 100%; flex: 1 1 auto; min-height: 0; margin: 0; overflow-y: auto; box-sizing: border-box;">${escapeHtml(jsonStr)}</pre>`;
             resultsContent.innerHTML = html;
             
-            resultsPanel.style.display = 'block';
+            resultsPanel.style.display = 'flex';
         }
+
+        // ============================================================================
+        // EXPORT TO WINDOW
+        // ============================================================================
+
+        // Expose functions to window so HTML event handlers can access them
+        window.selectPlugin = selectPlugin;
+        window.selectTaskFromDropdown = selectTaskFromDropdown;
+        window.selectTask = selectTask;
+        window.testTask = testTask;
+        window.escapeHtml = escapeHtml;
 
         // ============================================================================
         // START

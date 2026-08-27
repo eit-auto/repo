@@ -31,10 +31,9 @@
         display: block;
     }
 </style>
-<script type="modules"> // UTILITY FUNCTIONS
+<script type="module">
+// UTILITY FUNCTIONS
 await import('/lib/workflows.js');
-window.addEventListener('DOMContentLoaded', async () => {
-await loadWorkflows(); // Load workflows data
-await buildWorkflowFoldersPanel('foldersPanelContainer', 'workflow-folders', 'workflows', 'renderFilteredWorkflows'); // Build and populate the folder sidebar
-});
+await window.loadWorkflows(); // Load workflows data
+await window.buildWorkflowFoldersPanel('foldersPanelContainer', 'workflow-folders', 'workflows', 'renderFilteredWorkflows'); // Build and populate the folder sidebar
 </script>

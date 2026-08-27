@@ -24,9 +24,9 @@
                             
                             <div style="display: flex; flex-direction: column; gap: 10px;">
                                 <!-- Timezone -->
-                                <div>
-                                    <label style="display: block; color: var(--text-muted); font-size: 11px; margin-bottom: 4px; font-weight: 600;">Timezone</label>
-                                    <select id="systemTimezone" style="width: 100%;" oninput="checkSystemUnsavedChanges()">
+                                <div class="form-group">
+                                    <label for="systemTimezone">Timezone</label>
+                                    <select id="systemTimezone" oninput="checkSystemUnsavedChanges()">
                                         <option value="">Select timezone...</option>
                                     </select>
                                 </div>
@@ -53,9 +53,9 @@
                             
                             <div style="display: flex; flex-direction: column; gap: 10px;">
                                 <!-- Log Level -->
-                                <div>
-                                    <label style="display: block; color: var(--text-muted); font-size: 11px; margin-bottom: 4px; font-weight: 600;">Log Level</label>
-                                    <select id="loggingLogLevel" style="width: 100%;" oninput="checkLoggingUnsavedChanges()">
+                                <div class="form-group">
+                                    <label for="loggingLogLevel">Log Level</label>
+                                    <select id="loggingLogLevel" oninput="checkLoggingUnsavedChanges()">
                                         <option value="DEBUG">DEBUG</option>
                                         <option value="INFO">INFO</option>
                                         <option value="WARNING">WARNING</option>
@@ -65,36 +65,36 @@
                                 </div>
                                 
                                 <!-- Retention Days -->
-                                <div>
-                                    <label style="display: block; color: var(--text-muted); font-size: 11px; margin-bottom: 4px; font-weight: 600;">Retention Days</label>
-                                    <input type="number" id="loggingRetentionDays" placeholder="30" min="1" style="width: 100%;" oninput="checkLoggingUnsavedChanges()">
+                                <div class="form-group">
+                                    <label for="loggingRetentionDays">Retention Days</label>
+                                    <input type="number" id="loggingRetentionDays" placeholder="30" min="1" oninput="checkLoggingUnsavedChanges()">
                                 </div>
                                 
                                 <!-- Log Destinations -->
-                                <div>
-                                    <label style="display: block; color: var(--text-muted); font-size: 11px; margin-bottom: 8px; font-weight: 600;">Log Destinations</label>
+                                <div class="form-group">
+                                    <label>Log Destinations</label>
                                     <div style="display: flex; gap: 15px;">
-                                        <div style="display: flex; align-items: center; gap: 8px;">
-                                            <input type="checkbox" id="loggingDestFile" style="width: 16px; height: 16px; cursor: pointer;" onchange="checkLoggingUnsavedChanges()">
-                                            <label for="loggingDestFile" style="color: var(--text-muted); font-size: 11px; cursor: pointer; margin: 0;">File</label>
+                                        <div class="form-group--inline">
+                                            <input type="checkbox" id="loggingDestFile" onchange="checkLoggingUnsavedChanges()">
+                                            <label for="loggingDestFile">File</label>
                                         </div>
-                                        <div style="display: flex; align-items: center; gap: 8px;">
-                                            <input type="checkbox" id="loggingDestDatabase" style="width: 16px; height: 16px; cursor: pointer;" onchange="checkLoggingUnsavedChanges()">
-                                            <label for="loggingDestDatabase" style="color: var(--text-muted); font-size: 11px; cursor: pointer; margin: 0;">Database</label>
+                                        <div class="form-group--inline">
+                                            <input type="checkbox" id="loggingDestDatabase" onchange="checkLoggingUnsavedChanges()">
+                                            <label for="loggingDestDatabase">Database</label>
                                         </div>
                                     </div>
                                 </div>
                                 
                                 <!-- Max File Size -->
-                                <div>
-                                    <label style="display: block; color: var(--text-muted); font-size: 11px; margin-bottom: 4px; font-weight: 600;">Max File Size (MB)</label>
-                                    <input type="number" id="loggingMaxFileSize" placeholder="100" min="1" style="width: 100%;" oninput="checkLoggingUnsavedChanges()">
+                                <div class="form-group">
+                                    <label for="loggingMaxFileSize">Max File Size (MB)</label>
+                                    <input type="number" id="loggingMaxFileSize" placeholder="100" min="1" oninput="checkLoggingUnsavedChanges()">
                                 </div>
                                 
                                 <!-- File Path -->
-                                <div>
-                                    <label style="display: block; color: var(--text-muted); font-size: 11px; margin-bottom: 4px; font-weight: 600;">File Path</label>
-                                    <input type="text" id="loggingFilePath" placeholder="/var/log/kore/system.log" style="width: 100%;" oninput="checkLoggingUnsavedChanges()">
+                                <div class="form-group">
+                                    <label for="loggingFilePath">File Path</label>
+                                    <input type="text" id="loggingFilePath" placeholder="/var/log/kore/system.log" oninput="checkLoggingUnsavedChanges()">
                                 </div>
                                 
                                 <!-- Save Button -->
@@ -113,45 +113,43 @@
                             
                             <div style="display: flex; flex-direction: column; gap: 10px;">
                                 <!-- Profile Dropdown -->
-                                <div>
-                                    <label style="display: block; color: var(--text-muted); font-size: 11px; margin-bottom: 4px; font-weight: 600;">Email Profile</label>
-                                    <select id="emailProfileSelect" style="width: 100%;" onchange="switchEmailProfile()">
+                                <div class="form-group">
+                                    <label for="emailProfileSelect">Email Profile</label>
+                                    <select id="emailProfileSelect" onchange="switchEmailProfile()">
                                         <option value="">Select a profile...</option>
                                     </select>
                                 </div>
                                 
                                 <!-- Profile Form Fields (hidden until profile selected) -->
                                 <div id="emailProfileForm" style="display: none; border-top: 1px solid var(--border-primary); padding-top: 10px;">
-                                    <div style="margin-bottom: 10px;">
-                                        <label style="display: block; color: var(--text-muted); font-size: 11px; margin-bottom: 4px; font-weight: 600;">SMTP Host</label>
-                                        <input type="text" id="emailSmtpHost" placeholder="smtp.gmail.com" style="width: 100%;" oninput="checkEmailUnsavedChanges()">
+                                    <div class="form-group">
+                                        <label for="emailSmtpHost">SMTP Host</label>
+                                        <input type="text" id="emailSmtpHost" placeholder="smtp.gmail.com" oninput="checkEmailUnsavedChanges()">
                                     </div>
                                     
-                                    <div style="margin-bottom: 10px;">
-                                        <label style="display: block; color: var(--text-muted); font-size: 11px; margin-bottom: 4px; font-weight: 600;">SMTP Port</label>
-                                        <input type="number" id="emailSmtpPort" placeholder="587" style="width: 100%;" oninput="checkEmailUnsavedChanges()">
+                                    <div class="form-group">
+                                        <label for="emailSmtpPort">SMTP Port</label>
+                                        <input type="number" id="emailSmtpPort" placeholder="587" oninput="checkEmailUnsavedChanges()">
                                     </div>
                                     
-                                    <div style="margin-bottom: 10px;">
-                                        <div style="display: flex; align-items: center; gap: 8px;">
-                                            <input type="checkbox" id="emailSmtpUseTls" style="width: 16px; height: 16px; cursor: pointer;" onchange="checkEmailUnsavedChanges()">
-                                            <label for="emailSmtpUseTls" style="color: var(--text-muted); font-size: 11px; cursor: pointer; margin: 0;">Use TLS</label>
-                                        </div>
+                                    <div class="form-group--inline">
+                                        <input type="checkbox" id="emailSmtpUseTls" onchange="checkEmailUnsavedChanges()">
+                                        <label for="emailSmtpUseTls">Use TLS</label>
                                     </div>
                                     
-                                    <div style="margin-bottom: 10px;">
-                                        <label style="display: block; color: var(--text-muted); font-size: 11px; margin-bottom: 4px; font-weight: 600;">SMTP Username</label>
-                                        <input type="text" id="emailSmtpUsername" placeholder="your-email@gmail.com" style="width: 100%;" oninput="checkEmailUnsavedChanges()">
+                                    <div class="form-group">
+                                        <label for="emailSmtpUsername">SMTP Username</label>
+                                        <input type="text" id="emailSmtpUsername" placeholder="your-email@gmail.com" oninput="checkEmailUnsavedChanges()">
                                     </div>
                                     
-                                    <div style="margin-bottom: 10px;">
-                                        <label style="display: block; color: var(--text-muted); font-size: 11px; margin-bottom: 4px; font-weight: 600;">SMTP Password</label>
-                                        <input type="password" id="emailSmtpPassword" placeholder="your-app-password" style="width: 100%;" oninput="checkEmailUnsavedChanges()">
+                                    <div class="form-group">
+                                        <label for="emailSmtpPassword">SMTP Password</label>
+                                        <input type="password" id="emailSmtpPassword" placeholder="your-app-password" oninput="checkEmailUnsavedChanges()">
                                     </div>
                                     
-                                    <div style="margin-bottom: 10px;">
-                                        <label style="display: block; color: var(--text-muted); font-size: 11px; margin-bottom: 4px; font-weight: 600;">SMTP From</label>
-                                        <input type="email" id="emailSmtpFrom" placeholder="noreply@yourdomain.com" style="width: 100%;" oninput="checkEmailUnsavedChanges()">
+                                    <div class="form-group">
+                                        <label for="emailSmtpFrom">SMTP From</label>
+                                        <input type="email" id="emailSmtpFrom" placeholder="noreply@yourdomain.com" oninput="checkEmailUnsavedChanges()">
                                     </div>
                                     
                                     <div style="display: flex; gap: 8px; margin-top: 15px;">
@@ -274,9 +272,9 @@
                             
                             <div style="display: flex; flex-direction: column; gap: 12px;">
                                 <!-- Page Dropdown -->
-                                <div>
-                                    <label style="display: block; color: var(--text-muted); font-size: 11px; margin-bottom: 4px; font-weight: 600;">Select Page</label>
-                                    <select id="pageSelect" style="width: 100%;">
+                                <div class="form-group">
+                                    <label for="pageSelect">Select Page</label>
+                                    <select id="pageSelect">
                                         <option value="">Select a page...</option>
                                     </select>
                                 </div>
@@ -342,37 +340,33 @@
                         <div class="panel-level-3">
                         <h3 style="margin: 0 0 15px 0; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-primary);">Password Policy</h3>
                         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
-                            <div style="display: flex; flex-direction: column;">
-                                <label style="font-size: 12px; color: var(--text-muted); margin-bottom: 5px;">Failed Attempts Limit</label>
-                                <input type="number" name="passwordFailureLimit" id="passwordFailureLimit" min="1" max="20" style="padding: 8px; border: 1px solid var(--border-primary); border-radius: 4px; background: var(--bg-input); color: var(--text-primary);">
+                            <div class="form-group">
+                                <label for="passwordFailureLimit">Failed Attempts Limit</label>
+                                <input type="number" name="passwordFailureLimit" id="passwordFailureLimit" min="1" max="20">
                             </div>
-                            <div style="display: flex; flex-direction: column;">
-                                <label style="font-size: 12px; color: var(--text-muted); margin-bottom: 5px;">Minimum Length</label>
-                                <input type="number" name="passwordMinLength" id="passwordMinLength" min="1" max="50" style="padding: 8px; border: 1px solid var(--border-primary); border-radius: 4px; background: var(--bg-input); color: var(--text-primary);">
+                            <div class="form-group">
+                                <label for="passwordMinLength">Minimum Length</label>
+                                <input type="number" name="passwordMinLength" id="passwordMinLength" min="1" max="50">
                             </div>
-                            <div style="display: flex; flex-direction: column;">
-                                <label style="font-size: 12px; color: var(--text-muted); margin-bottom: 5px;">Reset Period (minutes)</label>
-                                <input type="number" name="passwordFailureResetMinutes" id="passwordFailureResetMinutes" min="1" max="1440" style="padding: 8px; border: 1px solid var(--border-primary); border-radius: 4px; background: var(--bg-input); color: var(--text-primary);">
+                            <div class="form-group">
+                                <label for="passwordFailureResetMinutes">Reset Period (minutes)</label>
+                                <input type="number" name="passwordFailureResetMinutes" id="passwordFailureResetMinutes" min="1" max="1440">
                             </div>
-                            <div style="display: flex; flex-direction: column;">
-                                <label style="font-size: 12px; color: var(--text-muted); margin-bottom: 5px;">
-                                    <input type="checkbox" name="passwordRequireNumbersOrSpecial" id="passwordRequireNumbersOrSpecial" style="width: 14px; height: 14px; margin-right: 6px; cursor: pointer;">
-                                    Require Numbers or Special Characters
-                                </label>
+                            <div class="form-group--inline">
+                                <input type="checkbox" name="passwordRequireNumbersOrSpecial" id="passwordRequireNumbersOrSpecial">
+                                <label for="passwordRequireNumbersOrSpecial">Require Numbers or Special Characters</label>
                             </div>
-                            <div style="display: flex; flex-direction: column;">
-                                <label style="font-size: 12px; color: var(--text-muted); margin-bottom: 5px;">Password History Count</label>
-                                <input type="number" name="passwordHistoryCount" id="passwordHistoryCount" min="0" max="50" style="padding: 8px; border: 1px solid var(--border-primary); border-radius: 4px; background: var(--bg-input); color: var(--text-primary);">
+                            <div class="form-group">
+                                <label for="passwordHistoryCount">Password History Count</label>
+                                <input type="number" name="passwordHistoryCount" id="passwordHistoryCount" min="0" max="50">
                             </div>
-                            <div style="display: flex; flex-direction: column;">
-                                <label style="font-size: 12px; color: var(--text-muted); margin-bottom: 5px;">
-                                    <input type="checkbox" name="passwordRequireUppercase" id="passwordRequireUppercase" style="width: 14px; height: 14px; margin-right: 6px; cursor: pointer;">
-                                    Require Uppercase Letters
-                                </label>
+                            <div class="form-group--inline">
+                                <input type="checkbox" name="passwordRequireUppercase" id="passwordRequireUppercase">
+                                <label for="passwordRequireUppercase">Require Uppercase Letters</label>
                             </div>
-                            <div style="display: flex; flex-direction: column;">
-                                <label style="font-size: 12px; color: var(--text-muted); margin-bottom: 5px;">Old Password Age (days)</label>
-                                <input type="number" name="passwordOldPwdAge" id="passwordOldPwdAge" min="1" max="365" style="padding: 8px; border: 1px solid var(--border-primary); border-radius: 4px; background: var(--bg-input); color: var(--text-primary);">
+                            <div class="form-group">
+                                <label for="passwordOldPwdAge">Old Password Age (days)</label>
+                                <input type="number" name="passwordOldPwdAge" id="passwordOldPwdAge" min="1" max="365">
                             </div>
                         </div>
                     </div>
@@ -381,25 +375,25 @@
                     <div class="panel-level-3">
                         <h3 style="margin: 0 0 15px 0; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-primary);">MFA Settings</h3>
                         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
-                            <div style="display: flex; flex-direction: column;">
-                                <label style="font-size: 12px; color: var(--text-muted); margin-bottom: 5px;">Failed Attempts Limit</label>
-                                <input type="number" name="mfaFailureLimit" id="mfaFailureLimit" min="1" max="20" style="padding: 8px; border: 1px solid var(--border-primary); border-radius: 4px; background: var(--bg-input); color: var(--text-primary);">
+                            <div class="form-group">
+                                <label for="mfaFailureLimit">Failed Attempts Limit</label>
+                                <input type="number" name="mfaFailureLimit" id="mfaFailureLimit" min="1" max="20">
                             </div>
-                            <div style="display: flex; flex-direction: column;">
-                                <label style="font-size: 12px; color: var(--text-muted); margin-bottom: 5px;">Reset Period (minutes)</label>
-                                <input type="number" name="mfaFailureResetMinutes" id="mfaFailureResetMinutes" min="1" max="1440" style="padding: 8px; border: 1px solid var(--border-primary); border-radius: 4px; background: var(--bg-input); color: var(--text-primary);">
+                            <div class="form-group">
+                                <label for="mfaFailureResetMinutes">Reset Period (minutes)</label>
+                                <input type="number" name="mfaFailureResetMinutes" id="mfaFailureResetMinutes" min="1" max="1440">
                             </div>
-                            <div style="display: flex; flex-direction: column;">
-                                <label style="font-size: 12px; color: var(--text-muted); margin-bottom: 5px;">Backup Code Count</label>
-                                <input type="number" name="mfaBackupCodeCount" id="mfaBackupCodeCount" min="4" max="20" style="padding: 8px; border: 1px solid var(--border-primary); border-radius: 4px; background: var(--bg-input); color: var(--text-primary);">
+                            <div class="form-group">
+                                <label for="mfaBackupCodeCount">Backup Code Count</label>
+                                <input type="number" name="mfaBackupCodeCount" id="mfaBackupCodeCount" min="4" max="20">
                             </div>
-                            <div style="display: flex; flex-direction: column;">
-                                <label style="font-size: 12px; color: var(--text-muted); margin-bottom: 5px;">Code Validity (seconds)</label>
-                                <input type="number" name="mfaCodeValiditySeconds" id="mfaCodeValiditySeconds" min="10" max="120" style="padding: 8px; border: 1px solid var(--border-primary); border-radius: 4px; background: var(--bg-input); color: var(--text-primary);">
+                            <div class="form-group">
+                                <label for="mfaCodeValiditySeconds">Code Validity (seconds)</label>
+                                <input type="number" name="mfaCodeValiditySeconds" id="mfaCodeValiditySeconds" min="10" max="120">
                             </div>
-                            <div style="display: flex; flex-direction: column;">
-                                <label style="font-size: 12px; color: var(--text-muted); margin-bottom: 5px;">Allowed Clock Skew</label>
-                                <input type="number" name="mfaAllowedClockSkew" id="mfaAllowedClockSkew" min="0" max="5" style="padding: 8px; border: 1px solid var(--border-primary); border-radius: 4px; background: var(--bg-input); color: var(--text-primary);">
+                            <div class="form-group">
+                                <label for="mfaAllowedClockSkew">Allowed Clock Skew</label>
+                                <input type="number" name="mfaAllowedClockSkew" id="mfaAllowedClockSkew" min="0" max="5">
                             </div>
                         </div>
                     </div>
@@ -408,15 +402,13 @@
                     <div class="panel-level-3">
                         <h3 style="margin: 0 0 15px 0; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-primary);">Account Lockout</h3>
                         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
-                            <div style="display: flex; flex-direction: column;">
-                                <label style="font-size: 12px; color: var(--text-muted); margin-bottom: 5px;">Lockout Duration (minutes)</label>
-                                <input type="number" name="lockoutDurationMinutes" id="lockoutDurationMinutes" min="5" max="1440" style="padding: 8px; border: 1px solid var(--border-primary); border-radius: 4px; background: var(--bg-input); color: var(--text-primary);">
+                            <div class="form-group">
+                                <label for="lockoutDurationMinutes">Lockout Duration (minutes)</label>
+                                <input type="number" name="lockoutDurationMinutes" id="lockoutDurationMinutes" min="5" max="1440">
                             </div>
-                            <div style="display: flex; flex-direction: column; justify-content: flex-end;">
-                                <label style="font-size: 12px; color: var(--text-muted); margin-bottom: 5px;">
-                                    <input type="checkbox" name="lockoutAutoUnlock" id="lockoutAutoUnlock" style="width: 14px; height: 14px; margin-right: 6px; cursor: pointer;">
-                                    Auto-unlock After Duration
-                                </label>
+                            <div class="form-group--inline" style="align-self: flex-end;">
+                                <input type="checkbox" name="lockoutAutoUnlock" id="lockoutAutoUnlock">
+                                <label for="lockoutAutoUnlock">Auto-unlock After Duration</label>
                             </div>
                         </div>
                     </div>
@@ -425,9 +417,9 @@
                     <div class="panel-level-3">
                         <h3 style="margin: 0 0 15px 0; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-primary);">User Invitations</h3>
                         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
-                            <div style="display: flex; flex-direction: column;">
-                                <label style="font-size: 12px; color: var(--text-muted); margin-bottom: 5px;">Invite Expiration (hours)</label>
-                                <input type="number" name="inviteExpirationHours" id="inviteExpirationHours" min="1" max="720" style="padding: 8px; border: 1px solid var(--border-primary); border-radius: 4px; background: var(--bg-input); color: var(--text-primary);">
+                            <div class="form-group">
+                                <label for="inviteExpirationHours">Invite Expiration (hours)</label>
+                                <input type="number" name="inviteExpirationHours" id="inviteExpirationHours" min="1" max="720">
                             </div>
                         </div>
                     </div>
@@ -436,13 +428,13 @@
                     <div class="panel-level-3">
                         <h3 style="margin: 0 0 15px 0; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-primary);">Session Management</h3>
                         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
-                            <div style="display: flex; flex-direction: column;">
-                                <label style="font-size: 12px; color: var(--text-muted); margin-bottom: 5px;">Session Token Expiry (minutes)</label>
-                                <input type="number" name="sessionTokenExpiryMinutes" id="sessionTokenExpiryMinutes" min="5" max="1440" style="padding: 8px; border: 1px solid var(--border-primary); border-radius: 4px; background: var(--bg-input); color: var(--text-primary);">
+                            <div class="form-group">
+                                <label for="sessionTokenExpiryMinutes">Session Token Expiry (minutes)</label>
+                                <input type="number" name="sessionTokenExpiryMinutes" id="sessionTokenExpiryMinutes" min="5" max="1440">
                             </div>
-                            <div style="display: flex; flex-direction: column;">
-                                <label style="font-size: 12px; color: var(--text-muted); margin-bottom: 5px;">Relogin Token Expiry (days)</label>
-                                <input type="number" name="reloginTokenExpiryDays" id="reloginTokenExpiryDays" min="1" max="365" style="padding: 8px; border: 1px solid var(--border-primary); border-radius: 4px; background: var(--bg-input); color: var(--text-primary);">
+                            <div class="form-group">
+                                <label for="reloginTokenExpiryDays">Relogin Token Expiry (days)</label>
+                                <input type="number" name="reloginTokenExpiryDays" id="reloginTokenExpiryDays" min="1" max="365">
                             </div>
                         </div>
                     </div>
@@ -504,20 +496,20 @@
                                     <div class="panel-level-3" style="min-width: 0;">
                                         <h3 style="margin: 0 0 8px 0; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Basic Information</h3>
                                         
-                                        <div>
-                                            <label style="display: block; color: var(--text-muted); font-size: 11px; margin-bottom: 3px; font-weight: 600;">Display Name</label>
-                                            <input type="text" id="pluginDisplayName" style="width: 100%; margin-bottom: 8px;">
+                                        <div class="form-group">
+                                            <label for="pluginDisplayName">Display Name</label>
+                                            <input type="text" id="pluginDisplayName">
                                         </div>
 
-                                        <div>
-                                            <label style="display: block; color: var(--text-muted); font-size: 11px; margin-bottom: 3px; font-weight: 600;">Description</label>
-                                            <textarea id="pluginDescription" style="width: 100%; min-height: 50px; resize: vertical; margin-bottom: 8px;"></textarea>
+                                        <div class="form-group">
+                                            <label for="pluginDescription">Description</label>
+                                            <textarea id="pluginDescription" style="min-height: 50px; resize: vertical;"></textarea>
                                         </div>
 
                                         <div style="display: flex; align-items: center; justify-content: space-between;">
-                                            <div style="display: flex; align-items: center; gap: 8px;">
-                                                <input type="checkbox" id="pluginEnabled" style="width: 16px; height: 16px; cursor: pointer;">
-                                                <label for="pluginEnabled" style="color: var(--text-muted); font-size: 11px; cursor: pointer;">Enabled</label>
+                                            <div class="form-group--inline">
+                                                <input type="checkbox" id="pluginEnabled">
+                                                <label for="pluginEnabled">Enabled</label>
                                             </div>
                                             <div style="color: var(--text-primary); font-size: 13px;">Type: <span id="configTypeValue">api</span></div>
                                         </div>
@@ -529,14 +521,14 @@
                                         <button type="button" class="btn" data-color="blue" onclick="openCodeModal(originalPluginConfig?.code || '', null)" style="width: 100%; margin-bottom: 8px;">View Code</button>
                                         <button type="button" class="btn" data-color="blue" onclick="openTasksModal()" style="width: 100%; margin-bottom: 8px;">View Tasks</button>
                                         
-                                        <div>
-                                            <label style="display: block; color: var(--text-muted); font-size: 11px; margin-bottom: 3px; font-weight: 600;">Rate Limit</label>
-                                            <input type="number" id="configRateLimit" style="width: 100%; margin-bottom: 8px;">
+                                        <div class="form-group">
+                                            <label for="configRateLimit">Rate Limit</label>
+                                            <input type="number" id="configRateLimit">
                                         </div>
 
-                                        <div>
-                                            <label style="display: block; color: var(--text-muted); font-size: 11px; margin-bottom: 3px; font-weight: 600;">Routes (one per line)</label>
-                                            <textarea id="configRoutes" style="width: 100%; min-height: 40px; resize: vertical;"></textarea>
+                                        <div class="form-group">
+                                            <label for="configRoutes">Routes (one per line)</label>
+                                            <textarea id="configRoutes" style="min-height: 40px; resize: vertical;"></textarea>
                                         </div>
                                     </div>
                                 </div>
@@ -549,41 +541,41 @@
                                         
                                         <!-- Bearer Token Auth -->
                                         <div id="bearerAuthFields" style="display: none;">
-                                            <div>
-                                                <label style="display: block; color: var(--text-muted); font-size: 11px; margin-bottom: 3px; font-weight: 600;">Base URL</label>
-                                                <input type="text" id="configBaseUrl" style="width: 100%; margin-bottom: 8px;">
+                                            <div class="form-group">
+                                                <label for="configBaseUrl">Base URL</label>
+                                                <input type="text" id="configBaseUrl">
                                             </div>
-                                            <div>
-                                                <label style="display: block; color: var(--text-muted); font-size: 11px; margin-bottom: 3px; font-weight: 600;">API Path</label>
-                                                <input type="text" id="configApiPath" style="width: 100%; margin-bottom: 8px;">
+                                            <div class="form-group">
+                                                <label for="configApiPath">API Path</label>
+                                                <input type="text" id="configApiPath">
                                             </div>
-                                            <div>
-                                                <label style="display: block; color: var(--text-muted); font-size: 11px; margin-bottom: 3px; font-weight: 600;">API Key</label>
-                                                <input type="text" id="configApiKey" style="width: 100%; margin-bottom: 8px;">
+                                            <div class="form-group">
+                                                <label for="configApiKey">API Key</label>
+                                                <input type="text" id="configApiKey">
                                             </div>
                                         </div>
 
                                         <!-- Client Auth -->
                                         <div id="clientAuthFields" style="display: none;">
-                                            <div>
-                                                <label style="display: block; color: var(--text-muted); font-size: 11px; margin-bottom: 3px; font-weight: 600;">Base URL</label>
-                                                <input type="text" id="configClientBaseUrl" style="width: 100%; margin-bottom: 8px;">
+                                            <div class="form-group">
+                                                <label for="configClientBaseUrl">Base URL</label>
+                                                <input type="text" id="configClientBaseUrl">
                                             </div>
-                                            <div>
-                                                <label style="display: block; color: var(--text-muted); font-size: 11px; margin-bottom: 3px; font-weight: 600;">API Path</label>
-                                                <input type="text" id="configClientApiPath" style="width: 100%; margin-bottom: 8px;">
+                                            <div class="form-group">
+                                                <label for="configClientApiPath">API Path</label>
+                                                <input type="text" id="configClientApiPath">
                                             </div>
-                                            <div>
-                                                <label style="display: block; color: var(--text-muted); font-size: 11px; margin-bottom: 3px; font-weight: 600;">Client ID</label>
-                                                <input type="text" id="configClientId" style="width: 100%; margin-bottom: 8px;">
+                                            <div class="form-group">
+                                                <label for="configClientId">Client ID</label>
+                                                <input type="text" id="configClientId">
                                             </div>
-                                            <div>
-                                                <label style="display: block; color: var(--text-muted); font-size: 11px; margin-bottom: 3px; font-weight: 600;">Public Key</label>
-                                                <input type="text" id="configPublicKey" style="width: 100%; margin-bottom: 8px;">
+                                            <div class="form-group">
+                                                <label for="configPublicKey">Public Key</label>
+                                                <input type="text" id="configPublicKey">
                                             </div>
-                                            <div>
-                                                <label style="display: block; color: var(--text-muted); font-size: 11px; margin-bottom: 3px; font-weight: 600;">Private Key</label>
-                                                <input type="password" id="configPrivateKey" style="width: 100%; margin-bottom: 8px;">
+                                            <div class="form-group">
+                                                <label for="configPrivateKey">Private Key</label>
+                                                <input type="password" id="configPrivateKey">
                                             </div>
                                         </div>
 
@@ -613,55 +605,55 @@
 
                                         <!-- SQL Database Form -->
                                         <div id="sqlDatabaseForm" style="display: none;">
-                                            <div>
-                                                <label style="display: block; color: var(--text-muted); font-size: 11px; margin-bottom: 3px; font-weight: 600;">Type</label>
-                                                <select id="sqlDbType" onchange="updateSqlDbTypeFields()" style="width: 100%; margin-bottom: 8px;">
+                                            <div class="form-group">
+                                                <label for="sqlDbType">Type</label>
+                                                <select id="sqlDbType" onchange="updateSqlDbTypeFields()">
                                                     <option value="">-- Select Type --</option>
                                                     <option value="mysql">MySQL</option>
                                                     <option value="mssql">MSSQL</option>
                                                 </select>
                                             </div>
 
-                                            <div>
-                                                <label style="display: block; color: var(--text-muted); font-size: 11px; margin-bottom: 3px; font-weight: 600;">Host</label>
-                                                <input type="text" id="sqlDbHost" style="width: 100%; margin-bottom: 8px;">
+                                            <div class="form-group">
+                                                <label for="sqlDbHost">Host</label>
+                                                <input type="text" id="sqlDbHost">
                                             </div>
 
-                                            <div>
-                                                <label style="display: block; color: var(--text-muted); font-size: 11px; margin-bottom: 3px; font-weight: 600;">Port</label>
-                                                <input type="number" id="sqlDbPort" style="width: 100%; margin-bottom: 8px;">
+                                            <div class="form-group">
+                                                <label for="sqlDbPort">Port</label>
+                                                <input type="number" id="sqlDbPort">
                                             </div>
 
-                                            <div>
-                                                <label style="display: block; color: var(--text-muted); font-size: 11px; margin-bottom: 3px; font-weight: 600;">User</label>
-                                                <input type="text" id="sqlDbUser" autocomplete="username" style="width: 100%; margin-bottom: 8px;">
+                                            <div class="form-group">
+                                                <label for="sqlDbUser">User</label>
+                                                <input type="text" id="sqlDbUser" autocomplete="username">
                                             </div>
 
-                                            <div>
-                                                <label style="display: block; color: var(--text-muted); font-size: 11px; margin-bottom: 3px; font-weight: 600;">Password</label>
+                                            <div class="form-group">
+                                                <label for="sqlDbPassword">Password</label>
                                                 <div style="display: flex; gap: 8px;">
                                                     <form style="flex: 1;">
                                                         <input type="text" style="display: none;" autocomplete="username">
-                                                        <input type="password" id="sqlDbPassword" autocomplete="current-password" readonly style="width: 100%; cursor: not-allowed;">
+                                                        <input type="password" id="sqlDbPassword" autocomplete="current-password" readonly style="cursor: not-allowed;">
                                                     </form>
                                                     <button type="button" class="btn" data-color="blue" data-size="sm" onclick="showFormModal('Change Password', [{name: 'password', type: 'password', placeholder: 'Enter new password', value: ''}], (formData) => { document.getElementById('sqlDbPassword').value = formData.password; })" style="white-space: nowrap;">Change</button>
                                                 </div>
                                             </div>
 
-                                            <div>
-                                                <label style="display: block; color: var(--text-muted); font-size: 11px; margin-bottom: 3px; font-weight: 600;">Database</label>
-                                                <input type="text" id="sqlDbDatabase" style="width: 100%; margin-bottom: 8px;">
+                                            <div class="form-group">
+                                                <label for="sqlDbDatabase">Database</label>
+                                                <input type="text" id="sqlDbDatabase">
                                             </div>
 
                                             <!-- MSSQL-specific fields -->
-                                            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
-                                                <input type="checkbox" id="sqlDbEncrypt" style="width: 16px; height: 16px; cursor: pointer;">
-                                                <label for="sqlDbEncrypt" style="color: var(--text-muted); font-size: 11px; cursor: pointer; margin: 0;">Encrypt</label>
+                                            <div class="form-group--inline">
+                                                <input type="checkbox" id="sqlDbEncrypt">
+                                                <label for="sqlDbEncrypt">Encrypt</label>
                                             </div>
 
-                                            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
-                                                <input type="checkbox" id="sqlDbTrustServerCert" style="width: 16px; height: 16px; cursor: pointer;">
-                                                <label for="sqlDbTrustServerCert" style="color: var(--text-muted); font-size: 11px; cursor: pointer; margin: 0;">Trust Server Certificate</label>
+                                            <div class="form-group--inline">
+                                                <input type="checkbox" id="sqlDbTrustServerCert">
+                                                <label for="sqlDbTrustServerCert">Trust Server Certificate</label>
                                             </div>
                                         </div>
                                     </div>
@@ -671,21 +663,21 @@
                                         <h3 style="margin: 0 0 8px 0; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Metadata</h3>
                                         
                                         <div style="display: grid; grid-template-columns: 1fr; gap: 8px;">
-                                            <div>
-                                                <label style="display: block; color: var(--text-muted); font-size: 11px; margin-bottom: 3px; font-weight: 600;">Created</label>
-                                                <input type="text" id="pluginCreatedAt" readonly style="width: 100%;">
+                                            <div class="form-group">
+                                                <label for="pluginCreatedAt">Created</label>
+                                                <input type="text" id="pluginCreatedAt" readonly>
                                             </div>
-                                            <div>
-                                                <label style="display: block; color: var(--text-muted); font-size: 11px; margin-bottom: 3px; font-weight: 600;">Created By</label>
-                                                <input type="text" id="pluginCreatedBy" readonly style="width: 100%;">
+                                            <div class="form-group">
+                                                <label for="pluginCreatedBy">Created By</label>
+                                                <input type="text" id="pluginCreatedBy" readonly>
                                             </div>
-                                            <div>
-                                                <label style="display: block; color: var(--text-muted); font-size: 11px; margin-bottom: 3px; font-weight: 600;">Updated</label>
-                                                <input type="text" id="pluginUpdatedAt" readonly style="width: 100%;">
+                                            <div class="form-group">
+                                                <label for="pluginUpdatedAt">Updated</label>
+                                                <input type="text" id="pluginUpdatedAt" readonly>
                                             </div>
-                                            <div>
-                                                <label style="display: block; color: var(--text-muted); font-size: 11px; margin-bottom: 3px; font-weight: 600;">Updated By</label>
-                                                <input type="text" id="pluginUpdatedBy" readonly style="width: 100%;">
+                                            <div class="form-group">
+                                                <label for="pluginUpdatedBy">Updated By</label>
+                                                <input type="text" id="pluginUpdatedBy" readonly>
                                             </div>
                                         </div>
                                     </div>
@@ -807,13 +799,66 @@
                             </div>
                         </div>
                         
-                        <!-- Blank Pod -->
+                        <!-- Nightly Maintenance Pod -->
                         <div class="panel-level-3">
                             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
-                                <h3 style="margin: 0; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Placeholder</h3>
+                                <h3 style="margin: 0; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Nightly Maintenance</h3>
                             </div>
-                            <div style="display: flex; flex-direction: column; gap: 10px;">
-                                <p style="color: var(--text-muted); font-size: 12px; margin: 0;">No content yet</p>
+
+                            <!-- Schedule Times -->
+                            <div style="color: var(--text-muted); font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 10px;">Schedule Times</div>
+                            <div style="display: flex; flex-direction: column; gap: 10px; font-size: 12px; margin-bottom: 15px;">
+                                <div style="display: flex; justify-content: space-between; align-items: center; gap: 10px;">
+                                    <span style="color: var(--text-muted);">Nightly:</span>
+                                    <input type="time" id="maintNightlyTime" class="maint-schedule-input" style="padding: 4px 6px; background-color: var(--bg-input); border: 1px solid var(--border-primary); border-radius: 4px; color: var(--text-input); font-size: 12px;">
+                                </div>
+                                <div style="display: flex; justify-content: space-between; align-items: center; gap: 10px;">
+                                    <span style="color: var(--text-muted);">Weekly:</span>
+                                    <div style="display: flex; gap: 6px;">
+                                        <select id="maintWeeklyDay" class="maint-schedule-input" style="padding: 4px 28px 4px 6px; background-color: var(--bg-input); border: 1px solid var(--border-primary); border-radius: 4px; color: var(--text-input); font-size: 12px;">
+                                            <option value="0">Sunday</option>
+                                            <option value="1">Monday</option>
+                                            <option value="2">Tuesday</option>
+                                            <option value="3">Wednesday</option>
+                                            <option value="4">Thursday</option>
+                                            <option value="5">Friday</option>
+                                            <option value="6">Saturday</option>
+                                        </select>
+                                        <input type="time" id="maintWeeklyTime" class="maint-schedule-input" style="padding: 4px 6px; background-color: var(--bg-input); border: 1px solid var(--border-primary); border-radius: 4px; color: var(--text-input); font-size: 12px;">
+                                    </div>
+                                </div>
+                                <div style="display: flex; justify-content: space-between; align-items: center; gap: 10px;">
+                                    <span style="color: var(--text-muted);">Monthly:</span>
+                                    <div style="display: flex; gap: 6px;">
+                                        <select id="maintMonthlyDay" class="maint-schedule-input" style="padding: 4px 28px 4px 6px; background-color: var(--bg-input); border: 1px solid var(--border-primary); border-radius: 4px; color: var(--text-input); font-size: 12px;">
+                                            <!-- Populated via JS (1-28) -->
+                                        </select>
+                                        <input type="time" id="maintMonthlyTime" class="maint-schedule-input" style="padding: 4px 6px; background-color: var(--bg-input); border: 1px solid var(--border-primary); border-radius: 4px; color: var(--text-input); font-size: 12px;">
+                                    </div>
+                                </div>
+                                <button type="button" class="btn" data-color="blue" data-size="sm" id="maintScheduleSaveBtn" onclick="saveMaintenanceSchedule()" disabled style="margin-top: 5px;">Save Schedule</button>
+                            </div>
+
+                            <div style="height: 1px; background-color: var(--border-primary); margin: 5px 0 15px 0;"></div>
+
+                            <!-- Task List -->
+                            <div style="color: var(--text-muted); font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 10px;">Maintenance Tasks</div>
+                            <div id="maintTasksContainer">
+                                <table style="font-size: 11px;">
+                                    <thead>
+                                        <tr>
+                                            <th>Task Name</th>
+                                            <th style="text-align: center; width: 1%; white-space: nowrap;">Nightly</th>
+                                            <th style="text-align: center; width: 1%; white-space: nowrap;">Weekly</th>
+                                            <th style="text-align: center; width: 1%; white-space: nowrap;">Monthly</th>
+                                            <th style="text-align: center; width: 1%; white-space: nowrap;">Enabled</th>
+                                            <th style="width: 1%; white-space: nowrap;"></th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="maintTasksTableBody">
+                                        <tr><td colspan="6" style="color: var(--text-muted); font-size: 12px;">Loading...</td></tr>
+                                    </tbody>
+                                </table>
                             </div>
                         </div>
                     </div>

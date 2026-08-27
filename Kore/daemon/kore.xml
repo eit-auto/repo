@@ -1,0 +1,31 @@
+<service>
+	<id>kore.exe</id>
+	<name>Kore</name>
+	<description>Kore Central Automation Platform</description>
+	<executable>C:\Program Files\nodejs\node.exe</executable>
+	<argument>--max-old-space-size=512</argument>
+	<argument>D:\kore\node_modules\node-windows\lib\wrapper.js</argument>
+	<argument>--file</argument>
+	<argument>D:\kore\kore.js</argument>
+	<argument>--scriptoptions=</argument>
+	<argument>--log</argument>
+	<argument>Kore wrapper</argument>
+	<argument>--grow</argument>
+	<argument>0.25</argument>
+	<argument>--wait</argument>
+	<argument>1</argument>
+	<argument>--maxrestarts</argument>
+	<argument>3</argument>
+	<argument>--abortonerror</argument>
+	<argument>n</argument>
+	<argument>--stopparentfirst</argument>
+	<argument>undefined</argument>
+	<logmode>rotate</logmode>
+	<stoptimeout>30sec</stoptimeout>
+	<serviceaccount>
+		<domain>ESMSQL</domain>
+		<user>LocalSystem</user>
+		<password></password>
+	</serviceaccount>
+	<workingdirectory>D:\kore</workingdirectory>
+</service>

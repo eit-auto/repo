@@ -1,6 +1,34 @@
 import '/lib/base_css.js';
 
 /**
+ * Session token — CONFIRMED (from auth.js's Set-Cookie calls) that the
+ * real sessionToken cookie is issued HttpOnly, which means document.cookie
+ * can never see it, in any browser, by design. getSessionTokenFromCookie()
+ * below will therefore always return null/empty for the real cookie — that
+ * was true before this comment and remains true; nothing here can change
+ * it, because it isn't a bug, it's the browser enforcing HttpOnly.
+ *
+ * The actual auth for requests happens automatically: same-origin fetches
+ * (and cross-origin ones targeting this same app, since window.fetch below
+ * forces credentials:'include') carry the real HttpOnly cookie without any
+ * JS involvement, and the backend validates it server-side. This is
+ * confirmed working already — datatables.js's executeSqlQuery() calls pass
+ * the literal placeholder string 'cookie' instead of a real token, and
+ * that works in production, because the /sqlquery backend doesn't actually
+ * validate the token value; it relies on the auto-attached cookie. This
+ * placeholder does the same thing for every other caller of
+ * executeSqlQuery()/executeTask() etc. via window.sessionToken, so nothing
+ * else in the app needs to special-case this.
+ *
+ * getSessionTokenFromCookie() is kept as a first attempt (harmless, and
+ * correct if this cookie is ever made non-HttpOnly, or in any environment
+ * where that's true) but the placeholder is what actually makes requests
+ * succeed today. getSessionToken() below is a thin async wrapper for the
+ * ~15 existing `await window.getSessionToken()` call sites elsewhere.
+ */
+window.sessionToken = getSessionTokenFromCookie() || 'cookie';
+
+/**
  * Fetch wrapper for automatic session token refresh
  * Intelligently handles token refresh using sessionToken or refreshToken
  */
@@ -16,8 +44,20 @@ window.fetch = async function(url, options = {}) {
     // Make the original request
     let response = await originalFetch(url, options);
     
-    // If 401 and not already a refresh request, try to refresh
-    if (response.status === 401 && url !== '/auth/refresh' && url !== '/auth/login' && refreshAttemptCount < 1) {
+    // If 401 and not already a refresh request, try to refresh. Skipped
+    // entirely when already on /login - an unauthenticated 401 there is
+    // the expected, normal state (the user hasn't logged in yet), not a
+    // session that needs recovering. Without this check, any other fetch
+    // the login page itself makes (unrelated to /auth/refresh or
+    // /auth/login specifically) that 401s would still trigger this whole
+    // block: a refresh attempt that predictably fails (no session to
+    // refresh), then a redirect back to /login - even though we're
+    // already there. Confirmed real and worse than the original bug this
+    // replaced: making the redirect target stable (see returnTo below)
+    // removed the runaway URL growth that used to eventually break the
+    // cycle, but without this page check that just turned it into an
+    // infinite reload loop instead of a self-limiting one.
+    if (response.status === 401 && url !== '/auth/refresh' && url !== '/auth/login' && window.location.pathname !== '/login' && refreshAttemptCount < 1) {
         // Prevent multiple simultaneous refresh attempts
         if (!isRefreshing) {
             isRefreshing = true;
@@ -39,8 +79,15 @@ window.fetch = async function(url, options = {}) {
             console.error('Token refresh failed:', err.message);
             isRefreshing = false;
             refreshPromise = null;
-            // Refresh failed, redirect to login
-            window.location.href = '/login';
+            // Refresh failed - redirect to login, preserving the current
+            // page (path + query string) so the login page can send the
+            // user back here afterward instead of defaulting to '/'. The
+            // already-on-/login self-nesting case this used to guard
+            // against can no longer happen - this whole block is skipped
+            // whenever pathname is already /login, per the check above -
+            // so the plain, original construction is correct again.
+            const returnTo = window.location.pathname + window.location.search;
+            window.location.href = '/login?redirect=' + encodeURIComponent(returnTo);
             return response;
         }
         isRefreshing = false;
@@ -54,6 +101,59 @@ window.fetch = async function(url, options = {}) {
     
     return response;
 };
+
+/**
+ * System timezone (e.g. 'America/Denver') — an org-wide setting, not the
+ * viewer's own browser timezone, for things that need to be anchored to
+ * wherever the business actually is regardless of who's looking (e.g. a
+ * dashboard pod's "today" query window). Lives in kore_sys.system_config
+ * (the same singleton row getSecurityConfig() above already reads),
+ * fetched once and cached.
+ *
+ * window.timezone is set synchronously to a safe 'UTC' fallback right
+ * away. The real value is fetched LAZILY - on the first call to
+ * getSystemTimezone(), not at module load. Anything that needs the true
+ * system timezone must `await getSystemTimezone()` before reading
+ * window.timezone; the result is cached, so repeated awaits are free.
+ *
+ * Lazy rather than eager because base.js loads on every page including
+ * unauthenticated ones. Fetching at module load meant a logged-out visit
+ * fired a query that could only ever 401, producing console errors before
+ * the redirect to login and doing work nothing would use. user_dash.js
+ * (the only consumer) already awaits this explicitly before its
+ * dynamic_inputs computers read window.timezone.
+ */
+window.timezone = 'UTC';
+let _systemTimezonePromise = null;
+async function getSystemTimezone() {
+    if (_systemTimezonePromise) return _systemTimezonePromise;
+    _systemTimezonePromise = (async () => {
+        try {
+            // No pre-flight "am I logged in" check is possible here: the
+            // sessionToken cookie is HttpOnly, so JS cannot read it, which is
+            // why base.js:29 falls back to the literal string 'cookie' and
+            // window.sessionToken is ALWAYS truthy. The old guard was
+            // `!window.sessionToken || !userId`, and the userId half - a
+            // localStorage read - was the only part that ever did anything.
+            //
+            // So this simply attempts the fetch and treats failure as normal.
+            // On a page load with no valid session (login page, expired
+            // session, cleared cookies) it returns 401 and we keep the
+            // fallback, which is the correct outcome either way.
+            const result = await executeSqlQuery(window.sessionToken, null, 'kore_sys', 'SELECT timezone FROM system_config WHERE id = 1');
+            const tz = result.result && result.result[0] && result.result[0].timezone;
+            if (tz) window.timezone = tz;
+        } catch (error) {
+            // Non-fatal by design - every caller reads window.timezone, which
+            // already holds a usable fallback. Warn rather than error so an
+            // unauthenticated page load doesn't look like a crash.
+            console.warn('Could not fetch system timezone, keeping fallback:', error.message);
+        }
+        return window.timezone;
+    })();
+    return _systemTimezonePromise;
+}
+// NOT called eagerly - see the note above. Consumers await it on demand.
 
 /**
  * Attempt to refresh the session token
@@ -132,6 +232,8 @@ function updateHeaderColors() {
     
     root.style.setProperty('--brand-light', t.eq.light);
     root.style.setProperty('--brand-dark', t.eq.dark);
+    root.style.setProperty('--brand-lighter', t.eq.lighter);
+    root.style.setProperty('--brand-light-tint', `color-mix(in srgb, ${t.eq.light} 25%, transparent)`);
     root.style.setProperty('--bg-drawer', t.bg.drawer);
     root.style.setProperty('--bg-titlePod', t.bg.titlePod);
     root.style.setProperty('--text-header', t.text.header);
@@ -140,16 +242,23 @@ function updateHeaderColors() {
     root.style.setProperty('--overlay-dark', overlayColors.dark);
     root.style.setProperty('--overlay-darkShadow', overlayColors.darkShadow);
     root.style.setProperty('--overlay-medium', overlayColors.blueMedium);
-    
-    // Update SVG filter color
-    updateSVGFilterColor();
 }
 
-function updateSVGFilterColor() {
-    const feFlood = document.querySelector('feFlood');
-    if (feFlood) {
-        feFlood.setAttribute('flood-color', theme[activeTheme].eq.light);
-    }
+/**
+ * Apply the current theme's --text-input color to a single <select>'s
+ * dropdown arrow. base_css.js's stylesheet rule bakes in a static black
+ * arrow as a fallback (data URIs can't reference CSS variables directly),
+ * so the real theming happens by overriding background-image inline here.
+ * updateBodyColors() calls this for every <select> present at theme-init
+ * time; anything creating <select> elements afterward (e.g. form-viewer's
+ * dropdown fields) needs to call this itself once inserted into the DOM.
+ * @param {HTMLSelectElement} el
+ */
+function applySelectArrowColor(el) {
+    const t = theme[activeTheme];
+    if (!t || !el) return;
+    const arrowColor = encodeURIComponent(t.text.input);
+    el.style.backgroundImage = `url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='${arrowColor}' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e")`;
 }
 
 function updateBodyColors() {
@@ -157,6 +266,7 @@ function updateBodyColors() {
     const root = document.documentElement;
     
     root.style.setProperty('--bg-primary', t.bg.primary);
+    root.style.setProperty('--bg-secondary', t.bg.secondary);
     root.style.setProperty('--bg-input', t.bg.input);
     root.style.setProperty('--bg-subpanel', t.bg.subpanel);
     root.style.setProperty('--bg-panel1', t.bg.panel1);
@@ -167,14 +277,38 @@ function updateBodyColors() {
     root.style.setProperty('--text-primary', t.text.primary);
     root.style.setProperty('--text-muted', t.text.muted);
     root.style.setProperty('--text-accent', t.text.accent);
+    root.style.setProperty('--text-input', t.text.input);
+
+    // Update select arrow color to match --text-input
+    document.querySelectorAll('select').forEach(el => applySelectArrowColor(el));
     root.style.setProperty('--overlay-white-faint', overlayColors.whiteFaint);
     root.style.setProperty('--secondary-slate', t.secondary.slate);
     root.style.setProperty('--secondary-medium', t.secondary.medium);
     root.style.setProperty('--secondary-neutral', t.secondary.neutral);
+    root.style.setProperty('--highlight-red', t.highlight.red);
+    root.style.setProperty('--highlight-orange', t.highlight.orange);
+    root.style.setProperty('--highlight-yellow', t.highlight.yellow);
 }
 
 function getAvailableThemes() {
     return Object.keys(theme);
+}
+
+/**
+ * Expose statusColors as CSS custom properties.
+ * These are universal (non-theme-dependent), so unlike updateHeaderColors/
+ * updateBodyColors this only needs to run once, not on every setTheme() call.
+ */
+function applyStatusColors() {
+    const root = document.documentElement;
+
+    root.style.setProperty('--status-green', statusColors.green);
+    root.style.setProperty('--status-green-dark', statusColors.greenDark);
+    root.style.setProperty('--status-red', statusColors.red);
+    root.style.setProperty('--status-red-dark', statusColors.redDark);
+    root.style.setProperty('--status-red-hover', statusColors.redHover);
+    root.style.setProperty('--status-red-input', statusColors.redInput);
+    root.style.setProperty('--status-red-input-hover', statusColors.redInputHover);
 }
 
 /**
@@ -195,7 +329,7 @@ let cachedNavigationMenuHTML = null;
  * Menu items configuration: path, icon, label, resource (for permission check)
  */
 const MENU_ITEMS = [
-    { path: '/', icon: 'i-dashboard', label: 'Dashboard', resource: 'page' },
+    { path: '/admin', icon: 'i-dashboard', label: 'Dashboard', resource: 'page' },
     { path: '/workflows', icon: 'i-workflows', label: 'Workflows', resource: 'page' },
     { path: '/workflow-execs', icon: 'i-workflows-exec', label: 'Workflow Executions', resource: 'page' },
     { path: '/forms', icon: 'i-form', label: 'Forms', resource: 'page' },
@@ -259,7 +393,6 @@ async function buildNavigationMenu() {
             if (userId) {
                 try {
                     hasAccess = await checkUserPermission({
-                        userId: userId,
                         resource: item.resource,
                         action: 'view',
                         scope: item.path
@@ -283,7 +416,6 @@ async function buildNavigationMenu() {
             if (userId) {
                 try {
                     hasAccess = await checkUserPermission({
-                        userId: userId,
                         resource: item.resource,
                         action: 'view',
                         scope: item.path
@@ -311,7 +443,7 @@ async function buildNavigationMenu() {
     } catch (error) {
         console.error('[Header] Error building navigation menu:', error);
         // Fallback to basic menu if permission checks fail
-        return `<a href="/" style="color: #7ec8ff; font-size: 0.9rem; text-decoration: none; display: flex; align-items: center; padding: 6px 0; transition: opacity 0.2s; gap: 6px;"><svg width="26" height="26" style="flex-shrink: 0;"><use href="#i-dashboard"/></svg><span>Dashboard</span></a>
+        return `<a href="/admin" style="color: #7ec8ff; font-size: 0.9rem; text-decoration: none; display: flex; align-items: center; padding: 6px 0; transition: opacity 0.2s; gap: 6px;"><svg width="26" height="26" style="flex-shrink: 0;"><use href="#i-dashboard"/></svg><span>Dashboard</span></a>
                 <div style="margin-top: auto;">
                     <div style="color: #7ec8ff; font-size: 0.9rem; padding: 6px 0; cursor: pointer; transition: opacity 0.2s; display: flex; align-items: center; gap: 6px;" onclick="logout()"><svg width="26" height="26" style="flex-shrink: 0;"><use href="#i-logout"/></svg><span>Logout</span></div>
                 </div>`;
@@ -326,13 +458,13 @@ async function buildKoreHeader(pageTitle = "Kore System") {
     const style = document.createElement('style');
     style.textContent = `
         :root {
-            --header-height: 19px; 
+            --header-height: 25px; 
             --header-drop: 25px;
-            --header-clearance: 25px; 
+            --header-clearance: 27px; 
             --badge-size: 34px;      
             --pod-height: 24px;      
-            --badge-top: 6px;        
-            --pod-top: 6px;         
+            --badge-top: 6px;
+            --pod-top: 12px;         
             --brand-light: ${theme[activeTheme].eq.light};
             --brand-dark: ${theme[activeTheme].eq.dark};
             --bg-drawer: ${theme[activeTheme].bg.drawer};
@@ -343,8 +475,6 @@ async function buildKoreHeader(pageTitle = "Kore System") {
             --overlay-dark: ${overlayColors.dark};
             --overlay-darkShadow: ${overlayColors.darkShadow};
             --overlay-medium: ${overlayColors.blueMedium};
-            --notch-start: 58px;
-            --notch-end: 66px; 
         }
 
         /* 1. Nav Drawer */
@@ -353,74 +483,99 @@ async function buildKoreHeader(pageTitle = "Kore System") {
             top: var(--header-height); 
             right: -200px; 
             width: 200px; 
-            height: calc(100% - var(--header-height)); 
+            height: calc(100% - var(--header-height) + 10px); 
             background-color: var(--bg-drawer); 
             border-left: 1px solid var(--border-primary); 
             z-index: 1001; 
-            padding: 40px 10px 15px; 
+            padding: 10px 10px 15px; 
             box-sizing: border-box;
             display: flex;
             flex-direction: column;
             transition: right 0.4s cubic-bezier(0.165, 0.84, 0.44, 1); 
         }
-        .nav-drawer.open { right: 0; box-shadow: -10px 10px 30px var(--overlay-darkShadow); }
+        .nav-drawer.open { right: 0; box-shadow: -4px 0 6px 0 var(--overlay-dark); }
 
         /* 2. Main Header Rail */
         .header {
             position: fixed;
-            top: 0; left: 0; right: 0;
+            top: 0; left: -10px; right: -10px;
             height: var(--header-drop);
             background-color: var(--brand-dark); 
+            border-bottom: 3px solid var(--brand-light);
+            box-shadow: 0 4px 6px 0 var(--overlay-dark);
             z-index: 1002;
-            clip-path: polygon(
-                0% 0%, 100% 0%, 100% 100%, 
-                calc(100% - var(--notch-start)) 100%, 
-                calc(100% - var(--notch-end)) var(--header-height), 
-                var(--notch-end) var(--header-height), 
-                var(--notch-start) 100%, 0% 100%
-            );
         }
 
-        /* 3. Horizontal Data Streams */
-        .header-data-streams {
-            position: fixed; 
-            top: 0; left: 0; right: 0;
-            height: var(--header-height); 
-            z-index: 1003; 
-            pointer-events: none;
-            overflow: hidden;
-        }
-
-        .stream-line-h {
-            position: absolute;
-            height: 1px;
-            background: linear-gradient(to right, transparent, var(--brand-light), transparent);
-            opacity: 0.9;
-        }
-
-        /* 4. Phantom Border & Glow */
-        .header-shadow-phantom {
+        /* 3. Shadow Layer - Phantoms below rail */
+        .shadow-layer {
             position: fixed;
             top: 0; left: 0; right: 0;
-            height: var(--header-drop);
-            z-index: 1004; 
+            z-index: 1001;
             pointer-events: none;
-            filter: url(#glow-border) drop-shadow(0 10px 15px var(--overlay-darkShadow));
         }
 
-        .phantom-shape-fill {
-            width: 100%; height: 100%;
-            background: var(--brand-dark);
-            clip-path: polygon(
-                0% 0%, 100% 0%, 100% 100%, 
-                calc(100% - var(--notch-start)) 100%, 
-                calc(100% - var(--notch-end)) var(--header-height), 
-                var(--notch-end) var(--header-height), 
-                var(--notch-start) 100%, 0% 100%
-            );
+        .phantom-circle-left, .phantom-circle-right {
+            position: absolute;
+            top: var(--badge-top);
+            width: var(--badge-size);
+            height: var(--badge-size);
+            border-radius: 50%;
         }
 
-        /* 5. Top Interaction Layer */
+        .phantom-circle-left { left: 10px; box-shadow: 4px 6px 6px 0 var(--overlay-dark); }
+        .phantom-circle-right { right: 10px; box-shadow: -4px 6px 6px 0 var(--overlay-dark); }
+
+        .phantom-pod {
+            position: absolute;
+            top: var(--pod-top);
+            height: var(--pod-height);
+            left: 50%;
+            transform: translateX(-50%);
+            padding: 0 25px;
+            border-radius: 22px;
+            min-width: 180px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 6px 6px 0 var(--overlay-dark);
+        }
+
+        .phantom-title {
+            font-size: 1rem;
+            font-weight: 750;
+            text-transform: uppercase;
+            letter-spacing: 3px;
+            white-space: nowrap;
+            visibility: hidden;
+        }
+
+        /* Mobile/Narrow Screen Adjustments */
+        @media (max-width: 650px) {
+            .phantom-circle-left { left: 5px; }
+            .phantom-circle-right { right: 5px; }
+
+            .phantom-pod {
+                padding: 0 20px;
+                min-width: auto;
+            }
+        }
+
+        /* Very Narrow Screens */
+        @media (max-width: 500px) {
+            .phantom-title {
+                white-space: normal;
+                line-height: 1.2;
+            }
+
+            .phantom-pod {
+                left: 50px;
+                right: 50px;
+                transform: none;
+                min-width: auto;
+            }
+        }
+
+        /* 4. Top Interaction Layer */
         .ui-layer {
             position: fixed;
             top: 0; left: 0; right: 0;
@@ -527,23 +682,15 @@ async function buildKoreHeader(pageTitle = "Kore System") {
     `;
     document.head.appendChild(style);
 
-    const svgFilter = `
-    <svg width="0" height="0" style="position:absolute;">
-      <filter id="glow-border" x="-20%" y="-20%" width="140%" height="140%">
-        <feMorphology in="SourceAlpha" result="expanded" operator="dilate" radius="2"/>
-        <feFlood flood-color="${theme[activeTheme].eq.light}" result="blue"/>
-        <feComposite in="blue" in2="expanded" operator="in" />
-        <feComposite in="SourceGraphic" />
-      </filter>
-    </svg>`;
-    document.body.insertAdjacentHTML('beforeend', svgFilter);
-
     const headerHTML = `
-    <div class="header-shadow-phantom"><div class="phantom-shape-fill"></div></div>
+    <div class="shadow-layer">
+        <div class="phantom-circle-left"></div>
+        <div class="phantom-pod"><div class="phantom-title">${pageTitle}</div></div>
+        <div class="phantom-circle-right"></div>
+    </div>
     <header class="header"></header>
-    <div class="header-data-streams" id="h-streams"></div>
     <div class="ui-layer">
-        <a href="/" class="logo-circle"><img src="https://llink.equinoxits.com/images/kore-icon.png" class="logo-img"></a>
+        <a href="/admin" class="logo-circle"><img src="https://llink.equinoxits.com/images/kore-icon.png" class="logo-img"></a>
         <div class="title-pod"><div class="variable-title">${pageTitle}</div></div>
         <div class="menu-circle" id="hamburger"><div class="hamburger-lines"></div></div>
     </div>
@@ -570,17 +717,6 @@ async function buildKoreHeader(pageTitle = "Kore System") {
             .catch(err => console.warn('Could not load icons.svg:', err));
     }
 
-    const streamContainer = document.getElementById('h-streams');
-    const rows = [5, 11, 17, 23]; 
-    rows.forEach(y => {
-        const line = document.createElement('div');
-        line.className = 'stream-line-h';
-        line.style.top = y + 'px';
-        line.style.left = (Math.random() * 25) + '%';
-        line.style.width = (15 + Math.random() * 45) + '%';
-        streamContainer.appendChild(line);
-    });
-
     const hamburger = document.getElementById('hamburger');
     const drawer = document.getElementById('drawer');
 
@@ -601,6 +737,7 @@ async function buildKoreHeader(pageTitle = "Kore System") {
     function adjustTitleSize() {
         const titlePod = document.querySelector('.title-pod');
         const variableTitle = document.querySelector('.variable-title');
+        const phantomTitle = document.querySelector('.phantom-title');
         
         if (!titlePod || !variableTitle) return;
         
@@ -633,6 +770,7 @@ async function buildKoreHeader(pageTitle = "Kore System") {
         }
         
         variableTitle.style.fontSize = fontSize + 'rem';
+        if (phantomTitle) phantomTitle.style.fontSize = fontSize + 'rem';
     }
     
     // Initial call and listen to resize
@@ -640,9 +778,52 @@ async function buildKoreHeader(pageTitle = "Kore System") {
     window.addEventListener('resize', adjustTitleSize);
 }
 
+
 // Auto-execute: inject component styles and initialize theme
 injectComponentStyles();
+applyStatusColors();
+
+// --bg-canvas is fixed and never changes with theme
+document.documentElement.style.setProperty('--bg-canvas', '#152030');
+
 setTheme(activeTheme);
+
+/**
+ * Dynamically-created <select> elements (document.createElement('select'),
+ * or any HTML built via innerHTML/template strings after page load) never
+ * pick up the themed arrow color on their own - only the one-time sweep in
+ * updateBodyColors() (called above via setTheme) and any call site that
+ * manually invokes applySelectArrowColor() get it. Every other dynamic
+ * select is left with base_css.js's static black fallback arrow, which is
+ * why arrows have been inconsistent across pages (permission rows, menu
+ * item type/resource pickers, plugin config dropdowns, etc.).
+ *
+ * Rather than requiring every current and future call site to remember to
+ * call applySelectArrowColor() itself, watch the whole document for any
+ * <select> being added anywhere and theme it automatically. This covers
+ * all existing dynamic selects and any added in the future with no further
+ * changes needed at their call sites.
+ */
+function observeDynamicSelects() {
+    if (window._selectArrowObserver) return; // don't double-init on re-import
+
+    const observer = new MutationObserver(mutations => {
+        for (const mutation of mutations) {
+            mutation.addedNodes.forEach(node => {
+                if (node.nodeType !== Node.ELEMENT_NODE) return;
+                if (node.tagName === 'SELECT') {
+                    applySelectArrowColor(node);
+                } else if (node.querySelectorAll) {
+                    node.querySelectorAll('select').forEach(applySelectArrowColor);
+                }
+            });
+        }
+    });
+
+    observer.observe(document.documentElement, { childList: true, subtree: true });
+    window._selectArrowObserver = observer;
+}
+observeDynamicSelects();
 
 /**
  * Modal Management System
@@ -729,10 +910,14 @@ function showModal(options = {}) {
             button.textContent = btn.label;
             button.addEventListener('click', async () => {
                 if (btn.onClick) {
-                    const result = btn.onClick();
-                    // Wait for async functions (Promises)
+                    let result = btn.onClick();
+                    // Wait for async functions (Promises) - and use the RESOLVED
+                    // value for the close-check below, not the Promise object
+                    // itself (which is never === false, so without this
+                    // reassignment an async onClick could never prevent the
+                    // modal from closing no matter what it actually returned).
                     if (result instanceof Promise) {
-                        await result;
+                        result = await result;
                     }
                     // Only close modal if onClick didn't return false (allowing onClick to handle closing)
                     if (result !== false) {
@@ -983,25 +1168,602 @@ function showUnsaved(onSave, onDiscard) {
     });
 }
 /**
- * Get session token
+ * Get session token.
+ * Previously authenticated via a hardcoded admin credential + static API
+ * key against the external SQL/plugin API (app.equinoxits.com:1139) — a
+ * secret shipped in cleartext to every browser that loaded this file.
+ * Now just returns window.sessionToken, established once at module load
+ * above (see that comment for the full explanation): the real cookie is
+ * HttpOnly and unreadable here, so this is a placeholder that satisfies
+ * callers' own non-empty checks while the actual auth happens via the
+ * auto-attached HttpOnly cookie server-side — confirmed working already
+ * via datatables.js's identical 'cookie' placeholder convention. Kept
+ * async (and still named getSessionToken) so every existing
+ * `await window.getSessionToken()` call site across the codebase keeps
+ * working unchanged — new code should prefer reading window.sessionToken
+ * directly, since there's no longer a network call here to await.
  */
 async function getSessionToken() {
-    const authBody = {
-        origin: "https://localhost",
-        user: "admin@equinoxits.com"
-    };
+    return window.sessionToken;
+}
 
-    const response = await fetch('https://app.equinoxits.com:1139/auth', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'X-Kore-Token': '393d5ca334f5b1b9e7127544460def61ca6be55eab20da08f1746f11f5d0b4e9'
-        },
-        body: JSON.stringify(authBody)
+/**
+ * Build a small "?" icon that shows a tooltip with the given explanation
+ * when clicked. Pairs with the global click-handler below, which is
+ * delegated at the document level so this works anywhere infoIcon()'s
+ * output is inserted, with no per-instance wiring needed.
+ * @param {string} explanation - Tooltip text
+ * @returns {string} HTML string for the icon
+ */
+function infoIcon(explanation) {
+    // Escape any quotes in the explanation for the data attribute
+    const escaped = (explanation || '').replace(/"/g, '&quot;');
+    return `<span class="info-icon" data-explanation="${escaped}" style="display: inline-block; width: 12px; height: 12px; margin-left: 6px; background: white; border-radius: 50%; border: 1px solid #667eea; color: #667eea; font-size: 12px; font-weight: bold; line-height: 12px; text-align: center; cursor: pointer; flex-shrink: 0;">?</span>`;
+}
+
+// Info Icon Click Handler - delegated globally so any infoIcon() output,
+// anywhere in the DOM, shows/hides its tooltip without needing its own
+// listener attached.
+(() => {
+    let activeTooltip = null;
+
+    document.addEventListener('click', (e) => {
+        const icon = e.target.closest('.info-icon');
+
+        if (icon) {
+            e.preventDefault();
+            e.stopPropagation();
+
+            // Close existing tooltip if clicking a different icon
+            if (activeTooltip && activeTooltip !== icon) {
+                activeTooltip.tooltip?.remove();
+                activeTooltip.tooltip = null;
+                activeTooltip = null;
+            }
+
+            // Toggle tooltip
+            if (icon.tooltip) {
+                icon.tooltip.remove();
+                icon.tooltip = null;
+                activeTooltip = null;
+            } else {
+                // Create and show tooltip
+                const tooltip = document.createElement('div');
+                tooltip.className = 'info-tooltip';
+                tooltip.textContent = icon.dataset.explanation;
+                document.body.appendChild(tooltip);
+
+                // Position tooltip above the icon
+                const rect = icon.getBoundingClientRect();
+                const tooltipRect = tooltip.getBoundingClientRect();
+                tooltip.style.left = (rect.left + rect.width / 2 - tooltipRect.width / 2) + 'px';
+                tooltip.style.top = (rect.top - tooltipRect.height - 10) + 'px';
+
+                icon.tooltip = tooltip;
+                activeTooltip = icon;
+            }
+        } else {
+            // Close tooltip when clicking anywhere else
+            if (activeTooltip) {
+                activeTooltip.tooltip?.remove();
+                activeTooltip.tooltip = null;
+                activeTooltip = null;
+            }
+        }
+    });
+})();
+
+/**
+ * Build a searchable multi-select widget's markup: a display area showing
+ * selected items as removable tags, a checklist dropdown (with search and
+ * Select All), and a hidden native <select multiple> kept in sync so
+ * other code can read the current selection the same way it would read
+ * any other <select>'s .selectedOptions.
+ *
+ * This only builds the container - call initializeMultiSelect() on it
+ * afterward to make it interactive.
+ * @param {string} fieldId - id to assign the hidden <select> (so callers
+ *   can address it exactly like any other field input)
+ * @param {string} fieldName - name attribute for the hidden <select>
+ * @returns {string} HTML string
+ */
+function renderMultiSelectContainer(fieldId, fieldName) {
+    return `
+        <div class="multi-select-container">
+            <div class="multi-select-display">
+                <div class="multi-select-tags"></div>
+                <button type="button" class="multi-select-clear-all" style="display: none;">Clear All</button>
+                <div class="multi-select-toggle">▼</div>
+            </div>
+            <div class="multi-select-options"></div>
+            <select id="${fieldId}" name="${fieldName}" class="multi-select-hidden-select" multiple></select>
+        </div>
+    `;
+}
+
+/**
+ * Make a multi-select container (from renderMultiSelectContainer)
+ * interactive: tags for each selected item (with a remove button),
+ * a checklist dropdown with search and Select All, and a Clear All
+ * button. Keeps the container's hidden <select multiple> in sync with
+ * the current selection on every change.
+ *
+ * Safe to call again on the same container (e.g. after a dependent
+ * field's options change) - it clears and rebuilds from scratch rather
+ * than assuming any prior state.
+ * @param {HTMLElement} container - The .multi-select-container element
+ * @param {Array<{value: *, label: string}>} options
+ * @param {Array<*>} [selectedValues] - Initially-selected values
+ * @param {object} [config]
+ * @param {boolean} [config.searchable=true] - Show the search input
+ * @param {function(Array<string>): void} [config.onChange] - Called with
+ *   the current selected values (as strings) after any change
+ */
+function initializeMultiSelect(container, options, selectedValues = [], config = {}) {
+    if (!container) {
+        console.error('[MultiSelect] Container not provided');
+        return;
+    }
+
+    const tagsContainer = container.querySelector('.multi-select-tags');
+    const dropdown = container.querySelector('.multi-select-options');
+    const clearAllBtn = container.querySelector('.multi-select-clear-all');
+    const hiddenSelect = container.querySelector('.multi-select-hidden-select');
+
+    if (!tagsContainer || !dropdown || !hiddenSelect) {
+        console.error('[MultiSelect] Container is missing expected child elements');
+        return;
+    }
+
+    // Shared, mutable state that persists across re-initialization calls
+    // on the same container - options/selected/searchable/onChange live
+    // here (on the DOM node itself), not as plain closure variables.
+    // Container-level listeners (toggleDropdown, tag-remove, Clear All -
+    // attached only once, below) are permanently bound to whichever call's
+    // closure happened to attach them, but that closure's inner functions
+    // (updateTags, populateDropdown) all read from this shared object by
+    // reference - so even the very first call's toggleDropdown, invoked
+    // much later, sees whatever the most recent call wrote here, rather
+    // than being stuck on stale options from options/selected values that
+    // existed the very first time this ran.
+    if (!container._msState) {
+        container._msState = {};
+    }
+    const state = container._msState;
+    state.options = options;
+    state.selected = (selectedValues || []).map(v => String(v));
+    state.searchable = config.searchable !== false;
+    state.onChange = typeof config.onChange === 'function' ? config.onChange : null;
+
+    // Rebuild the hidden select's options fresh each time
+    hiddenSelect.innerHTML = '';
+    state.options.forEach(option => {
+        const opt = document.createElement('option');
+        opt.value = option.value;
+        opt.textContent = option.label;
+        opt.selected = state.selected.includes(String(option.value));
+        hiddenSelect.appendChild(opt);
     });
 
-    const data = await response.json();
-    return data.sessionToken;
+    function syncHiddenSelect() {
+        Array.from(hiddenSelect.options).forEach(opt => {
+            opt.selected = state.selected.includes(opt.value);
+        });
+    }
+
+    function updateTags() {
+        tagsContainer.innerHTML = '';
+
+        if (state.selected.length === 0) {
+            const placeholder = document.createElement('span');
+            placeholder.className = 'multi-select-placeholder';
+            placeholder.textContent = '-- Select options --';
+            tagsContainer.appendChild(placeholder);
+            if (clearAllBtn) clearAllBtn.style.display = 'none';
+        } else {
+            state.selected.forEach(value => {
+                const option = state.options.find(o => String(o.value) === value);
+                if (!option) return;
+                const tag = document.createElement('span');
+                tag.className = 'multi-select-tag';
+                tag.innerHTML = `${escapeHtml(option.label)} <button type="button" class="multi-select-tag-remove" data-value="${escapeHtml(value)}" aria-label="Remove ${escapeHtml(option.label)}">×</button>`;
+                tagsContainer.appendChild(tag);
+            });
+            if (clearAllBtn) clearAllBtn.style.display = 'inline-block';
+        }
+
+        syncHiddenSelect();
+        if (state.onChange) state.onChange(state.selected);
+    }
+
+    function populateDropdown(filterText = '') {
+        // Preserve the search input's own element (and focus) across
+        // re-populates - only rebuild what comes after it.
+        let searchDiv = dropdown.querySelector('.multi-select-search');
+
+        if (!searchDiv && state.searchable) {
+            searchDiv = document.createElement('div');
+            searchDiv.className = 'multi-select-search';
+            searchDiv.innerHTML = `
+                <div style="position: relative; width: 100%;">
+                    <input type="text" class="multi-select-search-input" placeholder="Search...">
+                    <button type="button" class="multi-select-search-clear" style="display: none;">✕</button>
+                </div>
+            `;
+            dropdown.appendChild(searchDiv);
+
+            const searchInput = searchDiv.querySelector('.multi-select-search-input');
+            const clearBtn = searchDiv.querySelector('.multi-select-search-clear');
+
+            setTimeout(() => searchInput.focus(), 0);
+
+            searchInput.addEventListener('input', (e) => {
+                clearBtn.style.display = e.target.value ? 'block' : 'none';
+                populateDropdown(e.target.value);
+            });
+
+            clearBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                searchInput.value = '';
+                clearBtn.style.display = 'none';
+                populateDropdown('');
+                searchInput.focus();
+            });
+        } else if (searchDiv) {
+            const searchInput = searchDiv.querySelector('.multi-select-search-input');
+            const clearBtn = searchDiv.querySelector('.multi-select-search-clear');
+            if (searchInput) searchInput.value = filterText;
+            if (clearBtn) clearBtn.style.display = filterText ? 'block' : 'none';
+        }
+
+        // Remove everything after the search input (Select All + options),
+        // to rebuild fresh against the current filter/selection.
+        let nextEl = searchDiv ? searchDiv.nextElementSibling : dropdown.firstElementChild;
+        while (nextEl) {
+            const toRemove = nextEl;
+            nextEl = nextEl.nextElementSibling;
+            toRemove.remove();
+        }
+
+        const filteredOptions = filterText.trim() === ''
+            ? state.options
+            : state.options.filter(opt => String(opt.label).toLowerCase().includes(filterText.toLowerCase()));
+
+        if (filteredOptions.length > 0) {
+            const selectAllDiv = document.createElement('div');
+            selectAllDiv.className = 'multi-select-option multi-select-select-all';
+            const selectAllId = 'ms-select-all-' + generateId();
+            const allSelected = filteredOptions.every(opt => state.selected.includes(String(opt.value)));
+            selectAllDiv.innerHTML = `<input type="checkbox" id="${selectAllId}" ${allSelected ? 'checked' : ''}><label for="${selectAllId}"><strong>Select All</strong></label>`;
+
+            selectAllDiv.querySelector('input').addEventListener('change', (e) => {
+                if (e.target.checked) {
+                    filteredOptions.forEach(opt => {
+                        const v = String(opt.value);
+                        if (!state.selected.includes(v)) state.selected.push(v);
+                    });
+                } else {
+                    const filteredValues = filteredOptions.map(opt => String(opt.value));
+                    state.selected = state.selected.filter(v => !filteredValues.includes(v));
+                }
+                updateTags();
+                populateDropdown(filterText);
+            });
+
+            dropdown.appendChild(selectAllDiv);
+
+            const separator = document.createElement('div');
+            separator.className = 'multi-select-separator';
+            dropdown.appendChild(separator);
+        }
+
+        if (filteredOptions.length === 0) {
+            const noMatches = document.createElement('div');
+            noMatches.className = 'multi-select-no-matches';
+            noMatches.textContent = 'No matches';
+            dropdown.appendChild(noMatches);
+        } else {
+            filteredOptions.forEach(option => {
+                const optionDiv = document.createElement('div');
+                optionDiv.className = 'multi-select-option';
+                const optId = 'ms-opt-' + generateId();
+                const isChecked = state.selected.includes(String(option.value));
+                optionDiv.innerHTML = `<input type="checkbox" id="${optId}" value="${escapeHtml(String(option.value))}" ${isChecked ? 'checked' : ''}><label for="${optId}">${escapeHtml(option.label)}</label>`;
+
+                optionDiv.querySelector('input').addEventListener('change', (e) => {
+                    const v = String(option.value);
+                    if (e.target.checked) {
+                        if (!state.selected.includes(v)) state.selected.push(v);
+                    } else {
+                        state.selected = state.selected.filter(sv => sv !== v);
+                    }
+                    updateTags();
+                    populateDropdown(filterText);
+                });
+
+                dropdown.appendChild(optionDiv);
+            });
+        }
+    }
+
+    function closeDropdown() {
+        dropdown.classList.remove('open');
+    }
+
+    function toggleDropdown() {
+        document.querySelectorAll('.multi-select-options.open').forEach(el => {
+            if (el !== dropdown) el.classList.remove('open');
+        });
+        dropdown.classList.toggle('open');
+        if (dropdown.classList.contains('open')) populateDropdown();
+    }
+
+    // Attach container-level listeners only once, even if this function
+    // runs again later (e.g. options refreshed) - re-adding them would
+    // stack duplicate handlers. This is safe now that everything above
+    // reads from the shared container._msState rather than closure
+    // variables: whichever call's toggleDropdown/populateDropdown ends up
+    // bound to these listeners will still see whatever the latest call
+    // wrote to state.
+    if (!container.hasAttribute('data-ms-listeners-attached')) {
+        container.setAttribute('data-ms-listeners-attached', 'true');
+
+        const displayArea = container.querySelector('.multi-select-display');
+        if (displayArea) {
+            displayArea.addEventListener('click', (e) => {
+                if (e.target.classList.contains('multi-select-tag-remove')) return;
+                e.stopPropagation();
+                toggleDropdown();
+            });
+        }
+
+        container.addEventListener('click', (e) => {
+            if (e.target.classList.contains('multi-select-tag-remove')) {
+                e.preventDefault();
+                e.stopPropagation();
+                state.selected = state.selected.filter(v => v !== e.target.dataset.value);
+                updateTags();
+                hiddenSelect.dispatchEvent(new Event('change', { bubbles: true }));
+            }
+        });
+
+        if (clearAllBtn) {
+            clearAllBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                state.selected = [];
+                updateTags();
+                if (dropdown.classList.contains('open')) populateDropdown('');
+                hiddenSelect.dispatchEvent(new Event('change', { bubbles: true }));
+            });
+        }
+
+        document.addEventListener('click', (e) => {
+            if (!container.contains(e.target)) closeDropdown();
+        });
+    }
+
+    updateTags();
+    if (dropdown.classList.contains('open')) populateDropdown();
+}
+
+/**
+ * Build a searchable single-select widget's markup: a display area
+ * showing the current selection as text, a checklist dropdown with
+ * search, and a hidden native <select> kept in sync so other code can
+ * read the current value the same way it would read any other <select>.
+ *
+ * This only builds the container - call initializeSearchableSelect() on
+ * it afterward to make it interactive.
+ * @param {string} fieldId - id to assign the hidden <select>
+ * @param {string} fieldName - name attribute for the hidden <select>
+ * @returns {string} HTML string
+ */
+function renderSearchableSelectContainer(fieldId, fieldName) {
+    return `
+        <div class="single-select-container">
+            <div class="single-select-display">
+                <span class="single-select-value"></span>
+                <div class="single-select-toggle">▼</div>
+            </div>
+            <div class="multi-select-options"></div>
+            <select id="${fieldId}" name="${fieldName}" class="single-select-hidden-select"></select>
+        </div>
+    `;
+}
+
+/**
+ * Make a searchable single-select container (from
+ * renderSearchableSelectContainer) interactive: current selection shown
+ * as text, a checklist dropdown with search, clicking an option selects
+ * it and closes the dropdown. Keeps the container's hidden <select> in
+ * sync with the current value on every change.
+ *
+ * Reuses the .multi-select-options/.multi-select-search* classes for the
+ * dropdown panel itself (visually identical to the multi-select widget's
+ * own dropdown), since only the display area and row behavior differ for
+ * single-select.
+ *
+ * Safe to call again on the same container (e.g. after a dependent
+ * field's options change) - it clears and rebuilds from scratch rather
+ * than assuming any prior state. Shared, mutable state lives on the
+ * container itself (container._ssState) rather than as plain closure
+ * variables, for the same reason initializeMultiSelect does this - the
+ * container-level listeners are attached only once, so without shared
+ * state they'd stay bound to stale data from whichever call happened to
+ * attach them first.
+ * @param {HTMLElement} container - The .single-select-container element
+ * @param {Array<{value: *, label: string}>} options
+ * @param {*} [selectedValue] - Initially-selected value
+ * @param {object} [config]
+ * @param {boolean} [config.searchable=true] - Show the search input
+ * @param {function(string): void} [config.onChange] - Called with the
+ *   current selected value (as a string) after any change
+ */
+function initializeSearchableSelect(container, options, selectedValue = '', config = {}) {
+    if (!container) {
+        console.error('[SearchableSelect] Container not provided');
+        return;
+    }
+
+    const valueDisplay = container.querySelector('.single-select-value');
+    const dropdown = container.querySelector('.multi-select-options');
+    const hiddenSelect = container.querySelector('.single-select-hidden-select');
+
+    if (!valueDisplay || !dropdown || !hiddenSelect) {
+        console.error('[SearchableSelect] Container is missing expected child elements');
+        return;
+    }
+
+    if (!container._ssState) {
+        container._ssState = {};
+    }
+    const state = container._ssState;
+    state.options = options;
+    state.selected = selectedValue === null || selectedValue === undefined ? '' : String(selectedValue);
+    state.searchable = config.searchable !== false;
+    state.onChange = typeof config.onChange === 'function' ? config.onChange : null;
+
+    // Rebuild the hidden select's options fresh each time
+    hiddenSelect.innerHTML = '';
+    const placeholderOption = document.createElement('option');
+    placeholderOption.value = '';
+    placeholderOption.textContent = '-- Select --';
+    hiddenSelect.appendChild(placeholderOption);
+    state.options.forEach(option => {
+        const opt = document.createElement('option');
+        opt.value = option.value;
+        opt.textContent = option.label;
+        opt.selected = state.selected === String(option.value);
+        hiddenSelect.appendChild(opt);
+    });
+
+    function updateDisplay() {
+        const match = state.options.find(o => String(o.value) === state.selected);
+        valueDisplay.textContent = match ? match.label : '-- Select --';
+        valueDisplay.classList.toggle('single-select-placeholder', !match);
+
+        hiddenSelect.value = match ? state.selected : '';
+        if (state.onChange) state.onChange(state.selected);
+    }
+
+    function selectOption(value) {
+        state.selected = value;
+        updateDisplay();
+        closeDropdown();
+
+        // Setting hiddenSelect.value programmatically (inside
+        // updateDisplay) never fires a native change event on its own -
+        // only real user interaction with a native control does that.
+        // The rest of the form (handleFormFieldChange, conditional
+        // visibility, data-driven fields) all runs off event delegation
+        // listening for input/change bubbling up to #formContainer, so
+        // without this, selecting something here would update the value
+        // but nothing else would ever find out.
+        hiddenSelect.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+
+    function populateDropdown(filterText = '') {
+        let searchDiv = dropdown.querySelector('.multi-select-search');
+
+        if (!searchDiv && state.searchable) {
+            searchDiv = document.createElement('div');
+            searchDiv.className = 'multi-select-search';
+            searchDiv.innerHTML = `
+                <div style="position: relative; width: 100%;">
+                    <input type="text" class="multi-select-search-input" placeholder="Search...">
+                    <button type="button" class="multi-select-search-clear" style="display: none;">✕</button>
+                </div>
+            `;
+            dropdown.appendChild(searchDiv);
+
+            const searchInput = searchDiv.querySelector('.multi-select-search-input');
+            const clearBtn = searchDiv.querySelector('.multi-select-search-clear');
+
+            setTimeout(() => searchInput.focus(), 0);
+
+            searchInput.addEventListener('input', (e) => {
+                clearBtn.style.display = e.target.value ? 'block' : 'none';
+                populateDropdown(e.target.value);
+            });
+
+            clearBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                searchInput.value = '';
+                clearBtn.style.display = 'none';
+                populateDropdown('');
+                searchInput.focus();
+            });
+        } else if (searchDiv) {
+            const searchInput = searchDiv.querySelector('.multi-select-search-input');
+            const clearBtn = searchDiv.querySelector('.multi-select-search-clear');
+            if (searchInput) searchInput.value = filterText;
+            if (clearBtn) clearBtn.style.display = filterText ? 'block' : 'none';
+        }
+
+        // Remove everything after the search input, to rebuild fresh
+        // against the current filter.
+        let nextEl = searchDiv ? searchDiv.nextElementSibling : dropdown.firstElementChild;
+        while (nextEl) {
+            const toRemove = nextEl;
+            nextEl = nextEl.nextElementSibling;
+            toRemove.remove();
+        }
+
+        const filteredOptions = filterText.trim() === ''
+            ? state.options
+            : state.options.filter(opt => String(opt.label).toLowerCase().includes(filterText.toLowerCase()));
+
+        if (filteredOptions.length === 0) {
+            const noMatches = document.createElement('div');
+            noMatches.className = 'multi-select-no-matches';
+            noMatches.textContent = 'No matches';
+            dropdown.appendChild(noMatches);
+        } else {
+            filteredOptions.forEach(option => {
+                const optionDiv = document.createElement('div');
+                optionDiv.className = 'multi-select-option single-select-option';
+                if (state.selected === String(option.value)) optionDiv.classList.add('single-select-option--selected');
+                optionDiv.textContent = option.label;
+
+                optionDiv.addEventListener('click', () => {
+                    selectOption(String(option.value));
+                });
+
+                dropdown.appendChild(optionDiv);
+            });
+        }
+    }
+
+    function closeDropdown() {
+        dropdown.classList.remove('open');
+    }
+
+    function toggleDropdown() {
+        document.querySelectorAll('.multi-select-options.open').forEach(el => {
+            if (el !== dropdown) el.classList.remove('open');
+        });
+        dropdown.classList.toggle('open');
+        if (dropdown.classList.contains('open')) populateDropdown();
+    }
+
+    if (!container.hasAttribute('data-ss-listeners-attached')) {
+        container.setAttribute('data-ss-listeners-attached', 'true');
+
+        const displayArea = container.querySelector('.single-select-display');
+        if (displayArea) {
+            displayArea.addEventListener('click', (e) => {
+                e.stopPropagation();
+                toggleDropdown();
+            });
+        }
+
+        document.addEventListener('click', (e) => {
+            if (!container.contains(e.target)) closeDropdown();
+        });
+    }
+
+    updateDisplay();
+    if (dropdown.classList.contains('open')) populateDropdown();
 }
 
 /** Get sessionToken from browser cookies - Returns {string|null} The sessionToken value or null if not found */
@@ -1016,13 +1778,6 @@ function getSessionTokenFromCookie() {
         }
     }
     return null;
-}
-
-/**
- * Get current user ID from session token
- */
-function getUser() {
-    return localStorage.getItem('kore_userId');
 }
 
 /**
@@ -1066,7 +1821,7 @@ async function getGroups(sessionToken, user) {
             sessionToken,
             user,
             'kore_sys',
-            'SELECT groupId, name, description, active, createdAt, createdBy FROM user_groups ORDER BY name'
+            'SELECT groupId, name, description, active, createdAt, createdBy, groupIds FROM user_groups ORDER BY name'
         );
         return result.result || [];
     } catch (error) {
@@ -1099,8 +1854,22 @@ async function getSecurityConfig(sessionToken, user) {
  */
 async function executeSqlQuery(sessionToken, user, datasource, query, options = {}) {
     try {
-        if (!sessionToken || !user || !datasource || !query) {
-            throw new Error('sessionToken, user, datasource, and query are required');
+        // PHASE 2: `user` is no longer validated, and never was transmitted -
+        // the body below sends only {datasource, query}. It existed as a
+        // required argument that every caller satisfied by reading
+        // localStorage.kore_userId, which is exactly the client-asserted
+        // identity this phase removes. Left in the signature for now so
+        // callers can drop their getUser() lookups independently; the
+        // parameter itself comes out in a single mechanical pass.
+        //
+        // `sessionToken` is likewise not the real credential for browser
+        // callers. plugins.js:2101 reads `cookieToken || headerToken`, cookie
+        // FIRST and deliberately, because the sessionToken cookie is HttpOnly
+        // and unreadable from JS - which is why several callers pass the
+        // literal string 'cookie' here and still authenticate correctly. The
+        // header is a fallback for server-to-server callers with no cookie.
+        if (!sessionToken || !datasource || !query) {
+            throw new Error('sessionToken, datasource, and query are required');
         }
         
         const response = await fetch(`https://app.equinoxits.com:1139/sqlquery`, {
@@ -1118,7 +1887,9 @@ async function executeSqlQuery(sessionToken, user, datasource, query, options = 
         const data = await response.json();
         
         if (!response.ok) {
-            throw new Error(data.error || `HTTP ${response.status}`);
+            const err = new Error(data.error || `HTTP ${response.status}`);
+            err.status = response.status;
+            throw err;
         }
         
         if (!data.success) {
@@ -1127,7 +1898,21 @@ async function executeSqlQuery(sessionToken, user, datasource, query, options = 
         
         return data;
     } catch (error) {
-        console.error('executeSqlQuery error:', error);
+        // 401 is a normal, expected outcome - an unauthenticated or expired
+        // session, which the caller handles by falling back or redirecting to
+        // login. Logging it at error level put a stack trace in the console for
+        // something that isn't a fault, on top of the browser's own
+        // unsuppressable "Failed to load resource: 401" line. Everything else
+        // still logs as an error, since a failed query with a live session is a
+        // real problem.
+        //
+        // The error is rethrown either way - this only controls log severity,
+        // never whether the caller learns about the failure.
+        if (error.status === 401) {
+            console.warn('executeSqlQuery: not authenticated -', error.message);
+        } else {
+            console.error('executeSqlQuery error:', error);
+        }
         throw error;
     }
 }
@@ -1526,11 +2311,14 @@ function showFormModal(title, fields, onSave, readOnly = false, resizable = fals
                         }
                     });
                     if (onSave) {
-                        const result = onSave(formData);
-                        // Wait for async functions (Promises)
+                        let result = onSave(formData);
+                        // Wait for async functions (Promises), using the resolved
+                        // value below - see the matching fix in showModal's own
+                        // button handler for why this reassignment matters.
                         if (result instanceof Promise) {
-                            await result;
+                            result = await result;
                         }
+                        return result;
                     }
                 }
             }
@@ -1635,7 +2423,19 @@ function addHeaderRow(containerId) {
  */
 function switchTab(tabName, event) {
     event.preventDefault();
-    
+
+    // Optional page-level gating: a page can set window.__tabGate to a map
+    // of { tabPanelId: boolean } (see settings.js's applySettingsTabGating)
+    // to block switching into a tab the current user isn't permitted to
+    // see - covers direct switchTab(...) calls (like the General tab's own
+    // onclick) that don't go through a page-specific wrapper function.
+    // Pages that never set __tabGate get switchTab's original, ungated
+    // behavior.
+    if (window.__tabGate && window.__tabGate[tabName] === false) {
+        console.warn(`[switchTab] Blocked switch to disallowed tab: ${tabName}`);
+        return;
+    }
+
     document.querySelectorAll('.tab-panel').forEach(panel => {
         panel.classList.remove('active');
     });
@@ -1679,17 +2479,45 @@ function escapeSql(value) {
  * @returns {Object|null} org_stack row or null if not found
  */
 async function getOrgStack(sessionToken, user, orgId) {
+    // NOTE: org_stack table is deprecated post-Rewst. Stack data now lives in kore_data.orgs.stack (JSON column).
     try {
         const result = await executeSqlQuery(
             sessionToken,
             user,
             'kore_sys',
-            `SELECT * FROM kore_data.org_stack WHERE org_id = ${orgId}`
+            `SELECT stack FROM kore_data.orgs WHERE org_id = ${orgId}`
         );
-        return result.result && result.result.length > 0 ? result.result[0] : null;
+        if (!result.result || result.result.length === 0) return {};
+        const raw = result.result[0].stack;
+        if (!raw) return {};
+        return typeof raw === 'string' ? JSON.parse(raw) : raw;
     } catch (error) {
         console.error('Error fetching org stack:', error);
-        return null;
+        return {};
+    }
+}
+
+/**
+ * Get a user's tech-stack mapping (kore_sys.users.stack, JSON column) -
+ * mirrors getOrgStack above. userId is a string (UUID), unlike org_id, so
+ * it's quoted/escaped rather than interpolated as a bare number.
+ */
+async function getUserStack(sessionToken, user, targetUserId) {
+    try {
+        const escapedUserId = String(targetUserId).replace(/'/g, "''");
+        const result = await executeSqlQuery(
+            sessionToken,
+            user,
+            'kore_sys',
+            `SELECT stack FROM kore_sys.users WHERE userId = '${escapedUserId}'`
+        );
+        if (!result.result || result.result.length === 0) return {};
+        const raw = result.result[0].stack;
+        if (!raw) return {};
+        return typeof raw === 'string' ? JSON.parse(raw) : raw;
+    } catch (error) {
+        console.error('Error fetching user stack:', error);
+        return {};
     }
 }
 
@@ -1712,66 +2540,24 @@ function setupPageUnsavedChangesProtection(onSaveCallback, onDiscardCallback) {
 }
 
 /**
- * Get all RMM types
+ * Get all stack type options for a given category (e.g. 'RMM', 'PSA',
+ * 'Control', 'RPA', 'BDR', 'SEC') from the unified kore_data.stack_types
+ * table (type_id, category, name). Replaces the old one-table-per-category
+ * design (stack_rmm, stack_psa, etc.) now that all categories share a
+ * single table distinguished by the category column.
  */
-async function getRmmTypes(sessionToken, user) {
+async function getStackTypes(sessionToken, user, category) {
     try {
-        const result = await executeSqlQuery(sessionToken, user, 'kore_sys', 'SELECT rmm_type_id, rmm_name FROM kore_data.stack_rmm ORDER BY rmm_name');
+        const escapedCategory = String(category).replace(/'/g, "''");
+        const result = await executeSqlQuery(
+            sessionToken,
+            user,
+            'kore_sys',
+            `SELECT type_id, category, name FROM kore_data.stack_types WHERE category = '${escapedCategory}' ORDER BY name`
+        );
         return result.result || [];
     } catch (error) {
-        console.error('Error fetching RMM types:', error);
-        return [];
-    }
-}
-
-/**
- * Get all PSA types
- */
-async function getPsaTypes(sessionToken, user) {
-    try {
-        const result = await executeSqlQuery(sessionToken, user, 'kore_sys', 'SELECT psa_type_id, psa_name FROM kore_data.stack_psa ORDER BY psa_name');
-        return result.result || [];
-    } catch (error) {
-        console.error('Error fetching PSA types:', error);
-        return [];
-    }
-}
-
-/**
- * Get all Control types
- */
-async function getControlTypes(sessionToken, user) {
-    try {
-        const result = await executeSqlQuery(sessionToken, user, 'kore_sys', 'SELECT control_type_id, control_name FROM kore_data.stack_control ORDER BY control_name');
-        return result.result || [];
-    } catch (error) {
-        console.error('Error fetching Control types:', error);
-        return [];
-    }
-}
-
-/**
- * Get all RPA types
- */
-async function getRpaTypes(sessionToken, user) {
-    try {
-        const result = await executeSqlQuery(sessionToken, user, 'kore_sys', 'SELECT rpa_type_id, rpa_name FROM kore_data.stack_rpa ORDER BY rpa_name');
-        return result.result || [];
-    } catch (error) {
-        console.error('Error fetching RPA types:', error);
-        return [];
-    }
-}
-
-/**
- * Get all BDR types
- */
-async function getBdrTypes(sessionToken, user) {
-    try {
-        const result = await executeSqlQuery(sessionToken, user, 'kore_sys', 'SELECT bdr_type_id, bdr_name FROM kore_data.stack_bdr ORDER BY bdr_name');
-        return result.result || [];
-    } catch (error) {
-        console.error('Error fetching BDR types:', error);
+        console.error(`Error fetching ${category} stack types:`, error);
         return [];
     }
 }
@@ -1865,7 +2651,11 @@ async function emailSmtp(sessionToken, to, subject, html = null, plainText = nul
  */
 async function logout() {
     try {
-        // Clear userId from localStorage
+        // Legacy cleanup: kore_userId is no longer written or read (identity
+        // comes from the session), but browsers that logged in before that
+        // change still hold a stale copy. Clearing it here sweeps it out as
+        // people log out; it can be dropped once no live browser could
+        // plausibly still have one.
         localStorage.removeItem('kore_userId');
         
         // Call logout endpoint to clear the session cookie
@@ -1905,31 +2695,59 @@ const DEFAULT_USER_PREFERENCES = {
 };
 
 /**
+ * The current user, resolved server-side from the session cookie.
+ *
+ * REVIEW PHASE 2. Replaces the previous approach of reading
+ * localStorage.kore_userId and interpolating it into a SQL string sent to
+ * /sqlquery. That made the browser the authority on its own identity, which
+ * meant (a) the value could be edited from the console, and it went straight
+ * into a WHERE clause, and (b) it could silently drift from the real session -
+ * which it did, when the forced-password-change path stored an email in that
+ * key and every identity-dependent call started failing or targeting nothing.
+ *
+ * Cached for the life of the page load. Identity cannot change without a
+ * navigation, and several callers (header, dashboard, permission checks) each
+ * want it once - a single in-flight promise keeps that to one request rather
+ * than a burst of identical ones. Cache the PROMISE, not the result, so
+ * concurrent callers during the initial load share the same request.
+ */
+let _currentUserPromise = null;
+
+async function getCurrentUser(forceRefresh = false) {
+    if (_currentUserPromise && !forceRefresh) return _currentUserPromise;
+
+    _currentUserPromise = (async () => {
+        const response = await fetch('/auth/me', { credentials: 'same-origin' });
+        if (!response.ok) {
+            // Clear the cache so a later call can retry rather than being
+            // stuck on a rejected promise for the rest of the page's life.
+            _currentUserPromise = null;
+            throw new Error(response.status === 401
+                ? 'Not authenticated'
+                : `Failed to load current user: HTTP ${response.status}`);
+        }
+        return response.json();
+    })();
+
+    return _currentUserPromise;
+}
+
+/**
  * Get current user's profile data (email, full name)
+ *
+ * Kept as a thin wrapper over getCurrentUser() because existing callers
+ * destructure the snake_case shape it has always returned. New code should
+ * call getCurrentUser() directly. The sessionToken parameter is ignored - it
+ * was never used for identity even before this change.
  */
 async function getCurrentUserData(sessionToken) {
     try {
-        const userId = getUser();
-        if (!userId) {
-            throw new Error('No user ID found');
-        }
-
-        const result = await executeSqlQuery(
-            sessionToken,
-            userId,
-            'kore_sys',
-            `SELECT userId, email, fullName FROM users WHERE userId = '${userId}'`
-        );
-
-        if (result.result && result.result.length > 0) {
-            const user = result.result[0];
-            return {
-                user_id: user.userId,
-                email: user.email,
-                full_name: user.fullName
-            };
-        }
-        return null;
+        const user = await getCurrentUser();
+        return {
+            user_id: user.userId,
+            email: user.email,
+            full_name: user.fullName
+        };
     } catch (error) {
         console.error('Error fetching current user data:', error);
         throw error;
@@ -1938,32 +2756,18 @@ async function getCurrentUserData(sessionToken) {
 
 /**
  * Get user notification preferences with defaults
+ *
+ * PHASE 2: reads from /auth/me rather than a SQL lookup keyed on a
+ * client-supplied userId. The userId parameter is retained for call
+ * compatibility but ignored - this only ever returned the CURRENT user's
+ * preferences in practice, and taking the id from the caller meant a browser
+ * could request anyone's.
  */
 async function getUserNotificationPreferences(sessionToken, userId) {
     try {
-        const result = await executeSqlQuery(
-            sessionToken,
-            userId,
-            'kore_sys',
-            `SELECT preferences FROM users WHERE userId = '${userId}'`
-        );
-
-        if (result.result && result.result.length > 0) {
-            const prefData = result.result[0].preferences;
-            
-            // If preferences is null or empty, return defaults
-            if (!prefData) {
-                return DEFAULT_USER_PREFERENCES.notifications;
-            }
-
-            // Parse if it's a string
-            const preferences = typeof prefData === 'string' ? JSON.parse(prefData) : prefData;
-            
-            // Return notification preferences or defaults if not set
-            return preferences.notifications || DEFAULT_USER_PREFERENCES.notifications;
-        }
-        
-        return DEFAULT_USER_PREFERENCES.notifications;
+        const user = await getCurrentUser();
+        const preferences = user.preferences || {};
+        return preferences.notifications || DEFAULT_USER_PREFERENCES.notifications;
     } catch (error) {
         console.error('Error fetching user notification preferences:', error);
         return DEFAULT_USER_PREFERENCES.notifications;
@@ -1975,17 +2779,27 @@ async function getUserNotificationPreferences(sessionToken, userId) {
  */
 async function updateUserProfile(sessionToken, userId, data) {
     try {
-        const fullName = data.full_name ? `'${data.full_name.replace(/'/g, "''")}'` : 'NULL';
-        const email = data.email ? `'${data.email.replace(/'/g, "''")}'` : 'NULL';
+        // PHASE 2: the userId parameter is ignored - the server takes identity
+        // from the session. It previously chose the target row, so a browser
+        // could rewrite another user's name and email.
+        const response = await fetch('/auth/me/profile', {
+            method: 'PUT',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                fullName: data.full_name,
+                email: data.email
+            })
+        });
 
-        const query = `UPDATE users SET fullName = ${fullName}, email = ${email} WHERE userId = '${userId}'`;
+        const result = await response.json();
+        if (!response.ok) {
+            throw new Error(result.error || `Profile update failed: HTTP ${response.status}`);
+        }
 
-        const result = await executeSqlQuery(
-            sessionToken,
-            userId,
-            'kore_sys',
-            query
-        );
+        // Identity just changed on the server; drop the cached copy so the next
+        // getCurrentUser() reflects it rather than serving a stale name/email.
+        _currentUserPromise = null;
 
         return result.success === true;
     } catch (error) {
@@ -2030,44 +2844,33 @@ async function changeUserPassword(sessionToken, userId, data) {
  */
 async function updateUserNotificationPreferences(sessionToken, userId, preferences) {
     try {
-        // Get current preferences to merge
-        const result = await executeSqlQuery(
-            sessionToken,
-            userId,
-            'kore_sys',
-            `SELECT preferences FROM users WHERE userId = '${userId}'`
-        );
+        // PHASE 2: the read-modify-write cycle is gone - the server merges with
+        // JSON_MERGE_PATCH, so two tabs editing different preference keys no
+        // longer clobber each other. Only the notifications sub-object is sent;
+        // everything else in preferences (shortcuts, dashboard_layout) is left
+        // untouched by the merge rather than being round-tripped through the
+        // client, which is how a stale read used to wipe concurrent changes.
+        const current = await getCurrentUser();
+        const currentNotifications = (current.preferences && current.preferences.notifications) || {};
 
-        let currentPrefs = DEFAULT_USER_PREFERENCES;
-        
-        if (result.result && result.result.length > 0 && result.result[0].preferences) {
-            const prefData = result.result[0].preferences;
-            currentPrefs = typeof prefData === 'string' ? JSON.parse(prefData) : prefData;
+        const response = await fetch('/auth/me/preferences', {
+            method: 'PUT',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                notifications: { ...currentNotifications, ...preferences },
+                updated_at: new Date().toISOString()
+            })
+        });
+
+        const result = await response.json();
+        if (!response.ok) {
+            throw new Error(result.error || `Preferences update failed: HTTP ${response.status}`);
         }
 
-        // Merge new preferences with existing ones
-        const updatedPrefs = {
-            ...currentPrefs,
-            notifications: {
-                ...currentPrefs.notifications,
-                ...preferences
-            },
-            updated_at: new Date().toISOString()
-        };
+        _currentUserPromise = null;
 
-        // Escape single quotes in JSON for SQL
-        const prefsJson = JSON.stringify(updatedPrefs).replace(/'/g, "''");
-
-        const updateQuery = `UPDATE users SET preferences = '${prefsJson}' WHERE userId = '${userId}'`;
-
-        const updateResult = await executeSqlQuery(
-            sessionToken,
-            userId,
-            'kore_sys',
-            updateQuery
-        );
-
-        return updateResult.success === true;
+        return result.success === true;
     } catch (error) {
         console.error('Error updating notification preferences:', error);
         throw error;
@@ -2622,19 +3425,25 @@ async function saveAllowedIPs(table, idColumn, idValue, allowedIPs) {
 }
 
 /**
- * Check if a user has a specific permission
+ * Check whether the CURRENT user has a specific permission.
  * Supports checking by: permissionId, or resource+action, or resource+action+scope
+ *
+ * PHASE 2: no longer takes or sends a userId. The subject is the session user,
+ * resolved server-side. Previously the caller supplied it - which meant the
+ * browser named the subject of its own permission check, and every call site
+ * had to first obtain an id from localStorage. Callers may still pass a userId
+ * property; it is ignored here and by the server.
+ *
  * @param {Object} checkParams - Parameters for the permission check
- * @param {String} checkParams.userId - The user ID to check
  * @param {String} [checkParams.permissionId] - Permission ID (alternative to resource+action)
  * @param {String} [checkParams.resource] - Resource type (e.g., 'workflow', 'page')
  * @param {String} [checkParams.action] - Action type (e.g., 'view', 'edit', 'delete', '*')
  * @param {String} [checkParams.scope] - Resource scope/ID (optional, for resource+action checks)
- * @returns {Promise<Boolean>} - True if user has permission, false otherwise
+ * @returns {Promise<Boolean>} - True if the current user has permission, false otherwise
  */
 async function checkUserPermission(checkParams) {
     try {
-        const payload = { userId: checkParams.userId };
+        const payload = {};
         
         // Support either permissionId or resource+action
         if (checkParams.permissionId) {
@@ -2651,6 +3460,7 @@ async function checkUserPermission(checkParams) {
         
         const response = await fetch('/kore/has-permission', {
             method: 'POST',
+            credentials: 'same-origin',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload)
         });
@@ -2669,10 +3479,62 @@ async function checkUserPermission(checkParams) {
 }
 
 /**
- * Create a permission form row with target/effect selects and delete/revoke button
+ * Batched version of checkUserPermission - evaluates many resource/action/
+ * scope checks for the CURRENT user in one request, instead of one round trip
+ * per check. Use this whenever more than one permission needs checking at
+ * once (e.g. gating several tabs on page load) rather than calling
+ * checkUserPermission() in a loop.
+ *
+ * PHASE 2: the userId parameter is retained for call compatibility but is no
+ * longer sent - the server answers for the session user. See
+ * checkUserPermission() above.
+ *
+ * @param {String} [userId] - Ignored; the subject is the session user
+ * @param {Array<{resource: String, action: String, scope: String}>} checks
+ * @returns {Promise<Object>} - Map keyed by scope (or resource if scope is
+ *   omitted/null) to a boolean, e.g. { general: true, users: false }.
+ *   Suited to the common case where every check shares the same
+ *   resource+action and only scope varies; for mixed resource/action
+ *   batches, key collisions on scope are possible - inspect the raw
+ *   `results` array in that case instead.
+ */
+async function checkUserPermissions(userId, checks) {
+    const emptyMap = {};
+    if (!Array.isArray(checks) || checks.length === 0) return emptyMap;
+
+    try {
+        const response = await fetch('/kore/has-permission', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ checks })
+        });
+
+        if (!response.ok) {
+            console.error('Batch permission check failed:', response.status);
+            return emptyMap;
+        }
+
+        const result = await response.json();
+        const results = Array.isArray(result.results) ? result.results : [];
+
+        const byScope = {};
+        for (const r of results) {
+            const key = (r.scope === null || r.scope === undefined) ? r.resource : r.scope;
+            byScope[key] = r.hasPermission === true;
+        }
+        return byScope;
+    } catch (error) {
+        console.error('Error checking batch permissions:', error);
+        return emptyMap;
+    }
+}
+
+/**
+ * Create a permission form row with target/effect selects and a Delete button
  * Reusable for any resource that needs permission management
  * @param {HTMLElement} container - Container to append the row to
- * @param {Boolean} isNew - True for new permissions (show delete button), false for existing (show revoke button)
+ * @param {Boolean} isNew - True for new permissions (removes the row outright on click), false for existing (marks the row for deletion on save - see savePermissionsForResource)
  * @param {Object} permissionData - Existing permission data {permissionId, targetType, targetId, targetName, effect}
  */
 function createPermissionRow(container, isNew, permissionData = null, actions = null) {
@@ -2721,25 +3583,34 @@ function createPermissionRow(container, isNew, permissionData = null, actions = 
         actionSelect.className = 'permission-action';
         actionSelect.style.cssText = 'flex: 0 0 auto; width: 100px;';
         actionSelect.innerHTML = '';
-        
-        // Add Full option
-        const fullOption = document.createElement('option');
-        fullOption.value = '*';
-        fullOption.textContent = 'Full';
-        actionSelect.appendChild(fullOption);
-        
-        // Add individual actions
-        actions.forEach(action => {
+
+        // Only offer "Full" if the caller's actions list actually includes
+        // the '*' wildcard - this is meant to mirror whether '*' is in the
+        // resource's own catalog-declared validActions (see settings.js's
+        // getValidActionsFor), not to be added unconditionally. Resources
+        // like 'settings' and 'page' only declare ["view"] with no '*', so
+        // they must not get a Full option here.
+        const hasWildcard = actions.includes('*');
+        if (hasWildcard) {
+            const fullOption = document.createElement('option');
+            fullOption.value = '*';
+            fullOption.textContent = 'Full';
+            actionSelect.appendChild(fullOption);
+        }
+
+        // Add individual actions (excluding '*' itself, which is rendered
+        // as the "Full" option above, not as its own literal entry)
+        actions.filter(action => action !== '*').forEach(action => {
             const option = document.createElement('option');
             option.value = action;
             option.textContent = action.charAt(0).toUpperCase() + action.slice(1);
             actionSelect.appendChild(option);
         });
-        
+
         if (permissionData && permissionData.action) {
             actionSelect.value = permissionData.action;
         } else if (actions.length > 0) {
-            actionSelect.value = actions[0];
+            actionSelect.value = actions.find(a => a !== '*') || '*';
         }
     }
 
@@ -2752,10 +3623,10 @@ function createPermissionRow(container, isNew, permissionData = null, actions = 
         effectSelect.value = permissionData.effect;
     }
 
-    // Delete/Revoke button
+    // Delete button
     let actionBtn = null;
     if (isNew) {
-        // Delete button for new permissions
+        // New, unsaved row - removes it from the DOM outright, nothing to submit
         actionBtn = document.createElement('button');
         actionBtn.textContent = 'Delete';
         actionBtn.className = 'btn';
@@ -2766,9 +3637,13 @@ function createPermissionRow(container, isNew, permissionData = null, actions = 
             row.remove();
         };
     } else if (permissionData) {
-        // Revoke button for existing permissions
+        // Existing row - marks for deletion on save rather than removing
+        // immediately, since the actual row still exists server-side until
+        // the save request goes through. dataset.revoke is an internal
+        // field name only (checked by savePermissionsForResource) - not
+        // renamed alongside the visible label since it's not user-facing.
         actionBtn = document.createElement('button');
-        actionBtn.textContent = 'Revoke';
+        actionBtn.textContent = 'Delete';
         actionBtn.className = 'btn';
         actionBtn.setAttribute('data-color', 'red');
         actionBtn.setAttribute('data-size', 'sm');
@@ -2906,12 +3781,19 @@ function displayPermissionsForm(container, existingPermissions, options = {}) {
  * @param {String} config.resource - Resource type (e.g., 'page', 'workflow')
  * @param {String} config.endpoint - API endpoint (e.g., '/kore/permissions')
  * @param {String|Number} itemId - The scope/item ID being modified
+ * @param {HTMLElement|Document} [container=document] - Element to scope the
+ *   `.permission-row` lookup to. Defaults to the whole document for
+ *   backward compatibility, but callers should pass the specific form's
+ *   container - tab panels are hidden via CSS, not removed from the DOM,
+ *   so an unscoped document-wide query can pick up stale rows left behind
+ *   in a different (currently hidden) permissions form and submit them
+ *   under the wrong resource/scope.
  * @returns {Promise<Object>} - Response from the API
  */
-async function savePermissionsForResource(config, itemId) {
+async function savePermissionsForResource(config, itemId, container = document) {
     try {
         const sessionToken = await getSessionToken();
-        const permissionRows = document.querySelectorAll('.permission-row');
+        const permissionRows = container.querySelectorAll('.permission-row');
         const inserts = [];
         const updates = [];
         const deletes = [];
@@ -3008,11 +3890,10 @@ function resolveIdToName(id) {
 async function loadAllUsersAndGroupsForModal() {
     try {
         const sessionToken = await getSessionToken();
-        const currentUser = getUser(); // Get current user ID from localStorage
-        
+
         const [users, groups] = await Promise.all([
-            getUsers(sessionToken, currentUser),
-            getGroups(sessionToken, currentUser)
+            getUsers(sessionToken, null),
+            getGroups(sessionToken, null)
         ]);
 
         window.allUsersAndGroups = {
@@ -3677,6 +4558,7 @@ function _datatable_nextPage() {
 }
 
 // Expose functions to global scope
+window.applySelectArrowColor = applySelectArrowColor;
 window.attemptTokenRefresh = attemptTokenRefresh;
 window.buildFoldersPanel = buildFoldersPanel;
 window.buildKoreHeader = buildKoreHeader;
@@ -3685,6 +4567,7 @@ window.buildWorkflowFoldersPanel = buildWorkflowFoldersPanel;
 window.changeUserPassword = changeUserPassword;
 window.checkUnsavedChanges = checkUnsavedChanges;
 window.checkUserPermission = checkUserPermission;
+window.checkUserPermissions = checkUserPermissions;
 window.clearUnsavedChanges = clearUnsavedChanges;
 window.closeModal = closeModal;
 window.createPermissionRow = createPermissionRow;
@@ -3699,25 +4582,26 @@ window.executeSqlQuery = executeSqlQuery;
 window.generateUUID = generateUUID;
 window.getAvailableThemes = getAvailableThemes;
 window.getAvailableWhitelists = getAvailableWhitelists;
-window.getBdrTypes = getBdrTypes;
 window.getChangedFields = getChangedFields;
-window.getControlTypes = getControlTypes;
 window.getCurrentUserData = getCurrentUserData;
+window.getCurrentUser = getCurrentUser;
 window.getGroups = getGroups;
 window.getOrgStack = getOrgStack;
+window.getUserStack = getUserStack;
 window.getOrganizations = getOrganizations;
-window.getPsaTypes = getPsaTypes;
-window.getRmmTypes = getRmmTypes;
-window.getRpaTypes = getRpaTypes;
+window.getStackTypes = getStackTypes;
 window.getSecurityConfig = getSecurityConfig;
 window.getSessionToken = getSessionToken;
+window.getSystemTimezone = getSystemTimezone;
 window.getSessionTokenFromCookie = getSessionTokenFromCookie;
-window.getUser = getUser;
 window.getUserNotificationPreferences = getUserNotificationPreferences;
 window.getUsers = getUsers;
 window.hasUnsavedChanges = hasUnsavedChanges;
 window.hideStatusBanner = hideStatusBanner;
 window.humanizeWhitelistName = humanizeWhitelistName;
+window.infoIcon = infoIcon;
+window.initializeMultiSelect = initializeMultiSelect;
+window.initializeSearchableSelect = initializeSearchableSelect;
 window.initializeUnsavedTracking = initializeUnsavedTracking;
 window.injectComponentStyles = injectComponentStyles;
 window.loadAllUsersAndGroupsForModal = loadAllUsersAndGroupsForModal;
@@ -3730,6 +4614,8 @@ window.performCreateFolderGeneric = performCreateFolderGeneric;
 window.performDeleteFolderGeneric = performDeleteFolderGeneric;
 window.performEditFolderGeneric = performEditFolderGeneric;
 window.renderDataTable = renderDataTable;
+window.renderMultiSelectContainer = renderMultiSelectContainer;
+window.renderSearchableSelectContainer = renderSearchableSelectContainer;
 window.renderTree = renderTree;
 window.resetUnsavedChangesTracking = resetUnsavedChangesTracking;
 window.resizeModalToContent = resizeModalToContent;
@@ -3750,7 +4636,6 @@ window.showUnsaved = showUnsaved;
 window.switchTab = switchTab;
 window.updateBodyColors = updateBodyColors;
 window.updateHeaderColors = updateHeaderColors;
-window.updateSVGFilterColor = updateSVGFilterColor;
 window.updateUserNotificationPreferences = updateUserNotificationPreferences;
 window.updateUserProfile = updateUserProfile;
 window._datatable_prevPage = _datatable_prevPage;

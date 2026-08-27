@@ -48,7 +48,7 @@ function renderNode(nodeData) {
             </g>
           `;
           nodeElement.appendChild(diamondSvg);
-          
+
           // Add click handler to show properties (but not if node was just dragged)
           nodeElement.addEventListener('click', (e) => {
               e.stopPropagation();
@@ -80,10 +80,10 @@ function renderNode(nodeData) {
             pointer-events: none;
           `;
           circleHitbox.innerHTML = `
-            <circle cx="12" cy="3.3" r="2.8" fill="transparent" pointer-events="auto" data-circle="top" style="cursor: move;"/>
-            <circle cx="3.3" cy="12" r="2.8" fill="transparent" pointer-events="auto" data-circle="left" style="cursor: move;"/>
-            <circle cx="20.7" cy="12" r="2.8" fill="transparent" pointer-events="auto" data-circle="right" style="cursor: move;"/>
-            <circle cx="12" cy="20.7" r="2.8" fill="transparent" pointer-events="auto" data-circle="bottom" style="cursor: move;"/>
+            <circle cx="12" cy="3.3" r="2.8" fill="transparent" pointer-events="auto" data-circle="top" style="cursor: crosshair !important;"/>
+            <circle cx="3.3" cy="12" r="2.8" fill="transparent" pointer-events="auto" data-circle="left" style="cursor: crosshair !important;"/>
+            <circle cx="20.7" cy="12" r="2.8" fill="transparent" pointer-events="auto" data-circle="right" style="cursor: crosshair !important;"/>
+            <circle cx="12" cy="20.7" r="2.8" fill="transparent" pointer-events="auto" data-circle="bottom" style="cursor: crosshair !important;"/>
           `;
           
           // Add mousedown handler to start drawing connection line from any circle
@@ -219,25 +219,13 @@ function renderNode(nodeData) {
                     }
                   } else {
                     // Dropped on empty space - spawn a new node
-                    // dropX/Y are in CSS pixels; offset by half node size so center snaps to cursor
                     const gridX = Math.round((dropX - HG) / GU);
                     const gridY = Math.round((dropY - HG) / GU);
-                    
-                    // Create new node
-                    const newNodeId = generateId('node');
-                    const newNode = {
-                      id: newNodeId,
-                      position: `${gridX},${gridY}`,
-                      targetSteps: [],
-                      targetNodes: []
-                    };
-                    
-                    currentNodes.push(newNode);
+
+                    const newNode = createNode(gridX, gridY);
+                    const newNodeId = newNode.id;
                     nodeData.targetNodes.push(newNodeId);
-                    
-                    // Render the new node
-                    renderNode(newNode);
-                    
+
                     // Create and draw connection line to the new node
                     const newNodeElement = canvas.querySelector(`[data-node-id="${newNodeId}"]`);
                     if (newNodeElement) {
@@ -249,9 +237,8 @@ function renderNode(nodeData) {
                       canvas.appendChild(line);
                       drawConnectionLine(line, nodeId, 'node', newNodeId, 'node', canvas, '#707070', true);
                     }
-                    
+
                     updateSaveButtonState();
-                    updatePreview();
                   }
                 }
               }
@@ -310,7 +297,8 @@ function renderLoadedStepsOnCanvas() {
                     targetSteps: caseData.targetSteps || [],
                     targetNodes: caseData.targetNodes || [],
                     order: caseData.order || 1,
-                    parentStepId: step.id
+                    parentStepId: step.id,
+                    variables: caseData.variables || []
                 });
                 // Store conditionId back on the case so renderStep can look it up
                 caseData._conditionId = conditionId;
@@ -807,7 +795,19 @@ function renderStep(stepData) {
         width = STEP_MIN_W + (gridSpaces * GU);
         stepElement.style.width = width + 'px';
     }
-    
+
+    // Also ensure step is wide enough for existing cases + add button
+    if (!stepData.overrideSize) {
+        const caseCount = (stepData.transition && stepData.transition.cases) ? stepData.transition.cases.length : 0;
+        if (caseCount > 0) {
+            const requiredWidth = (caseCount + 2) * GU;  // cases + add-btn + icon column
+            if (requiredWidth > width) {
+                width = requiredWidth;
+                stepElement.style.width = width + 'px';
+            }
+        }
+    }
+
     stepData.width = width / GU;
     stepData.height = height / GU;
     
@@ -1021,21 +1021,67 @@ function hidePropertiesPanel() {
 function renderPropertiesPanel(title, borderColor, deleteButtonConfig, contentHTML, onListenersAttach, headerStyle = '') {
     const propertiesContent = document.getElementById('propertiesContent');
     showPropertiesPanel();
-    
-    const deleteButtonHTML = deleteButtonConfig 
+
+    const deleteButtonHTML = deleteButtonConfig
         ? `<button class="btn" data-color="red" data-size="sm" onclick="deleteElement('${deleteButtonConfig.id}', '${deleteButtonConfig.type}')" style="padding: 6px 12px;">Delete</button>`
         : '';
-    
+
+    // Support both legacy single-string and new { basic, advanced } content
+    const basicHTML   = (typeof contentHTML === 'object' && contentHTML !== null) ? (contentHTML.basic   || '') : contentHTML;
+    const advancedHTML = (typeof contentHTML === 'object' && contentHTML !== null) ? (contentHTML.advanced || '') : '';
+    const hasAdvanced = advancedHTML.trim().length > 0;
+
     propertiesContent.innerHTML = `
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; padding-bottom: 10px; border-bottom: 1px solid ${borderColor}; ${headerStyle}">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; padding-bottom: 10px; border-bottom: 1px solid ${borderColor}; ${headerStyle}">
             <div style="font-size: 0.9rem; color: #e0e0e0; font-weight: 500;">${title}</div>
             ${deleteButtonHTML}
         </div>
-        <div style="display: flex; flex-direction: column; gap: 15px;">
-            ${contentHTML}
+        <div style="display: flex; gap: 0; border-bottom: 1px solid var(--border-primary); margin-bottom: 14px; flex-shrink: 0;">
+            <button type="button" id="propTabBasic" style="
+                background: none; border: none; border-bottom: 2px solid var(--brand-light, #3a9fd1);
+                padding: 6px 14px; font-size: 0.82rem; cursor: pointer;
+                color: var(--text-primary); font-weight: 600;
+                margin-bottom: -1px; transition: color 0.15s, border-color 0.15s;">Basic</button>
+            <button type="button" id="propTabAdvanced" ${!hasAdvanced ? 'disabled' : ''} style="
+                background: none; border: none; border-bottom: 2px solid transparent;
+                padding: 6px 14px; font-size: 0.82rem;
+                cursor: ${hasAdvanced ? 'pointer' : 'not-allowed'};
+                color: ${hasAdvanced ? 'var(--text-muted)' : 'var(--text-muted)'};
+                opacity: ${hasAdvanced ? '1' : '0.4'};
+                font-weight: normal;
+                margin-bottom: -1px; transition: color 0.15s, border-color 0.15s;">Advanced</button>
+        </div>
+        <div id="propPanelBasic" style="display: flex; flex-direction: column; gap: 15px;">
+            ${basicHTML}
+        </div>
+        <div id="propPanelAdvanced" style="display: none; flex-direction: column; gap: 15px;">
+            ${advancedHTML}
         </div>
     `;
-    
+
+    // Tab switching
+    const tabBasic    = propertiesContent.querySelector('#propTabBasic');
+    const tabAdvanced = propertiesContent.querySelector('#propTabAdvanced');
+    const panelBasic    = propertiesContent.querySelector('#propPanelBasic');
+    const panelAdvanced = propertiesContent.querySelector('#propPanelAdvanced');
+
+    function activatePropTab(tab) {
+        const isBasic = tab === 'basic';
+        tabBasic.style.color             = isBasic ? 'var(--text-primary)' : 'var(--text-muted)';
+        tabBasic.style.borderBottomColor = isBasic ? 'var(--brand-light, #3a9fd1)' : 'transparent';
+        tabBasic.style.fontWeight        = isBasic ? '600' : 'normal';
+        tabAdvanced.style.color             = !isBasic ? 'var(--text-primary)' : (hasAdvanced ? 'var(--text-muted)' : 'var(--text-muted)');
+        tabAdvanced.style.borderBottomColor = !isBasic ? 'var(--brand-light, #3a9fd1)' : 'transparent';
+        tabAdvanced.style.fontWeight        = !isBasic ? '600' : 'normal';
+        panelBasic.style.display    = isBasic ? 'flex' : 'none';
+        panelAdvanced.style.display = !isBasic ? 'flex' : 'none';
+    }
+
+    tabBasic.addEventListener('click', () => activatePropTab('basic'));
+    if (hasAdvanced) {
+        tabAdvanced.addEventListener('click', () => activatePropTab('advanced'));
+    }
+
     // Call the type-specific listener setup function
     if (typeof onListenersAttach === 'function') {
         onListenersAttach(propertiesContent);
@@ -1302,15 +1348,6 @@ function getStepTypeTheme(type) {
                 type: 'html',
                 html: '&#8599;',
                 transform: 'rotate(90deg)'
-            }
-        },
-        'End': {
-            lightColor: '#cc3333',
-            darkColor: '#5a1a1a',
-            displayName: 'End',
-            icon: {
-                type: 'html',
-                html: '&#10005;'
             }
         },
         'Kore': {

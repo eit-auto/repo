@@ -19,6 +19,7 @@ let currentOutputVariables = [];
 // Working copies used by modals (set when modal opens, cleared when closed)
 let workingInputVariables = null;
 let workingOutputVariables = null;
+let workingTriggerVariables = null;
 
 // ============================================================================
 // UTILITY FUNCTIONS - Variable Button Generators
@@ -286,6 +287,11 @@ function getReachableSteps(targetStepId, steps, transitions) {
   }
 
   findPredecessors(targetStepId);
+  // A step can never be its own predecessor for variable-availability purposes,
+  // even if the transition graph has a loop/retry that cycles back to it -
+  // otherwise this step's own (still in-progress) variable list would get
+  // treated as an already-available prior step's output.
+  reachable.delete(targetStepId);
   return Array.from(reachable);
 }
 
@@ -299,9 +305,10 @@ function findBeginStep(steps) {
 /**
  * Build variable context for a specific step (all accessible variables)
  */
-function getVariableContextForStep(stepId, definition, transitions) {
+function getVariableContextForStep(stepId, definition, transitions, options = {}) {
   
   const variables = {};
+  const { varIndex, varType, caseId } = options;
 
   if (!definition || !definition.steps || !transitions) {
     return variables;
@@ -314,48 +321,208 @@ function getVariableContextForStep(stepId, definition, transitions) {
       if (v.name) {
         variables[v.name] = {
           value: v.type || '',
-          source: 'Input Variable',
+          source: 'Source: Input Variables',
           type: detectVariableType(v.type)
         };
       }
     });
   }
 
-  // 2. Add BEGIN step outputs
+  // 1b. Add Trigger Variables (from all triggers — union of all possible trigger vars)
+  if (definition.triggers && Array.isArray(definition.triggers)) {
+    definition.triggers.forEach(trigger => {
+      if (trigger.variables && Array.isArray(trigger.variables)) {
+        trigger.variables.forEach(v => {
+          if (v.name && !variables[v.name]) {
+            variables[v.name] = {
+              value: v.type || '',
+              source: `Source: Trigger (${trigger.name || trigger.id})`,
+              type: detectVariableType(v.type)
+            };
+          }
+        });
+      }
+    });
+  }
+
+  // 2. Add reachable steps' outputs and their case variables (including BEGIN)
+  // getReachableSteps returns closest-first; we reverse to furthest-first so that
+  // closer predecessors overwrite more distant ones, giving the correct "most recent" source.
+  const reachableStepIds = getReachableSteps(stepId, definition.steps, transitions);
+
+  // Also include BEGIN explicitly in case it isn't reached via transitions
+  // (e.g. editing some other step that isn't properly wired up yet) - but never
+  // when stepId IS Begin itself, otherwise Begin would be treated as its own
+  // predecessor and its entire unsliced variable list (step vars and every
+  // case's vars, unfiltered) would leak into its own editing context.
   const beginStep = findBeginStep(definition.steps);
-  if (beginStep) {
-    if (beginStep.variables && Array.isArray(beginStep.variables)) {
-      beginStep.variables.forEach(v => {
+  if (beginStep && beginStep.id !== stepId && !reachableStepIds.includes(beginStep.id)) {
+    reachableStepIds.push(beginStep.id);
+  }
+
+  [...reachableStepIds].reverse().forEach(reachableId => {
+    const step = definition.steps.find(s => s.id === reachableId);
+    if (!step) return;
+    const stepLabel = step.name || step.id;
+    if (step.variables && Array.isArray(step.variables)) {
+      step.variables.forEach(v => {
         if (v.name) {
           variables[v.name] = {
             value: v.value || '',
-            source: 'Step BEGIN',
+            source: `Source Step: ${stepLabel}`,
             type: detectVariableType(v.value)
           };
         }
       });
     }
-  }
-
-  // 3. Add reachable steps' outputs
-  const reachableStepIds = getReachableSteps(stepId, definition.steps, transitions);
-  
-  reachableStepIds.forEach(reachableId => {
-    const step = definition.steps.find(s => s.id === reachableId);
-    if (step && step.variables && Array.isArray(step.variables)) {
-      step.variables.forEach(v => {
-        if (v.name) {
-          variables[v.name] = {
-            value: v.value || '',
-            source: `Step ${step.label || step.id}`,
-            type: detectVariableType(v.value)
-          };
+    // Add case variables from this step's outbound cases
+    if (step.transition && Array.isArray(step.transition.cases)) {
+      step.transition.cases.forEach(c => {
+        if (c.variables && Array.isArray(c.variables)) {
+          const caseName = c.name || c.type || 'Case';
+          c.variables.forEach(v => {
+            if (v.name) {
+              variables[v.name] = {
+                value: v.value || '',
+                source: `Source Case: ${stepLabel}-${caseName}`,
+                type: detectVariableType(v.value)
+              };
+            }
+          });
         }
       });
     }
   });
 
+  // 3. Add current step's own variables and case variables
+  // (getReachableSteps returns predecessors only, not the step itself)
+  // For 'input' varType, skip entirely — inputs can only see preceding steps
+  const currentStep = definition.steps.find(s => s.id === stepId);
+  if (currentStep && varType !== 'input') {
+    const stepLabel = currentStep.name || currentStep.id;
+    if (currentStep.variables && Array.isArray(currentStep.variables)) {
+      // When editing a step variable, only show variables that precede the current index
+      const stepVars = varType === 'step' && varIndex !== undefined
+        ? currentStep.variables.slice(0, varIndex)
+        : currentStep.variables;
+      stepVars.forEach(v => {
+        if (v.name) {
+          variables[v.name] = {
+            value: v.value || '',
+            source: `Source Step: ${stepLabel}`,
+            type: detectVariableType(v.value)
+          };
+        }
+      });
+    }
+    // Add current step's case variables only when editing a case variable on this step
+    // (step variables execute before case variables, so case vars aren't available to step vars)
+    if (varType === 'case' && currentStep.transition && Array.isArray(currentStep.transition.cases)) {
+      currentStep.transition.cases.forEach(c => {
+        // Cases are mutually exclusive branches - only one ever executes, so a
+        // sibling case's variables must never be visible here, at any index.
+        // Only the case actually being edited (matched by caseId) gets its
+        // preceding variables included.
+        if (caseId !== undefined && c.id !== caseId) return;
+        if (c.variables && Array.isArray(c.variables)) {
+          const caseName = c.name || c.type || 'Case';
+          const caseVars = varIndex !== undefined
+            ? c.variables.slice(0, varIndex)
+            : c.variables;
+          caseVars.forEach(v => {
+            if (v.name) {
+              variables[v.name] = {
+                value: v.value || '',
+                source: `Source Case: ${stepLabel}-${caseName}`,
+                type: detectVariableType(v.value)
+              };
+            }
+          });
+        }
+      });
+    }
+  }
+
   return variables;
+}
+
+/**
+ * Get every variable declared anywhere in the workflow — Input, Trigger, every
+ * Step's own variables, and every Step Case's variables — regardless of graph
+ * position or reachability. Used for Output Variables: those are evaluated
+ * against the final CTX after the whole workflow has run to completion, so
+ * every step that executed could have contributed, not just steps reachable
+ * from one particular node (which is the scoping getVariableContextForStep
+ * uses for step/case editing).
+ */
+function getAllDeclaredVariables(definition) {
+  const variables = {};
+  if (!definition) return [];
+
+  // Input Variables
+  if (definition.inputVariables && Array.isArray(definition.inputVariables)) {
+    definition.inputVariables.forEach(v => {
+      if (v.name) {
+        variables[v.name] = {
+          source: 'Source: Input Variables',
+          type: detectVariableType(v.type)
+        };
+      }
+    });
+  }
+
+  // Trigger Variables (union across all triggers)
+  if (definition.triggers && Array.isArray(definition.triggers)) {
+    definition.triggers.forEach(trigger => {
+      if (trigger.variables && Array.isArray(trigger.variables)) {
+        trigger.variables.forEach(v => {
+          if (v.name && !variables[v.name]) {
+            variables[v.name] = {
+              source: `Source: Trigger (${trigger.name || trigger.id})`,
+              type: detectVariableType(v.type)
+            };
+          }
+        });
+      }
+    });
+  }
+
+  // Every step's own variables, and every step's case variables — all steps,
+  // regardless of reachability from any particular node
+  if (definition.steps && Array.isArray(definition.steps)) {
+    definition.steps.forEach(step => {
+      const stepLabel = step.name || step.id;
+      if (step.variables && Array.isArray(step.variables)) {
+        step.variables.forEach(v => {
+          if (v.name) {
+            variables[v.name] = {
+              source: `Source Step: ${stepLabel}`,
+              type: detectVariableType(v.value)
+            };
+          }
+        });
+      }
+      if (step.transition && Array.isArray(step.transition.cases)) {
+        step.transition.cases.forEach(c => {
+          if (c.variables && Array.isArray(c.variables)) {
+            const caseName = c.name || c.type || 'Case';
+            c.variables.forEach(v => {
+              if (v.name) {
+                variables[v.name] = {
+                  source: `Source Case: ${stepLabel}-${caseName}`,
+                  type: detectVariableType(v.value)
+                };
+              }
+            });
+          }
+        });
+      }
+    });
+  }
+
+  return Object.entries(variables)
+    .map(([name, data]) => ({ name, ...data }))
+    .sort((a, b) => a.name.localeCompare(b.name));
 }
 
 /**
@@ -400,10 +567,11 @@ function rebuildOutputVariablesFromForm() {
  */
 function editVariable(index, variableType, fieldName = 'value') {
     const arrayMap = {
-        'input': currentInputVariables,
-        'output': currentOutputVariables,
+        'input': workingInputVariables || currentInputVariables,
+        'output': workingOutputVariables || currentOutputVariables,
+        'trigger': workingTriggerVariables || [],
         'step': currentStepBeingEdited?.variables || [],
-        'case': currentTransitionBeingEdited?.conditions || []
+        'case': currentTransitionBeingEdited?.variables || []
     };
     
     const dataArray = arrayMap[variableType];
@@ -419,20 +587,26 @@ function editVariable(index, variableType, fieldName = 'value') {
         
         // Re-render the appropriate list
         if (variableType === 'input') {
-            renderVariablesList('inputVariablesList', currentInputVariables, 'input', updatePreview);
+            renderVariablesInContainer(document.getElementById('inputVariablesList'), dataArray, 'input', updatePreview);
         } else if (variableType === 'output') {
-            renderVariablesList('outputVariablesList', currentOutputVariables, 'output', updatePreview);
+            renderVariablesInContainer(document.getElementById('outputVariablesList'), dataArray, 'output', updatePreview);
         } else if (variableType === 'step') {
             showStepProperties(currentStepBeingEdited?.id);
         } else if (variableType === 'case') {
-            // TODO: Re-render case variables when case editor is built
+            if (currentTransitionBeingEdited?.id && typeof showTransitionProperties === 'function') {
+                showTransitionProperties(currentTransitionBeingEdited.id);
+            }
         }
         updatePreview();
     };
 
-    // Use workflow-aware modal with context reference panel for step variables
+    // Use workflow-aware modal with context reference panel for step, case, and output variables
     if (variableType === 'step' && typeof openWorkflowJinjaEditorModal === 'function') {
-        openWorkflowJinjaEditorModal(title, initialValue, onSave, currentStepBeingEdited?.id);
+        openWorkflowJinjaEditorModal(title, initialValue, onSave, currentStepBeingEdited?.id, index, variableType);
+    } else if (variableType === 'case' && typeof openWorkflowJinjaEditorModal === 'function') {
+        openWorkflowJinjaEditorModal(title, initialValue, onSave, currentTransitionBeingEdited?.parentStepId, index, variableType, currentTransitionBeingEdited?.id);
+    } else if (variableType === 'output' && typeof openWorkflowJinjaEditorModal === 'function') {
+        openWorkflowJinjaEditorModal(title, initialValue, onSave, null, index, variableType);
     } else {
         openJinjaEditorModal(title, initialValue, onSave);
     }
@@ -448,8 +622,9 @@ function addVariable(variableType, containerId) {
     const arrayMap = {
         'input': workingInputVariables !== null ? workingInputVariables : currentInputVariables,
         'output': workingOutputVariables !== null ? workingOutputVariables : currentOutputVariables,
+        'trigger': workingTriggerVariables || [],
         'step': currentStepBeingEdited?.variables || [],
-        'case': currentTransitionBeingEdited?.conditions || []
+        'case': currentTransitionBeingEdited?.variables || []
     };
     
     const dataArray = arrayMap[variableType];
@@ -457,7 +632,7 @@ function addVariable(variableType, containerId) {
         return;
     }
     
-    const newVar = variableType === 'input'
+    const newVar = (variableType === 'input' || variableType === 'trigger')
         ? { name: '', value: '', type: 'string', order: dataArray.length }
         : { name: '', value: '', order: dataArray.length };
     dataArray.push(newVar);
@@ -477,8 +652,9 @@ function handleVariableFieldChange(variableType, index, fieldName, newValue, con
     const arrayMap = {
         'input': workingInputVariables !== null ? workingInputVariables : currentInputVariables,
         'output': workingOutputVariables !== null ? workingOutputVariables : currentOutputVariables,
+        'trigger': workingTriggerVariables || [],
         'step': currentStepBeingEdited?.variables || [],
-        'case': currentTransitionBeingEdited?.conditions || []
+        'case': currentTransitionBeingEdited?.variables || []
     };
     
     const dataArray = arrayMap[variableType];
@@ -493,15 +669,21 @@ function handleVariableFieldChange(variableType, index, fieldName, newValue, con
  * Resets the value field (boolean defaults to 'false', others clear), then re-renders
  */
 function handleInputTypeChange(index, newType, containerId) {
-    const dataArray = workingInputVariables !== null ? workingInputVariables : currentInputVariables;
+    // Determine which array to use based on the container — trigger vars use workingTriggerVariables
+    const containerElement = document.getElementById(containerId);
+    const isTriggerContainer = containerElement && containerElement.hasAttribute('data-trigger-vars');
+    const dataArray = isTriggerContainer
+        ? (workingTriggerVariables || [])
+        : (workingInputVariables !== null ? workingInputVariables : currentInputVariables);
+    const varType = isTriggerContainer ? 'trigger' : 'input';
+
     if (!dataArray || !dataArray[index]) return;
 
     dataArray[index].type = newType;
     dataArray[index].value = newType === 'boolean' ? 'false' : '';
 
-    const containerElement = document.getElementById(containerId);
     if (containerElement) {
-        renderVariablesInContainer(containerElement, dataArray, 'input', updatePreview);
+        renderVariablesInContainer(containerElement, dataArray, varType, updatePreview);
     }
     updatePreview();
 }
@@ -673,7 +855,7 @@ function renderVariablesInContainer(containerElement, dataArray, variableType, o
 
     dataArray.forEach((variable, index) => {
         const item = document.createElement('div');
-        const isInput = variableType === 'input';
+        const isInput = variableType === 'input' || variableType === 'trigger';
         const varType = variable.type || 'string';
 
         if (isInput) {
@@ -785,6 +967,17 @@ function renderStepOutputVariables(containerElement, variablesArray, onUpdateCal
 }
 
 /**
+ * Render output variables for Transition Case Properties panel
+ * Wrapper around renderVariablesInContainer configured for case-level output variables
+ * @param {HTMLElement} containerElement - Container to render variables into
+ * @param {array} variablesArray - Array of variable objects with name and value
+ * @param {function} onUpdateCallback - Callback when variables are updated
+ */
+function renderTransitionCaseVariables(containerElement, variablesArray, onUpdateCallback) {
+    renderVariablesInContainer(containerElement, variablesArray, 'case', onUpdateCallback);
+}
+
+/**
  * Set the working variable arrays used by addVariable / handleVariableFieldChange
  * during modal editing. Call with (null, null) to clear after modal closes.
  */
@@ -793,10 +986,19 @@ function setWorkingVariables(inputVars, outputVars) {
     workingOutputVariables = outputVars;
 }
 
+/**
+ * Point workingTriggerVariables at a trigger's variables array for the duration
+ * of an edit session. Call with null to clear.
+ */
+function setWorkingTriggerVariables(triggerVars) {
+    workingTriggerVariables = triggerVars;
+}
+
 // ============================================================================
 // EXPORTS TO WINDOW
 // ============================================================================
 window.addVariable = addVariable;
+window.getAllDeclaredVariables = getAllDeclaredVariables;
 window.createDeleteVariableButton = createDeleteVariableButton;
 window.createVariableButtons = createVariableButtons;
 window.createVariableEditButton = createVariableEditButton;
@@ -814,6 +1016,8 @@ window.handleVariableFieldChange = handleVariableFieldChange;
 window.rebuildInputVariablesFromForm = rebuildInputVariablesFromForm;
 window.rebuildOutputVariablesFromForm = rebuildOutputVariablesFromForm;
 window.renderStepOutputVariables = renderStepOutputVariables;
+window.renderTransitionCaseVariables = renderTransitionCaseVariables;
 window.renderVariablesInContainer = renderVariablesInContainer;
 window.renderWorkflowVariablesSection = renderWorkflowVariablesSection;
 window.setWorkingVariables = setWorkingVariables;
+window.setWorkingTriggerVariables = setWorkingTriggerVariables;

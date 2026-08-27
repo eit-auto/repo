@@ -19,6 +19,11 @@ let filters = {
 
 /**
  * Generate a UUID v4
+ * @deprecated Long-form UUIDs were the original workflow/step id convention;
+ * the backend (resources.js generateId()) has since standardized on plain
+ * 6-char lowercase-alphanumeric ids, and this file's own id generation should
+ * match that — use generateShortId() for any new workflow/step/trigger id.
+ * Left in place only in case anything else still references it.
  */
 function generateUUID() {
     return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
@@ -26,6 +31,20 @@ function generateUUID() {
         const v = c === 'x' ? r : (r & 0x3 | 0x8);
         return v.toString(16);
     });
+}
+
+/**
+ * Generate a short id in the current standard format — plain 6-character
+ * lowercase-alphanumeric, matching resources.js's server-side generateId().
+ * Used for step/trigger ids built client-side before a workflow exists yet
+ * (e.g. the initial BEGIN step and Default trigger in the "Add Workflow"
+ * modal) — the workflow's own top-level id is still assigned server-side.
+ */
+function generateShortId() {
+    const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+    let id = '';
+    for (let i = 0; i < 6; i++) id += chars[Math.floor(Math.random() * chars.length)];
+    return id;
 }
 
 /**
@@ -53,7 +72,10 @@ async function saveWorkflow(id, workflowData, options = {}) {
         let definitionToSave = { ...definition };
         if (updateMetadata) {
             const now = new Date().toISOString();
-            let userEmail = getUser(); // Fallback to user ID
+            // PHASE 2: no localStorage fallback. If the lookup fails the
+            // metadata records null rather than an unverified client-held
+            // identity - an absent author is more honest than a wrong one.
+            let userEmail = null;
             
             try {
                 const sessionToken = await getSessionToken();
@@ -62,7 +84,7 @@ async function saveWorkflow(id, workflowData, options = {}) {
                     userEmail = userData.email;
                 }
             } catch (error) {
-                console.warn('Could not fetch user email, using user ID:', error);
+                console.warn('Could not fetch user email for workflow metadata:', error);
             }
             
             definitionToSave.metadata = {
@@ -225,30 +247,21 @@ async function showWorkflowMenu(event, workflowId) {
     // Check if user has edit or * permission for Settings
     let canAccessSettings = true;
     try {
-        const currentUser = getUser();
-        console.log('Current user:', currentUser);
-        if (currentUser) {
-            // Check if user has edit permission
-            const hasEditPermission = await checkUserPermission({
-                userId: currentUser,
-                resource: 'workflow',
-                action: 'edit',
-                scope: workflowId
-            });
-            console.log('Edit permission check:', { userId: currentUser, hasEditPermission });
-            
-            // Check if user has * (full) permission
-            const hasFullPermission = await checkUserPermission({
-                userId: currentUser,
-                resource: 'workflow',
-                action: '*',
-                scope: workflowId
-            });
-            console.log('Full permission check:', { userId: currentUser, hasFullPermission });
-            
-            canAccessSettings = hasEditPermission || hasFullPermission;
-            console.log('Can access settings:', canAccessSettings);
-        }
+        // PHASE 2: no getUser() lookup - checkUserPermission resolves the
+        // subject from the session server-side.
+        const hasEditPermission = await checkUserPermission({
+            resource: 'workflow',
+            action: 'edit',
+            scope: workflowId
+        });
+
+        const hasFullPermission = await checkUserPermission({
+            resource: 'workflow',
+            action: '*',
+            scope: workflowId
+        });
+
+        canAccessSettings = hasEditPermission || hasFullPermission;
     } catch (error) {
         console.error('Error checking workflow settings permission:', error);
         // Default to allowing access if permission check fails
@@ -2604,7 +2617,9 @@ function openCreateModal() {
                 return;
             }
             
-            let userEmail = getUser(); // Fallback to user ID
+            // PHASE 2: no localStorage fallback - see the matching note in
+            // saveWorkflow above.
+            let userEmail = null;
             
             try {
                 const sessionToken = await getSessionToken();
@@ -2613,19 +2628,22 @@ function openCreateModal() {
                     userEmail = userData.email;
                 }
             } catch (error) {
-                console.warn('Could not fetch user email, using user ID:', error);
+                console.warn('Could not fetch user email for workflow metadata:', error);
             }
             
             const newWorkflow = {
                 name: workflowName,
-                version: '1.0.0',
+                version: '1.0',
                 folder_id: null,
                 definition: {
                     name: workflowName,
-                    folder_id: null,
+                    // folder_id intentionally not embedded here — the outer
+                    // payload's folder_id is the single source of truth the
+                    // backend actually reads; a duplicate copy inside
+                    // definition could only ever drift from it.
                     view: { pan: '0,0', zoom: 1 },
                     steps: [{
-                        id: generateUUID(),
+                        id: generateShortId(),
                         name: 'BEGIN',
                         type: 'Begin',
                         width: 3,
@@ -2649,7 +2667,17 @@ function openCreateModal() {
                             ]
                         }
                     }],
-                    version: '1.0.0',
+                    // Every workflow needs a Default/Always trigger to be
+                    // invocable at all — required by the backend's
+                    // validateWorkflow() as of this change.
+                    triggers: [{
+                        id: generateShortId(),
+                        name: 'Default',
+                        type: 'Always',
+                        enabled: true,
+                        variables: []
+                    }],
+                    version: '1.0',
                     active: true,
                     inputs: [],
                     outputs: [],
@@ -2675,8 +2703,7 @@ function openCreateModal() {
                 const response = await fetch('https://app.equinoxits.com:1139/kore/workflows', {
                     method: 'POST',
                     headers: {
-                        'Content-Type': 'application/json',
-                        'X-User': getUser()
+                        'Content-Type': 'application/json'
                     },
                     body: JSON.stringify(payload)
                 });
@@ -2721,6 +2748,190 @@ function openCreateModal() {
             }
         }
     );
+}
+
+/**
+ * Open modal to import a workflow from a pasted definition JSON — e.g. a
+ * definition built externally (Rewst-migration tooling, hand-written, etc.)
+ * rather than authored from scratch in the Add-Workflow flow.
+ *
+ * Deliberately sends only `folder_id` + `definition` in the payload, not a
+ * separate `name`/`version` — the backend now derives both directly from the
+ * pasted definition (createWorkflow), and keeping only one source for them
+ * avoids the frontend and the pasted JSON ever disagreeing about what the
+ * workflow's own name/version actually is.
+ *
+ * If the pasted definition already carries its own `.id` (a 6-char short id
+ * chosen ahead of time — e.g. one already referenced in migration docs before
+ * the workflow was created), the backend honors it instead of generating a
+ * random one; see resources.js createResource's `requestedId` handling.
+ */
+// NOTE — unverified against base.js (not available in this review): the
+// button onClick handlers below `return false` on a validation failure,
+// intending to keep the modal open so the pasted JSON isn't lost. This
+// assumes showModal()'s button contract respects a falsy return value to
+// cancel the close — there is no confirmed precedent for that in this file
+// (the one existing showModal button, in showWorkflowPropertiesModal, never
+// demonstrates a stay-open-on-error case). Confirm against the real
+// showModal() implementation before shipping; if it doesn't support this,
+// the fallback is to keep the modal open unconditionally and instead
+// show/clear the inline error text without relying on a return value at all.
+function openImportModal() {
+    window.pendingImportFolder = null;
+
+    const modalContent = document.createElement('div');
+    modalContent.innerHTML = `
+        <div style="margin-bottom: 14px;">
+            <label style="display: block; margin-bottom: 6px; font-size: 0.85rem; color: var(--text-secondary);">Workflow Definition JSON</label>
+            <textarea id="importDefinitionInput" rows="12" placeholder="Paste the workflow definition JSON here"
+                style="width: 100%; box-sizing: border-box; font-family: monospace; font-size: 0.8rem; padding: 10px;
+                       border: 1px solid var(--border-primary); border-radius: 4px; background: var(--bg-input); color: var(--text-primary); resize: vertical;"></textarea>
+            <div id="importJsonError" style="color: #f44336; font-size: 0.8rem; margin-top: 4px; display: none;"></div>
+        </div>
+        <div>
+            <label style="display: block; margin-bottom: 6px; font-size: 0.85rem; color: var(--text-secondary);">Folder (optional)</label>
+            <div id="importFolderTree" style="border: 1px solid var(--border-primary); border-radius: 4px; max-height: 200px; overflow-y: auto; background: var(--bg-input); padding: 8px;"></div>
+        </div>
+    `;
+
+    showModal({
+        title: 'Import Workflow',
+        content: modalContent,
+        resizable: true,
+        closeOnBackdrop: false,
+        buttons: [
+            { label: 'Cancel', type: 'secondary' },
+            {
+                label: 'Import',
+                type: 'success',
+                onClick: async () => {
+                    const errorEl = modalContent.querySelector('#importJsonError');
+                    errorEl.style.display = 'none';
+
+                    const rawJson = modalContent.querySelector('#importDefinitionInput').value.trim();
+                    if (!rawJson) {
+                        errorEl.textContent = 'Paste a workflow definition JSON before importing.';
+                        errorEl.style.display = 'block';
+                        return false; // keep modal open
+                    }
+
+                    let definition;
+                    try {
+                        definition = JSON.parse(rawJson);
+                    } catch (e) {
+                        errorEl.textContent = `Invalid JSON: ${e.message}`;
+                        errorEl.style.display = 'block';
+                        return false;
+                    }
+
+                    if (!definition.steps || !Array.isArray(definition.steps) || definition.steps.length === 0) {
+                        errorEl.textContent = 'Definition must include a non-empty "steps" array.';
+                        errorEl.style.display = 'block';
+                        return false;
+                    }
+                    if (!definition.name) {
+                        errorEl.textContent = 'Definition must include a "name".';
+                        errorEl.style.display = 'block';
+                        return false;
+                    }
+
+                    try {
+                        // POST /kore/workflows expects top-level name/version
+                        // alongside definition (same contract openCreateModal and
+                        // saveWorkflow use elsewhere in this file) - definition.name
+                        // and definition.version alone aren't enough, even though
+                        // they're already validated as present above.
+                        const payload = {
+                            name: definition.name,
+                            version: definition.version || '1.0',
+                            folder_id: window.pendingImportFolder || null,
+                            definition
+                        };
+
+                        const response = await fetch('https://app.equinoxits.com:1139/kore/workflows', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(payload)
+                        });
+
+                        if (!response.ok) {
+                            const data = await response.json().catch(() => ({}));
+                            throw new Error(data.error || `HTTP ${response.status}: ${response.statusText}`);
+                        }
+
+                        const result = await response.json();
+
+                        await loadWorkflows();
+                        if (window.currentSelectedFolder) {
+                            renderFilteredWorkflows(workflows.filter(w =>
+                                window.currentSelectedFolder.id === 'all' ? true :
+                                window.currentSelectedFolder.id === 'no_folder' ? !w.folder_id :
+                                w.folder_id === window.currentSelectedFolder.id
+                            ));
+                        } else {
+                            renderWorkflowsList();
+                        }
+
+                        window.location.href = `/workflow-edit?id=${result.id}`;
+                    } catch (error) {
+                        console.error('Error importing workflow:', error);
+                        errorEl.textContent = error.message;
+                        errorEl.style.display = 'block';
+                        return false; // keep modal open so the paste isn't lost
+                    }
+                }
+            }
+        ],
+        // showModal only recognizes `width`/`height` (not `customWidth`/
+        // `customMinWidth`, confirmed absent from base.js's real destructure —
+        // that pair is a pre-existing dead-option pattern already present
+        // elsewhere in base.js and in this file's own showItemMoveModal, kept
+        // there presumably by copy-paste; not replicating it here). resizable:
+        // true already applies a 600x400 default via .modal-resizable in
+        // base_css.js, which is a reasonable size for this content as-is.
+        width: '600px'
+    });
+
+    // Populate the folder tree the same way the workflow Settings modal does
+    setTimeout(() => {
+        const folders = window.workflows_folders || [];
+        const treeContainer = modalContent.querySelector('#importFolderTree');
+        if (!treeContainer) return;
+
+        // Deep query, not `:scope > *` — renderTree() nests subfolders inside
+        // their own child containers (confirmed in base.js's createTreeNode),
+        // so a direct-children-only reset misses any highlighted subfolder
+        // more than one level down. Each row carries `data-item-id` (set by
+        // createTreeNode), the same attribute base.js's own internal modals
+        // query for exactly this reset.
+        const resetHighlights = () => {
+            treeContainer.querySelectorAll('[data-item-id]').forEach(el => { el.style.background = 'transparent'; });
+            noFolderDiv.style.background = 'transparent';
+        };
+
+        const noFolderDiv = document.createElement('div');
+        noFolderDiv.style.cssText = 'padding: 8px; cursor: pointer; border-radius: 3px; margin-bottom: 4px; height: 20px; font-size: 0.8rem; background: rgba(126, 200, 255, 0.2);';
+        noFolderDiv.textContent = 'No Folder';
+        noFolderDiv.onclick = () => {
+            window.pendingImportFolder = null;
+            resetHighlights();
+            noFolderDiv.style.background = 'rgba(126, 200, 255, 0.2)';
+        };
+        treeContainer.appendChild(noFolderDiv);
+
+        if (folders.length > 0) {
+            const treeDiv = document.createElement('div');
+            renderTree(folders, treeDiv, {
+                onItemClick: (folder) => {
+                    window.pendingImportFolder = folder.id;
+                    resetHighlights();
+                    const selectedEl = treeDiv.querySelector(`[data-item-id="${folder.id}"]`);
+                    if (selectedEl) selectedEl.style.background = 'rgba(126, 200, 255, 0.2)';
+                }
+            });
+            treeContainer.appendChild(treeDiv);
+        }
+    }, 0);
 }
 
 /**
@@ -3051,6 +3262,7 @@ window.applyHideInactive = applyHideInactive;
 window.editWorkflow = editWorkflow;
 window.showWorkflowMenu = showWorkflowMenu;
 window.openCreateModal = openCreateModal;
+window.openImportModal = openImportModal;
 window.deleteWorkflow = deleteWorkflow;
 window.showItemMoveModal = showItemMoveModal;
 window.renderWorkflowsList = renderWorkflowsList;

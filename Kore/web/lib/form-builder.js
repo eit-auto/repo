@@ -1,4 +1,5 @@
 import '/lib/base.js';
+import '/lib/forms.js';
 
 // Form Builder - Main JavaScript File
 // ============================================
@@ -110,18 +111,19 @@ const ELEMENT_DEFINITIONS = {
       name: 'dropdown_type', 
       label: 'Dropdown Type', 
       type: 'select',
-      options: ['dropdown_static', 'dropdown_workflow', 'dropdown_sql', 'dropdown_plugin', 'dropdown_prefetch'],
-      info: 'Determines the source of options: Static (manual), Workflow (from workflow output), SQL Query (from database), Plugin (from plugin output), or Pre-fetched Data (from data retrieval).'
+      options: ['dropdown_static', 'dropdown_workflow', 'dropdown_sql', 'dropdown_plugin', 'dropdown_kore_util', 'dropdown_prefetch'],
+      info: 'Determines the source of options: Static (manual), Workflow (from workflow output), SQL Query (from database), Plugin (from plugin output), Kore Util (from a Kore data utility action), or Pre-fetched Data (from data retrieval).'
     },
     {
       type: 'conditionalGroup',
       field: 'dropdown_type',
       conditions: {
-        'dropdown_static': [{ type: 'reference', ref: 'dropdown_static', excludeFields: ['dynamicDataDropdownFields'] }],
-        'dropdown_workflow': [{ type: 'reference', ref: 'dropdown_workflow', excludeFields: ['dynamicDataDropdownFields'] }],
-        'dropdown_sql': [{ type: 'reference', ref: 'dropdown_sql', excludeFields: ['dynamicDataDropdownFields'] }],
-        'dropdown_plugin': [{ type: 'reference', ref: 'dropdown_plugin', excludeFields: ['dynamicDataDropdownFields'] }],
-        'dropdown_prefetch': [{ type: 'reference', ref: 'dropdown_prefetch', excludeFields: ['dynamicDataDropdownFields'] }],
+        'dropdown_static': [{ type: 'reference', ref: 'dropdown_static' }],
+        'dropdown_workflow': [{ type: 'reference', ref: 'dropdown_workflow' }],
+        'dropdown_sql': [{ type: 'reference', ref: 'dropdown_sql' }],
+        'dropdown_plugin': [{ type: 'reference', ref: 'dropdown_plugin' }],
+        'dropdown_kore_util': [{ type: 'reference', ref: 'dropdown_kore_util' }],
+        'dropdown_prefetch': [{ type: 'reference', ref: 'dropdown_prefetch' }],
       }
     },
     ],
@@ -129,23 +131,52 @@ const ELEMENT_DEFINITIONS = {
 
   // DYNAMIC DATA DROPDOWN FIELDS (reusable for workflow, sql, plugin, prefetch)
   dynamicDataDropdownFields: [
-    { 
-      name: 'label_field', 
-      label: 'Label Field', 
-      type: 'text',
-      info: 'The property name in your data that contains the text displayed to users.' 
+    {
+      type: 'fieldGroup',
+      fields: [
+        { 
+          name: 'label_field', 
+          label: 'Label Field', 
+          type: 'text',
+          info: 'The property name in your data that contains the text displayed to users.' 
+        },
+        { 
+          name: 'value_field', 
+          label: 'Value Field', 
+          type: 'text',
+          info: 'The property name in your data that is stored when the option is selected.' 
+        },
+      ]
     },
     { 
-      name: 'value_field', 
-      label: 'Value Field', 
+      name: 'data_variable', 
+      label: 'Data Variable', 
       type: 'text',
-      info: 'The property name in your data that is stored when the option is selected.' 
+      info: 'Stores the full record for the selected option(s) under this variable name, so other fields/properties beyond the Value Field are still reachable (e.g. client_id_data.psa_client_id). Defaults to "{field_name}_data" if left blank.' 
     },
     { 
       name: 'default_selector', 
       label: 'Default Selector', 
       type: 'text',
       info: 'The property name in your data that indicates which record(s) should be selected by default. Should be a boolean field (true/false). In multi-select mode, multiple records can have this field set to true.' 
+    },
+    {
+      type: 'fieldGroup',
+      fields: [
+        { 
+          name: 'order_by_field', 
+          label: 'Order By', 
+          type: 'text',
+          info: 'The property name in your data to sort options by before they\'re displayed (e.g. "name"). Leave blank to keep the data\'s original order.' 
+        },
+        { 
+          name: 'order_by_direction', 
+          label: 'Order Direction', 
+          type: 'select',
+          options: ['asc', 'desc'],
+          info: 'Sort direction to use when Order By is set. Numeric-looking values sort numerically; everything else sorts alphabetically (case-insensitive).' 
+        },
+      ]
     },
     { 
       name: 'tree_view', 
@@ -189,6 +220,10 @@ const ELEMENT_DEFINITIONS = {
       },
       { 
         type: 'area', 
+        renderer: 'buildWorkflowTriggerSelector',
+      },
+      { 
+        type: 'area', 
         renderer: 'buildWorkflowInputs',
       },
       { 
@@ -221,9 +256,27 @@ const ELEMENT_DEFINITIONS = {
         type: 'area', 
         renderer: 'buildPluginSelector',
       },
+      // buildPluginTaskSection is NOT listed here on purpose - unlike
+      // buildWorkflowInputs (a harmless placeholder-only function safe to
+      // call with any/wrong arguments), buildPluginTaskSection actually
+      // fetches and renders real content, and has no guard against a
+      // second copy already existing. buildPluginSelector's own setTimeout
+      // already calls it directly with the correct arguments (plugin name,
+      // selected task id, fieldConfig) whenever appropriate; listing it
+      // here too meant the generic 'area' handler ALSO called it, but with
+      // the wrong arguments (fieldConfig where a plugin name string was
+      // expected) - both async calls raced, appending a second
+      // description+inputs block into the same container.
+      { type: 'reference', ref: 'dynamicDataDropdownFields' },
+    ],
+  },
+
+  // DROPDOWN TYPE: KORE UTIL
+  dropdown_kore_util: {
+    sections: [
       { 
         type: 'area', 
-        renderer: 'buildPluginTaskSection',
+        renderer: 'buildKoreUtilSelector',
       },
       { type: 'reference', ref: 'dynamicDataDropdownFields' },
     ],
@@ -254,8 +307,8 @@ const ELEMENT_DEFINITIONS = {
         name: 'data_source_type', 
         label: 'Data Source Type', 
         type: 'select',
-        options: ['Workflow', 'SQL', 'Plugin'],
-        info: 'Choose how data is retrieved: Workflow (workflow output), SQL Query (database query), or Plugin (plugin output).'
+        options: ['Workflow', 'SQL', 'Plugin', 'Kore Util'],
+        info: 'Choose how data is retrieved: Workflow (workflow output), SQL Query (database query), Plugin (plugin output), or Kore Util (a Kore data utility action).'
       },
       { 
         type: 'conditionalGroup',
@@ -264,6 +317,7 @@ const ELEMENT_DEFINITIONS = {
           'Workflow': [{ type: 'reference', ref: 'dropdown_workflow', excludeFields: ['dynamicDataDropdownFields'] }],
           'SQL': [{ type: 'reference', ref: 'dropdown_sql', excludeFields: ['dynamicDataDropdownFields'] }],
           'Plugin': [{ type: 'reference', ref: 'dropdown_plugin', excludeFields: ['dynamicDataDropdownFields'] }],
+          'Kore Util': [{ type: 'reference', ref: 'dropdown_kore_util', excludeFields: ['dynamicDataDropdownFields'] }],
         }
       },
       { 
@@ -277,6 +331,18 @@ const ELEMENT_DEFINITIONS = {
   array: {
     label: 'Array',
     sections: [
+      { 
+        name: 'array_type', 
+        label: 'Array Data Type', 
+        type: 'radio',
+        options: [
+          { value: 'comma_separated', label: 'Comma-Separated' },
+          { value: 'key_value_pairs', label: 'Key:Value Pairs' },
+          { value: 'newline_separated', label: 'Newline-Separated' },
+          { value: 'json_array', label: 'JSON Array' },
+        ],
+        info: 'How this array\'s submitted data should be interpreted. Handled by the form viewer, not the builder.'
+      },
       { 
         type: 'area', 
         renderer: 'buildArrayFields',
@@ -349,7 +415,7 @@ const ELEMENT_DEFINITIONS = {
     sections: [
       { 
         type: 'area',
-        renderer: 'buildHtmlContentField'
+        renderer: 'buildHtmlFields'
       },
     ],
   },
@@ -450,7 +516,53 @@ function buildElementSettingsPanel(fieldConfig) {
     buttonContainer.appendChild(conditionsBtn);
     form.appendChild(buttonContainer);
     
+    // Baseline dirty-tracking: catch any .settings-field element (e.g. Field Name,
+    // Display Name, Description, Hidden, Required, HTML Content) that doesn't already
+    // have its own explicit change listener wired up by a type-specific renderer.
+    attachGenericSettingsFieldDirtyListeners();
+
+    // Wire up behavior (button clicks, datasource/plugin dropdown population,
+    // etc.) for whichever type-specific section just got rendered above -
+    // each attach*Listeners() no-ops if its elements aren't present.
+    attachTypeSpecificListeners();
+    
     console.log('[SETTINGS] Panel built for element type:', fieldConfig.type);
+}
+
+function attachGenericSettingsFieldDirtyListeners() {
+    if (!settingsForm) return;
+    settingsForm.querySelectorAll('.settings-field').forEach(field => {
+        field.addEventListener('change', showElementSettingsDirty);
+        field.addEventListener('input', showElementSettingsDirty);
+    });
+}
+
+/**
+ * Wire up behavior for whichever dropdown-subtype or data_retrieval
+ * section is currently rendered in the settings panel - button clicks
+ * (e.g. "Edit SQL Query"), datasource/plugin/workflow dropdown population,
+ * and their own change-tracking. Each attach*Listeners() call looks up its
+ * own elements by id and no-ops if they're not present, so it's always
+ * safe to call this unconditionally after (re-)rendering any type's
+ * settings, regardless of which type is actually showing.
+ */
+function attachTypeSpecificListeners() {
+    attachDropdownStaticListeners();
+    attachDropdownSqlListeners();
+    // attachDropdownPluginListeners() and attachDropdownWorkflowListeners()
+    // deliberately not called here: buildPluginSelector/buildWorkflowSelector
+    // already self-attach their own 'change' listeners via their own
+    // setTimeout (matching buildSQLSelector's lack of self-attachment,
+    // which IS why attachDropdownSqlListeners above is needed). Calling
+    // these too meant plugin/workflow selection was handled twice per
+    // change - once correctly (fieldConfig.plugin_name/workflow_id, real
+    // arguments) and once via these functions (fieldConfig.plugin - a
+    // different, mismatched property name for dropdown_plugin - with no
+    // guard against the task/input section already existing) - both
+    // async, racing, appending duplicate description+inputs content.
+    attachDropdownPrefetchListeners();
+    attachDropdownTreeListeners();
+    attachDataRetrievalListeners();
 }
 
 function renderSections(sections, fieldConfig) {
@@ -487,7 +599,14 @@ function renderSections(sections, fieldConfig) {
             const refDef = ELEMENT_DEFINITIONS[section.ref];
             if (refDef) {
                 // Handle both definition objects (with .sections) and arrays
-                const refSections = refDef.sections ? refDef.sections : refDef;
+                let refSections = refDef.sections ? refDef.sections : refDef;
+                // Drop any nested references this caller doesn't want (e.g.
+                // data_retrieval has no use for dynamicDataDropdownFields -
+                // it just stores a raw chunk of data, not a dropdown's
+                // label/value/selector/tree config).
+                if (Array.isArray(section.excludeFields) && section.excludeFields.length > 0) {
+                    refSections = refSections.filter(s => !(s.type === 'reference' && section.excludeFields.includes(s.ref)));
+                }
                 renderSections(refSections, fieldConfig);
             } else {
                 console.warn('[RENDERER] Referenced section not found:', section.ref);
@@ -500,6 +619,49 @@ function renderSections(sections, fieldConfig) {
             
             section.fields.forEach(fieldDef => {
                 const fieldValue = fieldConfig[fieldDef.name];
+
+                if (fieldDef.type !== 'checkbox') {
+                    // Text/select fields side by side: each gets its own
+                    // stacked label-above-input, sharing the row evenly.
+                    const itemWrapper = document.createElement('div');
+                    itemWrapper.style.cssText = 'display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 0;';
+
+                    const label = document.createElement('label');
+                    label.htmlFor = fieldDef.name;
+                    label.innerHTML = fieldDef.label || fieldDef.name;
+                    if (fieldDef.info) {
+                        label.innerHTML += infoIcon(fieldDef.info);
+                    }
+                    itemWrapper.appendChild(label);
+
+                    let input;
+                    if (fieldDef.type === 'select') {
+                        input = document.createElement('select');
+                        (fieldDef.options || []).forEach(optValue => {
+                            const option = document.createElement('option');
+                            option.value = optValue;
+                            option.textContent = optValue;
+                            option.selected = fieldValue === optValue;
+                            input.appendChild(option);
+                        });
+                    } else {
+                        input = document.createElement('input');
+                        input.type = 'text';
+                        input.value = fieldValue || '';
+                        input.placeholder = fieldDef.placeholder || '';
+                    }
+                    input.id = fieldDef.name;
+                    input.className = 'settings-field';
+                    itemWrapper.appendChild(input);
+
+                    groupContainer.appendChild(itemWrapper);
+
+                    input.addEventListener('input', () => {
+                        fieldConfig[fieldDef.name] = input.value;
+                        showElementSettingsDirty();
+                    });
+                    return;
+                }
                 
                 const input = document.createElement('input');
                 input.type = 'checkbox';
@@ -679,6 +841,69 @@ function renderField(fieldDef, fieldConfig) {
         return;
     }
     
+    // Handle radio group separately too, same reason as checkbox above -
+    // multiple <input> elements share one field name, so there's no single
+    // "the input" for the generic tail-end listener to attach to.
+    if (fieldDef.type === 'radio') {
+        const formGroup = document.createElement('div');
+        formGroup.className = 'form-group';
+
+        const label = document.createElement('label');
+        label.style.cssText = 'display: inline-flex; align-items: center; gap: 6px;';
+        label.innerHTML = (fieldDef.label || fieldDef.name);
+        if (fieldDef.info) {
+            label.innerHTML += infoIcon(fieldDef.info);
+        }
+        formGroup.appendChild(label);
+
+        const optionsContainer = document.createElement('div');
+        optionsContainer.style.cssText = 'display: flex; flex-direction: column; gap: 6px; margin-top: 6px;';
+
+        const options = fieldDef.options || [];
+
+        // No stored value yet (new field) -> the first option renders
+        // visually checked below, so seed fieldConfig to match. Setting
+        // .checked alone isn't enough - it doesn't fire 'change', so
+        // fieldConfig would silently stay unset until the user actually
+        // clicks a radio, same gap the label_field/value_field prefill had.
+        if (!fieldValue && options.length > 0) {
+            const firstValue = (typeof options[0] === 'object' && options[0] !== null) ? options[0].value : options[0];
+            fieldConfig[fieldDef.name] = firstValue;
+        }
+
+        options.forEach((opt, index) => {
+            const optValue = (typeof opt === 'object' && opt !== null) ? opt.value : opt;
+            const optLabel = (typeof opt === 'object' && opt !== null) ? (opt.label || opt.value) : opt;
+
+            const row = document.createElement('label');
+            row.style.cssText = 'display: flex; align-items: center; gap: 6px; font-weight: 400; cursor: pointer;';
+
+            const radioInput = document.createElement('input');
+            radioInput.type = 'radio';
+            radioInput.name = fieldDef.name;
+            radioInput.value = optValue;
+            radioInput.checked = fieldValue ? (fieldValue === optValue) : (index === 0);
+
+            radioInput.addEventListener('change', () => {
+                if (radioInput.checked) {
+                    fieldConfig[fieldDef.name] = optValue;
+                    showElementSettingsDirty();
+                }
+            });
+
+            const span = document.createElement('span');
+            span.textContent = optLabel;
+
+            row.appendChild(radioInput);
+            row.appendChild(span);
+            optionsContainer.appendChild(row);
+        });
+
+        formGroup.appendChild(optionsContainer);
+        form.appendChild(formGroup);
+        return;
+    }
+    
     // For non-checkbox fields, use formGroup structure
     const formGroup = document.createElement('div');
     formGroup.className = 'form-group';
@@ -722,70 +947,66 @@ function renderField(fieldDef, fieldConfig) {
         
         formGroup.appendChild(input);
         
-        // Special handling for dropdown_type field
-        if (fieldDef.name === 'dropdown_type') {
+        // Special handling for any field that drives a conditionalGroup in
+        // this element's definition (e.g. dropdown_type for 'dropdown',
+        // data_source_type for 'data_retrieval') - the reference sections
+        // for the currently-selected value only get rendered once, at
+        // initial panel build, so changing the value needs to swap them
+        // out live rather than waiting for the panel to be reopened.
+        const elementDef = ELEMENT_DEFINITIONS[fieldConfig.type];
+        const drivingSection = elementDef?.sections?.find(
+            section => section.type === 'conditionalGroup' && section.field === fieldDef.name
+        );
+
+        if (drivingSection) {
             input.addEventListener('change', () => {
-                console.log('[dropdown_type change] Selected:', input.value);
                 fieldConfig[fieldDef.name] = input.value;
                 showElementSettingsDirty();
-                
-                // Re-render the conditionalGroup for this field
-                const elementDef = ELEMENT_DEFINITIONS[fieldConfig.type];
-                console.log('[dropdown_type change] elementDef:', elementDef);
-                if (elementDef?.sections) {
-                    // Find and re-render the conditionalGroup section
-                    elementDef.sections.forEach(section => {
-                        console.log('[dropdown_type change] Checking section:', section.type, section.field);
-                        if (section.type === 'conditionalGroup' && section.field === 'dropdown_type') {
-                            console.log('[dropdown_type change] Found conditionalGroup');
-                            const form = document.getElementById('settingsForm');
-                            
-                            // Remove old conditional content
-                            const oldConditionalContent = form.querySelector('[data-conditional-group="dropdown_type"]');
-                            console.log('[dropdown_type change] Old content to remove:', oldConditionalContent);
-                            if (oldConditionalContent) {
-                                oldConditionalContent.remove();
-                            }
-                            
-                            // Re-render the conditional group
-                            const fieldValue = fieldConfig[section.field];
-                            console.log('[dropdown_type change] fieldValue:', fieldValue, 'conditions:', section.conditions);
-                            const conditionSections = section.conditions[fieldValue];
-                            console.log('[dropdown_type change] conditionSections:', conditionSections);
-                            if (conditionSections) {
-                                // Create a wrapper div for the new conditional content
-                                const conditionalWrapper = document.createElement('div');
-                                conditionalWrapper.setAttribute('data-conditional-group', 'dropdown_type');
-                                
-                                // Redirect appendChild to collect the new content
-                                const originalAppendChild = form.appendChild;
-                                const newElements = [];
-                                
-                                form.appendChild = function(el) {
-                                    newElements.push(el);
-                                    return el;
-                                };
-                                
-                                renderSections(conditionSections, fieldConfig);
-                                
-                                // Restore appendChild
-                                form.appendChild = originalAppendChild;
-                                
-                                // Add collected elements to wrapper
-                                newElements.forEach(el => conditionalWrapper.appendChild(el));
-                                
-                                // Find the first button to insert before
-                                const firstButton = form.querySelector('button[id*="Btn"]');
-                                if (firstButton) {
-                                    // Insert wrapper before the buttons
-                                    firstButton.parentElement.insertBefore(conditionalWrapper, firstButton);
-                                } else {
-                                    // Fallback: just append if no buttons found
-                                    form.appendChild(conditionalWrapper);
-                                }
-                            }
-                        }
-                    });
+
+                const form = document.getElementById('settingsForm');
+
+                // Remove old conditional content
+                const oldConditionalContent = form.querySelector(`[data-conditional-group="${fieldDef.name}"]`);
+                if (oldConditionalContent) {
+                    oldConditionalContent.remove();
+                }
+
+                // Re-render the conditional group for the newly-selected value
+                const conditionSections = drivingSection.conditions[fieldConfig[fieldDef.name]];
+                if (conditionSections) {
+                    const conditionalWrapper = document.createElement('div');
+                    conditionalWrapper.setAttribute('data-conditional-group', fieldDef.name);
+                    
+                    // Redirect appendChild to collect the new content
+                    const originalAppendChild = form.appendChild;
+                    const newElements = [];
+                    
+                    form.appendChild = function(el) {
+                        newElements.push(el);
+                        return el;
+                    };
+                    
+                    renderSections(conditionSections, fieldConfig);
+                    
+                    // Restore appendChild
+                    form.appendChild = originalAppendChild;
+                    
+                    // Add collected elements to wrapper
+                    newElements.forEach(el => conditionalWrapper.appendChild(el));
+                    
+                    // Find the first button to insert before
+                    const firstButton = form.querySelector('button[id*="Btn"]');
+                    if (firstButton) {
+                        firstButton.parentElement.insertBefore(conditionalWrapper, firstButton);
+                    } else {
+                        form.appendChild(conditionalWrapper);
+                    }
+
+                    // The newly-inserted section (e.g. SQL Database select +
+                    // Edit SQL Query button, or Workflow select) has no
+                    // behavior wired up yet - this render path only builds
+                    // HTML, it doesn't attach listeners.
+                    attachTypeSpecificListeners();
                 }
             });
         }
@@ -807,13 +1028,22 @@ function renderField(fieldDef, fieldConfig) {
         input.className = 'settings-field';
         input.style.cssText = 'margin-top: 2px; width: 100%;';
         input.value = fieldValue || '';
-        input.placeholder = fieldDef.placeholder || '';
+        input.placeholder = fieldDef.name === 'data_variable'
+            ? `Defaults to ${fieldConfig.field_name || 'field_name'}_data`
+            : (fieldDef.placeholder || '');
         
         formGroup.appendChild(input);
     }
     
-    // Attach change listener
-    if (input && fieldDef.name !== 'dropdown_type') {
+    // Attach change listener - skip fields that drive a conditionalGroup
+    // (handled above by their own dedicated change listener, which also
+    // sets fieldConfig[fieldDef.name] - a second listener here would be
+    // redundant, not just for 'dropdown_type' but any such field).
+    const elementDefForListener = ELEMENT_DEFINITIONS[fieldConfig.type];
+    const fieldDrivesConditionalGroup = elementDefForListener?.sections?.some(
+        section => section.type === 'conditionalGroup' && section.field === fieldDef.name
+    );
+    if (input && !fieldDrivesConditionalGroup) {
         input.addEventListener('input', () => {
             fieldConfig[fieldDef.name] = input.value;
             showElementSettingsDirty();
@@ -821,15 +1051,6 @@ function renderField(fieldDef, fieldConfig) {
     }
     
     form.appendChild(formGroup);
-}
-
-// ============================================
-// HELPER: Info Icon with Tooltip
-// ============================================
-function infoIcon(explanation) {
-    // Escape any quotes in the explanation for the data attribute
-    const escaped = (explanation || '').replace(/"/g, '&quot;');
-    return `<span class="info-icon" data-explanation="${escaped}" style="display: inline-block; width: 12px; height: 12px; margin-left: 6px; background: white; border-radius: 50%; border: 1px solid #667eea; color: #667eea; font-size: 12px; font-weight: bold; line-height: 12px; text-align: center; cursor: pointer; flex-shrink: 0;">?</span>`;
 }
 
 // ============================================
@@ -844,46 +1065,10 @@ async function fetchExistingFormsList() {
 // ============================================
 // FETCH FORM CONFIG FROM DATABASE
 // ============================================
-async function getFormConfigFromDatabase(formId) {
-    try {
-        if (!formId) {
-            console.error('[FETCH CONFIG] No form ID provided');
-            return null;
-        }
-
-        const response = await fetch(`https://app.equinoxits.com:1139/kore/forms/${formId}`, {
-            method: 'GET',
-            headers: { 'Content-Type': 'application/json' },
-            credentials: 'include'
-        });
-
-        if (!response.ok) {
-            const data = await response.json().catch(() => ({}));
-            throw new Error(data.error || `HTTP ${response.status}: ${response.statusText}`);
-        }
-
-        const data = await response.json();
-        const definition = data.definition;
-
-        if (!definition) {
-            console.error('[FETCH CONFIG] No definition found in response');
-            return null;
-        }
-
-        console.log('[FETCH CONFIG] Successfully retrieved form definition');
-        return definition;
-    } catch (error) {
-        console.error('[FETCH CONFIG] Error fetching form:', error);
-        return null;
-    }
-}
-
 async function loadSqlDatasources() {
     try {
-        const user = getUser();
-        if (!user) return;
         const result = await executeSqlQuery(
-            'cookie', user, 'kore_sys',
+            'cookie', null, 'kore_sys',
             `SELECT config FROM kore_sys.plugins WHERE name = 'sqlquery'`
         );
         const row = result?.result?.[0];
@@ -900,10 +1085,8 @@ async function loadSqlDatasources() {
 
 async function loadAvailableWorkflows() {
     try {
-        const user = getUser();
-        if (!user) return;
         const result = await executeSqlQuery(
-            'cookie', user, 'kore_sys',
+            'cookie', null, 'kore_sys',
             `SELECT id, name, definition FROM kore_sys.workflows ORDER BY name`
         );
         availableWorkflows = (result?.result || []).map(w => ({
@@ -926,6 +1109,12 @@ let availableWorkflowsOG = [];
 let loadedFormId = null;
 let sqlDatasources = []; // Cached SQL datasource names from plugin config
 let availablePlugins = []; // Cached plugins [{id, name, display_name}] for dropdown_plugin
+let pluginTasksCache = {}; // Cached plugin tasks, keyed by plugin name
+
+// Kore Util actions (kore_sys.workflow_utils, category='kore-data'), surfaced
+// via their own dedicated "dropdown_kore_util" dropdown type / data_retrieval
+// source type - not folded into the Plugin selector.
+let availableKoreUtils = []; // Cached workflow_utils rows filtered to category='kore-data'
 
 // UI Elements
 let columnsSelect = null;
@@ -973,6 +1162,14 @@ function createFieldConfig(elementType, elementId, sequenceNumber, columnPositio
         defaults.dropdown_type = '';
         defaults.multi_select = false;
         defaults.searchable = true;
+    }
+
+    // data_retrieval's Data Source Type select has no blank placeholder
+    // option - it defaults to its first option (Workflow) visually, so
+    // give fieldConfig the same default rather than leaving it undefined
+    // until the user explicitly touches the select.
+    if (configType === 'data_retrieval') {
+        defaults.data_source_type = 'Workflow';
     }
     
     const config = {
@@ -1056,6 +1253,11 @@ function attachElementEventListeners(element) {
         
         // Update sequences after drag ends (reordering complete)
         updateElementSequences();
+        
+        // Mark form as changed - covers both reordering within a column
+        // and moving to a different column (handleElementMove already ran
+        // during the preceding 'drop' event by this point)
+        markFormChanged();
     });
     
     // Delete button handler - uses UID
@@ -1427,8 +1629,7 @@ function showElementSettings(elementUid) {
     
     if (conditionsBtn) {
         conditionsBtn.addEventListener('click', () => {
-            console.log('[TODO] Show/Hide Conditions modal');
-            // TODO: Implement conditions modal
+            openConditionsModal(fieldConfig);
         });
     }
 }
@@ -1781,6 +1982,8 @@ function renderArrayItemRow(container, item, index) {
             <input type="text" class="array-item-display-name" value="${escapeHtml(item.display_name || '')}" placeholder="Display Name">
             <select class="array-item-type">
                 <option value="text" ${item.type === 'text' ? 'selected' : ''}>Text</option>
+                <option value="date" ${item.type === 'date' ? 'selected' : ''}>Date</option>
+                <option value="datetime" ${item.type === 'datetime' ? 'selected' : ''}>Date/Time</option>
                 <option value="array" ${item.type === 'array' ? 'selected' : ''}>Array</option>
                 <option value="dropdown_static" ${item.type === 'dropdown_static' ? 'selected' : ''}>Static Dropdown</option>
                 <option value="dropdown_workflow" ${item.type === 'dropdown_workflow' ? 'selected' : ''}>Workflow Dropdown</option>
@@ -2617,6 +2820,222 @@ function saveArrayItems() {
     showElementSettingsDirty();
 }
 
+// ============================================
+// SHOW/HIDE CONDITIONS MODAL
+// ============================================
+let currentConditionsFieldConfig = null;
+
+function openConditionsModal(fieldConfig) {
+    currentConditionsFieldConfig = fieldConfig;
+
+    const content = document.createElement('div');
+    content.innerHTML = `
+        <div style="margin-bottom: 15px; padding: 12px; background: rgba(102, 126, 234, 0.1); border: 1px solid rgba(102, 126, 234, 0.3); border-radius: 4px; font-size: 12px; color: #ffffff;">
+            <div style="font-weight: 600; margin-bottom: 6px;">💡 Jinja-style condition examples:</div>
+            <div><code style="background: rgba(0,0,0,0.3); padding: 2px 6px; border-radius: 3px;">{{ status == 'Approved' }}</code></div>
+            <div style="margin-top: 4px;"><code style="background: rgba(0,0,0,0.3); padding: 2px 6px; border-radius: 3px;">{{ age >= 18 and country == 'US' }}</code></div>
+            <div style="margin-top: 4px;"><code style="background: rgba(0,0,0,0.3); padding: 2px 6px; border-radius: 3px;">{{ 'admin' in user_roles }}</code></div>
+            <div style="margin-top: 6px; color: #ccc;">Reference other fields on this form by their Field Name (e.g. <code style="background: rgba(0,0,0,0.3); padding: 2px 6px; border-radius: 3px;">status</code> above matches a field named "status").</div>
+        </div>
+
+        <div style="display: flex; justify-content: flex-end; margin-bottom: 8px;">
+            <button id="addConditionBtn" class="btn" data-color="blue" data-size="sm" title="Add Condition" style="min-width: auto;">+ Add Condition</button>
+        </div>
+
+        <div id="conditionsModalList" class="scrollbar" style="display: flex; flex-direction: column; gap: 8px; max-height: 400px; overflow-y: auto; margin-bottom: 0px;"></div>
+    `;
+
+    const conditionsModalList = content.querySelector('#conditionsModalList');
+    const addConditionBtn = content.querySelector('#addConditionBtn');
+
+    const conditions = Array.isArray(fieldConfig.conditions)
+        ? fieldConfig.conditions.map(c => ({ condition: c.condition || '', action: c.action || 'show' }))
+        : [];
+
+    if (conditions.length === 0) {
+        renderNoConditionsMessage(conditionsModalList);
+    } else {
+        conditions.forEach(condition => {
+            renderConditionRow(conditionsModalList, condition);
+        });
+    }
+
+    addConditionBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        removeNoConditionsMessage(conditionsModalList);
+        renderConditionRow(conditionsModalList, { condition: '', action: 'show' });
+        updateConditionButtonStates();
+    });
+
+    showModal({
+        title: 'Show/Hide Conditions',
+        content,
+        width: '70vw',
+        height: 'auto',
+        suppressBodyScroll: false,
+        closeOnBackdrop: false,
+        buttons: [
+            {
+                label: 'Cancel',
+                type: 'secondary'
+            },
+            {
+                label: 'Save',
+                type: 'success',
+                onClick: () => {
+                    saveConditions();
+                }
+            }
+        ],
+        onClose: () => {
+            currentConditionsFieldConfig = null;
+            console.log('[CONDITIONS-MODAL] Closed Conditions Modal');
+        }
+    });
+
+    updateConditionButtonStates();
+
+    console.log('[CONDITIONS-MODAL] Opened Conditions Modal');
+}
+
+function renderConditionRow(container, conditionData) {
+    const row = document.createElement('div');
+    row.className = 'condition-row';
+    row.style.cssText = 'display: flex; gap: 8px; align-items: center; min-width: 0;';
+    row._conditionData = conditionData;
+
+    const hasCondition = !!(conditionData.condition && conditionData.condition.trim());
+
+    row.innerHTML = `
+        <div style="display: flex; gap: 4px; flex-shrink: 0;">
+            <button type="button" class="condition-move-up-btn" title="Move Up" style="min-width: auto; padding: 6px 8px; background: #5a9fb8; border: none; border-radius: 4px; color: #ffffff; cursor: pointer; font-size: 11px; font-weight: 600;">↑</button>
+            <button type="button" class="condition-move-down-btn" title="Move Down" style="min-width: auto; padding: 6px 8px; background: #5a9fb8; border: none; border-radius: 4px; color: #ffffff; cursor: pointer; font-size: 11px; font-weight: 600;">↓</button>
+        </div>
+        <div class="condition-preview" title="Click to edit condition" style="flex: 1; min-width: 0; box-sizing: border-box; padding: 6px; background-color: var(--bg-input); border: 1px solid var(--border-primary); border-radius: 4px; color: ${hasCondition ? 'var(--text-input)' : '#888'}; font-weight: 600; font-size: 12px; font-family: 'Courier New', monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer;">${hasCondition ? escapeHtml(conditionData.condition) : 'Click to set condition...'}</div>
+        <select class="condition-action settings-field" style="flex-shrink: 0; width: 90px;">
+            <option value="show" ${(!conditionData.action || conditionData.action === 'show') ? 'selected' : ''}>Show</option>
+            <option value="hide" ${conditionData.action === 'hide' ? 'selected' : ''}>Hide</option>
+        </select>
+        <button type="button" class="delete-condition-btn" title="Delete Condition" style="flex-shrink: 0; padding: 6px 10px; background: #a82a2a; border: none; border-radius: 4px; color: #ffffff; cursor: pointer; font-size: 14px; font-weight: 600;">×</button>
+    `;
+
+    container.appendChild(row);
+
+    const previewEl = row.querySelector('.condition-preview');
+    const upBtn = row.querySelector('.condition-move-up-btn');
+    const downBtn = row.querySelector('.condition-move-down-btn');
+    const deleteBtn = row.querySelector('.delete-condition-btn');
+
+    previewEl.addEventListener('click', () => {
+        if (typeof openJinjaEditorModal !== 'function') {
+            console.warn('[CONDITIONS-MODAL] openJinjaEditorModal not available - is jinja-json.js loaded?');
+            return;
+        }
+        openJinjaEditorModal('Condition', conditionData.condition || '', (newValue) => {
+            conditionData.condition = newValue;
+            const hasValue = !!(newValue && newValue.trim());
+            previewEl.textContent = hasValue ? newValue : 'Click to set condition...';
+            previewEl.style.color = hasValue ? '#ffffff' : '#888';
+        });
+    });
+
+    upBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        moveConditionRow(row, 'up');
+    });
+
+    downBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        moveConditionRow(row, 'down');
+    });
+
+    deleteBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        const parent = row.parentElement;
+        row.remove();
+        updateConditionButtonStates();
+        if (parent && !parent.querySelector('.condition-row')) {
+            renderNoConditionsMessage(parent);
+        }
+    });
+}
+
+function moveConditionRow(row, direction) {
+    const parent = row.parentElement;
+    const currentIndex = Array.from(parent.children).indexOf(row);
+
+    if (direction === 'up' && currentIndex > 0) {
+        parent.insertBefore(row, parent.children[currentIndex - 1]);
+    } else if (direction === 'down' && currentIndex < parent.children.length - 1) {
+        parent.insertBefore(row, parent.children[currentIndex + 2]);
+    }
+
+    updateConditionButtonStates();
+}
+
+function updateConditionButtonStates() {
+    const container = document.getElementById('conditionsModalList');
+    if (!container) return;
+
+    const rows = container.querySelectorAll('.condition-row');
+
+    rows.forEach((row, index) => {
+        const upBtn = row.querySelector('.condition-move-up-btn');
+        const downBtn = row.querySelector('.condition-move-down-btn');
+
+        if (upBtn) upBtn.disabled = index === 0;
+        if (downBtn) downBtn.disabled = index === rows.length - 1;
+    });
+}
+
+function renderNoConditionsMessage(container) {
+    if (container.querySelector('.no-conditions-message')) return;
+
+    const msg = document.createElement('div');
+    msg.className = 'no-conditions-message';
+    msg.style.cssText = 'color: #999; text-align: center; padding: 12px; font-size: 13px;';
+    msg.textContent = 'No conditions set.';
+    container.appendChild(msg);
+}
+
+function removeNoConditionsMessage(container) {
+    const msg = container.querySelector('.no-conditions-message');
+    if (msg) msg.remove();
+}
+
+function closeConditionsModal() {
+    currentConditionsFieldConfig = null;
+    closeModal();
+}
+
+function saveConditions() {
+    if (!currentConditionsFieldConfig) return;
+
+    const conditionsModalList = document.getElementById('conditionsModalList');
+    if (!conditionsModalList) return;
+
+    const rows = conditionsModalList.querySelectorAll('.condition-row');
+    const conditions = [];
+
+    rows.forEach(row => {
+        const conditionData = row._conditionData || {};
+        const actionSelect = row.querySelector('.condition-action');
+
+        const conditionText = (conditionData.condition || '').trim();
+        const action = actionSelect ? actionSelect.value : 'show';
+
+        if (conditionText) {
+            conditions.push({ condition: conditionText, action });
+        }
+    });
+
+    currentConditionsFieldConfig.conditions = conditions;
+
+    console.log('[CONDITIONS-MODAL] Saved conditions:', conditions);
+
+    showElementSettingsDirty();
+}
+
 // ***********************************************
 // ***********************************************
 
@@ -2700,6 +3119,27 @@ function buildDropdownTypeSelector(fieldConfig) {
     `;
 }
 
+/**
+ * Normalize a radio/dropdown_static field's options into an array of
+ * {label, value} pairs - options is now authored as an array directly,
+ * but this also accepts the old {label: value} object shape for backward
+ * compatibility with forms saved before this change. MySQL's JSON type
+ * doesn't preserve object key order (only array order), which is why the
+ * array shape is now the standard going forward - see
+ * https://dev.mysql.com/doc/refman/8.0/en/json.html#json-normalization.
+ * @param {object|Array} options
+ * @returns {Array<{label: string, value: string}>}
+ */
+function normalizeOptionsToArray(options) {
+    if (Array.isArray(options)) {
+        return options.filter(o => o && typeof o === 'object');
+    }
+    if (options && typeof options === 'object') {
+        return Object.entries(options).map(([label, value]) => ({ label, value }));
+    }
+    return [];
+}
+
 function buildDropdownStaticFields(fieldConfig) {
     let optionsHtml = `
         <div class="form-group">
@@ -2713,17 +3153,15 @@ function buildDropdownStaticFields(fieldConfig) {
     `;
     
     // Add existing options
-    if (fieldConfig.options && typeof fieldConfig.options === 'object') {
-        Object.entries(fieldConfig.options).forEach(([key, value]) => {
-            optionsHtml += `
-                <div style="display: flex; gap: 8px; align-items: center;">
-                    <input type="text" class="option-label settings-field" value="${key}" placeholder="Label" style="flex: 1;">
-                    <input type="text" class="option-value settings-field" value="${value}" placeholder="Value" style="flex: 1;">
-                    <button type="button" class="btn delete-option-btn" data-color="red" data-size="sm" style="width: 40px; padding: 0;">×</button>
-                </div>
-            `;
-        });
-    }
+    normalizeOptionsToArray(fieldConfig.options).forEach(({ label, value }) => {
+        optionsHtml += `
+            <div style="display: flex; gap: 8px; align-items: center;">
+                <input type="text" class="option-label settings-field" value="${label}" placeholder="Label" style="flex: 1;">
+                <input type="text" class="option-value settings-field" value="${value}" placeholder="Value" style="flex: 1;">
+                <button type="button" class="btn delete-option-btn" data-color="red" data-size="sm" style="width: 40px; padding: 0;">×</button>
+            </div>
+        `;
+    });
     
     optionsHtml += `
             </div>
@@ -2736,12 +3174,10 @@ function buildDropdownStaticFields(fieldConfig) {
                 <option value="">-- Select a default value --</option>
     `;
     
-    if (fieldConfig.options && typeof fieldConfig.options === 'object') {
-        Object.entries(fieldConfig.options).forEach(([key, value]) => {
-            const isSelected = fieldConfig.default_value === value ? 'selected' : '';
-            optionsHtml += `<option value="${value}" ${isSelected}>${value}</option>`;
-        });
-    }
+    normalizeOptionsToArray(fieldConfig.options).forEach(({ value }) => {
+        const isSelected = fieldConfig.default_value === value ? 'selected' : '';
+        optionsHtml += `<option value="${value}" ${isSelected}>${value}</option>`;
+    });
     
     optionsHtml += `
             </select>
@@ -2760,10 +3196,6 @@ function buildDropdownSqlFields(fieldConfig) {
                 ${querySet ? '✓ Edit SQL Query' : 'Edit SQL Query'}
             </button>
             <div id="sql_query_display" data-query="${(fieldConfig.query || '').replace(/"/g, '&quot;')}" style="display: none;"></div>
-        </div>
-        <div class="form-group">
-            <label>Default Selector Field Name${infoIcon('Name to use for storing the default selected value.')}</label>
-            <input type="text" id="sql_default_selector" value="${fieldConfig.default_selector || 'default'}" placeholder="default" class="settings-field">
         </div>
     `;
 }
@@ -2819,6 +3251,10 @@ function buildPluginSelector(fieldConfig) {
                 ${pluginOptions}
             </select>
         </div>
+        <div class="form-group">
+            <label>Result Path (Optional)${infoIcon('Path to the array within the data returned by the selected task. Use dot notation: "ad_users" for {ad_users: [...]}, or "data.users" for nested. Leave empty if the result is directly an array.')}</label>
+            <input type="text" id="plugin_result_path" value="${fieldConfig.result_path || ''}" placeholder="e.g., ad_users or data.users" class="settings-field">
+        </div>
     `;
     
     // Return HTML and attach listener after rendering
@@ -2840,9 +3276,160 @@ function buildPluginSelector(fieldConfig) {
                 buildPluginTaskSection(fieldConfig.plugin_name, fieldConfig.task_id || null, fieldConfig);
             }
         }
+
+        const resultPathInput = document.getElementById('plugin_result_path');
+        if (resultPathInput && !resultPathInput.dataset.listenerAttached) {
+            resultPathInput.dataset.listenerAttached = 'true';
+            resultPathInput.addEventListener('input', () => {
+                fieldConfig.result_path = resultPathInput.value;
+                showElementSettingsDirty();
+            });
+        }
     }, 0);
     
     return html;
+}
+
+/**
+ * Builds the "Kore Util" action selector for dropdown_kore_util (and, via
+ * reference, data_retrieval's Kore Util source type). Kore Util actions
+ * (kore_sys.workflow_utils, category='kore-data') are a single flat list -
+ * unlike Plugin's two-level Plugin -> Task structure, there's just one
+ * "provider", so this selects the action directly rather than needing a
+ * separate task-selector step.
+ */
+function buildKoreUtilSelector(fieldConfig) {
+    let utilOptions = '';
+    if (Array.isArray(availableKoreUtils) && availableKoreUtils.length > 0) {
+        utilOptions = availableKoreUtils.map(u => `<option value="${escapeHtml(u.action_name)}" ${fieldConfig.action_name === u.action_name ? 'selected' : ''}>${escapeHtml(u.display_name || u.action_name)}</option>`).join('');
+    }
+
+    const html = `
+        <div id="kore_util_selector_group" class="form-group">
+            <label>Kore Util${infoIcon('Select the Kore data utility action that will provide the dropdown options.')}</label>
+            <select id="kore_util_action" class="settings-field">
+                <option value="">-- Select action --</option>
+                ${utilOptions}
+            </select>
+        </div>
+    `;
+
+    // Return HTML and attach listener after rendering - same self-attaching
+    // pattern as buildPluginSelector/buildWorkflowSelector, so this works
+    // consistently whether rendered directly (dropdown_kore_util) or via
+    // reference (data_retrieval's Kore Util source type).
+    setTimeout(() => {
+        const utilSelect = document.getElementById('kore_util_action');
+        if (utilSelect && !utilSelect.dataset.listenerAttached) {
+            utilSelect.dataset.listenerAttached = 'true';
+            utilSelect.addEventListener('change', () => {
+                const selectedAction = utilSelect.value;
+                fieldConfig.action_name = selectedAction;
+                fieldConfig.inputs_map = {};
+                buildKoreUtilTaskSection(selectedAction, fieldConfig);
+                showElementSettingsDirty();
+            });
+
+            // If an action is already selected, render its input fields
+            if (fieldConfig.action_name) {
+                buildKoreUtilTaskSection(fieldConfig.action_name, fieldConfig);
+            }
+        }
+    }, 0);
+
+    return html;
+}
+
+/**
+ * Renders the selected Kore Util action's input fields. Unlike
+ * buildPluginTaskSection, there's no separate resolution round-trip needed -
+ * action_config.inputs is already a fully resolved, static input definition
+ * (no @config.* / @task.* references to expand server-side) - so this reuses
+ * whatever's already cached in availableKoreUtils directly.
+ */
+function buildKoreUtilTaskSection(actionName, fieldConfig) {
+    // Remove existing section if present
+    document.getElementById('kore_util_task_section')?.remove();
+
+    if (!actionName) return;
+
+    const selectorGroup = document.getElementById('kore_util_selector_group');
+    if (!selectorGroup) return;
+
+    const util = availableKoreUtils.find(u => u.action_name === actionName);
+    if (!util) return;
+
+    const section = document.createElement('div');
+    section.id = 'kore_util_task_section';
+    section.style.paddingBottom = '15px';
+    section.style.borderBottom = '1px solid var(--border-primary)';
+    section.style.marginBottom = '15px';
+
+    selectorGroup.after(section);
+
+    const task = {
+        description: util.description,
+        inputs: (util.action_config && Array.isArray(util.action_config.inputs)) ? util.action_config.inputs : []
+        // No label_field/value_field - workflow_utils doesn't define per-action
+        // defaults for these, so the user sets them via Label/Value Field as usual.
+    };
+
+    renderAndWireTaskFields(section, task, fieldConfig);
+}
+
+function buildWorkflowTriggerSelector(fieldConfig) {
+    // Create a container for the trigger select (area renderer) - populated
+    // by populateWorkflowTriggers once a workflow is selected, same pattern
+    // as buildWorkflowOutputs/populateWorkflowOutputs.
+    return `
+        <div id="workflow_trigger_group" class="form-group" style="border-left: 2px solid #444; padding-left: 12px;">
+        </div>
+    `;
+}
+
+/**
+ * Populate the Trigger select for a dropdown_workflow field's currently-
+ * selected workflow. Same filtering/selection logic as the Submit
+ * Workflow's own trigger picker in showFormSettingsModal - only enabled
+ * triggers, pre-selects fieldConfig.trigger_id if set, hides itself
+ * entirely when the workflow has no triggers.
+ * @param {object|null} workflow
+ * @param {object} fieldConfig
+ */
+function populateWorkflowTriggers(workflow, fieldConfig) {
+    const container = document.getElementById('workflow_trigger_group');
+    if (!container) return;
+
+    if (!workflow) {
+        container.innerHTML = '';
+        return;
+    }
+
+    const triggers = Array.isArray(workflow.definition?.triggers)
+        ? workflow.definition.triggers.filter(t => t.enabled !== false)
+        : [];
+
+    if (triggers.length === 0) {
+        container.innerHTML = '';
+        return;
+    }
+
+    const triggerOptions = triggers
+        .map(t => `<option value="${t.id}" ${fieldConfig.trigger_id === t.id ? 'selected' : ''}>${t.name || t.id}</option>`)
+        .join('');
+
+    container.innerHTML = `
+        <label>Trigger${infoIcon('Which of the workflow\'s triggers to execute against, if it has more than one.')}</label>
+        <select id="workflow_trigger_id" class="settings-field">
+            <option value="">-- Select trigger --</option>
+            ${triggerOptions}
+        </select>
+    `;
+
+    container.querySelector('#workflow_trigger_id').addEventListener('change', (e) => {
+        fieldConfig.trigger_id = e.target.value;
+        showElementSettingsDirty();
+    });
 }
 
 function buildWorkflowSelector(fieldConfig) {
@@ -2874,8 +3461,10 @@ function buildWorkflowSelector(fieldConfig) {
                 fieldConfig.workflow_id = workflowSelect.value;
                 fieldConfig.workflow_input = {};
                 fieldConfig.workflow_output = '';
+                fieldConfig.trigger_id = '';
                 renderWorkflowInputFields(workflow || null, fieldConfig);
                 populateWorkflowOutputs(workflow || null, fieldConfig);
+                populateWorkflowTriggers(workflow || null, fieldConfig);
                 showElementSettingsDirty();
             });
             
@@ -2887,6 +3476,7 @@ function buildWorkflowSelector(fieldConfig) {
                     console.log('[buildWorkflowSelector] Rendering workflow fields');
                     renderWorkflowInputFields(workflow, fieldConfig);
                     populateWorkflowOutputs(workflow, fieldConfig);
+                    populateWorkflowTriggers(workflow, fieldConfig);
                 }
             }
         }
@@ -3240,7 +3830,7 @@ function attachDropdownStaticListeners() {
             // Attach listeners to new inputs
             optionDiv.querySelectorAll('input').forEach(input => {
                 input.addEventListener('change', () => {
-                    updateDefaultValueDropdown();
+                    updateDefaultValueOptions();
                     showElementSettingsDirty();
                 });
                 input.addEventListener('input', () => {
@@ -3251,7 +3841,7 @@ function attachDropdownStaticListeners() {
             // Attach delete listener
             optionDiv.querySelector('.delete-option-btn').addEventListener('click', () => {
                 optionDiv.remove();
-                updateDefaultValueDropdown();
+                updateDefaultValueOptions();
                 showElementSettingsDirty();
             });
             
@@ -3264,7 +3854,7 @@ function attachDropdownStaticListeners() {
     deleteOptionBtns.forEach(btn => {
         btn.addEventListener('click', () => {
             btn.closest('div[style*="display: flex"]').remove();
-            updateDefaultValueDropdown();
+            updateDefaultValueOptions();
             showElementSettingsDirty();
         });
     });
@@ -3276,20 +3866,12 @@ function attachDropdownSqlListeners() {
     const sqlDatabaseSelect = document.getElementById('sql_database');
     if (!sqlQueryBtn || !sqlQueryDisplay || !sqlDatabaseSelect) return;
 
-    // Populate SQL datasource dropdown from cache
-    const currentVal = sqlDatabaseSelect.dataset.current || '';
-    sqlDatabaseSelect.innerHTML = '<option value="">-- Select datasource --</option>';
-    sqlDatasources.forEach(dbName => {
-        const opt = document.createElement('option');
-        opt.value = dbName;
-        opt.textContent = dbName;
-        if (dbName === currentVal) opt.selected = true;
-        sqlDatabaseSelect.appendChild(opt);
-    });
+    // buildSQLSelector() already rendered this select's options - including
+    // the correct one pre-selected, from fieldConfig.database - so this only
+    // needs to attach behavior, not rebuild its contents. (Rebuilding here
+    // using sqlDatabaseSelect.dataset.current was the bug: that attribute is
+    // never set on this element, so the rebuild always lost the selection.)
     sqlDatabaseSelect.disabled = sqlDatasources.length === 0;
-    if (sqlDatasources.length === 0) {
-        sqlDatabaseSelect.innerHTML = '<option value="">No datasources available</option>';
-    }
 
     sqlDatabaseSelect.addEventListener('change', () => {
         showElementSettingsDirty();
@@ -3376,9 +3958,8 @@ async function fetchPluginTasks(pluginName) {
     try {
         const plugin = availablePlugins.find(p => p.name === pluginName);
         if (!plugin) return [];
-        const user = getUser();
         const result = await executeSqlQuery(
-            'cookie', user, 'kore_sys',
+            'cookie', null, 'kore_sys',
             `SELECT task_id, display_name, description, inputs, outputs, label_field, value_field
              FROM kore_sys.plugin_tasks
              WHERE plugin_id = ${plugin.id} AND active = TRUE
@@ -3397,6 +3978,389 @@ async function fetchPluginTasks(pluginName) {
     }
 }
 
+/**
+ * Normalize a resolved task input's options to a uniform {value, label}
+ * shape - the server's resolution (GET /kore/tasks/:id) can return either
+ * plain values (from @config.* / static lists) or {value, label} objects
+ * (from @task.* sub-task output rows), and this smooths over that so
+ * rendering doesn't need to care which.
+ * @param {Array} rawOptions
+ * @returns {Array<{value: *, label: string}>}
+ */
+function normalizeTaskInputOptions(rawOptions) {
+    if (!Array.isArray(rawOptions)) return [];
+    return rawOptions.map(opt => {
+        if (opt && typeof opt === 'object') {
+            return { value: opt.value, label: opt.label !== undefined ? opt.label : String(opt.value) };
+        }
+        return { value: opt, label: String(opt) };
+    });
+}
+
+/**
+ * Fetch a single task's full details with select-type inputs' options
+ * fully resolved - @config.* and @task.* reference strings expanded into real
+ * values server-side (including executing referenced sub-tasks), via
+ * GET /kore/tasks/:taskId. The cached list from fetchPluginTasks() has
+ * these as raw, unresolved reference strings, which is why this is a
+ * separate call made specifically when a task gets selected/reopened.
+ * @param {number} taskId
+ * @returns {Promise<object|null>}
+ */
+async function fetchResolvedTaskDetails(taskId) {
+    try {
+        const response = await fetch(`https://app.equinoxits.com:1139/kore/tasks/${taskId}`, {
+            credentials: 'include'
+        });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const data = await response.json();
+        return data.task || null;
+    } catch (err) {
+        console.error('[Plugin Task Details] Failed to fetch resolved task details:', taskId, err);
+        return null;
+    }
+}
+
+/**
+ * Build HTML for a plugin task's declared input fields, type-aware:
+ * checkbox/boolean, radio, select (single, or multi via our own
+ * multi-select widget when input.multiple is set), textarea, number,
+ * datetime, and plain text as the fallback for anything else.
+ *
+ * Deliberately ignores target/format/ifChecked/ifUnchecked entirely -
+ * combining those into whatever the task sends server-side is the
+ * Plugins engine's own job; the form system only needs to collect
+ * {input.name: value} pairs (per the current system owner - not
+ * something we replicate client-side).
+ *
+ * Doesn't resolve @config.* and @task.* references itself - task.inputs is
+ * expected to already have real option values (see
+ * fetchResolvedTaskDetails).
+ * @param {Array<object>} inputs
+ * @param {object} existingValues - Currently-saved inputs_map, to
+ *   pre-populate each field's value on reopen
+ * @returns {{html: string, multiSelectFields: Array<{name: string, inputId: string, options: Array, existingValue: Array}>}}
+ *   multiSelectFields lists any multi-selects that still need
+ *   initializeMultiSelect() called on them once this HTML is in the DOM.
+ */
+function renderTaskInputsHtml(inputs, existingValues) {
+    if (!Array.isArray(inputs) || inputs.length === 0) {
+        return { html: '', multiSelectFields: [] };
+    }
+
+    const values = existingValues || {};
+    const multiSelectFields = [];
+    let html = '';
+
+    inputs.forEach(input => {
+        const inputId = `task_input_${input.name}`;
+        const savedVal = values[input.name];
+        const hasSaved = savedVal !== undefined;
+        const requiredMarker = input.required ? ' <span style="color: #b8242f; font-size: 11px;">* Required</span>' : '';
+        const labelText = escapeHtml(input.label || input.name);
+
+        if (input.type === 'boolean' || input.type === 'checkbox') {
+            const checked = hasSaved ? !!savedVal : !!input.default;
+            html += `
+                <div class="form-group--inline">
+                    <input type="checkbox" id="${inputId}" class="plugin-task-input-field" data-input-name="${escapeHtml(input.name)}" data-input-type="checkbox" ${checked ? 'checked' : ''}>
+                    <label for="${inputId}">${labelText}${requiredMarker}</label>
+                </div>
+            `;
+        } else if (input.type === 'radio') {
+            const options = normalizeTaskInputOptions(input.options);
+            html += `<div class="form-group"><label>${labelText}${requiredMarker}</label>`;
+            options.forEach((opt, idx) => {
+                const radioId = `${inputId}_${idx}`;
+                const isChecked = hasSaved && String(savedVal) === String(opt.value);
+                html += `
+                    <div class="form-group--inline">
+                        <input type="radio" id="${radioId}" name="${inputId}" value="${escapeHtml(String(opt.value))}" class="plugin-task-input-field" data-input-name="${escapeHtml(input.name)}" data-input-type="radio" ${isChecked ? 'checked' : ''}>
+                        <label for="${radioId}">${escapeHtml(opt.label)}</label>
+                    </div>
+                `;
+            });
+            html += `</div>`;
+        } else if (input.type === 'select' && input.multiple) {
+            const options = normalizeTaskInputOptions(input.options);
+            const existingArray = Array.isArray(savedVal) ? savedVal.map(String) : [];
+            html += `
+                <div class="form-group">
+                    <label>${labelText}${requiredMarker}</label>
+                    ${renderMultiSelectContainer(inputId, input.name)}
+                </div>
+            `;
+            multiSelectFields.push({ name: input.name, inputId, options, existingValue: existingArray });
+        } else if (input.type === 'select') {
+            const options = normalizeTaskInputOptions(input.options);
+            const isJinjaValue = hasSaved && /\{\{[\s\S]*\}\}/.test(String(savedVal));
+            const staticControlHtml = `
+                <select class="jinja-static-input">
+                    <option value="">-- Select --</option>
+                    ${options.map(opt => `<option value="${escapeHtml(String(opt.value))}" ${!isJinjaValue && hasSaved && String(savedVal) === String(opt.value) ? 'selected' : ''}>${escapeHtml(opt.label)}</option>`).join('')}
+                </select>
+            `;
+            html += renderJinjaToggleFieldHtml(input, inputId, labelText, requiredMarker, hasSaved ? String(savedVal) : '', isJinjaValue, staticControlHtml);
+        } else if (input.type === 'textarea') {
+            const currentValue = hasSaved ? String(savedVal) : (input.default || '');
+            const isJinjaValue = /\{\{[\s\S]*\}\}/.test(currentValue);
+            const staticControlHtml = `<textarea class="jinja-static-input" placeholder="">${escapeHtml(currentValue)}</textarea>`;
+            html += renderJinjaToggleFieldHtml(input, inputId, labelText, requiredMarker, currentValue, isJinjaValue, staticControlHtml);
+        } else if (input.type === 'number') {
+            const currentValue = hasSaved ? String(savedVal) : (input.default !== undefined ? String(input.default) : '');
+            const isJinjaValue = /\{\{[\s\S]*\}\}/.test(currentValue);
+            const staticControlHtml = `<input type="number" class="jinja-static-input" value="${escapeHtml(isJinjaValue ? '' : currentValue)}">`;
+            html += renderJinjaToggleFieldHtml(input, inputId, labelText, requiredMarker, currentValue, isJinjaValue, staticControlHtml);
+        } else if (input.type === 'datetime') {
+            const currentValue = hasSaved ? String(savedVal) : '';
+            const isJinjaValue = /\{\{[\s\S]*\}\}/.test(currentValue);
+            const staticControlHtml = `<input type="datetime-local" class="jinja-static-input" value="${escapeHtml(isJinjaValue ? '' : currentValue)}">`;
+            html += renderJinjaToggleFieldHtml(input, inputId, labelText, requiredMarker, currentValue, isJinjaValue, staticControlHtml);
+        } else {
+            // 'text' and any unrecognized type falls back to plain text -
+            // still supports [[field_name]] references, same as workflow
+            // inputs, since that's resolved the same way regardless of
+            // which map (workflow_input vs inputs_map) it ends up in.
+            const currentValue = hasSaved ? String(savedVal) : (input.default || '');
+            const isJinjaValue = /\{\{[\s\S]*\}\}/.test(currentValue);
+            const staticControlHtml = `<input type="text" class="jinja-static-input" value="${escapeHtml(isJinjaValue ? '' : currentValue)}" placeholder="e.g. [[field_name]] or static value">`;
+            html += renderJinjaToggleFieldHtml(input, inputId, labelText, requiredMarker, currentValue, isJinjaValue, staticControlHtml);
+        }
+    });
+
+    return { html, multiSelectFields };
+}
+
+/**
+ * Wraps a single input control (text/select/textarea/number/etc.) with a "{ }" toggle
+ * button that switches between the normal static control and a clickable preview that
+ * opens the real Jinja editor (openJinjaEditorModal from jinja-json.js). Regardless of
+ * mode, the value that actually gets saved is read from a single hidden <input> - the
+ * only element carrying hiddenInputClass/data-input-name - so callers' existing
+ * class-based extraction (live self-save or save-time DOM query) needs no changes,
+ * as long as the static control uses a different class (e.g. "jinja-static-input").
+ */
+function renderJinjaToggleFieldHtml(input, inputId, labelText, requiredMarker, currentValue, isJinjaValue, staticControlHtml, hiddenInputClass = 'plugin-task-input-field') {
+    return `
+        <div class="form-group jinja-toggle-field" data-jinja-field-name="${escapeHtml(input.name)}">
+            <label style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+                <span>${labelText}${requiredMarker}</span>
+                <button type="button" class="btn jinja-toggle-btn" data-color="blue" data-size="sm" title="${isJinjaValue ? 'Switch back to list' : 'Use a Jinja expression'}" style="min-width: auto; padding: 2px 8px; font-family: 'Courier New', monospace; font-weight: 700;">${isJinjaValue ? '☰' : '{ }'}</button>
+            </label>
+            <input type="hidden" id="${inputId}" class="${hiddenInputClass}" data-input-name="${escapeHtml(input.name)}" data-input-type="text" value="${escapeHtml(currentValue)}">
+            <div class="jinja-static-control" style="display: ${isJinjaValue ? 'none' : 'block'};">
+                ${staticControlHtml}
+            </div>
+            <div class="jinja-preview-control" title="Click to edit Jinja expression" style="display: ${isJinjaValue ? 'block' : 'none'}; box-sizing: border-box; padding: 6px; background-color: var(--bg-input); border: 1px solid var(--border-primary); border-radius: 4px; color: ${isJinjaValue ? 'var(--text-input)' : '#888'}; font-weight: 600; font-size: 12px; font-family: 'Courier New', monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer;">${isJinjaValue ? escapeHtml(currentValue) : 'Click to set Jinja expression...'}</div>
+        </div>
+    `;
+}
+
+/**
+ * Wires up the "{ }" Jinja toggle behavior for all .jinja-toggle-field wrappers
+ * within a container. Must be called after the container's own
+ * .plugin-task-input-field listeners are attached, since toggling/editing
+ * dispatches a synthetic 'input' event on the hidden input (useful for callers
+ * like the plugin task inputs that key their own re-capture logic off that
+ * event), and also calls showElementSettingsDirty() directly so dirty-tracking
+ * works even for callers (like data_retrieval's workflow inputs) that only
+ * read values from the DOM at save time rather than self-saving on every
+ * change.
+ *
+ * onValueChange(inputName, value), if provided, fires on every value change
+ * (static edit, jinja save, or mode toggle) - needed for callers like
+ * dropdown_workflow's renderWorkflowInputFields, where fieldConfig.type is
+ * always the generic 'dropdown' and the type-specific save-time DOM query for
+ * workflow_input never actually runs, so self-saving live is the only way
+ * the value gets persisted at all.
+ */
+function wireJinjaToggleFields(container, onValueChange) {
+    if (!container) return;
+
+    container.querySelectorAll('.jinja-toggle-field').forEach(wrapper => {
+        const hiddenInput = wrapper.querySelector('input[type="hidden"]');
+        const staticControlWrap = wrapper.querySelector('.jinja-static-control');
+        const staticInput = wrapper.querySelector('.jinja-static-input');
+        const previewEl = wrapper.querySelector('.jinja-preview-control');
+        const toggleBtn = wrapper.querySelector('.jinja-toggle-btn');
+
+        if (!hiddenInput || !staticControlWrap || !staticInput || !previewEl || !toggleBtn) return;
+
+        const inputName = wrapper.dataset.jinjaFieldName;
+
+        const notifyValueChange = () => {
+            if (typeof onValueChange === 'function') {
+                onValueChange(inputName, hiddenInput.value);
+            }
+        };
+
+        const dispatchHiddenInput = () => {
+            hiddenInput.dispatchEvent(new Event('input', { bubbles: true }));
+        };
+
+        const syncFromStatic = () => {
+            hiddenInput.value = staticInput.value;
+            dispatchHiddenInput();
+            notifyValueChange();
+            showElementSettingsDirty();
+        };
+        staticInput.addEventListener('input', syncFromStatic);
+        staticInput.addEventListener('change', syncFromStatic);
+
+        const isJinjaMode = () => staticControlWrap.style.display === 'none';
+
+        const enterJinjaMode = (value) => {
+            hiddenInput.value = value;
+            const hasValue = !!(value && value.trim());
+            previewEl.textContent = hasValue ? value : 'Click to set Jinja expression...';
+            previewEl.style.color = hasValue ? 'var(--text-input)' : '#888';
+            staticControlWrap.style.display = 'none';
+            previewEl.style.display = 'block';
+            toggleBtn.textContent = '☰';
+            toggleBtn.title = 'Switch back to list';
+            dispatchHiddenInput();
+            notifyValueChange();
+            showElementSettingsDirty();
+        };
+
+        const enterStaticMode = () => {
+            staticControlWrap.style.display = 'block';
+            previewEl.style.display = 'none';
+            toggleBtn.textContent = '{ }';
+            toggleBtn.title = 'Use a Jinja expression';
+            hiddenInput.value = staticInput.value;
+            dispatchHiddenInput();
+            notifyValueChange();
+            showElementSettingsDirty();
+        };
+
+        // Seed the caller's self-save target with the initial rendered value
+        // (e.g. a value restored from a saved form) in case it hasn't been
+        // captured any other way yet.
+        notifyValueChange();
+
+        const openEditor = () => {
+            if (typeof openJinjaEditorModal !== 'function') {
+                console.warn('[PLUGIN-TASK-INPUTS] openJinjaEditorModal not available - is jinja-json.js loaded?');
+                return;
+            }
+            openJinjaEditorModal('Jinja Expression', hiddenInput.value || '', (newValue) => {
+                enterJinjaMode(newValue);
+            });
+        };
+
+        previewEl.addEventListener('click', openEditor);
+
+        toggleBtn.addEventListener('click', () => {
+            if (isJinjaMode()) {
+                enterStaticMode();
+            } else {
+                openEditor();
+            }
+        });
+    });
+}
+
+/**
+ * Render a resolved task's description + input fields into a fresh
+ * #plugin_task_fields div appended to the given section, and wire up
+ * type-aware self-saving - each input writes its value into
+ * fieldConfig.inputs_map live (mirroring renderWorkflowInputFields's
+ * pattern for workflow_input), rather than deferring to a separate
+ * "extract on save click" step.
+ * @param {HTMLElement} section - #plugin_task_section
+ * @param {object} task - Resolved task details (see fetchResolvedTaskDetails)
+ * @param {object} fieldConfig
+ */
+function renderAndWireTaskFields(section, task, fieldConfig) {
+    document.getElementById('plugin_task_fields')?.remove();
+    if (!fieldConfig.inputs_map) fieldConfig.inputs_map = {};
+
+    const fieldsDiv = document.createElement('div');
+    fieldsDiv.id = 'plugin_task_fields';
+
+    const panel = document.createElement('div');
+    panel.className = 'panel-level-3';
+
+    if (task.description) {
+        const desc = document.createElement('div');
+        desc.style.cssText = 'color: #999; font-size: 12px; margin-bottom: 12px;';
+        desc.textContent = task.description;
+        panel.appendChild(desc);
+    }
+
+    const { html, multiSelectFields } = renderTaskInputsHtml(task.inputs, fieldConfig.inputs_map);
+    panel.innerHTML += html;
+
+    fieldsDiv.appendChild(panel);
+    section.appendChild(fieldsDiv);
+
+    // Pre-populate universal label/value fields from task defaults if not already set.
+    // Setting .value alone isn't enough - the actual persistence for these fields
+    // happens via their own 'input' listener (self-save into fieldConfig, see the
+    // fieldGroup renderer), which only fires on user interaction. Since this prefill
+    // is programmatic, fieldConfig must be updated directly here too, or the visibly
+    // correct-looking default silently never gets saved.
+    const labelFieldInput = document.getElementById('label_field');
+    const valueFieldInput = document.getElementById('value_field');
+    if (labelFieldInput && !fieldConfig.label_field && task.label_field) {
+        labelFieldInput.value = task.label_field;
+        fieldConfig.label_field = task.label_field;
+    }
+    if (valueFieldInput && !fieldConfig.value_field && task.value_field) {
+        valueFieldInput.value = task.value_field;
+        fieldConfig.value_field = task.value_field;
+    }
+
+    // Multi-selects need real DOM elements to initialize against, so this
+    // has to happen after the HTML above is actually in the document.
+    multiSelectFields.forEach(msf => {
+        const hiddenSelect = document.getElementById(msf.inputId);
+        const container = hiddenSelect ? hiddenSelect.closest('.multi-select-container') : null;
+        if (!container) return;
+        initializeMultiSelect(container, msf.options, msf.existingValue, {
+            onChange: (selected) => {
+                fieldConfig.inputs_map[msf.name] = selected;
+                showElementSettingsDirty();
+            }
+        });
+    });
+
+    // Type-aware capture, used both to seed inputs_map immediately below
+    // (so untouched inputs - using their rendered default/pre-filled
+    // state - still end up in inputs_map, not just ones the user actually
+    // interacts with) and by each input's own change listener afterward.
+    function captureInputValue(inputName) {
+        const el = fieldsDiv.querySelector(`[data-input-name="${inputName}"]`);
+        if (!el) return;
+        const inputType = el.dataset.inputType;
+        if (inputType === 'checkbox') {
+            fieldConfig.inputs_map[inputName] = el.checked;
+        } else if (inputType === 'radio') {
+            const checkedEl = fieldsDiv.querySelector(`input[data-input-name="${inputName}"]:checked`);
+            fieldConfig.inputs_map[inputName] = checkedEl ? checkedEl.value : null;
+        } else {
+            fieldConfig.inputs_map[inputName] = el.value;
+        }
+    }
+
+    const uniqueInputNames = new Set();
+    fieldsDiv.querySelectorAll('.plugin-task-input-field').forEach(el => uniqueInputNames.add(el.dataset.inputName));
+    uniqueInputNames.forEach(name => captureInputValue(name));
+
+    // Ongoing changes - reuses the same capture logic above.
+    fieldsDiv.querySelectorAll('.plugin-task-input-field').forEach(el => {
+        const inputType = el.dataset.inputType;
+        const eventName = (inputType === 'checkbox' || inputType === 'radio' || inputType === 'select') ? 'change' : 'input';
+        el.addEventListener(eventName, () => {
+            captureInputValue(el.dataset.inputName);
+            showElementSettingsDirty();
+        });
+    });
+
+    wireJinjaToggleFields(fieldsDiv);
+}
+
 async function buildPluginTaskSection(pluginName, selectedTaskId, fieldConfig) {
     // Remove existing task section if present
     document.getElementById('plugin_task_section')?.remove();
@@ -3410,6 +4374,9 @@ async function buildPluginTaskSection(pluginName, selectedTaskId, fieldConfig) {
     // Show loading state
     const section = document.createElement('div');
     section.id = 'plugin_task_section';
+    section.style.paddingBottom = '15px';
+    section.style.borderBottom = '1px solid var(--border-primary)';
+    section.style.marginBottom = '15px';
 
     const taskGroup = document.createElement('div');
     taskGroup.className = 'form-group';
@@ -3422,7 +4389,9 @@ async function buildPluginTaskSection(pluginName, selectedTaskId, fieldConfig) {
     section.appendChild(taskGroup);
     pluginGroup.after(section);
 
-    // Fetch tasks (cached after first load)
+    // Fetch tasks (cached after first load) - note these have raw,
+    // unresolved option references; only used here to populate the task
+    // dropdown itself.
     const tasks = await fetchPluginTasks(pluginName);
     const taskSelect = document.getElementById('plugin_task');
     taskSelect.innerHTML = '<option value="">-- Select task --</option>';
@@ -3430,7 +4399,9 @@ async function buildPluginTaskSection(pluginName, selectedTaskId, fieldConfig) {
         const opt = document.createElement('option');
         opt.value = t.task_id;
         opt.textContent = t.display_name;
-        if (t.task_id === selectedTaskId) opt.selected = true;
+        // String comparison guards against task_id coming back as a numeric
+        // string from the driver instead of a JS number.
+        if (String(t.task_id) === String(selectedTaskId)) opt.selected = true;
         taskSelect.appendChild(opt);
     });
     taskSelect.disabled = tasks.length === 0;
@@ -3438,93 +4409,32 @@ async function buildPluginTaskSection(pluginName, selectedTaskId, fieldConfig) {
         taskSelect.innerHTML = '<option value="">No tasks available</option>';
     }
 
-    // If task already selected, render its fields immediately
+    // If a task is already selected, fetch its fully-resolved details
+    // (real option values, not raw @config.* / @task.* strings) and render
+    // its fields immediately.
     if (selectedTaskId) {
-        const task = tasks.find(t => t.task_id === selectedTaskId);
-        if (task) {
-            const section = document.getElementById('plugin_task_section');
-            if (section) {
-                const fieldsDiv = document.createElement('div');
-                fieldsDiv.id = 'plugin_task_fields';
-                
-                // Description
-                if (task.description) {
-                    const desc = document.createElement('div');
-                    desc.style.cssText = 'color: #999; font-size: 12px; margin-bottom: 12px;';
-                    desc.textContent = task.description;
-                    fieldsDiv.appendChild(desc);
-                }
-                
-                // Render task inputs
-                const taskInputsHtml = renderTaskInputsHtml(task.inputs, task, null);
-                fieldsDiv.innerHTML += taskInputsHtml;
-                
-                section.appendChild(fieldsDiv);
-                
-                // Pre-populate universal label/value fields from task defaults if not already set
-                const labelFieldInput = document.getElementById('label_field');
-                const valueFieldInput = document.getElementById('value_field');
-                if (labelFieldInput && !fieldConfig.label_field && task.label_field) {
-                    labelFieldInput.value = task.label_field;
-                }
-                if (valueFieldInput && !fieldConfig.value_field && task.value_field) {
-                    valueFieldInput.value = task.value_field;
-                }
-                
-                // Attach change listeners
-                fieldsDiv.querySelectorAll('.settings-field, input, select, textarea').forEach(el => {
-                    el.addEventListener('input', showElementSettingsDirty);
-                });
-            }
+        const resolvedTask = await fetchResolvedTaskDetails(selectedTaskId);
+        const currentSection = document.getElementById('plugin_task_section');
+        if (resolvedTask && currentSection) {
+            renderAndWireTaskFields(currentSection, resolvedTask, fieldConfig);
         }
     }
 
-    taskSelect.addEventListener('change', () => {
-        const task = tasks.find(t => t.task_id === parseInt(taskSelect.value));
+    taskSelect.addEventListener('change', async () => {
+        const task = tasks.find(t => String(t.task_id) === taskSelect.value);
         fieldConfig.task_id = task?.task_id || null;
         fieldConfig.inputs_map = {};
-        
-        // Remove existing task fields
+
         document.getElementById('plugin_task_fields')?.remove();
-        
+        showElementSettingsDirty();
+
         if (task) {
-            const fieldsDiv = document.createElement('div');
-            fieldsDiv.id = 'plugin_task_fields';
-            
-            // Description
-            if (task.description) {
-                const desc = document.createElement('div');
-                desc.style.cssText = 'color: #999; font-size: 12px; margin-bottom: 12px;';
-                desc.textContent = task.description;
-                fieldsDiv.appendChild(desc);
-            }
-            
-            // Render task inputs
-            const taskInputsHtml = renderTaskInputsHtml(task.inputs, task, null);
-            fieldsDiv.innerHTML += taskInputsHtml;
-            
-            const section = document.getElementById('plugin_task_section');
-            if (section) {
-                section.appendChild(fieldsDiv);
-                
-                // Pre-populate universal label/value fields from task defaults if not already set
-                const labelFieldInput = document.getElementById('label_field');
-                const valueFieldInput = document.getElementById('value_field');
-                if (labelFieldInput && !fieldConfig.label_field && task.label_field) {
-                    labelFieldInput.value = task.label_field;
-                }
-                if (valueFieldInput && !fieldConfig.value_field && task.value_field) {
-                    valueFieldInput.value = task.value_field;
-                }
-                
-                // Attach change listeners to new fields
-                fieldsDiv.querySelectorAll('.settings-field, input, select, textarea').forEach(el => {
-                    el.addEventListener('input', showElementSettingsDirty);
-                });
+            const resolvedTask = await fetchResolvedTaskDetails(task.task_id);
+            const currentSection = document.getElementById('plugin_task_section');
+            if (resolvedTask && currentSection) {
+                renderAndWireTaskFields(currentSection, resolvedTask, fieldConfig);
             }
         }
-        
-        showElementSettingsDirty();
     });
 }
 
@@ -3595,29 +4505,20 @@ function renderWorkflowInputFields(workflow, fieldConfig) {
 
     if (inputVars.length > 0) {
         inputVars.forEach(input => {
-            const group = document.createElement('div');
-            group.className = 'form-group';
+            const inputId = `wf_input_${input.name}`;
             const savedVal = fieldConfig.workflow_input?.[input.name] || '';
-            group.innerHTML = `
-                <label>${input.name}</label>
-                <input type="text" class="settings-field workflow-input-field"
-                    data-input-name="${input.name}"
-                    value="${savedVal}"
-                    placeholder="e.g. [[field_name]] or static value">
-            `;
-            container.appendChild(group);
+            const isJinjaValue = /\{\{[\s\S]*\}\}/.test(String(savedVal));
+            const staticControlHtml = `<input type="text" class="jinja-static-input" value="${escapeHtml(isJinjaValue ? '' : String(savedVal))}" placeholder="e.g. [[field_name]] or static value">`;
+            const group = document.createElement('div');
+            group.innerHTML = renderJinjaToggleFieldHtml({ name: input.name }, inputId, escapeHtml(input.name), '', String(savedVal), isJinjaValue, staticControlHtml, 'workflow-input-field');
+            container.appendChild(group.firstElementChild);
         });
     }
 
-    container.querySelectorAll('.settings-field').forEach(el => {
-        el.addEventListener('input', () => {
-            const inputName = el.dataset.inputName;
-            if (inputName) {
-                if (!fieldConfig.workflow_input) fieldConfig.workflow_input = {};
-                fieldConfig.workflow_input[inputName] = el.value;
-            }
-            showElementSettingsDirty();
-        });
+    wireJinjaToggleFields(container, (inputName, value) => {
+        if (!inputName) return;
+        if (!fieldConfig.workflow_input) fieldConfig.workflow_input = {};
+        fieldConfig.workflow_input[inputName] = value;
     });
 }
 
@@ -3703,6 +4604,7 @@ function attachDataRetrievalListeners() {
                     delete fieldConfig.workflow_id;
                     delete fieldConfig.workflow_input;
                     delete fieldConfig.workflow_output;
+                    delete fieldConfig.trigger_id;
                 } else if (oldType === 'SQL') {
                     delete fieldConfig.database;
                     delete fieldConfig.query;
@@ -3850,24 +4752,22 @@ function renderDataRetrievalWorkflowFields(workflow, fieldConfig) {
         inputSection.id = 'dr_workflow_inputs_section';
         
         inputVars.forEach(input => {
-            const group = document.createElement('div');
-            group.className = 'form-group';
+            const inputId = `dr_wf_input_${input.name}`;
             const savedVal = fieldConfig.workflow_input?.[input.name] || '';
-            group.innerHTML = `
-                <label>${input.name}</label>
-                <input type="text" class="settings-field workflow-input-field"
-                    data-input-name="${input.name}"
-                    value="${savedVal}"
-                    placeholder="Enter value or [[variable]]">
-            `;
-            inputSection.appendChild(group);
-            
-            group.querySelector('input').addEventListener('input', () => {
-                showElementSettingsDirty();
-            });
+            const isJinjaValue = /\{\{[\s\S]*\}\}/.test(String(savedVal));
+            const staticControlHtml = `<input type="text" class="jinja-static-input" value="${escapeHtml(isJinjaValue ? '' : String(savedVal))}" placeholder="Enter value or [[variable]]">`;
+            const group = document.createElement('div');
+            group.innerHTML = renderJinjaToggleFieldHtml({ name: input.name }, inputId, escapeHtml(input.name), '', String(savedVal), isJinjaValue, staticControlHtml, 'workflow-input-field');
+            inputSection.appendChild(group.firstElementChild);
         });
         
         anchor.appendChild(inputSection);
+
+        wireJinjaToggleFields(inputSection, (inputName, value) => {
+            if (!inputName) return;
+            if (!fieldConfig.workflow_input) fieldConfig.workflow_input = {};
+            fieldConfig.workflow_input[inputName] = value;
+        });
     }
     
     // Render output variable selector
@@ -3980,10 +4880,11 @@ function saveTypeSpecificFields(fieldConfig) {
         // Define fields to keep for each dropdown type (all others will be deleted)
         const dropdownFieldMap = {
             'dropdown_static': ['options', 'default_value', 'multi_select', 'searchable', 'result_var'],
-            'dropdown_workflow': ['workflow_id', 'workflow_input', 'workflow_output', 'label_field', 'value_field', 'default_selector', 'multi_select', 'searchable', 'result_var', 'tree_view', 'parent_field', 'level_field'],
-            'dropdown_sql': ['database', 'query', 'label_field', 'value_field', 'default_selector', 'multi_select', 'searchable', 'result_var', 'tree_view', 'parent_field', 'level_field'],
-            'dropdown_plugin': ['plugin', 'task_id', 'label_field', 'value_field', 'inputs_map', 'multi_select', 'searchable', 'result_var', 'tree_view', 'parent_field', 'level_field'],
-            'dropdown_prefetch': ['source_element_name', 'result_path', 'label_field', 'value_field', 'default_selector', 'multi_select', 'searchable', 'result_var']
+            'dropdown_workflow': ['workflow_id', 'workflow_input', 'workflow_output', 'label_field', 'value_field', 'data_variable', 'default_selector', 'multi_select', 'searchable', 'result_var', 'tree_view', 'parent_field', 'level_field'],
+            'dropdown_sql': ['database', 'query', 'label_field', 'value_field', 'data_variable', 'default_selector', 'multi_select', 'searchable', 'result_var', 'tree_view', 'parent_field', 'level_field'],
+            'dropdown_plugin': ['plugin', 'task_id', 'label_field', 'value_field', 'data_variable', 'result_path', 'inputs_map', 'multi_select', 'searchable', 'result_var', 'tree_view', 'parent_field', 'level_field'],
+            'dropdown_kore_util': ['action_name', 'label_field', 'value_field', 'data_variable', 'inputs_map', 'multi_select', 'searchable', 'result_var', 'tree_view', 'parent_field', 'level_field'],
+            'dropdown_prefetch': ['source_element_name', 'result_path', 'label_field', 'value_field', 'data_variable', 'default_selector', 'multi_select', 'searchable', 'result_var']
         };
         
         // Helper: Save common dropdown-style fields
@@ -3994,6 +4895,7 @@ function saveTypeSpecificFields(fieldConfig) {
             fieldConfig.result_var = document.getElementById('result_var')?.value || '';
             fieldConfig.label_field = document.getElementById('label_field')?.value || '';
             fieldConfig.value_field = document.getElementById('value_field')?.value || '';
+            fieldConfig.data_variable = document.getElementById('data_variable')?.value || '';
         };
         
         // Helper: Save PSA API fields
@@ -4014,8 +4916,8 @@ function saveTypeSpecificFields(fieldConfig) {
         // Clean up dropdown fields based on type
         if (dropdownFieldMap[elementType]) {
             const fieldsToKeep = dropdownFieldMap[elementType];
-            const allDropdownFields = ['options', 'default_value', 'workflow_id', 'workflow_input', 'workflow_output', 'label_field', 'value_field',
-                'default_selector', 'query', 'database', 'plugin', 'task_id', 'inputs_map',
+            const allDropdownFields = ['options', 'default_value', 'workflow_id', 'workflow_input', 'workflow_output', 'label_field', 'value_field', 'data_variable',
+                'default_selector', 'query', 'database', 'plugin', 'task_id', 'action_name', 'inputs_map',
                 'source_element_name', 'result_path', 'parent_field', 'level_field', 'tree_view',
                 'multi_select', 'searchable', 'result_var'];
             
@@ -4244,6 +5146,8 @@ function loadFormConfiguration(config) {
     window._formSettings = window._formSettings || {};
     if (config.submit_type !== undefined) window._formSettings.submit_type = config.submit_type;
     if (config.submit_workflow_id !== undefined) window._formSettings.submit_workflow_id = config.submit_workflow_id;
+    if (config.submit_trigger_id !== undefined) window._formSettings.submit_trigger_id = config.submit_trigger_id;
+    if (config.active !== undefined) window._formSettings.active = config.active;
     
     // Set show vertical separator
     const showVertSepValue = getConfigValue(config, 'show_vert_sep', 'showVertSep');
@@ -4511,6 +5415,7 @@ if (formColumnsSelect) {
         formColumnsSelect.value = value;
         updateColumnDisplay();
         updateVertSepCheckboxState(parseInt(value));
+        markFormChanged();
     };
     
     formColumnsSelect.addEventListener('change', (e) => handleColumnChange(e.target.value));
@@ -4532,17 +5437,16 @@ if (formColumnsSelect) {
 // FORM MODIFICATION TRACKING
 // ============================================
 // Watch form-level fields for changes
+// (Column count changes are tracked via handleColumnChange in
+// initializeFormLayout, which covers both the hidden select and the
+// visible One/Two/Three radio buttons.)
 ['form_name', 'show_name', 'show_vert_sep'].forEach(id => {
     const el = document.getElementById(id);
     if (el) {
-        el.addEventListener('input', () => checkUnsavedChanges(buildFormConfig()));
-        el.addEventListener('change', () => checkUnsavedChanges(buildFormConfig()));
+        el.addEventListener('input', markFormChanged);
+        el.addEventListener('change', markFormChanged);
     }
 });
-
-if (formColumnsSelect) {
-    formColumnsSelect.addEventListener('change', () => checkUnsavedChanges(buildFormConfig()));
-}
 
 // ============================================
 // MENU BUTTON
@@ -4576,15 +5480,34 @@ function showFormSettingsModal() {
     const fs = window._formSettings || {};
     const currentSubmitType = fs.submit_type || 'Workflow';
     const currentWorkflowId = fs.submit_workflow_id || '';
+    const currentTriggerId = fs.submit_trigger_id || '';
 
     // Build workflow options from already-loaded availableWorkflows
     const workflowOptions = (availableWorkflows || [])
         .map(w => `<option value="${w.id}" ${currentWorkflowId === w.id ? 'selected' : ''}>${w.name}</option>`)
         .join('');
 
+    // Get the (enabled) triggers for a given workflow id from its cached definition
+    const getTriggersForWorkflow = (workflowId) => {
+        const workflow = (availableWorkflows || []).find(w => w.id === workflowId);
+        const triggers = Array.isArray(workflow?.definition?.triggers) ? workflow.definition.triggers : [];
+        return triggers.filter(t => t.enabled !== false);
+    };
+
+    const initialTriggers = getTriggersForWorkflow(currentWorkflowId);
+    const triggerOptions = initialTriggers
+        .map(t => `<option value="${t.id}" ${currentTriggerId === t.id ? 'selected' : ''}>${t.name || t.id}</option>`)
+        .join('');
+
     const content = document.createElement('div');
     content.style.cssText = 'display: flex; flex-direction: column; gap: 12px;';
     content.innerHTML = `
+        <div>
+            <div style="display: flex; align-items: center; gap: 8px;">
+                <input type="checkbox" id="fs_show_name" ${(config.show_name ?? true) ? 'checked' : ''} style="width: 16px; height: 16px; cursor: pointer;">
+                <label for="fs_show_name" style="color: var(--text-muted); font-size: 11px; cursor: pointer; margin: 0; font-weight: 600;">Show Form Name</label>
+            </div>
+        </div>
         <div>
             <label style="display: block; color: var(--text-muted); font-size: 11px; margin-bottom: 4px; font-weight: 600;">Submit Type</label>
             <select id="fs_submit_type" style="width: 100%;">
@@ -4599,18 +5522,50 @@ function showFormSettingsModal() {
                 ${workflowOptions}
             </select>
         </div>
-        <div>
-            <div style="display: flex; align-items: center; gap: 8px;">
-                <input type="checkbox" id="fs_show_name" ${(config.show_name ?? true) ? 'checked' : ''} style="width: 16px; height: 16px; cursor: pointer;">
-                <label for="fs_show_name" style="color: var(--text-muted); font-size: 11px; cursor: pointer; margin: 0; font-weight: 600;">Show Form Name</label>
-            </div>
+        <div id="fs_trigger_row" style="display: none;">
+            <label style="display: block; color: var(--text-muted); font-size: 11px; margin-bottom: 4px; font-weight: 600;">Trigger</label>
+            <select id="fs_trigger_id" style="width: 100%;">
+                <option value="">-- Select trigger --</option>
+                ${triggerOptions}
+            </select>
         </div>
     `;
 
-    // Wire up Submit Type → show/hide workflow row
-    content.querySelector('#fs_submit_type').addEventListener('change', (e) => {
-        content.querySelector('#fs_workflow_row').style.display =
-            e.target.value === 'Workflow' ? 'block' : 'none';
+    const submitTypeSelect = content.querySelector('#fs_submit_type');
+    const workflowRow = content.querySelector('#fs_workflow_row');
+    const workflowSelect = content.querySelector('#fs_workflow_id');
+    const triggerRow = content.querySelector('#fs_trigger_row');
+    const triggerSelect = content.querySelector('#fs_trigger_id');
+
+    // Repopulate the trigger dropdown for whichever workflow is currently selected
+    const populateTriggerOptions = (workflowId, selectedTriggerId = '') => {
+        const triggers = getTriggersForWorkflow(workflowId);
+        triggerSelect.innerHTML = '<option value="">-- Select trigger --</option>' +
+            triggers.map(t => `<option value="${t.id}" ${selectedTriggerId === t.id ? 'selected' : ''}>${t.name || t.id}</option>`).join('');
+        return triggers;
+    };
+
+    const syncTriggerRowVisibility = () => {
+        const hasWorkflow = !!workflowSelect.value;
+        const triggerCount = triggerSelect.options.length - 1; // minus the placeholder option
+        triggerRow.style.display = (submitTypeSelect.value === 'Workflow' && hasWorkflow && triggerCount > 0) ? 'block' : 'none';
+    };
+
+    const syncWorkflowRowVisibility = () => {
+        workflowRow.style.display = submitTypeSelect.value === 'Workflow' ? 'block' : 'none';
+        syncTriggerRowVisibility();
+    };
+
+    // Sync immediately in case the select's actual rendered value (e.g. browser
+    // defaulting to the first option when no stored value matched) differs from
+    // the value used to compute the row's initial inline style above.
+    syncWorkflowRowVisibility();
+
+    submitTypeSelect.addEventListener('change', syncWorkflowRowVisibility);
+
+    workflowSelect.addEventListener('change', (e) => {
+        populateTriggerOptions(e.target.value);
+        syncTriggerRowVisibility();
     });
 
     showModal({
@@ -4628,6 +5583,7 @@ function showFormSettingsModal() {
                     window._formSettings = window._formSettings || {};
                     window._formSettings.submit_type = content.querySelector('#fs_submit_type').value;
                     window._formSettings.submit_workflow_id = content.querySelector('#fs_workflow_id').value;
+                    window._formSettings.submit_trigger_id = content.querySelector('#fs_trigger_id').value;
 
                     checkUnsavedChanges(buildFormConfig());
                     closeModal();
@@ -4841,6 +5797,155 @@ function saveDependentFields() {
 }
 
 // ============================================
+// JSON IMPORT (update the currently-open form in place)
+// ============================================
+const importFormJsonBtn = document.getElementById('importFormJsonBtn');
+
+if (importFormJsonBtn) {
+    importFormJsonBtn.addEventListener('click', () => {
+        menuDropdown.style.display = 'none';
+        showImportFormJSONModal();
+    });
+}
+
+/**
+ * Opens an editable JSON modal for pasting in a replacement form definition
+ * (e.g. one converted/generated outside the builder), separate from the
+ * read-only "View JSON" below. Intended for developers/operators without
+ * direct DB access to apply definition updates without going through the
+ * forms-list page's full "New Form" import flow.
+ *
+ * Mirrors wf-core.js's showImportJSONModal/handleImportJSON pattern for
+ * workflows - same openJsonEditorModal helper, same "validate, confirm,
+ * replace in-memory state, let the normal Save flow persist it" shape.
+ */
+function showImportFormJSONModal() {
+    openJsonEditorModal('Import Form JSON', '', handleImportFormJSON, false);
+}
+
+/**
+ * Validates and applies a pasted form JSON definition, replacing the
+ * CURRENTLY OPEN form's fields/settings in place. Deliberately does not
+ * touch the form's id/URL - this replaces the existing form's contents, it
+ * does not create a new form or navigate away. Does not save to the
+ * database itself; the normal Save button/flow still applies afterward, so
+ * the imported result can be reviewed in the builder first.
+ * @param {string} jsonText - Raw pasted JSON text
+ * @returns {boolean|Promise<boolean>} true if applied, false if rejected
+ *   (invalid JSON, failed validation, or the user cancelled the replace
+ *   confirmation)
+ */
+function handleImportFormJSON(jsonText) {
+    let parsed;
+    try {
+        parsed = JSON.parse(jsonText);
+    } catch (err) {
+        showStatusBanner(`Import failed: invalid JSON (${err.message})`, 'error');
+        return false;
+    }
+
+    // --- Structural validation - catch problems before touching any live state ---
+    const errors = [];
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        errors.push('Root must be a JSON object.');
+    } else {
+        const fieldConfigsArray = getConfigValue(parsed, 'fieldConfigs', 'field_configs');
+        if (!Array.isArray(fieldConfigsArray) || fieldConfigsArray.length === 0) {
+            errors.push('Missing or empty "field_configs" array.');
+        } else {
+            const missingNameIdx = fieldConfigsArray.findIndex(f => !f || !f.field_name);
+            if (missingNameIdx !== -1) {
+                errors.push(`Field at index ${missingNameIdx} is missing "field_name".`);
+            }
+
+            const fieldNames = fieldConfigsArray.map(f => f && f.field_name).filter(Boolean);
+            const dupNames = [...new Set(fieldNames.filter((n, i) => fieldNames.indexOf(n) !== i))];
+            if (dupNames.length > 0) {
+                errors.push(`Duplicate field_name(s): ${dupNames.join(', ')}`);
+            }
+
+            // Dangling dependant_fields reference check - a field pointing at a
+            // field_name that doesn't exist anywhere in this same pasted
+            // definition would otherwise silently block forever (see
+            // getFieldDependencyStatus in forms.js: an unresolved dependant
+            // simply never appears, so no error surfaces at all downstream).
+            const allFieldNames = new Set(fieldNames);
+            fieldConfigsArray.forEach(f => {
+                if (f && f.dependant_fields && typeof f.dependant_fields === 'object') {
+                    Object.keys(f.dependant_fields).forEach(depName => {
+                        if (!allFieldNames.has(depName)) {
+                            errors.push(`Field "${f.field_name}" depends on unknown field "${depName}".`);
+                        }
+                    });
+                }
+            });
+        }
+    }
+
+    if (errors.length > 0) {
+        const shown = errors.length > 3 ? errors.slice(0, 3).concat([`...and ${errors.length - 3} more (see console)`]) : errors;
+        showStatusBanner(`Import failed: ${shown.join(' | ')}`, 'error', 'statusMessage', 999999999);
+        if (errors.length > 3) console.error('[Import Form JSON] Full validation error list:', errors);
+        return false;
+    }
+
+    // --- Confirm before replacing (this is destructive to the in-memory
+    // builder state, even though it doesn't save to the DB by itself). Uses
+    // the same stacking modal system as the rest of the app (showModal/
+    // modalStack) so this layers on top of the still-open Import modal
+    // rather than a native browser confirm() - built with showModal
+    // directly rather than a showConfirm() convenience wrapper, since
+    // Cancel and Confirm need to resolve this function's return value
+    // differently (same reasoning as wf-core.js's handleImportJSON).
+    const importedName = getConfigValue(parsed, 'name', 'formName', 'form_name') || '(unnamed)';
+    const currentName = formNameInput?.value?.trim() || '(unnamed)';
+    const nameNote = importedName !== currentName
+        ? ` Note: the pasted definition is named "${importedName}", which differs from the current form's name ("${currentName}").`
+        : '';
+
+    return new Promise((resolve) => {
+        showModal({
+            title: 'Confirm Overwrite',
+            content: `<p style="color: var(--text-primary); margin: 0;">This replaces the current form's fields and settings with the pasted JSON.${nameNote} Nothing is saved to the database yet — review the result in the builder, then click Save (or discard by reloading the page).</p>`,
+            closeOnBackdrop: false,  // must resolve one way or the other, not silently dismiss
+            buttons: [
+                {
+                    label: 'Cancel',
+                    type: 'secondary',
+                    onClick: () => {
+                        // Import modal stays open (per the false return) so the
+                        // pasted text isn't lost - user can edit and retry.
+                        resolve(false);
+                    }
+                },
+                {
+                    label: 'Replace',
+                    type: 'danger',
+                    onClick: () => {
+                        // Close out any open element settings panel first - it may
+                        // be pointing at a uid that won't exist after the replace.
+                        closeElementSettings();
+
+                        // loadFormConfiguration already does exactly what's needed
+                        // here: clears fieldConfigs/the DOM columns, resets element
+                        // counters, restores name/show_name/version/submit
+                        // settings, and re-renders every field from field_configs -
+                        // the same path performFormLoad() uses after a normal
+                        // fetch. Re-invoking it mid-session is safe/idempotent.
+                        loadFormConfiguration(parsed);
+                        markFormChanged();
+                        updateSaveButtonState();
+
+                        showStatusBanner('Form JSON imported - review the fields, then Save to persist.', 'success');
+                        resolve(true);
+                    }
+                }
+            ]
+        });
+    });
+}
+
+// ============================================
 // JSON VIEWER
 // ============================================
 const viewJsonBtn = document.getElementById('viewJsonBtn');
@@ -4958,14 +6063,17 @@ if (saveSettingsBtn) {
         
         // Type-specific fields
         if (fieldConfig.type === 'radio') {
-            // Collect radio options
-            const optionDivs = document.querySelectorAll('#radioOptionsList > div');
-            const options = {};
-            optionDivs.forEach(div => {
-                const labelInput = div.querySelector('[data-option-field="label"]');
-                const valueInput = div.querySelector('[data-option-field="value"]');
+            // Collect radio options - selectors must match buildRadioOptions'
+            // actual rendered markup (.radio-option-row / .radio-option-label /
+            // .radio-option-value), not the data-option-field attributes used
+            // by the older/unused buildRadioFields renderer.
+            const optionRows = settingsForm ? settingsForm.querySelectorAll('.radio-option-row') : [];
+            const options = [];
+            optionRows.forEach(row => {
+                const labelInput = row.querySelector('.radio-option-label');
+                const valueInput = row.querySelector('.radio-option-value');
                 if (labelInput && labelInput.value) {
-                    options[labelInput.value] = valueInput?.value || labelInput.value;
+                    options.push({ label: labelInput.value, value: valueInput?.value || labelInput.value });
                 }
             });
             fieldConfig.options = options;
@@ -5003,21 +6111,36 @@ if (saveSettingsBtn) {
             const sourceInput = document.getElementById('repeating_input_source');
             if (sourceInput) fieldConfig.source = sourceInput.value;
             
-        } else if (['', 'dropdown_workflow', 'dropdown_static', 'dropdown_sql', 'dropdown_prefetch', 'dropdown_plugin'].includes(fieldConfig.type)) {
+        } else if (fieldConfig.type === 'data_retrieval') {
+            // Workflow and Plugin sources self-save live: their selectors
+            // (buildWorkflowSelector / buildPluginSelector) attach their own
+            // change listeners that write straight to fieldConfig, same as
+            // for dropdown_workflow/dropdown_plugin fields. SQL doesn't -
+            // buildSQLSelector/buildDropdownSqlFields only build HTML, same
+            // gap dropdown_sql had - so it needs the same explicit handling.
+            if (fieldConfig.data_source_type === 'SQL') {
+                const sqlDatabaseSelect = document.getElementById('sql_database');
+                if (sqlDatabaseSelect) fieldConfig.database = sqlDatabaseSelect.value || '';
+
+                const sqlQueryDisplay = document.getElementById('sql_query_display');
+                if (sqlQueryDisplay) fieldConfig.query = sqlQueryDisplay.dataset.query || '';
+            }
+            
+        } else if (fieldConfig.type === 'dropdown') {
             const resultVarInput = document.getElementById('result_var');
             if (resultVarInput) fieldConfig.result_var = resultVarInput.value;
             
             // Handle dropdown_static specifically
-            if (fieldConfig.type === 'dropdown_static') {
-                const options = {};
-                const optionLabels = document.querySelectorAll('.option-label');
-                const optionValues = document.querySelectorAll('.option-value');
+            if (fieldConfig.dropdown_type === 'dropdown_static') {
+                const options = [];
+                const optionLabels = settingsForm ? settingsForm.querySelectorAll('.option-label') : [];
+                const optionValues = settingsForm ? settingsForm.querySelectorAll('.option-value') : [];
                 
                 optionLabels.forEach((labelInput, index) => {
                     const label = labelInput.value;
                     const value = optionValues[index]?.value || label;
                     if (label) {
-                        options[label] = value;
+                        options.push({ label, value });
                     }
                 });
                 
@@ -5025,6 +6148,21 @@ if (saveSettingsBtn) {
                 
                 const defaultValueSelect = document.getElementById('default_value');
                 if (defaultValueSelect) fieldConfig.default_value = defaultValueSelect.value;
+            } else if (fieldConfig.dropdown_type === 'dropdown_sql') {
+                const sqlDatabaseSelect = document.getElementById('sql_database');
+                if (sqlDatabaseSelect) fieldConfig.database = sqlDatabaseSelect.value || '';
+
+                const sqlQueryDisplay = document.getElementById('sql_query_display');
+                if (sqlQueryDisplay) fieldConfig.query = sqlQueryDisplay.dataset.query || '';
+            } else if (fieldConfig.dropdown_type === 'dropdown_prefetch') {
+                const prefetchSourceSelect = document.getElementById('prefetch_source_element_name');
+                if (prefetchSourceSelect) fieldConfig.source_element_name = prefetchSourceSelect.value || '';
+
+                const prefetchResultPathInput = document.getElementById('prefetch_result_path');
+                if (prefetchResultPathInput) fieldConfig.result_path = prefetchResultPathInput.value || '';
+
+                const prefetchDefaultSelectorInput = document.getElementById('prefetch_default_selector');
+                if (prefetchDefaultSelectorInput) fieldConfig.default_selector = prefetchDefaultSelectorInput.value || 'default';
             }
         }
         
@@ -5039,6 +6177,15 @@ if (saveSettingsBtn) {
         if (condition2Input) fieldConfig.condition_2 = condition2Input.value || null;
         if (condition2ActionSelect) fieldConfig.condition_2_action = condition2ActionSelect.value || null;
         
+        // Update the draggable element's label in the canvas to reflect the saved Display Name
+        const canvasElement = document.querySelector(`[data-uid="${fieldConfig.uid}"]`);
+        if (canvasElement) {
+            const labelSpan = canvasElement.querySelector('span');
+            if (labelSpan) {
+                labelSpan.textContent = fieldConfig.field_displayname?.trim() || fieldConfig.field_name;
+            }
+        }
+        
         // Mark form as modified
         markFormChanged();
         
@@ -5050,12 +6197,6 @@ if (saveSettingsBtn) {
 // ============================================
 // URL PARAMETER INITIALIZATION
 // ============================================
-function getFormIdFromUrl() {
-    const params = new URLSearchParams(window.location.search);
-    const formId = params.get('form_id');
-    return formId;
-}
-
 // ============================================
 // SAVE FORM
 // ============================================
@@ -5070,12 +6211,14 @@ function buildFormConfig() {
 
     return {
         form_name: formName,
+        active: fs.active !== undefined ? fs.active : true,
         column_count: columnCount,
         show_vert_sep: showVertSep,
         show_name: showTitle,
         version: formVersion,
         submit_type: fs.submit_type || 'Workflow',
         submit_workflow_id: fs.submit_workflow_id || '',
+        submit_trigger_id: fs.submit_trigger_id || '',
         field_configs: fieldConfigs.map(fc => ({ ...fc }))
     };
 }
@@ -5094,19 +6237,12 @@ async function saveFormToDatabase() {
         saveBtn.disabled = true;
         saveBtn.textContent = 'Saving...';
 
-        // Build the definition object (translate form_name → name, exclude internal keys)
-        const definition = {
-            name:               config.form_name,
-            active:             true,
-            show_name:          config.show_name,
-            column_count:       config.column_count,
-            show_vert_sep:      config.show_vert_sep,
-            submit_type:        config.submit_type,
-            submit_workflow_id: config.submit_workflow_id,
-            field_configs:      config.field_configs
-        };
+        // The definition saved here must be byte-for-byte what "View JSON"
+        // shows - both come from buildFormConfig(). No key renaming/
+        // reconstruction, so the two never drift out of sync again.
+        const definition = { ...config };
         const payload = {
-            name: definition.name,
+            name: config.form_name,
             version: null,
             definition,
             folder_id: null
@@ -5190,6 +6326,15 @@ if (saveFormBtn) {
         availablePlugins = [];
     });
 
+    // Pre-fetch Kore Util actions (workflow_utils, category='kore-data') for
+    // the dropdown_kore_util settings panel. getUtilStepsByCategory (from
+    // wf-utilsteps.js, merged into plugins-front.js) never rejects -
+    // fetchUtilSteps() catches its own errors and resolves to [].
+    getUtilStepsByCategory('kore-data').then(utils => {
+        availableKoreUtils = utils || [];
+        console.log('[Kore Util] Loaded:', availableKoreUtils.map(u => u.action_name));
+    });
+
     // Pre-fetch workflows for dropdown_workflow settings panel
     loadAvailableWorkflows();
 
@@ -5241,57 +6386,6 @@ if (saveFormBtn) {
             );
         }
     }, true); // Use capture phase to catch clicks before they propagate
-})();
-
-// Info Icon Click Handler
-(() => {
-    let activeTooltip = null;
-    
-    // Handle info icon clicks
-    document.addEventListener('click', (e) => {
-        const infoIcon = e.target.closest('.info-icon');
-        
-        if (infoIcon) {
-            e.preventDefault();
-            e.stopPropagation();
-            
-            // Close existing tooltip if clicking a different icon
-            if (activeTooltip && activeTooltip !== infoIcon) {
-                activeTooltip.tooltip?.remove();
-                activeTooltip.tooltip = null;
-                activeTooltip = null;
-            }
-            
-            // Toggle tooltip
-            if (infoIcon.tooltip) {
-                infoIcon.tooltip.remove();
-                infoIcon.tooltip = null;
-                activeTooltip = null;
-            } else {
-                // Create and show tooltip
-                const tooltip = document.createElement('div');
-                tooltip.className = 'info-tooltip';
-                tooltip.textContent = infoIcon.dataset.explanation;
-                document.body.appendChild(tooltip);
-                
-                // Position tooltip above the icon
-                const rect = infoIcon.getBoundingClientRect();
-                const tooltipRect = tooltip.getBoundingClientRect();
-                tooltip.style.left = (rect.left + rect.width / 2 - tooltipRect.width / 2) + 'px';
-                tooltip.style.top = (rect.top - tooltipRect.height - 10) + 'px';
-                
-                infoIcon.tooltip = tooltip;
-                activeTooltip = infoIcon;
-            }
-        } else {
-            // Close tooltip when clicking anywhere else
-            if (activeTooltip) {
-                activeTooltip.tooltip?.remove();
-                activeTooltip.tooltip = null;
-                activeTooltip = null;
-            }
-        }
-    });
 })();
 
 // ========================================
@@ -5408,7 +6502,7 @@ function buildFormExtendSelector(fieldConfig) {
     div.appendChild(formGroup);
     
     // Insert after the common fields section
-    const settingsForm = document.getElementById('element_settings_form');
+    const settingsForm = document.getElementById('settingsForm');
     if (settingsForm) {
         settingsForm.appendChild(div);
     }
@@ -5475,31 +6569,32 @@ function buildRadioOptions(fieldConfig) {
     
     // Initialize options if not present
     if (!fieldConfig.options) {
-        fieldConfig.options = { option1: 'value1', option2: 'value2' };
+        fieldConfig.options = [{ label: 'option1', value: 'value1' }, { label: 'option2', value: 'value2' }];
     }
+    const normalizedOptions = normalizeOptionsToArray(fieldConfig.options);
     
     let optionsHTML = `
-        <div style="margin-bottom: 15px;">
-            <div style="display: flex; gap: 8px; align-items: flex-end; margin-bottom: 8px;">
-                <div style="flex: 1;">
+        <div style="margin-bottom: 15px; min-width: 0;">
+            <div style="display: flex; gap: 8px; align-items: flex-end; margin-bottom: 8px; min-width: 0;">
+                <div style="flex: 1; min-width: 0;">
                     <label style="color: #ffffff; font-weight: 600; font-size: 14px; margin: 0 0 8px 0; display: block;">Options</label>
-                    <div style="display: flex; gap: 8px; margin-bottom: 8px;">
-                        <div style="flex: 1; color: #999; font-size: 12px; font-weight: 600;">Label</div>
-                        <div style="flex: 1; color: #999; font-size: 12px; font-weight: 600;">Value</div>
+                    <div style="display: flex; gap: 8px; margin-bottom: 8px; min-width: 0;">
+                        <div style="flex: 1; min-width: 0; color: #999; font-size: 12px; font-weight: 600;">Label</div>
+                        <div style="flex: 1; min-width: 0; color: #999; font-size: 12px; font-weight: 600;">Value</div>
                     </div>
                 </div>
-                <button id="addRadioOptionBtn" style="padding: 8px 12px; background: #2a7da8; border: none; border-radius: 4px; color: #ffffff; cursor: pointer; font-weight: 600;">+</button>
+                <button id="addRadioOptionBtn" style="flex-shrink: 0; padding: 8px 12px; background: #2a7da8; border: none; border-radius: 4px; color: #ffffff; cursor: pointer; font-weight: 600;">+</button>
             </div>
-            <div id="radioOptionsList" style="display: flex; flex-direction: column; gap: 8px;">
+            <div id="radioOptionsList" style="display: flex; flex-direction: column; gap: 8px; min-width: 0;">
     `;
     
     // Add existing options
-    Object.entries(fieldConfig.options).forEach(([key, value], index) => {
+    normalizedOptions.forEach(({ label, value }) => {
         optionsHTML += `
-            <div class="radio-option-row" data-key="${key}" style="display: flex; gap: 8px; align-items: center;">
-                <input type="text" class="radio-option-label" value="${key}" placeholder="Label" style="flex: 1; padding: 8px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; font-size: 13px;">
-                <input type="text" class="radio-option-value" value="${value}" placeholder="Value" style="flex: 1; padding: 8px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; font-size: 13px;">
-                <button class="delete-radio-option-btn" style="padding: 6px 10px; background: #a82a2a; border: none; border-radius: 4px; color: #ffffff; cursor: pointer;">⊘</button>
+            <div class="radio-option-row" data-key="${label}" style="display: flex; gap: 8px; align-items: center; min-width: 0;">
+                <input type="text" class="radio-option-label" value="${label}" placeholder="Label" style="flex: 1; min-width: 0; padding: 8px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; font-size: 13px; box-sizing: border-box;">
+                <input type="text" class="radio-option-value" value="${value}" placeholder="Value" style="flex: 1; min-width: 0; padding: 8px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; font-size: 13px; box-sizing: border-box;">
+                <button class="delete-radio-option-btn" style="flex-shrink: 0; padding: 6px 10px; background: #a82a2a; border: none; border-radius: 4px; color: #ffffff; cursor: pointer;">⊘</button>
             </div>
         `;
     });
@@ -5509,13 +6604,13 @@ function buildRadioOptions(fieldConfig) {
         </div>
         <div style="margin-bottom: 15px;">
             <label style="color: #ffffff; font-weight: 600; font-size: 14px; margin: 0 0 8px 0; display: block;">Default Select</label>
-            <select id="default_select" style="width: 100%; padding: 8px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff;">
+            <select id="default_select" style="width: 100%;">
                 <option value="">-- None --</option>
     `;
     
-    Object.keys(fieldConfig.options).forEach(key => {
-        const isSelected = fieldConfig.default_select === key ? 'selected' : '';
-        optionsHTML += `<option value="${key}" ${isSelected}>${key}</option>`;
+    normalizedOptions.forEach(({ label }) => {
+        const isSelected = fieldConfig.default_select === label ? 'selected' : '';
+        optionsHTML += `<option value="${label}" ${isSelected}>${label}</option>`;
     });
     
     optionsHTML += `
@@ -5526,7 +6621,7 @@ function buildRadioOptions(fieldConfig) {
     div.innerHTML = optionsHTML;
     
     // Insert into settings form
-    const settingsForm = document.getElementById('element_settings_form');
+    const settingsForm = document.getElementById('settingsForm');
     if (settingsForm) {
         settingsForm.appendChild(div);
     }
@@ -5542,16 +6637,15 @@ function buildRadioOptions(fieldConfig) {
             const newIndex = optionsList.children.length;
             const newKey = `option${newIndex + 1}`;
             
-            fieldConfig.options[newKey] = '';
+            fieldConfig.options.push({ label: newKey, value: '' });
             
             const newRow = document.createElement('div');
             newRow.className = 'radio-option-row';
-            newRow.setAttribute('data-key', newKey);
-            newRow.style.cssText = 'display: flex; gap: 8px; align-items: center;';
+            newRow.style.cssText = 'display: flex; gap: 8px; align-items: center; min-width: 0;';
             newRow.innerHTML = `
-                <input type="text" class="radio-option-label" value="${newKey}" placeholder="Label" style="flex: 1; padding: 8px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; font-size: 13px;">
-                <input type="text" class="radio-option-value" value="" placeholder="Value" style="flex: 1; padding: 8px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; font-size: 13px;">
-                <button class="delete-radio-option-btn" style="padding: 6px 10px; background: #a82a2a; border: none; border-radius: 4px; color: #ffffff; cursor: pointer;">⊘</button>
+                <input type="text" class="radio-option-label" value="${newKey}" placeholder="Label" style="flex: 1; min-width: 0; padding: 8px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; font-size: 13px; box-sizing: border-box;">
+                <input type="text" class="radio-option-value" value="" placeholder="Value" style="flex: 1; min-width: 0; padding: 8px; background: #1a3540; border: 1px solid #555; border-radius: 4px; color: #ffffff; font-size: 13px; box-sizing: border-box;">
+                <button class="delete-radio-option-btn" style="flex-shrink: 0; padding: 6px 10px; background: #a82a2a; border: none; border-radius: 4px; color: #ffffff; cursor: pointer;">⊘</button>
             `;
             
             optionsList.appendChild(newRow);
@@ -5574,19 +6668,37 @@ function buildRadioOptions(fieldConfig) {
     }
 }
 
+/**
+ * Wire up one radio option row's inline editing - each edit mutates
+ * fieldConfig.options directly (in addition to the full rebuild
+ * saveSettingsBtn does at actual save time), matching the live-editing
+ * behavior this already had before options became an array.
+ *
+ * Tracks which entry a row corresponds to by its live position among its
+ * sibling rows (getRowIndex), recomputed fresh on every interaction -
+ * rather than a label/key the row had when listeners were first attached.
+ * This is simpler and more robust than key-based tracking: a row's DOM
+ * position doesn't change on rename, and correctly reflects an earlier
+ * row's deletion shifting later rows' indices, with no separate rename-
+ * tracking state needed.
+ * @param {HTMLElement} row
+ * @param {object} fieldConfig
+ * @param {HTMLElement} defaultSelect
+ */
 function attachRadioOptionListeners(row, fieldConfig, defaultSelect) {
     const labelInput = row.querySelector('.radio-option-label');
     const valueInput = row.querySelector('.radio-option-value');
     const deleteBtn = row.querySelector('.delete-radio-option-btn');
-    const currentKey = row.getAttribute('data-key');
+
+    function getRowIndex() {
+        return Array.from(row.parentElement.children).indexOf(row);
+    }
     
     if (labelInput) {
         labelInput.addEventListener('input', () => {
-            const newKey = labelInput.value;
-            if (newKey !== currentKey && newKey) {
-                fieldConfig.options[newKey] = fieldConfig.options[currentKey];
-                delete fieldConfig.options[currentKey];
-                row.setAttribute('data-key', newKey);
+            const entry = fieldConfig.options[getRowIndex()];
+            if (entry) {
+                entry.label = labelInput.value;
                 updateRadioDefaultSelect(fieldConfig, defaultSelect);
             }
             showElementSettingsDirty();
@@ -5595,7 +6707,8 @@ function attachRadioOptionListeners(row, fieldConfig, defaultSelect) {
     
     if (valueInput) {
         valueInput.addEventListener('input', () => {
-            fieldConfig.options[currentKey] = valueInput.value;
+            const entry = fieldConfig.options[getRowIndex()];
+            if (entry) entry.value = valueInput.value;
             showElementSettingsDirty();
         });
     }
@@ -5603,7 +6716,7 @@ function attachRadioOptionListeners(row, fieldConfig, defaultSelect) {
     if (deleteBtn) {
         deleteBtn.addEventListener('click', (e) => {
             e.preventDefault();
-            delete fieldConfig.options[currentKey];
+            fieldConfig.options.splice(getRowIndex(), 1);
             row.remove();
             updateRadioDefaultSelect(fieldConfig, defaultSelect);
             showElementSettingsDirty();
@@ -5617,9 +6730,9 @@ function updateRadioDefaultSelect(fieldConfig, defaultSelect) {
     const currentValue = defaultSelect.value;
     defaultSelect.innerHTML = '<option value="">-- None --</option>';
     
-    Object.keys(fieldConfig.options).forEach(key => {
-        const isSelected = currentValue === key ? 'selected' : '';
-        defaultSelect.appendChild(new Option(key, key, false, isSelected === 'selected'));
+    normalizeOptionsToArray(fieldConfig.options).forEach(({ label }) => {
+        const isSelected = currentValue === label ? 'selected' : '';
+        defaultSelect.appendChild(new Option(label, label, false, isSelected === 'selected'));
     });
 }
 
@@ -5659,6 +6772,8 @@ window.buildFormExtendSelector = buildFormExtendSelector;
 window.buildHorizontalLineFields = buildHorizontalLineFields;
 window.buildHtmlContentField = buildHtmlContentField;
 window.buildHtmlFields = buildHtmlFields;
+window.buildKoreUtilSelector = buildKoreUtilSelector;
+window.buildKoreUtilTaskSection = buildKoreUtilTaskSection;
 window.buildPluginSelector = buildPluginSelector;
 window.buildPluginTaskSection = buildPluginTaskSection;
 window.buildRadioFields = buildRadioFields;
@@ -5668,6 +6783,7 @@ window.buildTextFields = buildTextFields;
 window.buildTextareaFields = buildTextareaFields;
 window.buildWorkflowInputs = buildWorkflowInputs;
 window.buildWorkflowOutputs = buildWorkflowOutputs;
+window.buildWorkflowTriggerSelector = buildWorkflowTriggerSelector;
 window.buildWorkflowSelector = buildWorkflowSelector;
 window.closeArrayItemsModal = closeArrayItemsModal;
 window.closeDependentFieldsModal = closeDependentFieldsModal;
@@ -5676,14 +6792,13 @@ window.createFieldConfig = createFieldConfig;
 window.createFormElementVisual = createFormElementVisual;
 window.fetchExistingFormsList = fetchExistingFormsList;
 window.fetchPluginTasks = fetchPluginTasks;
+window.fetchResolvedTaskDetails = fetchResolvedTaskDetails;
 window.generateElementUid = generateElementUid;
 window.getConfigValue = getConfigValue;
-window.getFormConfigFromDatabase = getFormConfigFromDatabase;
-window.getFormIdFromUrl = getFormIdFromUrl;
 window.getOrCreateHiddenField = getOrCreateHiddenField;
 window.handleElementMove = handleElementMove;
+window.handleImportFormJSON = handleImportFormJSON;
 window.handleNewElementDrop = handleNewElementDrop;
-window.infoIcon = infoIcon;
 window.initializeArrayItemsModal = initializeArrayItemsModal;
 window.initializeDependentFieldsModal = initializeDependentFieldsModal;
 window.initializeDragAndDrop = initializeDragAndDrop;
@@ -5695,11 +6810,14 @@ window.loadSqlDatasources = loadSqlDatasources;
 window.markFormChanged = markFormChanged;
 window.moveArrayItem = moveArrayItem;
 window.moveElementsToColumn = moveElementsToColumn;
+window.normalizeTaskInputOptions = normalizeTaskInputOptions;
 window.openArrayItemsModal = openArrayItemsModal;
 window.openDependentFieldsModal = openDependentFieldsModal;
 window.openEditArrayModal = openEditArrayModal;
 window.performFormLoad = performFormLoad;
 window.populateWorkflowOutputs = populateWorkflowOutputs;
+window.populateWorkflowTriggers = populateWorkflowTriggers;
+window.renderAndWireTaskFields = renderAndWireTaskFields;
 window.renderArrayItemConfig = renderArrayItemConfig;
 window.renderArrayItemRow = renderArrayItemRow;
 window.renderArrayItemValueField = renderArrayItemValueField;
@@ -5708,6 +6826,7 @@ window.renderDataRetrievalWorkflowFields = renderDataRetrievalWorkflowFields;
 window.renderField = renderField;
 window.renderNestedArrayItemRow = renderNestedArrayItemRow;
 window.renderSections = renderSections;
+window.renderTaskInputsHtml = renderTaskInputsHtml;
 window.renderWorkflowInputFields = renderWorkflowInputFields;
 window.saveArrayItems = saveArrayItems;
 window.saveDependentFields = saveDependentFields;
@@ -5716,6 +6835,7 @@ window.saveTypeSpecificFields = saveTypeSpecificFields;
 window.setSpanningZonesVisible = setSpanningZonesVisible;
 window.setupDropZoneHandlers = setupDropZoneHandlers;
 window.setupPaletteDragHandlers = setupPaletteDragHandlers;
+window.showImportFormJSONModal = showImportFormJSONModal;
 window.showElementSettings = showElementSettings;
 window.showElementSettingsDirty = showElementSettingsDirty;
 window.showFormSettingsModal = showFormSettingsModal;

@@ -214,6 +214,108 @@ function createCurvedPath(x1, y1, exitSide, x2, y2, enterSide) {
 }
 
 /**
+ * Determine the wraparound routing for a case-sourced line whose target is
+ * above the source: which side to swing around, where the turn column sits,
+ * and which face of the target gets entered (these are independent — the
+ * swing goes toward whichever edge is farther, so the entry face is often
+ * the opposite face from the swing direction).
+ * @param {number} startX - Case exit X
+ * @param {number} targetX - Target left edge X
+ * @param {number} targetWidth - Target width
+ * @param {number} sourceStepLeftX - Source step left edge X
+ * @param {number} sourceStepRightX - Source step right edge X
+ * @returns {{swingDir: string, turnX: number, entryFace: string}}
+ */
+function computeCaseAboveRouting(startX, targetX, targetWidth, sourceStepLeftX, sourceStepRightX) {
+    const targetRightX = targetX + targetWidth;
+
+    // Swing direction wraps toward/around the target itself, not the source:
+    // - Target entirely at/right of startX -> always swing right (wrap to target's far side if needed)
+    // - Target entirely at/left of startX -> always swing left
+    // - startX falls within the target's span -> swing toward whichever edge is nearer
+    let swingDir;
+    if (targetX >= startX) {
+        swingDir = 'right';
+    } else if (targetRightX <= startX) {
+        swingDir = 'left';
+    } else {
+        const distToLeft = startX - targetX;
+        const distToRight = targetRightX - startX;
+        swingDir = (distToLeft <= distToRight) ? 'left' : 'right'; // tie -> left
+    }
+
+    // Entry face requires at least a full GU of clearance between the source edge
+    // being swung around and the near edge of the target on that side; otherwise
+    // wrap further and enter from the target's far side instead.
+    let entryFace;
+    if (swingDir === 'right') {
+        entryFace = (targetX - sourceStepRightX >= GU) ? 'left' : 'right';
+    } else {
+        entryFace = (sourceStepLeftX - targetRightX >= GU) ? 'right' : 'left';
+    }
+
+    let turnX = swingDir === 'left' ? (sourceStepLeftX - HG) : (sourceStepRightX + HG);
+    // Guarantee at least HG of horizontal run into the target on the chosen entry face
+    if (entryFace === 'left') {
+        turnX = Math.min(turnX, targetX - HG);
+    } else {
+        turnX = Math.max(turnX, targetRightX + HG);
+    }
+
+    // Wraps under the entire target (not just past the source) when the near-side
+    // clearance check failed and we fell through to the far side on the same edge
+    // we swung toward
+    const wrapsAroundTarget = (entryFace === swingDir);
+
+    return { swingDir, turnX, entryFace, wrapsAroundTarget };
+}
+
+/**
+ * Build the wraparound path for a case-sourced line whose target is above the
+ * source step: drop below the exit (normally HG, or a full GU when wrapping
+ * under the entire target at the same level — see dropDistance), turn toward
+ * the chosen side, travel to the precomputed turn column, turn up to the
+ * target's vertical center, then turn in to the target's near side.
+ * @param {number} startX - Case exit X (bottom-center of case box)
+ * @param {number} startY - Case exit Y (bottom of source step)
+ * @param {string} turnDir - 'left' or 'right' — side to route around and enter
+ * @param {number} turnX - X of the vertical routing column (precomputed by caller)
+ * @param {number} targetCenterY - Vertical center of the target (entry row)
+ * @param {string} entryDir - Direction of travel for the final segment into the target
+ * @param {number} endX - Final entry point X (arrow-offset already applied)
+ * @param {number} endY - Final entry point Y (arrow-offset already applied)
+ * @param {number} dropDistance - Vertical drop below the exit before turning (default HG)
+ */
+function createCaseAboveWraparoundPath(startX, startY, turnDir, turnX, targetCenterY, entryDir, endX, endY, dropDistance = HG) {
+    const R = 6;
+    const dropY = startY + dropDistance;
+
+    function corner(cx, cy, from, to) {
+        const approaches = {
+            'top':    { x: cx,     y: cy + R },
+            'bottom': { x: cx,     y: cy - R },
+            'left':   { x: cx + R, y: cy     },
+            'right':  { x: cx - R, y: cy     }
+        };
+        const departures = {
+            'top':    { x: cx,     y: cy - R },
+            'bottom': { x: cx,     y: cy + R },
+            'left':   { x: cx - R, y: cy     },
+            'right':  { x: cx + R, y: cy     }
+        };
+        const a = approaches[from];
+        const d = departures[to];
+        return `L ${a.x} ${a.y} Q ${cx} ${cy} ${d.x} ${d.y}`;
+    }
+
+    const c1 = corner(startX, dropY, 'bottom', turnDir);
+    const c2 = corner(turnX, dropY, turnDir, 'top');
+    const c3 = corner(turnX, targetCenterY, 'top', entryDir);
+
+    return `M ${startX} ${startY} ${c1} ${c2} ${c3} L ${endX} ${endY}`;
+}
+
+/**
  * Create an orthogonal (Manhattan-style) SVG path with rounded 90 degree corners.
  * All coordinates are in CSS pixels.
  * @param {number} sx - Source X
@@ -501,6 +603,7 @@ function drawConnectionLine(lineElement, sourceId, sourceType, targetId, targetT
     let targetCenterY = targetY + targetHeight / 2;
 
     let startX, startY, startDir;
+    let sourceStepLeftX, sourceStepRightX, sourceStepBottomY;
 
     if (sourceType === 'case') {
         const stepData = sourceContext;
@@ -511,6 +614,11 @@ function drawConnectionLine(lineElement, sourceId, sourceType, targetId, targetT
 
         const stepY = parseInt(stepElement.style.top);
         const stepHeight = parseInt(stepElement.style.height);
+        const stepX = parseInt(stepElement.style.left);
+        const stepWidth = parseInt(stepElement.style.width);
+        sourceStepLeftX = stepX;
+        sourceStepRightX = stepX + stepWidth;
+        sourceStepBottomY = stepY + stepHeight; // true bottom edge, no -1 pixel nudge
 
         // Use offsetLeft chain — pure DOM layout, no screen coordinates
         startX = conditionBoxCenterX(sourceEl, stepElement);
@@ -565,6 +673,10 @@ function drawConnectionLine(lineElement, sourceId, sourceType, targetId, targetT
     }
 
     let nearestTargetSide;
+    let caseAboveSwingDir = null;
+    let caseAboveEntryFace = null;
+    let caseAboveWrapsTarget = false;
+    let caseAboveTurnX = null;
     if (targetType === 'node') {
         const diamondPoints = [
             { x: targetCenterX + targetWidth / 2,  y: targetCenterY,                name: 'right' },
@@ -583,7 +695,15 @@ function drawConnectionLine(lineElement, sourceId, sourceType, targetId, targetT
             ? (sourceContext ? parseInt(canvas.querySelector(`[data-step-uuid="${sourceContext.id}"]`)?.style.top || 0) : 0)
             : sourceY;
 
-        if (targetY <= sourceTopY + HG && sourceType !== 'node') {
+        if (sourceType === 'case' && targetCenterY <= sourceStepBottomY) {
+            // Target is above source (case source) — wraparound routing
+            const routing = computeCaseAboveRouting(startX, targetX, targetWidth, sourceStepLeftX, sourceStepRightX);
+            caseAboveSwingDir = routing.swingDir;
+            caseAboveEntryFace = routing.entryFace;
+            caseAboveTurnX = routing.turnX;
+            caseAboveWrapsTarget = routing.wrapsAroundTarget;
+            nearestTargetSide = routing.entryFace === 'left' ? diamondPoints[1] : diamondPoints[0];
+        } else if (targetY <= sourceTopY + HG && sourceType !== 'node' && sourceType !== 'case') {
             nearestTargetSide = diamondPoints[2]; // bottom — target is above or level with source step
         } else if (sourceType === 'case') {
             // Entry point based on where case startX falls relative to node's horizontal span
@@ -629,7 +749,15 @@ function drawConnectionLine(lineElement, sourceId, sourceType, targetId, targetT
             ? (sourceContext ? parseInt(canvas.querySelector(`[data-step-uuid="${sourceContext.id}"]`)?.style.top || 0) : 0)
             : sourceY;
 
-        if (targetY <= sourceTopY + HG && sourceType !== 'node') {
+        if (sourceType === 'case' && targetCenterY <= sourceStepBottomY) {
+            // Target is above source (case source) — wraparound routing
+            const routing = computeCaseAboveRouting(startX, targetX, targetWidth, sourceStepLeftX, sourceStepRightX);
+            caseAboveSwingDir = routing.swingDir;
+            caseAboveEntryFace = routing.entryFace;
+            caseAboveTurnX = routing.turnX;
+            caseAboveWrapsTarget = routing.wrapsAroundTarget;
+            nearestTargetSide = routing.entryFace === 'left' ? targetSides[2] : targetSides[3];
+        } else if (targetY <= sourceTopY + HG && sourceType !== 'node' && sourceType !== 'case') {
             nearestTargetSide = targetSides[1]; // bottom — target is above or level with source step
         } else if (sourceType === 'node' && targetType === 'step') {
             if (sourceCenterX < targetX) {
@@ -676,7 +804,10 @@ function drawConnectionLine(lineElement, sourceId, sourceType, targetId, targetT
 
     let path;
 
-    if (sourceType === 'case') {
+    if (sourceType === 'case' && caseAboveSwingDir) {
+        const dropDistance = (caseAboveWrapsTarget && targetCenterY === sourceStepBottomY) ? GU : HG;
+        path = createCaseAboveWraparoundPath(startX, startY, caseAboveSwingDir, caseAboveTurnX, targetCenterY, caseAboveEntryFace === 'left' ? 'right' : 'left', endPoint.x, endPoint.y, dropDistance);
+    } else if (sourceType === 'case') {
         path = createOrthogonalPath(startX, startY, endPoint.x, endPoint.y, nearestTargetSide.name, nearestTargetSide.x, nearestTargetSide.y);
     } else if (sourceType === 'node') {
         path = createOrthogonalPath(startX, startY, endPoint.x, endPoint.y, nearestTargetSide.name, nearestTargetSide.x, nearestTargetSide.y, startDir);
@@ -704,27 +835,11 @@ function drawConnectionLine(lineElement, sourceId, sourceType, targetId, targetT
  * Place a node on the canvas at the specified CSS pixel coordinates.
  */
 function placeNode(x, y) {
-    const canvas = document.getElementById('workflowCanvas');
-    const nodeId = generateNodeId();
-
-    // Offset by half node size (15px) so the center snaps to the nearest half-grid,
-    // not the top-left corner
     const snappedX = Math.round((x - HG) / HG) * HG;
     const snappedY = Math.round((y - HG) / HG) * HG;
-
     const { gx: gridX, gy: gridY } = pixelToGrid(snappedX, snappedY);
-
-    const nodeData = {
-        id: nodeId,
-        position: `${gridX},${gridY}`,
-        targetSteps: [],
-        targetNodes: []
-    };
-
-    currentNodes.push(nodeData);
+    createNode(gridX, gridY);
     updateSaveButtonState();
-    updatePreview();
-    renderNode(nodeData);
 }
 
 /**
@@ -739,9 +854,27 @@ function createStepOnCanvas(stepType, x, y) {
     transitionCounter = (transitionCounter || 0) + 1;
     const defaultConditionId = String(transitionCounter);
 
+    // Generate numbered default names for types that support it
+    let defaultName;
+    if (stepType === 'Begin') {
+        defaultName = 'BEGIN';
+    } else if (stepType === 'RMM') {
+        defaultName = 'RMM Step';
+    } else if (stepType === 'Kore' || stepType === 'Workflow' || stepType === 'Plugin') {
+        const prefix = stepType;
+        const existingNumbers = currentSteps
+            .filter(s => s.type === stepType)
+            .map(s => { const m = (s.name || '').match(new RegExp(`^${prefix}_(\\d+)$`, 'i')); return m ? parseInt(m[1]) : 0; })
+            .filter(n => n > 0);
+        const nextNum = existingNumbers.length > 0 ? Math.max(...existingNumbers) + 1 : 1;
+        defaultName = `${prefix}_${nextNum}`;
+    } else {
+        defaultName = `${stepType} Step`;
+    }
+
     const stepData = {
         id: generateId(),
-        name: stepType === 'Begin' ? 'BEGIN' : stepType === 'End' ? 'End' : stepType === 'Workflow' ? 'Workflow' : stepType === 'RMM' ? 'RMM Step' : stepType === 'Kore' ? 'Kore' : `${stepType} Step`,
+        name: defaultName,
         type: stepType,
         action: '',
         width: 3,
@@ -778,6 +911,32 @@ function createStepOnCanvas(stepType, x, y) {
     currentSteps.push(stepData);
     renderStep(stepData);
     updatePreview();
+}
+
+/**
+ * Create a new node, add it to currentNodes, render it, and return it.
+ * @param {number} gridX - Grid X position
+ * @param {number} gridY - Grid Y position
+ * @returns {object} The new node data object
+ */
+function createNode(gridX, gridY) {
+    const existingNumbers = currentNodes
+        .map(n => { const m = (n.name || '').match(/^Node_(\d+)$/i); return m ? parseInt(m[1]) : 0; })
+        .filter(n => n > 0);
+    const nextNum = existingNumbers.length > 0 ? Math.max(...existingNumbers) + 1 : 1;
+
+    const newNode = {
+        id: generateNodeId(),
+        name: `Node_${nextNum}`,
+        position: `${gridX},${gridY}`,
+        targetSteps: [],
+        targetNodes: []
+    };
+
+    currentNodes.push(newNode);
+    renderNode(newNode);
+    updatePreview();
+    return newNode;
 }
 
 function updateConnectedLines(elementId, elementType) {
@@ -1506,28 +1665,18 @@ function setupCanvasDragDrop() {
             } else if (dragDistance >= MIN_DRAG_DISTANCE) {
                 // Dropped on empty space — create a new node at drop position
                 if (transition) {
-                    const newNodeId = generateNodeId();
-
                     const snappedX = Math.round((endPos.x - HG) / HG) * HG;
                     const snappedY = Math.round((endPos.y - HG) / HG) * HG;
                     const { gx: gridUnitX, gy: gridUnitY } = pixelToGrid(snappedX, snappedY);
 
-                    const newNodeData = {
-                        id: newNodeId,
-                        position: `${gridUnitX},${gridUnitY}`,
-                        targetSteps: [],
-                        targetNodes: []
-                    };
-                    currentNodes.push(newNodeData);
+                    const newNodeData = createNode(gridUnitX, gridUnitY);
+                    const newNodeId = newNodeData.id;
 
                     if (!transition.targetNodes) transition.targetNodes = [];
                     if (!transition.targetNodes.includes(newNodeId)) {
                         transition.targetNodes.push(newNodeId);
                     }
                     updateSaveButtonState();
-                    updatePreview();
-
-                    renderNode(newNodeData);
 
                     const newLine = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
                     newLine.setAttribute('data-transition-connection-line', 'true');
@@ -1780,7 +1929,7 @@ function initCanvas() {
     `;
     zoomControl.innerHTML = `
         <button onclick="zoomOut()" style="background: transparent; border: none; color: var(--text-primary); cursor: pointer; font-size: 1.2rem; display: flex; align-items: center; justify-content: center; width: 24px; height: 24px;">-</button>
-        <span id="zoomDisplay" style="color: var(--text-primary); background: var(--bg-input); border: 1px solid var(--border-primary); border-radius: 6px; font-size: 0.9rem; width: 41px; text-align: center;">100%</span>
+        <span id="zoomDisplay" style="color: var(--text-primary); background: var(--bg-canvas); border: 1px solid var(--border-primary); border-radius: 6px; font-size: 0.9rem; width: 41px; text-align: center;">100%</span>
         <button onclick="zoomIn()" style="background: transparent; border: none; color: var(--text-primary); cursor: pointer; font-size: 1.2rem; display: flex; align-items: center; justify-content: center; width: 24px; height: 24px;">+</button>
         <button onclick="resetZoom()" style="background: transparent; border: none; color: var(--text-primary); cursor: pointer; font-size: 1rem; display: flex; align-items: center; justify-content: center; width: 24px; height: 24px;">&#8635;</button>
     `;
@@ -2131,8 +2280,11 @@ window.gridToPixel = gridToPixel;
 window.pixelToGrid = pixelToGrid;
 window.conditionBoxCenterX = conditionBoxCenterX;
 window.createCurvedPath = createCurvedPath;
+window.computeCaseAboveRouting = computeCaseAboveRouting;
+window.createCaseAboveWraparoundPath = createCaseAboveWraparoundPath;
 window.createOrthogonalPath = createOrthogonalPath;
 window.createStepOnCanvas = createStepOnCanvas;
+window.createNode = createNode;
 window.detectDropTarget = detectDropTarget;
 window.drawConnectionLine = drawConnectionLine;
 window.getClosestSideToFrame = getClosestSideToFrame;

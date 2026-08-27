@@ -282,6 +282,36 @@ function days_between(start, end) {
 }
 
 /**
+ * Signed difference in hours between two datetime values (end - start), as
+ * a float. The one duration primitive this engine has never had: subtracting
+ * two parse_datetime results directly (`t1 - t2`) always produces NaN,
+ * because parse_datetime returns a plain ISO string (`.toISO()`), not a
+ * Luxon DateTime object -- so `-` coerces both to Number(), which has no
+ * meaningful value for a date string. days_between is the closest existing
+ * filter, but it only returns whole, start-of-day-rounded days, with no
+ * hour-level precision -- useless for an "X hours ago" message. Confirmed
+ * real bug this fixes: every "Last <job> N hours ago" message across the
+ * daily backup report (data_spx/data_repl/data_ver/data_ret/data_cons) was
+ * silently showing "0 hours ago" regardless of actual elapsed time, because
+ * the ported Jinja assumed Python's timedelta string-subtraction behavior,
+ * which has no equivalent here.
+ * @param {*} start - Start datetime (string or DateTime)
+ * @param {*} end - End datetime (string or DateTime)
+ * @returns {number} end - start, in hours (negative if end is before start)
+ */
+function diff_hours(start, end) {
+  try {
+    const dtStart = _parse(start);
+    const dtEnd = _parse(end);
+    if (!dtStart || !dtStart.isValid) throw new Error('Invalid start datetime');
+    if (!dtEnd || !dtEnd.isValid) throw new Error('Invalid end datetime');
+    return dtEnd.diff(dtStart, 'hours').hours;
+  } catch (error) {
+    throw new Error(`diff_hours: ${error.message}`);
+  }
+}
+
+/**
  * Extract just the date portion (yyyy-MM-dd) without timezone conversion.
  * If input has timezone info, uses that. If not, treats as UTC.
  */
@@ -309,6 +339,7 @@ module.exports = {
   datedelta,
   date_part,
   days_between,
+  diff_hours,
   format_datetime,
   parse_datetime,
   time_delta,
